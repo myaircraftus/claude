@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Web App (Next.js)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@myaircraft/web", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "Parser Service (FastAPI)",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Expo Mobile (iOS/Android)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@myaircraft/mobile", "start"],
+      "port": 8081
+    }
+  ]
+}

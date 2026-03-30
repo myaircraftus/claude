@@ -20,6 +20,7 @@ export async function generateEmbeddings(
     const response = await openai.embeddings.create({
       model,
       input: texts,
+      dimensions: 1536,
     });
 
     for (let j = 0; j < batch.length; j++) {

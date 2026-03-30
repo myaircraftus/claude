@@ -7,7 +7,7 @@ CREATE TABLE document_embeddings (
   organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   aircraft_id     UUID REFERENCES aircraft(id),
   embedding_model TEXT NOT NULL DEFAULT 'text-embedding-3-large',
-  embedding       VECTOR(3072),
+  embedding       VECTOR(1536),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(chunk_id)
 );
@@ -23,7 +23,7 @@ CREATE INDEX idx_embeddings_aircraft ON document_embeddings(aircraft_id);
 CREATE OR REPLACE FUNCTION search_aircraft_documents(
   p_organization_id UUID,
   p_aircraft_id     UUID,
-  p_query_embedding VECTOR(3072),
+  p_query_embedding VECTOR(1536),
   p_query_text      TEXT,
   p_doc_type_filter doc_type[],
   p_limit           INT DEFAULT 10,
