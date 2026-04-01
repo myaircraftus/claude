@@ -98,10 +98,10 @@ export default async function DashboardPage() {
   // Check AD status — find aircraft with 0 AD records
   let aircraftWithNoADs = 0
   try {
-    const { data: adData } = await supabase
+    const { data: adData } = await (supabase as any)
       .from('aircraft_ad_applicability')
       .select('aircraft_id')
-      .eq('organization_id' as any, orgId)
+      .eq('organization_id', orgId)
 
     const aircraftWithADs = new Set((adData ?? []).map((r: any) => r.aircraft_id))
     aircraftWithNoADs = aircraft.filter(ac => !aircraftWithADs.has(ac.id)).length
