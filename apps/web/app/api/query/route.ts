@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 });
   }
 
-  const org = membership.organizations as {
+  const org = (membership.organizations as unknown) as {
     id: string;
     plan: string;
     plan_queries_monthly: number;

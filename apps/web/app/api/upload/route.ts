@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     .eq('organization_id', orgId)
 
   const usedBytes = (storageAgg ?? []).reduce(
-    (sum, row) => sum + (row.file_size_bytes ?? 0),
+    (sum: number, row: any) => sum + (row.file_size_bytes ?? 0),
     0
   )
   const limitBytes = (org.plan_storage_gb as number) * 1024 * 1024 * 1024

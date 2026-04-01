@@ -19,9 +19,9 @@ export function createServerSupabase() {
             // Server component — cookie setting handled by middleware
           }
         },
-        remove(name: string, options: Record<string, unknown>) {
+        remove(name: string, _options?: Record<string, unknown>) {
           try {
-            cookieStore.delete({ name, ...options } as Parameters<typeof cookieStore.delete>[0])
+            cookieStore.delete(name)
           } catch {
             // Server component — cookie removal handled by middleware
           }
