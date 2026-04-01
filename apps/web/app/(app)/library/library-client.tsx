@@ -69,7 +69,7 @@ export default function LibraryClient({ items, orgId }: LibraryClientProps) {
     setIngestingId(item.id)
     try {
       await new Promise(r => setTimeout(r, 1200)) // simulate
-      setIngestedIds(prev => new Set([...prev, item.id]))
+      setIngestedIds(prev => new Set(Array.from(prev).concat([item.id])))
     } finally {
       setIngestingId(null)
     }
