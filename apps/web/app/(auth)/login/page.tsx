@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 
 export default function LoginPage() {
@@ -11,7 +10,6 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -23,8 +21,7 @@ export default function LoginPage() {
       setError(err.message)
       setLoading(false)
     } else {
-      router.refresh()
-      router.push('/dashboard')
+      window.location.href = '/dashboard'
     }
   }
 

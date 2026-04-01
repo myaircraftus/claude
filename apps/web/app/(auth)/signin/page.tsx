@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { createBrowserSupabase } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 
 export default function SignInPage() {
   const [email, setEmail] = useState('')
@@ -10,7 +9,6 @@ export default function SignInPage() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -22,8 +20,7 @@ export default function SignInPage() {
       setError(err.message)
       setLoading(false)
     } else {
-      router.refresh()
-      router.push('/dashboard')
+      window.location.href = '/dashboard'
     }
   }
 
