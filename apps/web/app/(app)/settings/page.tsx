@@ -58,7 +58,7 @@ export default async function SettingsPage({
         profile={profile}
         organization={org}
         role={role}
-        members={members ?? []}
+        members={(members ?? []) as any}
         driveConnection={driveConnection}
         defaultTab={searchParams.tab ?? 'organization'}
         showUpgradeSuccess={searchParams.upgraded === 'true'}

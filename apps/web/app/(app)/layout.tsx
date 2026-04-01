@@ -42,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         organization={organization}
-        aircraft={aircraft ?? []}
+        aircraft={(aircraft ?? []) as any}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         {children}

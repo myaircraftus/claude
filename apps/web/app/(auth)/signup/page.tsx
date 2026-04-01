@@ -1,157 +1,117 @@
 'use client'
-
 import { useState } from 'react'
 import Link from 'next/link'
+import { createBrowserSupabase } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { Loader2, CheckCircle2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { createBrowserSupabase } from '@/lib/supabase/browser'
 
-const signupSchema = z.object({
-  fullName: z.string().min(2, 'Full name required'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string(),
-}).refine((d) => d.password === d.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-})
+function PasswordStrength({ password }: { password: string }) {
+  const score = [/.{8,}/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(r => r.test(password)).length
+  const colors = ['#E2E8F0', '#EF4444', '#F59E0B', '#3B82F6', '#10B981']
+  const labels = ['', 'Weak', 'Fair', 'Good', 'Strong']
+  if (!password) return null
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <div className="flex gap-1 flex-1">
+        {[1,2,3,4].map(i => (
+          <div key={i} style={{ height: 3, flex: 1, borderRadius: 2, background: i <= score ? colors[score] : '#E2E8F0', transition: 'background 200ms' }}/>
+        ))}
+      </div>
+      <span className="text-[11px] font-medium" style={{ color: colors[score] }}>{labels[score]}</span>
+    </div>
+  )
+}
 
-type SignupForm = z.infer<typeof signupSchema>
-
-export default function SignupPage() {
+export default function SignUpPage() {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
   const router = useRouter()
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<SignupForm>({ resolver: zodResolver(signupSchema) })
-
-  async function onSubmit(data: SignupForm) {
-    setError(null)
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (password !== confirm) { setError('Passwords do not match'); return }
+    setLoading(true); setError('')
     const supabase = createBrowserSupabase()
-    const { error } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        data: { full_name: data.fullName },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
+    const { error: err } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { full_name: name }, emailRedirectTo: `${window.location.origin}/dashboard` }
     })
-    if (error) {
-      setError(error.message)
-      return
-    }
-    setSuccess(true)
+    if (err) { setError(err.message); setLoading(false) }
+    else setDone(true)
   }
 
-  if (success) {
-    return (
-      <Card className="bg-white/10 backdrop-blur-sm border-white/20 text-white">
-        <CardContent className="pt-6 text-center space-y-4">
-          <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto" />
-          <h2 className="text-xl font-semibold text-white">Check your email</h2>
-          <p className="text-sky-300 text-sm">
-            We&apos;ve sent you a confirmation link. Click it to activate your account and get started.
-          </p>
-          <Link href="/login">
-            <Button variant="outline" className="border-white/20 text-white hover:bg-white/10">
-              Back to sign in
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (done) return (
+    <div className="text-center">
+      <div className="w-16 h-16 rounded-full bg-[#ECFDF5] border-2 border-[#A7F3D0] flex items-center justify-center mx-auto mb-5">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <h2 className="text-[24px] font-bold text-[#0D1117] mb-2">Check your email</h2>
+      <p className="text-[14px] text-[#6B7280] mb-1">We sent a confirmation link to</p>
+      <p className="text-[14px] font-semibold text-[#0D1117] mb-6">{email}</p>
+      <p className="text-[13px] text-[#9CA3AF]">Click the link to activate your account, then <Link href="/signin" className="text-[#2563EB] hover:underline">sign in</Link>.</p>
+    </div>
+  )
 
   return (
-    <Card className="bg-white/10 backdrop-blur-sm border-white/20 text-white">
-      <CardHeader>
-        <CardTitle className="text-white">Create your account</CardTitle>
-        <CardDescription className="text-sky-300">
-          Start with a free 14-day trial. No credit card required.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {error && (
-            <Alert variant="destructive" className="bg-red-900/50 border-red-500/50 text-red-200">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="fullName" className="text-sky-100">Full name</Label>
-            <Input
-              id="fullName"
-              placeholder="Jane Smith"
-              autoComplete="name"
-              className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-              {...register('fullName')}
-            />
-            {errors.fullName && <p className="text-sm text-red-400">{errors.fullName.message}</p>}
+    <div>
+      <div className="mb-8">
+        <div className="flex items-center gap-2 lg:hidden mb-6">
+          <div className="w-7 h-7 rounded-[7px] bg-[#2563EB] flex items-center justify-center">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3L20 8v2l-4 2v6l2 1v2l-6-2-6 2v-2l2-1v-6L4 10V8l8-5z"/></svg>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="email" className="text-sky-100">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="pilot@example.com"
-              autoComplete="email"
-              className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-              {...register('email')}
+          <span className="font-semibold text-[14px]">myaircraft.us</span>
+        </div>
+        <h1 className="text-[28px] font-extrabold text-[#0D1117] tracking-tight">Create your account</h1>
+        <p className="text-[14px] text-[#6B7280] mt-1">Start with a free 14-day trial. No credit card required.</p>
+      </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 rounded-[10px] bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-[13px]">{error}</div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {[
+          { label: 'Full name', type: 'text', value: name, set: setName, placeholder: 'Alex Chen', auto: 'name' },
+          { label: 'Email', type: 'email', value: email, set: setEmail, placeholder: 'you@example.com', auto: 'email' },
+        ].map(f => (
+          <div key={f.label}>
+            <label className="block text-[13px] font-medium text-[#374151] mb-1.5">{f.label}</label>
+            <input type={f.type} value={f.value} onChange={e => f.set(e.target.value)}
+              placeholder={f.placeholder} required autoComplete={f.auto}
+              className="w-full h-11 px-3.5 rounded-[10px] border border-[#E2E8F0] text-[14px] text-[#0D1117] placeholder:text-[#9CA3AF] outline-none focus:border-[#2563EB] focus:shadow-[0_0_0_3px_rgba(37,99,235,0.15)] transition-all"
             />
-            {errors.email && <p className="text-sm text-red-400">{errors.email.message}</p>}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="password" className="text-sky-100">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-              {...register('password')}
-            />
-            {errors.password && <p className="text-sm text-red-400">{errors.password.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirmPassword" className="text-sky-100">Confirm password</Label>
-            <Input
-              id="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
-              {...register('confirmPassword')}
-            />
-            {errors.confirmPassword && <p className="text-sm text-red-400">{errors.confirmPassword.message}</p>}
-          </div>
-          <Button
-            type="submit"
-            className="w-full bg-brand-500 hover:bg-brand-600 text-white"
-            disabled={isSubmitting}
-          >
-            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create account
-          </Button>
-        </form>
-      </CardContent>
-      <CardFooter className="justify-center">
-        <p className="text-sm text-sky-300">
-          Already have an account?{' '}
-          <Link href="/login" className="text-white hover:underline font-medium">
-            Sign in
-          </Link>
-        </p>
-      </CardFooter>
-    </Card>
+        ))}
+        <div>
+          <label className="block text-[13px] font-medium text-[#374151] mb-1.5">Password</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+            placeholder="Create a strong password" required minLength={8} autoComplete="new-password"
+            className="w-full h-11 px-3.5 rounded-[10px] border border-[#E2E8F0] text-[14px] text-[#0D1117] placeholder:text-[#9CA3AF] outline-none focus:border-[#2563EB] focus:shadow-[0_0_0_3px_rgba(37,99,235,0.15)] transition-all"
+          />
+          <PasswordStrength password={password}/>
+        </div>
+        <div>
+          <label className="block text-[13px] font-medium text-[#374151] mb-1.5">Confirm password</label>
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+            placeholder="Repeat your password" required autoComplete="new-password"
+            className={`w-full h-11 px-3.5 rounded-[10px] border text-[14px] text-[#0D1117] placeholder:text-[#9CA3AF] outline-none transition-all ${confirm && confirm !== password ? 'border-[#EF4444] focus:shadow-[0_0_0_3px_rgba(239,68,68,0.15)]' : 'border-[#E2E8F0] focus:border-[#2563EB] focus:shadow-[0_0_0_3px_rgba(37,99,235,0.15)]'}`}
+          />
+          {confirm && confirm !== password && <p className="mt-1 text-[12px] text-[#EF4444]">Passwords do not match</p>}
+        </div>
+        <button type="submit" disabled={loading}
+          className="w-full h-11 flex items-center justify-center text-[14px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[10px] transition-all shadow-[0_2px_8px_rgba(37,99,235,0.25)] disabled:opacity-60 mt-2">
+          {loading ? 'Creating account...' : 'Create account'}
+        </button>
+      </form>
+
+      <p className="text-center text-[13px] text-[#6B7280] mt-6">
+        Already have an account?{' '}
+        <Link href="/signin" className="text-[#2563EB] font-medium hover:underline">Sign in →</Link>
+      </p>
+    </div>
   )
 }

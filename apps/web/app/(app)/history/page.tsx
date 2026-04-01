@@ -70,7 +70,7 @@ export default async function HistoryPage({
         breadcrumbs={[{ label: 'History' }]}
       />
       <HistoryClient
-        queries={queries ?? []}
+        queries={(queries ?? []) as any}
         aircraft={aircraft ?? []}
         totalPages={totalPages}
         currentPage={page}
