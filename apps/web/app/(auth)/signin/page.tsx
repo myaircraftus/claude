@@ -22,6 +22,7 @@ export default function SignInPage() {
       setError(err.message)
       setLoading(false)
     } else {
+      router.refresh()
       router.push('/dashboard')
     }
   }

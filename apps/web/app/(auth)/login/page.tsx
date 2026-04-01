@@ -23,8 +23,8 @@ export default function LoginPage() {
       setError(err.message)
       setLoading(false)
     } else {
-      router.push('/dashboard')
       router.refresh()
+      router.push('/dashboard')
     }
   }
 
