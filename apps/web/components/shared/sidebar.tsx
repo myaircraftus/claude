@@ -52,6 +52,7 @@ export function Sidebar({
   const navSections: NavSection[] = [
     {
       items: [
+        { label: 'Chat', href: '/chat', icon: MessageSquare },
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { label: 'Aircraft', href: '/aircraft', icon: Plane },
         { label: 'Documents', href: '/documents', icon: FileText },
