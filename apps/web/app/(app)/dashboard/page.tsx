@@ -5,7 +5,18 @@ import { Topbar } from '@/components/shared/topbar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plane, FileText, MessageSquare, HardDrive, Plus, Upload, Clock } from 'lucide-react'
+import {
+  Plane,
+  FileText,
+  MessageSquare,
+  HardDrive,
+  Plus,
+  Upload,
+  Clock,
+  Wrench,
+  Bell,
+  AlertTriangle,
+} from 'lucide-react'
 import { formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
 import type { UserProfile } from '@/types'
 
@@ -52,6 +63,66 @@ export default async function DashboardPage() {
   const totalBytes = storageData?.reduce((sum, d) => sum + (d.file_size_bytes ?? 0), 0) ?? 0
   const completedDocs = documents.filter(d => d.parsing_status === 'completed').length
 
+  // Fetch reminders count (gracefully handle missing table)
+  let activeRemindersCount = 0
+  let overdueRemindersCount = 0
+  let dueSoonRemindersCount = 0
+  const today = new Date()
+  const in30Days = new Date(today)
+  in30Days.setDate(today.getDate() + 30)
+
+  try {
+    const { data: remindersData } = await supabase
+      .from('reminders')
+      .select('id, due_date, status')
+      .eq('organization_id', orgId)
+      .in('status', ['active'])
+      .not('due_date', 'is', null)
+
+    if (remindersData) {
+      activeRemindersCount = remindersData.length
+      for (const r of remindersData) {
+        if (!r.due_date) continue
+        const due = new Date(r.due_date)
+        if (due < today) {
+          overdueRemindersCount++
+        } else if (due <= in30Days) {
+          dueSoonRemindersCount++
+        }
+      }
+    }
+  } catch {
+    // Table may not exist yet
+  }
+
+  // Check AD status — find aircraft with 0 AD records
+  let aircraftWithNoADs = 0
+  try {
+    const { data: adData } = await supabase
+      .from('aircraft_ad_applicability')
+      .select('aircraft_id')
+      .eq('organization_id' as any, orgId)
+
+    const aircraftWithADs = new Set((adData ?? []).map((r: any) => r.aircraft_id))
+    aircraftWithNoADs = aircraft.filter(ac => !aircraftWithADs.has(ac.id)).length
+  } catch {
+    // Table may not exist yet
+  }
+
+  const reminderColor =
+    overdueRemindersCount > 0
+      ? 'text-red-600'
+      : dueSoonRemindersCount > 0
+      ? 'text-orange-500'
+      : 'text-emerald-600'
+
+  const reminderSubtext =
+    overdueRemindersCount > 0
+      ? `${overdueRemindersCount} overdue`
+      : dueSoonRemindersCount > 0
+      ? `${dueSoonRemindersCount} due within 30 days`
+      : 'All current'
+
   const confidenceColors: Record<string, string> = {
     high: 'success',
     medium: 'warning',
@@ -81,8 +152,25 @@ export default async function DashboardPage() {
             <p className="text-muted-foreground">{org.name} · {org.plan} plan</p>
           </div>
 
+          {/* AD Compliance Alert Banner */}
+          {aircraft.length > 0 && aircraftWithNoADs > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-yellow-300 bg-yellow-50 text-yellow-900">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">AD Tracking Available</p>
+                <p className="text-sm text-yellow-800 mt-0.5">
+                  Sync your aircraft to automatically track applicable Airworthiness Directives.{' '}
+                  {aircraftWithNoADs === 1 ? '1 aircraft has' : `${aircraftWithNoADs} aircraft have`} no AD records.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" className="border-yellow-400 text-yellow-900 hover:bg-yellow-100 flex-shrink-0" asChild>
+                <Link href="/aircraft">Sync Now</Link>
+              </Button>
+            </div>
+          )}
+
           {/* Stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <StatCard
               icon={<Plane className="h-5 w-5 text-brand-500" />}
               label="Aircraft"
@@ -107,6 +195,25 @@ export default async function DashboardPage() {
               value={formatBytes(totalBytes)}
               sub={`of ${org.plan_storage_gb} GB`}
             />
+            {/* Reminders stat card */}
+            <Link href="/reminders" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+                <CardContent className="pt-6">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Reminders</p>
+                      <p className={`text-2xl font-bold mt-1 ${reminderColor}`}>
+                        {activeRemindersCount > 0 ? `${activeRemindersCount} Due` : 'None'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{reminderSubtext}</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-muted">
+                      <Bell className={`h-5 w-5 ${reminderColor}`} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
 
           {/* Quick ask */}
@@ -120,6 +227,37 @@ export default async function DashboardPage() {
               </Link>
             </CardContent>
           </Card>
+
+          {/* Quick Actions */}
+          <div>
+            <h2 className="text-base font-semibold text-foreground mb-3">Quick Actions</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <QuickAction
+                href="/maintenance/new"
+                icon={<Wrench className="h-5 w-5 text-blue-600" />}
+                label="New Maintenance Entry"
+                color="blue"
+              />
+              <QuickAction
+                href="/documents/upload"
+                icon={<Upload className="h-5 w-5 text-emerald-600" />}
+                label="Upload Documents"
+                color="green"
+              />
+              <QuickAction
+                href="/ask"
+                icon={<MessageSquare className="h-5 w-5 text-purple-600" />}
+                label="Ask AI"
+                color="purple"
+              />
+              <QuickAction
+                href="/reminders"
+                icon={<Bell className="h-5 w-5 text-orange-500" />}
+                label="Check Reminders"
+                color="orange"
+              />
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Recent aircraft */}
@@ -232,6 +370,25 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+const quickActionColors: Record<string, { bg: string; border: string; hover: string }> = {
+  blue: { bg: 'bg-blue-50', border: 'border-blue-200', hover: 'hover:border-blue-400 hover:bg-blue-100' },
+  green: { bg: 'bg-emerald-50', border: 'border-emerald-200', hover: 'hover:border-emerald-400 hover:bg-emerald-100' },
+  purple: { bg: 'bg-purple-50', border: 'border-purple-200', hover: 'hover:border-purple-400 hover:bg-purple-100' },
+  orange: { bg: 'bg-orange-50', border: 'border-orange-200', hover: 'hover:border-orange-400 hover:bg-orange-100' },
+}
+
+function QuickAction({ href, icon, label, color }: { href: string; icon: React.ReactNode; label: string; color: string }) {
+  const c = quickActionColors[color] ?? quickActionColors.blue
+  return (
+    <Link href={href}>
+      <div className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors cursor-pointer text-center ${c.bg} ${c.border} ${c.hover}`}>
+        <div className="p-2 rounded-lg bg-white/60">{icon}</div>
+        <span className="text-xs font-medium text-foreground leading-tight">{label}</span>
+      </div>
+    </Link>
   )
 }
 

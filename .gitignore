@@ -50,3 +50,11 @@ venv/
 
 # Testing
 coverage/
+.vercel
+
+# Claude settings (may contain tokens)
+.claude/settings.local.json
+
+# Deployment scripts with hardcoded tokens
+vercel-deploy.js
+vercel-deploy2.js

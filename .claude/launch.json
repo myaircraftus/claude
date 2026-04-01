@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "Web App (Next.js)",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@myaircraft/web", "dev"],
-      "port": 3000
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["/tmp/start-myaircraft.sh"],
+      "port": 3001,
+      "autoPort": true
     },
     {
       "name": "Parser Service (FastAPI)",

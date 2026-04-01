@@ -11,6 +11,11 @@ import {
   Settings,
   Shield,
   ChevronDown,
+  Wrench,
+  Bell,
+  ClipboardCheck,
+  Plug2,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -20,18 +25,58 @@ interface SidebarProps {
   organization: Organization
   aircraft: Aircraft[]
   selectedAircraftId?: string
+  reminderCount?: number
+  reviewQueueCount?: number
 }
 
-const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Aircraft', href: '/aircraft', icon: Plane },
-  { label: 'Documents', href: '/documents', icon: FileText },
-  { label: 'Ask', href: '/ask', icon: MessageSquare },
-  { label: 'History', href: '/history', icon: History },
-]
+interface NavItem {
+  label: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  badge?: number
+}
 
-export function Sidebar({ organization, aircraft, selectedAircraftId }: SidebarProps) {
+interface NavSection {
+  items: NavItem[]
+}
+
+export function Sidebar({
+  organization,
+  aircraft,
+  selectedAircraftId,
+  reminderCount,
+  reviewQueueCount,
+}: SidebarProps) {
   const pathname = usePathname()
+
+  const navSections: NavSection[] = [
+    {
+      items: [
+        { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { label: 'Aircraft', href: '/aircraft', icon: Plane },
+        { label: 'Documents', href: '/documents', icon: FileText },
+      ],
+    },
+    {
+      items: [
+        { label: 'Maintenance', href: '/maintenance', icon: Wrench },
+        { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount },
+        { label: 'Review Queue', href: '/documents/review', icon: ClipboardCheck, badge: reviewQueueCount },
+      ],
+    },
+    {
+      items: [
+        { label: 'Ask', href: '/ask', icon: MessageSquare },
+        { label: 'History', href: '/history', icon: History },
+      ],
+    },
+    {
+      items: [
+        { label: 'Integrations', href: '/integrations', icon: Plug2 },
+        { label: 'Community Library', href: '/library', icon: BookOpen },
+      ],
+    },
+  ]
 
   return (
     <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-card">
@@ -87,28 +132,51 @@ export function Sidebar({ organization, aircraft, selectedAircraftId }: SidebarP
             </div>
           )}
 
-          {/* Main nav */}
+          {/* Main nav sections */}
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1">
             Navigation
           </p>
-          {navItems.map(({ label, href, icon: Icon }) => {
-            const isActive = pathname === href || pathname.startsWith(href + '/')
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-                  isActive
-                    ? 'bg-brand-50 text-brand-700 font-medium'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4 flex-shrink-0" />
-                {label}
-              </Link>
-            )
-          })}
+          {navSections.map((section, sectionIdx) => (
+            <div key={sectionIdx}>
+              {sectionIdx > 0 && (
+                <div className="my-2 border-t border-border" />
+              )}
+              {section.items.map(({ label, href, icon: Icon, badge }) => {
+                // For documents/review, only match that exact path
+                const isActive = href === '/documents/review'
+                  ? pathname === href || pathname.startsWith(href + '/')
+                  : href === '/documents'
+                  ? pathname === href || (pathname.startsWith(href + '/') && !pathname.startsWith('/documents/review'))
+                  : pathname === href || pathname.startsWith(href + '/')
+
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                      isActive
+                        ? 'bg-brand-50 text-brand-700 font-medium'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-4 w-4 flex-shrink-0" />
+                    <span className="flex-1">{label}</span>
+                    {badge !== undefined && badge > 0 && (
+                      <span className={cn(
+                        'flex items-center justify-center rounded-full text-xs font-semibold min-w-[18px] h-[18px] px-1',
+                        isActive
+                          ? 'bg-brand-200 text-brand-800'
+                          : 'bg-muted text-muted-foreground'
+                      )}>
+                        {badge > 99 ? '99+' : badge}
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </ScrollArea>
 

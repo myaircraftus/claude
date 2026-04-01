@@ -275,3 +275,122 @@ export interface FileUploadItem {
   error?: string
   documentId?: string
 }
+
+export type ReminderType = 'annual' | '100hr' | 'transponder' | 'elt' | 'static_pitot' | 'vor' | 'ad_compliance' | 'ad_due' | 'ad_overdue' | 'custom'
+export type ReminderStatus = 'active' | 'snoozed' | 'dismissed' | 'completed'
+export type ReminderPriority = 'low' | 'normal' | 'high' | 'critical'
+export type ADComplianceStatus = 'compliant' | 'non_compliant' | 'unknown' | 'overdue'
+export type IntegrationProvider = 'flight_schedule_pro' | 'flight_circle' | 'myfbo' | 'avianis' | 'fl3xx' | 'leon' | 'talon'
+export type ExtractionStatus = 'pending' | 'processing' | 'extracted' | 'needs_review' | 'approved' | 'rejected'
+export type PageClassification = 'engine_log' | 'airframe_log' | 'prop_log' | 'maintenance_entry' | 'work_order' | 'ad_compliance' | 'cover' | 'blank' | 'unknown'
+
+export interface Reminder {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  reminder_type: ReminderType
+  title: string
+  description?: string
+  status: ReminderStatus
+  priority: ReminderPriority
+  due_date?: string
+  due_hours?: number
+  current_hours?: number
+  hours_remaining?: number
+  days_remaining?: number
+  auto_generated: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface FAADirective {
+  id: string
+  ad_number: string
+  title?: string
+  aircraft_make?: string
+  aircraft_model?: string
+  effective_date?: string
+  compliance_date?: string
+  compliance_description?: string
+  recurring: boolean
+  recurring_interval_hours?: number
+  source_url?: string
+}
+
+export interface AircraftADApplicability {
+  id: string
+  aircraft_id: string
+  ad_number: string
+  applicability_status: string
+  compliance_status: ADComplianceStatus
+  last_compliance_date?: string
+  next_due_date?: string
+  manually_overridden: boolean
+  faa_airworthiness_directives?: FAADirective
+}
+
+export interface Integration {
+  id: string
+  organization_id: string
+  provider: IntegrationProvider
+  display_name: string
+  status: string
+  last_sync_at?: string
+  last_sync_status?: string
+  aircraft_count_synced: number
+  created_at: string
+}
+
+export interface MaintenanceEntryDraft {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  created_by: string
+  title?: string
+  entry_type?: string
+  logbook_type?: string
+  ai_prompt?: string
+  ai_generated_text?: string
+  edited_text?: string
+  structured_fields?: Record<string, unknown>
+  status: string
+  signed_by?: string
+  signed_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OCRPageJob {
+  id: string
+  document_id: string
+  organization_id: string
+  aircraft_id?: string
+  page_number: number
+  page_classification?: PageClassification
+  classification_confidence?: number
+  ocr_raw_text?: string
+  ocr_confidence?: number
+  extraction_status: ExtractionStatus
+  needs_human_review: boolean
+  review_reason?: string
+  created_at: string
+}
+
+export interface OCRExtractedEvent {
+  id: string
+  document_id: string
+  aircraft_id?: string
+  page_number: number
+  event_type?: string
+  logbook_type?: string
+  event_date?: string
+  tach_time?: number
+  airframe_tt?: number
+  work_description?: string
+  mechanic_name?: string
+  mechanic_cert_number?: string
+  ad_references?: string[]
+  confidence_overall?: number
+  review_status: string
+  created_at: string
+}
