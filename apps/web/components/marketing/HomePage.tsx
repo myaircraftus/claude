@@ -30,11 +30,11 @@ function HeroSection() {
             <p className="text-[18px] text-[#4B5563] leading-relaxed mb-8 max-w-lg">
               Upload logbooks, POH, manuals, and maintenance records. Ask questions in plain English. Get exact answers with page-level citations — from your documents, not the internet.
             </p>
-            <div className="flex flex-wrap gap-3 mb-10">
+            <div className="flex flex-wrap gap-3 mb-4">
               <Link href="/signup"
                 className="inline-flex items-center gap-2 px-6 py-3.5 text-[15px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[12px] transition-all shadow-[0_4px_20px_rgba(37,99,235,0.3)] hover:shadow-[0_8px_32px_rgba(37,99,235,0.4)]"
               >
-                Book Demo
+                Start Free Trial
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </Link>
               <a href="#how-it-works"
@@ -42,6 +42,11 @@ function HeroSection() {
               >
                 See How It Works
               </a>
+            </div>
+            <div className="mb-10">
+              <Link href="/demo" className="text-[14px] font-medium text-[#2563EB] hover:underline">
+                No credit card needed. Try the live demo in 30 seconds →
+              </Link>
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               {[

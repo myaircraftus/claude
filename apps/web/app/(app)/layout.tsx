@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/shared/sidebar'
+import { TourProvider } from '@/components/onboarding/tour-provider'
+import { ProductTour } from '@/components/onboarding/product-tour'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerSupabase()
@@ -68,16 +70,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar
-        organization={organization}
-        aircraft={(aircraft ?? []) as any}
-        reminderCount={reminderCount}
-        reviewQueueCount={reviewQueueCount}
-      />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {children}
+    <TourProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar
+          organization={organization}
+          aircraft={(aircraft ?? []) as any}
+          reminderCount={reminderCount}
+          reviewQueueCount={reviewQueueCount}
+        />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {children}
+        </div>
       </div>
-    </div>
+      <ProductTour />
+    </TourProvider>
   )
 }

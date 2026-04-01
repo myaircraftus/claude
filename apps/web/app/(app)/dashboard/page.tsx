@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
 import type { UserProfile } from '@/types'
+import { DashboardTourWrapper } from '@/components/onboarding/dashboard-tour-wrapper'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -144,6 +145,7 @@ export default async function DashboardPage() {
 
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
+          <DashboardTourWrapper />
           {/* Greeting */}
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -238,12 +240,14 @@ export default async function DashboardPage() {
                 label="New Maintenance Entry"
                 color="blue"
               />
-              <QuickAction
-                href="/documents/upload"
-                icon={<Upload className="h-5 w-5 text-emerald-600" />}
-                label="Upload Documents"
-                color="green"
-              />
+              <div data-tour="upload">
+                <QuickAction
+                  href="/documents/upload"
+                  icon={<Upload className="h-5 w-5 text-emerald-600" />}
+                  label="Upload Documents"
+                  color="green"
+                />
+              </div>
               <QuickAction
                 href="/ask"
                 icon={<MessageSquare className="h-5 w-5 text-purple-600" />}
@@ -261,7 +265,7 @@ export default async function DashboardPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Recent aircraft */}
-            <Card>
+            <Card data-tour="aircraft">
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <CardTitle className="text-base">Aircraft</CardTitle>
                 <Button variant="ghost" size="sm" asChild>

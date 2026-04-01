@@ -99,6 +99,11 @@ export default function LoginPage() {
         Don&apos;t have an account?{' '}
         <Link href="/signup" className="text-[#2563EB] font-medium hover:underline">Create one →</Link>
       </p>
+
+      <p className="text-center text-[13px] text-[#9CA3AF] mt-3">
+        Want to see it first?{' '}
+        <Link href="/demo" className="text-[#6B7280] hover:text-[#2563EB] hover:underline transition-colors">Try the live demo →</Link>
+      </p>
     </div>
   )
 }

@@ -34,6 +34,7 @@ interface NavItem {
   href: string
   icon: React.ComponentType<{ className?: string }>
   badge?: number
+  dataTour?: string
 }
 
 interface NavSection {
@@ -53,26 +54,26 @@ export function Sidebar({
     {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-        { label: 'Aircraft', href: '/aircraft', icon: Plane },
-        { label: 'Documents', href: '/documents', icon: FileText },
+        { label: 'Aircraft', href: '/aircraft', icon: Plane, dataTour: 'aircraft' },
+        { label: 'Documents', href: '/documents', icon: FileText, dataTour: 'documents' },
       ],
     },
     {
       items: [
-        { label: 'Maintenance', href: '/maintenance', icon: Wrench },
-        { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount },
+        { label: 'Maintenance', href: '/maintenance', icon: Wrench, dataTour: 'maintenance' },
+        { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount, dataTour: 'reminders' },
         { label: 'Review Queue', href: '/documents/review', icon: ClipboardCheck, badge: reviewQueueCount },
       ],
     },
     {
       items: [
-        { label: 'Ask', href: '/ask', icon: MessageSquare },
+        { label: 'Ask', href: '/ask', icon: MessageSquare, dataTour: 'ask' },
         { label: 'History', href: '/history', icon: History },
       ],
     },
     {
       items: [
-        { label: 'Integrations', href: '/integrations', icon: Plug2 },
+        { label: 'Integrations', href: '/integrations', icon: Plug2, dataTour: 'integrations' },
         { label: 'Community Library', href: '/library', icon: BookOpen },
       ],
     },
@@ -141,7 +142,7 @@ export function Sidebar({
               {sectionIdx > 0 && (
                 <div className="my-2 border-t border-border" />
               )}
-              {section.items.map(({ label, href, icon: Icon, badge }) => {
+              {section.items.map(({ label, href, icon: Icon, badge, dataTour }) => {
                 // For documents/review, only match that exact path
                 const isActive = href === '/documents/review'
                   ? pathname === href || pathname.startsWith(href + '/')
@@ -153,6 +154,7 @@ export function Sidebar({
                   <Link
                     key={href}
                     href={href}
+                    data-tour={dataTour}
                     className={cn(
                       'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                       isActive

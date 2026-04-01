@@ -55,6 +55,12 @@ export function MarketingNav() {
             Log in
           </Link>
           <Link
+            href="/demo"
+            className="px-4 py-2 text-[14px] font-semibold text-[#2563EB] border border-[#2563EB] hover:bg-[#EFF6FF] rounded-[10px] transition-all duration-150"
+          >
+            Live Demo →
+          </Link>
+          <Link
             href="/signup"
             className="px-4 py-2 text-[14px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[10px] transition-all duration-150 shadow-[0_2px_8px_rgba(37,99,235,0.25)] hover:shadow-[0_4px_16px_rgba(37,99,235,0.35)]"
           >
@@ -93,6 +99,9 @@ export function MarketingNav() {
           <div className="flex flex-col gap-2 pt-2">
             <Link href="/signin" className="w-full py-3 text-center text-[15px] font-medium text-[#374151] border border-[#E2E8F0] rounded-[10px]">
               Log in
+            </Link>
+            <Link href="/demo" className="w-full py-3 text-center text-[15px] font-semibold text-[#2563EB] border border-[#2563EB] rounded-[10px]">
+              Live Demo →
             </Link>
             <Link href="/signup" className="w-full py-3 text-center text-[15px] font-semibold text-white bg-[#2563EB] rounded-[10px]">
               Book Demo →
