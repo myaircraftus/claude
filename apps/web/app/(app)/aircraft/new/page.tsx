@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
-import { Loader2, Plane } from 'lucide-react'
+import { Loader2, Plane, Search, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,16 +32,23 @@ const newAircraftSchema = z.object({
 
 type NewAircraftValues = z.infer<typeof newAircraftSchema>
 
+type FAAStatus = 'idle' | 'loading' | 'found' | 'not_found' | 'error'
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewAircraftPage() {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
   const [orgId, setOrgId] = useState<string | null>(null)
+  const [faaStatus, setFAAStatus] = useState<FAAStatus>('idle')
+  const [faaMessage, setFAAMessage] = useState<string>('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<NewAircraftValues>({
     resolver: zodResolver(newAircraftSchema),
@@ -58,8 +65,60 @@ export default function NewAircraftPage() {
     },
   })
 
+  // Lookup FAA registry and auto-fill fields
+  const lookupFAA = useCallback(async (tail: string) => {
+    const trimmed = tail.trim().toUpperCase()
+    if (trimmed.length < 2) {
+      setFAAStatus('idle')
+      return
+    }
+
+    setFAAStatus('loading')
+    setFAAMessage('Looking up in FAA Registry…')
+
+    try {
+      const res = await fetch(`/api/aircraft/faa-lookup?tail=${encodeURIComponent(trimmed)}`)
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        if (res.status === 404) {
+          setFAAStatus('not_found')
+          setFAAMessage('Not found in FAA Registry — enter details manually')
+        } else {
+          setFAAStatus('error')
+          setFAAMessage(data.error || 'FAA Registry unavailable — enter details manually')
+        }
+        return
+      }
+
+      // Auto-fill all returned fields
+      if (data.make) setValue('make', data.make)
+      if (data.model) setValue('model', data.model)
+      if (data.year) setValue('year', String(data.year))
+      if (data.serial_number) setValue('serial_number', data.serial_number)
+      if (data.engine_make) setValue('engine_make', data.engine_make)
+      if (data.engine_model) setValue('engine_model', data.engine_model)
+
+      setFAAStatus('found')
+      const fields = [data.make, data.model, data.year].filter(Boolean).join(' · ')
+      setFAAMessage(`Found: ${fields}${data.registrant_name ? ` — ${data.registrant_name}` : ''}`)
+    } catch {
+      setFAAStatus('error')
+      setFAAMessage('FAA Registry unavailable — enter details manually')
+    }
+  }, [setValue])
+
+  // Debounced tail number change handler
+  function handleTailChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value.toUpperCase()
+    e.target.value = val
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      lookupFAA(val)
+    }, 700)
+  }
+
   // Fetch the user's org on first render — we need it for the POST body
-  // We do this lazily when the form submits so we don't need a useEffect loader
   async function resolveOrgId(): Promise<string | null> {
     if (orgId) return orgId
     const supabase = createBrowserSupabase()
@@ -120,15 +179,8 @@ export default function NewAircraftPage() {
     }
   }
 
-  // Build a minimal profile stub for Topbar (profile is available via server session
-  // but this is a client page — topbar accepts the profile from its own auth)
   const topbarProfile = {
-    id: '',
-    email: '',
-    full_name: undefined,
-    avatar_url: undefined,
-    created_at: '',
-    updated_at: '',
+    id: '', email: '', full_name: undefined, avatar_url: undefined, created_at: '', updated_at: '',
   }
 
   return (
@@ -151,7 +203,7 @@ export default function NewAircraftPage() {
             <div>
               <h1 className="text-2xl font-bold text-foreground">Add Aircraft</h1>
               <p className="text-sm text-muted-foreground">
-                Fill in the details for the new aircraft in your fleet.
+                Enter the tail number — we&apos;ll auto-fill details from the FAA Registry.
               </p>
             </div>
           </div>
@@ -163,21 +215,51 @@ export default function NewAircraftPage() {
                 <CardTitle className="text-base">Basic Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Tail number with FAA lookup */}
                 <div className="space-y-1.5">
                   <Label htmlFor="tail_number">
                     Tail number <span className="text-destructive">*</span>
                   </Label>
-                  <Input
-                    id="tail_number"
-                    placeholder="N12345"
-                    className="font-mono uppercase max-w-xs"
-                    {...register('tail_number')}
-                    onChange={e => {
-                      e.target.value = e.target.value.toUpperCase()
-                    }}
-                  />
+                  <div className="flex items-center gap-2 max-w-xs">
+                    <div className="relative flex-1">
+                      <Input
+                        id="tail_number"
+                        placeholder="N12345"
+                        className="font-mono uppercase pr-8"
+                        {...register('tail_number')}
+                        onChange={(e) => {
+                          register('tail_number').onChange(e)
+                          handleTailChange(e)
+                        }}
+                      />
+                      {faaStatus === 'loading' && (
+                        <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {faaStatus === 'found' && (
+                        <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
+                      )}
+                      {(faaStatus === 'not_found' || faaStatus === 'error') && (
+                        <AlertCircle className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500" />
+                      )}
+                    </div>
+                  </div>
                   {errors.tail_number && (
                     <p className="text-xs text-destructive">{errors.tail_number.message}</p>
+                  )}
+                  {faaStatus !== 'idle' && faaMessage && (
+                    <p className={`text-xs flex items-center gap-1 ${
+                      faaStatus === 'found' ? 'text-green-600' :
+                      faaStatus === 'loading' ? 'text-muted-foreground' :
+                      'text-amber-600'
+                    }`}>
+                      {faaStatus === 'found' && <Search className="h-3 w-3" />}
+                      {faaMessage}
+                    </p>
+                  )}
+                  {faaStatus === 'loading' && (
+                    <p className="text-xs text-muted-foreground animate-pulse">
+                      Connecting to FAA Aircraft Registry…
+                    </p>
                   )}
                 </div>
 
