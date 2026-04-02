@@ -1,842 +1,515 @@
 'use client'
-
 import { useState } from 'react'
 import Link from 'next/link'
-import {
-  FileText,
-  Search,
-  Wrench,
-  Zap,
-  Lock,
-  Download,
-  Plane,
-  Building2,
-  TrendingUp,
-  ShoppingCart,
-  ClipboardCheck,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  ScanLine,
-  Upload,
-  ArrowRight,
-  Star,
-  Shield,
-} from 'lucide-react'
 import { MarketingNav } from './MarketingNav'
+import { AppMockup } from './AppMockup'
+import { RoleSimulatorSection } from './RoleSimulatorSection'
 
-// ─── Hero mock dashboard card ────────────────────────────────────────────────
-function AircraftMockCard() {
+function HeroSection() {
   return (
-    <div
-      className="rounded-2xl overflow-hidden"
-      style={{ background: '#fff', border: '1px solid #E2E8F0', boxShadow: '0 24px 64px rgba(0,0,0,0.12)' }}
-    >
-      {/* Card header */}
-      <div style={{ background: '#0D1117', padding: '16px 20px' }}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: '#2563EB' }}
-            >
-              <Plane size={18} color="white" />
+    <section className="relative min-h-screen flex items-center pt-16 overflow-hidden">
+      {/* Background */}
+      <div className="absolute inset-0" style={{
+        background: 'radial-gradient(ellipse 80% 60% at 50% 0%, #EFF6FF 0%, #F8F9FB 60%, #F8F9FB 100%)'
+      }}/>
+      {/* Faint grid */}
+      <div className="absolute inset-0 opacity-[0.03]"
+        style={{ backgroundImage: 'linear-gradient(#2563EB 1px, transparent 1px), linear-gradient(90deg, #2563EB 1px, transparent 1px)', backgroundSize: '60px 60px' }}
+      />
+      <div className="relative max-w-6xl mx-auto px-6 py-24 w-full">
+        <div className="grid lg:grid-cols-2 gap-16 items-center">
+          {/* Left */}
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] text-[13px] font-medium mb-6">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="#2563EB"><path d="M12 2l2.4 7.2H22l-6.2 4.5 2.4 7.2L12 17l-6.2 3.9 2.4-7.2L2 9.2h7.6L12 2z"/></svg>
+              Aviation Document Intelligence
             </div>
-            <div>
-              <p className="text-white font-bold text-lg leading-none">N67844</p>
-              <p style={{ color: '#94A3B8', fontSize: 12 }}>Cessna 152 · 1979</p>
+            <h1 className="text-[52px] lg:text-[64px] font-extrabold text-[#0D1117] leading-[1.1] tracking-tight mb-6">
+              Ask Your Aircraft{' '}
+              <span className="text-[#2563EB]">Anything.</span>
+            </h1>
+            <p className="text-[18px] text-[#4B5563] leading-relaxed mb-8 max-w-lg">
+              Upload logbooks, POH, manuals, and maintenance records. Ask questions in plain English. Get exact answers with page-level citations — from your documents, not the internet.
+            </p>
+            <div className="flex flex-wrap gap-3 mb-10">
+              <Link href="/signup"
+                className="inline-flex items-center gap-2 px-6 py-3.5 text-[15px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[12px] transition-all shadow-[0_4px_20px_rgba(37,99,235,0.3)] hover:shadow-[0_8px_32px_rgba(37,99,235,0.4)]"
+              >
+                Book Demo
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </Link>
+              <a href="#how-it-works"
+                className="inline-flex items-center gap-2 px-6 py-3.5 text-[15px] font-medium text-[#374151] bg-white border border-[#E2E8F0] hover:bg-[#F8F9FB] hover:border-[#CBD5E1] rounded-[12px] transition-all shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+              >
+                See How It Works
+              </a>
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {[
+                'Citation-backed answers',
+                'Aircraft-by-aircraft organization',
+                'Private or shared library',
+                'Secure team access',
+              ].map(t => (
+                <span key={t} className="flex items-center gap-1.5 text-[13px] text-[#4B5563]">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  {t}
+                </span>
+              ))}
             </div>
           </div>
-          <span
-            className="text-xs font-semibold px-3 py-1 rounded-full"
-            style={{ background: 'rgba(22,163,74,0.15)', color: '#4ADE80' }}
-          >
-            Valid
-          </span>
+          {/* Right — mockup */}
+          <div className="flex justify-center lg:justify-end">
+            <AppMockup />
+          </div>
         </div>
       </div>
-
-      {/* Card body */}
-      <div style={{ padding: '20px' }}>
-        <div className="grid grid-cols-2 gap-4 mb-5">
-          {[
-            { label: 'Owner', value: 'J. Anderson' },
-            { label: 'Serial No.', value: '15285432' },
-            { label: 'Total Time', value: '4,812 hrs' },
-            { label: 'Last Annual', value: 'Mar 2025' },
-          ].map(({ label, value }) => (
-            <div key={label}>
-              <p style={{ color: '#94A3B8', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
-              <p style={{ color: '#0D1117', fontSize: 14, fontWeight: 600, marginTop: 2 }}>{value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: 1, background: '#F1F5F9', marginBottom: 16 }} />
-
-        {/* Record summary */}
-        <p style={{ color: '#64748B', fontSize: 12, fontWeight: 600, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Records on file</p>
-        <div className="flex flex-col gap-2">
-          {[
-            { icon: FileText, label: 'Airframe Logbook', status: 'Indexed', color: '#2563EB' },
-            { icon: Wrench, label: 'Engine Logbook', status: 'Indexed', color: '#2563EB' },
-            { icon: ClipboardCheck, label: 'Annual Inspection', status: 'Current', color: '#16A34A' },
-            { icon: Shield, label: 'AD Compliance', status: '12 tracked', color: '#7C3AED' },
-          ].map(({ icon: Icon, label, status, color }) => (
-            <div key={label} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: '#F8FAFC' }}>
-              <div className="flex items-center gap-2.5">
-                <Icon size={14} color={color} />
-                <span style={{ color: '#374151', fontSize: 13, fontWeight: 500 }}>{label}</span>
-              </div>
-              <span style={{ color, fontSize: 12, fontWeight: 600 }}>{status}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Footer action */}
-        <button
-          className="w-full mt-5 py-2.5 rounded-xl text-sm font-semibold"
-          style={{ background: '#2563EB', color: 'white' }}
-        >
-          Open Aircraft Record →
-        </button>
-      </div>
-    </div>
+    </section>
   )
 }
 
-// ─── FAQ Accordion ────────────────────────────────────────────────────────────
-const FAQ_ITEMS = [
-  {
-    q: 'How does scanning work?',
-    a: 'We send a trained technician to your location with professional scanning equipment. We scan all logbooks, maintenance records, STCs, and supporting documents on-site. Most single-aircraft sets are completed in a half-day. You receive a structured, indexed digital record set — not just raw PDFs.',
-  },
-  {
-    q: 'What if I already have digital records?',
-    a: "Upload directly — no scanning fee applies. We accept PDFs, photos, and most common formats. Our team helps structure and label your records so they're fully searchable. Free ingestion assistance is included for all accounts.",
-  },
-  {
-    q: 'How is pricing calculated?',
-    a: 'Aircraft subscriptions are $100/aircraft/month. Mechanic access is $100/mechanic/month. Onsite scanning is a one-time $1,000 fee per aircraft logbook set, with an optional $100/month payment path. There are no hidden fees and free setup is always included.',
-  },
-  {
-    q: 'How long does setup take?',
-    a: 'For upload accounts, your aircraft dashboard is typically live within 1–2 business days after ingestion. For onsite scanning, expect 3–5 business days from the scan date to a fully indexed, searchable record set.',
-  },
-  {
-    q: 'Is my data secure?',
-    a: 'Yes. All records are encrypted at rest and in transit. Access is role-based — only the people you explicitly invite can view your aircraft records. You retain full ownership of your data and can export or delete it at any time.',
-  },
-  {
-    q: 'Can I share records with my mechanic?',
-    a: 'Absolutely. You can invite mechanics, inspectors, brokers, or anyone else with a specific access level. Sharing is granular — you control exactly what each person can see. Temporary access links are also supported for prebuy inspections.',
-  },
-]
-
-function FAQAccordion() {
-  const [open, setOpen] = useState<number | null>(null)
+function TrustBar() {
   return (
-    <div className="flex flex-col gap-3">
-      {FAQ_ITEMS.map((item, i) => (
-        <div
-          key={i}
-          className="rounded-2xl overflow-hidden"
-          style={{ border: '1px solid #E2E8F0', background: '#fff' }}
-        >
-          <button
-            className="w-full flex items-center justify-between text-left px-6 py-5"
-            onClick={() => setOpen(open === i ? null : i)}
-          >
-            <span style={{ color: '#0D1117', fontSize: 16, fontWeight: 600 }}>{item.q}</span>
-            <span className="ml-4 flex-shrink-0" style={{ color: '#2563EB' }}>
-              {open === i ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </span>
-          </button>
-          {open === i && (
-            <div
-              className="px-6 pb-5"
-              style={{ borderTop: '1px solid #F1F5F9' }}
-            >
-              <p className="pt-4" style={{ color: '#4B5563', fontSize: 15, lineHeight: 1.7 }}>{item.a}</p>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ─── Main export ──────────────────────────────────────────────────────────────
-export function HomePage() {
-  return (
-    <div style={{ background: '#fff', color: '#0D1117', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-      <MarketingNav />
-
-      {/* ── 1. HERO ─────────────────────────────────────────────────────────── */}
-      <section
-        style={{
-          background: 'linear-gradient(160deg, #F8FAFF 0%, #EEF4FF 50%, #F8FAFF 100%)',
-          paddingTop: 120,
-          paddingBottom: 100,
-        }}
-      >
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            {/* Left */}
-            <div>
-              <div
-                className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-6 text-sm font-medium"
-                style={{ background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE' }}
-              >
-                <Star size={13} />
-                Aviation records, finally organized
-              </div>
-
-              <h1
-                className="font-extrabold leading-tight mb-6"
-                style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', color: '#0D1117', letterSpacing: '-0.02em' }}
-              >
-                The Modern Platform for Aircraft Records &amp; Logbooks
-              </h1>
-
-              <p
-                className="mb-8 leading-relaxed"
-                style={{ fontSize: 18, color: '#4B5563', maxWidth: 520 }}
-              >
-                Digitize, organize, search, and manage aircraft maintenance records — for owners, mechanics, and operators.
-              </p>
-
-              <div className="flex flex-wrap gap-3 mb-8">
-                <Link
-                  href="/signup"
-                  className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white"
-                  style={{ background: '#2563EB', fontSize: 15, boxShadow: '0 4px 20px rgba(37,99,235,0.35)' }}
-                >
-                  Book a Demo <ArrowRight size={16} />
-                </Link>
-                <a
-                  href="#how-it-works"
-                  className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-semibold"
-                  style={{ background: '#fff', color: '#0D1117', fontSize: 15, border: '1px solid #E2E8F0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-                >
-                  See How It Works
-                </a>
-              </div>
-
-              {/* Micro-trust strip */}
-              <div
-                className="inline-flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-5 py-3"
-                style={{ background: '#fff', border: '1px solid #E2E8F0', fontSize: 13, color: '#6B7280' }}
-              >
-                {['Free setup', 'Free ingestion help', '$100/aircraft/month', 'Onsite scanning available'].map((item, i) => (
-                  <span key={item} className="flex items-center gap-1.5">
-                    {i > 0 && <span style={{ color: '#D1D5DB', marginRight: 4 }}>·</span>}
-                    <CheckCircle size={13} color="#16A34A" />
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Right — mock card */}
-            <div className="flex justify-center lg:justify-end">
-              <div className="w-full max-w-sm">
-                <AircraftMockCard />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── 2. TRUST LOGOS ──────────────────────────────────────────────────── */}
-      <section style={{ background: '#F8FAFC', borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', padding: '56px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <p className="text-center mb-10" style={{ color: '#6B7280', fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            Trusted by aircraft owners, mechanics, and operators
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-            {['Horizon Flights', 'Aviation Maintenance', 'Fleet Operators', 'Independent A&Ps', 'Aircraft Brokers'].map((label) => (
-              <div
-                key={label}
-                className="flex flex-col items-center justify-center rounded-2xl py-6 px-4"
-                style={{ background: '#fff', border: '1px solid #E2E8F0', minHeight: 88 }}
-              >
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className="mb-2.5">
-                  <rect width="32" height="32" rx="8" fill="#EFF6FF" />
-                  <circle cx="16" cy="13" r="5" fill="#BFDBFE" />
-                  <rect x="8" y="21" width="16" height="3" rx="1.5" fill="#93C5FD" />
+    <section className="border-y border-[#E2E8F0] bg-[#F8F9FB]">
+      <div className="max-w-6xl mx-auto px-6 py-6">
+        <p className="text-center text-[13px] text-[#9CA3AF] font-medium mb-5">Trusted by aircraft owners, mechanics, flight schools, and operators</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { icon: 'shield', label: 'Citation-backed answers' },
+            { icon: 'workspace', label: 'Aircraft-specific workspaces' },
+            { icon: 'lock', label: 'Secure multi-tenant access' },
+            { icon: 'cloud', label: 'Google Drive + PDF ingestion' },
+          ].map(({ icon, label }) => (
+            <div key={label} className="flex items-center gap-2.5 justify-center">
+              <div className="w-8 h-8 rounded-[8px] bg-[#EFF6FF] flex items-center justify-center flex-shrink-0">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  {icon === 'shield' && <><path d="M12 2l8 3.5v5.5c0 4.5-3.5 8-8 9.5C7.5 19 4 15.5 4 11V5.5L12 2z"/><polyline points="9 12 11 14 15 10"/></>}
+                  {icon === 'workspace' && <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>}
+                  {icon === 'lock' && <><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>}
+                  {icon === 'cloud' && <><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></>}
                 </svg>
-                <span style={{ color: '#374151', fontSize: 12, fontWeight: 600, textAlign: 'center', lineHeight: 1.4 }}>{label}</span>
+              </div>
+              <span className="text-[14px] font-medium text-[#374151]">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WhyNowSection() {
+  const problems = [
+    { icon: 'alert', title: 'Records are scattered', body: 'Logs in binders, PDFs on drives, manuals on shelves — all disconnected.' },
+    { icon: 'search', title: 'Searching PDFs wastes hours', body: "Ctrl+F doesn't work on scanned docs or across 40 files at once." },
+    { icon: 'spark', title: 'Generic AI hallucinates', body: "ChatGPT doesn't know your aircraft's records — and will make things up." },
+    { icon: 'citation', title: 'Aviation needs traceability', body: 'Every answer must link to a document page and source. No exceptions.' },
+  ]
+  return (
+    <section className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center mb-14">
+          <h2 className="text-[38px] font-extrabold text-[#0D1117] tracking-tight mb-4">Aviation records are broken.<br/>We fixed that.</h2>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {problems.map(p => (
+            <div key={p.title} className="bg-[#F8F9FB] rounded-[16px] p-6 border border-[#E2E8F0] hover:border-[#2563EB]/30 hover:shadow-[0_8px_24px_rgba(37,99,235,0.06)] transition-all duration-200">
+              <div className="w-10 h-10 rounded-[10px] bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center mb-4">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  {p.icon === 'alert' && <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>}
+                  {p.icon === 'search' && <><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>}
+                  {p.icon === 'spark' && <path d="M12 2l2.4 7.2H22l-6.2 4.5 2.4 7.2L12 17l-6.2 3.9 2.4-7.2L2 9.2h7.6L12 2z" fill="#2563EB" stroke="none"/>}
+                  {p.icon === 'citation' && <><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></>}
+                </svg>
+              </div>
+              <h3 className="font-semibold text-[16px] text-[#0D1117] mb-2">{p.title}</h3>
+              <p className="text-[14px] text-[#6B7280] leading-relaxed">{p.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function HowItWorksSection() {
+  const steps = [
+    { num: '01', icon: 'upload', title: 'Upload / Import', body: 'Drag-drop PDFs or connect Google Drive. Logbooks, POH, AFM, manuals, ADs, work orders.' },
+    { num: '02', icon: 'folder', title: 'Organize by Aircraft', body: 'Every document is tagged to a specific aircraft and classified by type automatically.' },
+    { num: '03', icon: 'chat', title: 'Ask in Plain English', body: "Type any question about your aircraft's history, specs, maintenance, or compliance." },
+    { num: '04', icon: 'citation', title: 'Get Answers with Citations', body: 'Every answer shows the source document, section, page number, and a highlighted snippet.' },
+  ]
+  return (
+    <section id="how-it-works" className="py-24 bg-[#F8F9FB]">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] text-[12px] font-semibold uppercase tracking-wide mb-4">How It Works</div>
+          <h2 className="text-[38px] font-extrabold text-[#0D1117] tracking-tight">From upload to answer<br/>in minutes.</h2>
+        </div>
+        <div className="relative">
+          {/* Connector line */}
+          <div className="hidden lg:block absolute top-10 left-[12.5%] right-[12.5%] h-px border-t-2 border-dashed border-[#CBD5E1]" style={{ top: '2.5rem' }}/>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {steps.map((s, i) => (
+              <div key={s.num} className="relative flex flex-col items-center text-center">
+                <div className="relative z-10 w-20 h-20 rounded-full bg-white border-2 border-[#E2E8F0] shadow-[0_4px_12px_rgba(0,0,0,0.08)] flex items-center justify-center mb-5 group hover:border-[#2563EB] hover:shadow-[0_4px_20px_rgba(37,99,235,0.2)] transition-all duration-200">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    {s.icon === 'upload' && <><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></>}
+                    {s.icon === 'folder' && <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>}
+                    {s.icon === 'chat' && <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>}
+                    {s.icon === 'citation' && <><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></>}
+                  </svg>
+                  <span className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#2563EB] text-white text-[11px] font-bold flex items-center justify-center">{i + 1}</span>
+                </div>
+                <h3 className="font-semibold text-[16px] text-[#0D1117] mb-2">{s.title}</h3>
+                <p className="text-[14px] text-[#6B7280] leading-relaxed max-w-[200px]">{s.body}</p>
               </div>
             ))}
           </div>
         </div>
-      </section>
+      </div>
+    </section>
+  )
+}
 
-      {/* ── 3. HOW IT WORKS ─────────────────────────────────────────────────── */}
-      <section id="how-it-works" style={{ padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              From paper records to searchable data
+function FeaturesSection() {
+  const features = [
+    { icon: 'workspace', name: 'Aircraft Workspace', desc: 'One dedicated knowledge base per aircraft. All documents, history, and answers — organized by N-number.' },
+    { icon: 'folder', name: 'Document Library', desc: 'Upload PDFs, scanned logs, Google Drive files. Auto-classified by type: logbook, POH, AFM, IPC, AD...' },
+    { icon: 'chat', name: 'Ask AI with Citations', desc: 'Natural language queries answered from your documents only. Never from the internet. Always with page-level citations.' },
+    { icon: 'lock', name: 'Private Library Option', desc: 'Keep documents private to your account or share with your team. You control who sees what.' },
+    { icon: 'users', name: 'Team Roles + Access', desc: 'Add mechanics, pilots, admins, and guests. Role-based access with full audit trail.' },
+    { icon: 'cloud', name: 'Google Drive Import', desc: 'Connect Drive folders and auto-sync. No manual re-uploading when documents change.' },
+    { icon: 'scan', name: 'OCR for Scanned Docs', desc: 'Handwritten logs and scanned maintenance records processed with aviation-optimized OCR. (Pro+)' },
+    { icon: 'history', name: 'Query History', desc: 'Every question and answer saved. Bookmark important answers for quick reference.' },
+  ]
+  const iconPaths: Record<string, React.ReactNode> = {
+    workspace: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
+    folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>,
+    chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,
+    lock: <><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>,
+    users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
+    cloud: <><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></>,
+    scan: <><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></>,
+    history: <><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-5.1"/></>,
+  }
+  return (
+    <section id="product" className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center mb-14">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] text-[12px] font-semibold uppercase tracking-wide mb-4">Features</div>
+          <h2 className="text-[38px] font-extrabold text-[#0D1117] tracking-tight">Everything your aircraft records need.</h2>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
+          {features.map(f => (
+            <div key={f.name} className="p-5 rounded-[14px] border border-[#E2E8F0] bg-[#F8F9FB] hover:bg-white hover:border-[#2563EB]/30 hover:shadow-[0_8px_24px_rgba(37,99,235,0.06)] transition-all duration-200 group">
+              <div className="w-9 h-9 rounded-[9px] bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center mb-3 group-hover:border-[#2563EB]/30 group-hover:shadow-[0_2px_8px_rgba(37,99,235,0.12)] transition-all">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  {iconPaths[f.icon]}
+                </svg>
+              </div>
+              <h3 className="font-semibold text-[14px] text-[#0D1117] mb-1.5">{f.name}</h3>
+              <p className="text-[13px] text-[#6B7280] leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WhoIsItForSection() {
+  const roles = [
+    { emoji: '✈', title: 'Aircraft Owners', pain: 'Maintenance history buried in binders and PDFs.', benefit: 'Ask about any inspection, AD, or repair — instantly.' },
+    { emoji: '🔧', title: 'Mechanics / IAs', pain: 'Cross-referencing manuals and logbooks eats hours.', benefit: 'Find torque specs, procedures, and SB status in seconds.' },
+    { emoji: '🏫', title: 'Flight Schools', pain: 'Fleet records scattered across staff and drives.', benefit: 'Centralized aircraft workspaces for every aircraft in the fleet.' },
+    { emoji: '🔩', title: 'Repair Stations', pain: 'Locating applicable ADs and service bulletins takes time.', benefit: 'Compliance research grounded in your own documents.' },
+    { emoji: '🛫', title: 'Part 135 Operators', pain: 'Compliance docs spread across crew, ops, and maintenance.', benefit: 'One searchable workspace per aircraft, with team access controls.' },
+    { emoji: '📋', title: 'Prebuy Inspectors', pain: 'Reviewing aircraft records for a prebuy takes days.', benefit: 'Upload the logs, ask the hard questions, get cited answers.' },
+  ]
+  return (
+    <section id="solutions" className="py-24 bg-[#F8F9FB]">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center mb-14">
+          <h2 className="text-[38px] font-extrabold text-[#0D1117] tracking-tight">Built for every role in aviation.</h2>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {roles.map(r => (
+            <div key={r.title} className="p-6 rounded-[16px] bg-white border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-200">
+              <div className="text-3xl mb-4">{r.emoji}</div>
+              <h3 className="font-bold text-[17px] text-[#0D1117] mb-2">{r.title}</h3>
+              <p className="text-[13px] text-[#6B7280] mb-2 leading-relaxed">{r.pain}</p>
+              <p className="text-[13px] text-[#2563EB] font-medium leading-relaxed flex items-start gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                {r.benefit}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function SecuritySection() {
+  return (
+    <section id="security" className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="grid lg:grid-cols-2 gap-16 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-[12px] font-semibold uppercase tracking-wide mb-6">Evidence-first. Always.</div>
+            <h2 className="text-[38px] font-extrabold text-[#0D1117] tracking-tight leading-tight mb-6">
+              myaircraft.us never guesses.
             </h2>
-            <p style={{ color: '#6B7280', fontSize: 17, maxWidth: 520, margin: '0 auto' }}>
-              Five steps from scattered paper to a fully organized, searchable aircraft record set.
+            <p className="text-[18px] text-[#4B5563] leading-relaxed">
+              Every answer is grounded in your uploaded documents, or it tells you there's insufficient evidence. No hallucinations. No guesses. Just citations.
             </p>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+          <div className="grid grid-cols-2 gap-4">
             {[
-              { n: 1, title: 'Scan onsite or upload records', desc: 'We come to you or you upload — whatever fits your situation.' },
-              { n: 2, title: 'We organize and ingest', desc: 'Our team structures your documents by aircraft, logbook, and record type.' },
-              { n: 3, title: 'AI + structured review makes records searchable', desc: 'Human-reviewed AI tags entries so you can search by date, entry, or topic.' },
-              { n: 4, title: 'Aircraft & mechanic dashboards go live', desc: 'Your full record set is accessible in a clean, organized dashboard.' },
-              { n: 5, title: 'Share, search, export, and manage', desc: 'Invite your mechanic, run searches, export for prebuy, stay compliant.' },
-            ].map(({ n, title, desc }) => (
-              <div
-                key={n}
-                className="rounded-2xl p-6 flex flex-col"
-                style={{ background: '#F8FAFC', border: '1px solid #E2E8F0' }}
-              >
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center mb-4 font-bold text-white text-sm flex-shrink-0"
-                  style={{ background: '#2563EB' }}
-                >
-                  {n}
+              { icon: 'shield', title: 'Tenant Isolation', body: 'Your documents are never shared with other accounts.' },
+              { icon: 'lock', title: 'Role-Based Access', body: 'Control who can view, query, and manage each aircraft.' },
+              { icon: 'citation', title: 'Citations Required', body: 'No answer is returned without a traceable source document.' },
+              { icon: 'history', title: 'Audit Logs', body: 'Full history of queries, uploads, and access. (Fleet+)' },
+            ].map(item => (
+              <div key={item.title} className="p-4 rounded-[12px] bg-[#F8F9FB] border border-[#E2E8F0]">
+                <div className="w-8 h-8 rounded-[8px] bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center mb-3">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    {item.icon === 'shield' && <><path d="M12 2l8 3.5v5.5c0 4.5-3.5 8-8 9.5C7.5 19 4 15.5 4 11V5.5L12 2z"/><polyline points="9 12 11 14 15 10"/></>}
+                    {item.icon === 'lock' && <><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>}
+                    {item.icon === 'citation' && <><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></>}
+                    {item.icon === 'history' && <><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-5.1"/></>}
+                  </svg>
                 </div>
-                <h3 className="font-semibold mb-2" style={{ color: '#0D1117', fontSize: 15, lineHeight: 1.4 }}>{title}</h3>
-                <p style={{ color: '#6B7280', fontSize: 13, lineHeight: 1.6 }}>{desc}</p>
+                <h3 className="font-semibold text-[14px] text-[#0D1117] mb-1">{item.title}</h3>
+                <p className="text-[13px] text-[#6B7280] leading-relaxed">{item.body}</p>
               </div>
             ))}
           </div>
         </div>
-      </section>
+      </div>
+    </section>
+  )
+}
 
-      {/* ── 4. PRODUCT VALUE CARDS ──────────────────────────────────────────── */}
-      <section id="product" style={{ background: '#F8FAFC', borderTop: '1px solid #E2E8F0', padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              Everything your aircraft records need
-            </h2>
-            <p style={{ color: '#6B7280', fontSize: 17, maxWidth: 480, margin: '0 auto' }}>
-              Built specifically for the complexity of aviation maintenance documentation.
-            </p>
-          </div>
+function ComparisonSection() {
+  const rows = [
+    { feature: 'Aircraft organization', drive: false, ai: false, ma: true },
+    { feature: 'Citation-backed answers', drive: false, ai: false, ma: true },
+    { feature: 'Page-level source traceability', drive: false, ai: false, ma: true },
+    { feature: 'Aviation document types', drive: false, ai: false, ma: true },
+    { feature: 'Refuses to hallucinate', drive: null, ai: false, ma: true },
+    { feature: 'Team access controls', drive: 'basic', ai: false, ma: true },
+    { feature: 'Audit trail', drive: false, ai: false, ma: 'fleet+' },
+    { feature: 'OCR for scanned logs', drive: false, ai: false, ma: 'pro+' },
+  ]
+  const Cell = ({ v }: { v: boolean | string | null }) => {
+    if (v === true) return <span className="text-[#10B981]"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+    if (v === false) return <span className="text-[#CBD5E1]"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+    if (v === null) return <span className="text-[13px] text-[#9CA3AF]">N/A</span>
+    return <span className="text-[12px] font-semibold text-[#2563EB] bg-[#EFF6FF] px-2 py-0.5 rounded-full">{v}</span>
+  }
+  return (
+    <section className="py-24 bg-[#F8F9FB]">
+      <div className="max-w-5xl mx-auto px-6">
+        <div className="text-center mb-12">
+          <h2 className="text-[32px] font-extrabold text-[#0D1117] tracking-tight">Not just storage. Not just AI.<br/>Aviation records intelligence.</h2>
+        </div>
+        <div className="bg-white rounded-[16px] border border-[#E2E8F0] shadow-[0_4px_12px_rgba(0,0,0,0.06)] overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[#E2E8F0]">
+                <th className="text-left p-4 text-[13px] font-semibold text-[#374151] w-[40%]">Feature</th>
+                <th className="p-4 text-center text-[13px] font-semibold text-[#9CA3AF]">Google Drive</th>
+                <th className="p-4 text-center text-[13px] font-semibold text-[#9CA3AF]">Generic AI</th>
+                <th className="p-4 text-center text-[13px] font-semibold text-[#2563EB] bg-[#F5F9FF]">myaircraft.us</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.feature} className={`border-b border-[#F1F3F7] ${i % 2 === 0 ? '' : 'bg-[#FAFBFC]'}`}>
+                  <td className="p-4 text-[14px] text-[#374151] font-medium">{r.feature}</td>
+                  <td className="p-4 text-center"><div className="flex justify-center"><Cell v={r.drive}/></div></td>
+                  <td className="p-4 text-center"><div className="flex justify-center"><Cell v={r.ai}/></div></td>
+                  <td className="p-4 text-center bg-[#F5F9FF]"><div className="flex justify-center"><Cell v={r.ma}/></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  )
+}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              { icon: FileText, title: 'Digital Aircraft Record Hub', desc: 'All logbooks, STCs, 337s, and maintenance records in one organized, searchable location.' },
-              { icon: Search, title: 'Search Across Logbooks Fast', desc: 'Find any entry, date, part number, or mechanic signature in seconds — across all your records.' },
-              { icon: Wrench, title: 'Mechanic-Friendly Workflows', desc: 'Mechanics get their own workspace to manage documents, entries, and collaboration tasks.' },
-              { icon: Zap, title: 'Smart Ingestion & Structuring', desc: 'AI-assisted document processing with human accuracy review ensures clean, reliable data.' },
-              { icon: Lock, title: 'Secure Sharing', desc: 'Share specific records with mechanics, buyers, or inspectors with granular access controls.' },
-              { icon: Download, title: 'Export & Archive Access', desc: 'Export full record sets or individual documents anytime. Your data is always yours.' },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div
-                key={title}
-                className="rounded-2xl p-7 flex flex-col gap-4 hover:shadow-lg transition-shadow"
-                style={{ background: '#fff', border: '1px solid #E2E8F0' }}
-              >
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: '#EFF6FF' }}>
-                  <Icon size={20} color="#2563EB" />
-                </div>
+function TestimonialsSection() {
+  const testimonials = [
+    { name: 'Michael Torres', role: 'Cessna 182 Owner · 1,200 hrs TT', initials: 'MT', quote: "I spent 3 hours searching my logbooks before a prebuy inspection. Now I just ask. The citations make me confident I'm not missing anything." },
+    { name: 'Rachel Kim', role: 'Director of Maintenance · SkyBridge Flight Academy', initials: 'RK', quote: 'Managing records for 12 aircraft used to require 3 people. myaircraft.us cut our records research time by 70%.' },
+    { name: 'Dave Okonkwo', role: 'A&P/IA · Independent Mechanic', initials: 'DO', quote: 'I can cross-reference an AD against a maintenance manual and get the relevant section in 20 seconds. That used to take an hour.' },
+  ]
+  return (
+    <section className="py-24 bg-white">
+      <div className="max-w-5xl mx-auto px-6">
+        <div className="text-center mb-14">
+          <h2 className="text-[32px] font-extrabold text-[#0D1117] tracking-tight">Trusted by aviation professionals.</h2>
+        </div>
+        <div className="grid md:grid-cols-3 gap-6">
+          {testimonials.map(t => (
+            <div key={t.name} className="p-6 rounded-[16px] bg-[#F8F9FB] border border-[#E2E8F0]">
+              <div className="text-[#2563EB] mb-4">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="#2563EB" opacity="0.15"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+              </div>
+              <p className="text-[15px] text-[#374151] leading-relaxed mb-5 italic">"{t.quote}"</p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0">{t.initials}</div>
                 <div>
-                  <h3 className="font-semibold mb-1.5" style={{ color: '#0D1117', fontSize: 16 }}>{title}</h3>
-                  <p style={{ color: '#6B7280', fontSize: 14, lineHeight: 1.65 }}>{desc}</p>
+                  <p className="font-semibold text-[14px] text-[#0D1117]">{t.name}</p>
+                  <p className="text-[12px] text-[#9CA3AF]">{t.role}</p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 5. SOLUTIONS / PERSONAS ─────────────────────────────────────────── */}
-      <section id="solutions" style={{ padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              Built for every aviation role
-            </h2>
-            <p style={{ color: '#6B7280', fontSize: 17, maxWidth: 500, margin: '0 auto' }}>
-              Whether you own one aircraft or manage a fleet, myaircraft.us is built around your workflow.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: Plane,
-                title: 'Aircraft Owners',
-                tagline: 'Total visibility into your aircraft\'s complete maintenance history',
-                bullets: ['Searchable logbooks from day one', 'Annual and AD compliance at a glance', 'Share securely for prebuy or insurance review'],
-              },
-              {
-                icon: Wrench,
-                title: 'Mechanics & A&P Teams',
-                tagline: 'Prepare cleaner records faster with organized supporting docs',
-                bullets: ['Per-mechanic workspaces and document access', 'Less time hunting for paperwork', 'Structured records that hold up to scrutiny'],
-              },
-              {
-                icon: Building2,
-                title: 'Flight Departments',
-                tagline: 'Manage multi-aircraft fleets with consistent record standards',
-                bullets: ['Fleet-wide record visibility in one dashboard', 'Standardized document organization', 'Audit-ready compliance documentation'],
-              },
-              {
-                icon: TrendingUp,
-                title: 'Brokers & Prebuy Teams',
-                tagline: 'Surface the records that support value and reduce transaction risk',
-                bullets: ['Fast access to full maintenance history', 'Searchable documentation for due diligence', 'Share record sets securely with buyers'],
-              },
-              {
-                icon: ShoppingCart,
-                title: 'Buyers & Sellers',
-                tagline: 'Understand what you\'re buying or selling with searchable evidence',
-                bullets: ['Clear, organized records support asking price', 'Buyers can verify work history independently', 'No more box of papers at closing'],
-              },
-              {
-                icon: ClipboardCheck,
-                title: 'Maintenance Managers',
-                tagline: 'Keep every aircraft workspace organized and compliance-ready',
-                bullets: ['Track maintenance across multiple aircraft', 'Assign and manage document tasks by aircraft', 'Stay ahead of ADs, annuals, and inspections'],
-              },
-            ].map(({ icon: Icon, title, tagline, bullets }) => (
-              <div
-                key={title}
-                className="rounded-2xl p-7 flex flex-col hover:shadow-lg transition-shadow"
-                style={{ background: '#fff', border: '1px solid #E2E8F0' }}
-              >
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: '#EFF6FF' }}>
-                  <Icon size={20} color="#2563EB" />
-                </div>
-                <h3 className="font-bold mb-2" style={{ color: '#0D1117', fontSize: 17 }}>{title}</h3>
-                <p className="mb-4" style={{ color: '#6B7280', fontSize: 14, lineHeight: 1.6 }}>{tagline}</p>
-                <ul className="flex flex-col gap-2 mb-6 flex-1">
-                  {bullets.map((b) => (
-                    <li key={b} className="flex items-start gap-2">
-                      <CheckCircle size={14} color="#16A34A" style={{ marginTop: 2, flexShrink: 0 }} />
-                      <span style={{ color: '#374151', fontSize: 13, lineHeight: 1.5 }}>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href="/signup"
-                  className="mt-auto inline-flex items-center gap-1.5 text-sm font-semibold"
-                  style={{ color: '#2563EB' }}
-                >
-                  Learn More <ArrowRight size={14} />
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 6. SCANNING & ONBOARDING ────────────────────────────────────────── */}
-      <section style={{ background: '#F8FAFC', borderTop: '1px solid #E2E8F0', padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              Choose the path that fits your records.
-            </h2>
-            <p style={{ color: '#6B7280', fontSize: 17, maxWidth: 480, margin: '0 auto' }}>
-              Whether your records are still on paper or already scanned, we have a clear onboarding path for you.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Option A */}
-            <div className="rounded-2xl p-8 flex flex-col" style={{ background: '#fff', border: '2px solid #2563EB' }}>
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: '#EFF6FF' }}>
-                  <ScanLine size={22} color="#2563EB" />
-                </div>
-                <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Option A</span>
-                  <h3 className="font-bold text-xl" style={{ color: '#0D1117' }}>Onsite Scanning</h3>
-                </div>
-              </div>
-              <div className="mb-5 pb-5" style={{ borderBottom: '1px solid #E2E8F0' }}>
-                <span className="font-extrabold text-3xl" style={{ color: '#0D1117' }}>$1,000</span>
-                <span style={{ color: '#6B7280', fontSize: 15 }}> per aircraft logbooks</span>
-              </div>
-              <ul className="flex flex-col gap-3 flex-1">
-                {[
-                  'We scan at your location — no shipping or offsite handling',
-                  'Structured onboarding included at no extra charge',
-                  'Human accuracy review of all scanned records',
-                  'Optional $100/month payment path available',
-                  'Free setup and free ingestion assistance',
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-2.5">
-                    <CheckCircle size={15} color="#16A34A" style={{ marginTop: 1.5, flexShrink: 0 }} />
-                    <span style={{ color: '#374151', fontSize: 14, lineHeight: 1.55 }}>{item}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className="mt-8 w-full py-3.5 rounded-xl font-semibold text-white text-center text-sm block"
-                style={{ background: '#2563EB' }}
-              >
-                Schedule Onsite Scanning →
-              </Link>
             </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
 
-            {/* Option B */}
-            <div className="rounded-2xl p-8 flex flex-col" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: '#F0FDF4' }}>
-                  <Upload size={22} color="#16A34A" />
+function FAQSection() {
+  const [open, setOpen] = useState<number | null>(null)
+  const faqs = [
+    { q: 'What types of documents can I upload?', a: 'PDFs, scanned documents (JPEG, PNG), and Google Drive files. Supported types include aircraft logbooks, POH, AFM and supplements, maintenance manuals, service manuals, parts catalogs (IPC), work orders, inspection reports, 337 forms, 8130 forms, service bulletins, and airworthiness directives.' },
+    { q: 'Can I keep my documents private?', a: 'Yes. Every document is private by default. You choose what to share with team members. Documents are never accessible to other organizations or used to train AI models.' },
+    { q: 'Do answers always show citations?', a: "Yes, always. If the system cannot find sufficient evidence in your uploaded documents, it returns an 'Insufficient Evidence' response rather than guessing." },
+    { q: 'Can my team access the same aircraft workspace?', a: 'Yes. Invite mechanics, pilots, admins, and guests. Each role has configurable permissions for viewing documents, running queries, and managing aircraft.' },
+    { q: 'Is this a replacement for maintenance tracking software?', a: 'No. myaircraft.us is a document intelligence and search layer. It works alongside your existing maintenance tracking tools. Think of it as making all your existing records searchable and queryable.' },
+    { q: 'How do you handle scanned or handwritten pages?', a: 'Scanned documents and handwritten logs are processed with OCR as part of the Pro and Fleet plans. Accuracy varies by scan quality. We surface confidence levels on every answer.' },
+    { q: 'Can I import from Google Drive?', a: 'Yes. Connect a Google Drive folder and documents are automatically imported and indexed. Changes sync on a scheduled basis.' },
+    { q: 'How do we get started?', a: "Book a demo and we'll walk you through setting up your organization and first aircraft workspace. Most teams are up and running in under 30 minutes." },
+  ]
+  return (
+    <section className="py-24 bg-[#F8F9FB]">
+      <div className="max-w-3xl mx-auto px-6">
+        <div className="text-center mb-12">
+          <h2 className="text-[32px] font-extrabold text-[#0D1117] tracking-tight">Frequently asked questions.</h2>
+        </div>
+        <div className="space-y-2">
+          {faqs.map((faq, i) => (
+            <div key={i} className="bg-white rounded-[12px] border border-[#E2E8F0] overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-5 py-4 text-left gap-4 hover:bg-[#F8F9FB] transition-colors"
+                onClick={() => setOpen(open === i ? null : i)}
+              >
+                <span className="font-medium text-[15px] text-[#0D1117]">{faq.q}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ flexShrink: 0, transform: open === i ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 200ms ease' }}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              {open === i && (
+                <div className="px-5 pb-4">
+                  <p className="text-[14px] text-[#6B7280] leading-relaxed">{faq.a}</p>
                 </div>
-                <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#16A34A', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Option B</span>
-                  <h3 className="font-bold text-xl" style={{ color: '#0D1117' }}>Already Have Scans? Upload Directly</h3>
-                </div>
-              </div>
-              <div className="mb-5 pb-5" style={{ borderBottom: '1px solid #E2E8F0' }}>
-                <span className="font-extrabold text-3xl" style={{ color: '#0D1117' }}>$0</span>
-                <span style={{ color: '#6B7280', fontSize: 15 }}> scanning fee · subscription only</span>
-              </div>
-              <ul className="flex flex-col gap-3 flex-1">
-                {[
-                  'No scanning fee — upload PDFs or photos directly',
-                  'We help structure and label your record set',
-                  'Free ingestion support included for all uploads',
-                  'Free accuracy review and organization assistance',
-                  'Account goes live within 1–2 business days',
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-2.5">
-                    <CheckCircle size={15} color="#16A34A" style={{ marginTop: 1.5, flexShrink: 0 }} />
-                    <span style={{ color: '#374151', fontSize: 14, lineHeight: 1.55 }}>{item}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className="mt-8 w-full py-3.5 rounded-xl font-semibold text-center text-sm block"
-                style={{ background: '#F8FAFC', color: '#0D1117', border: '1px solid #E2E8F0' }}
-              >
-                Upload Your Records →
-              </Link>
+              )}
             </div>
-          </div>
+          ))}
         </div>
-      </section>
+      </div>
+    </section>
+  )
+}
 
-      {/* ── 7. PRICING ──────────────────────────────────────────────────────── */}
-      <section id="pricing" style={{ padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              Simple, transparent pricing.
-            </h2>
-            <p style={{ color: '#6B7280', fontSize: 17, maxWidth: 480, margin: '0 auto' }}>
-              No surprises. No tiers. No seat minimums. Straightforward pricing built for aviation.
-            </p>
-          </div>
+function FinalCTASection() {
+  return (
+    <section className="py-28" style={{ background: '#0D1117' }}>
+      <div className="max-w-3xl mx-auto px-6 text-center">
+        <h2 className="text-[42px] font-extrabold text-white tracking-tight leading-tight mb-4">
+          Turn aircraft records into<br/>searchable intelligence.
+        </h2>
+        <p className="text-[18px] text-[#9CA3AF] mb-10">Set up your aircraft workspace in minutes.</p>
+        <div className="flex flex-wrap justify-center gap-4 mb-8">
+          <Link href="/signup"
+            className="inline-flex items-center gap-2 px-8 py-4 text-[15px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[12px] transition-all shadow-[0_4px_20px_rgba(37,99,235,0.4)] hover:shadow-[0_8px_32px_rgba(37,99,235,0.5)]"
+          >
+            Book Demo →
+          </Link>
+          <Link href="/signup"
+            className="inline-flex items-center gap-2 px-8 py-4 text-[15px] font-medium text-white border border-[#2A3347] hover:border-[#4B5563] hover:bg-[#161B25] rounded-[12px] transition-all"
+          >
+            Get Started Free
+          </Link>
+        </div>
+        <p className="text-[13px] text-[#6B7280]">No credit card required · 14-day free trial · Setup in under 30 minutes</p>
+      </div>
+    </section>
+  )
+}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-            {/* Aircraft Subscription */}
-            <div
-              className="rounded-2xl p-8 flex flex-col"
-              style={{ background: '#fff', border: '2px solid #2563EB', position: 'relative' }}
-            >
-              <div
-                className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full"
-                style={{ background: '#2563EB', color: '#fff', whiteSpace: 'nowrap' }}
-              >
-                Most popular
-              </div>
-              <Plane size={22} color="#2563EB" style={{ marginBottom: 16 }} />
-              <h3 className="font-bold text-lg mb-1" style={{ color: '#0D1117' }}>Aircraft Subscription</h3>
-              <p style={{ color: '#6B7280', fontSize: 13, marginBottom: 16 }}>Per aircraft, all features included</p>
-              <div className="mb-6">
-                <span className="font-extrabold" style={{ fontSize: 36, color: '#0D1117' }}>$100</span>
-                <span style={{ color: '#6B7280', fontSize: 15 }}>/aircraft/month</span>
-              </div>
-              <ul className="flex flex-col gap-2.5 flex-1">
-                {[
-                  'Fully searchable digital records',
-                  'Organized aircraft record hub',
-                  'Aircraft dashboard & history view',
-                  'Sharing and export tools',
-                  'Ongoing support included',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <CheckCircle size={14} color="#16A34A" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: '#374151', fontSize: 13.5 }}>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className="mt-8 block w-full py-3.5 rounded-xl font-semibold text-white text-center text-sm"
-                style={{ background: '#2563EB' }}
-              >
-                Get Started →
-              </Link>
+function Footer() {
+  return (
+    <footer className="bg-[#F8F9FB] border-t border-[#E2E8F0]">
+      <div className="max-w-6xl mx-auto px-6 py-14 grid md:grid-cols-4 gap-8">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-[7px] bg-[#2563EB] flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3L20 8v2l-4 2v6l2 1v2l-6-2-6 2v-2l2-1v-6L4 10V8l8-5z"/></svg>
             </div>
-
-            {/* Mechanic Access */}
-            <div className="rounded-2xl p-8 flex flex-col" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-              <Wrench size={22} color="#2563EB" style={{ marginBottom: 16 }} />
-              <h3 className="font-bold text-lg mb-1" style={{ color: '#0D1117' }}>Mechanic Access</h3>
-              <p style={{ color: '#6B7280', fontSize: 13, marginBottom: 16 }}>Per mechanic, full workflow access</p>
-              <div className="mb-6">
-                <span className="font-extrabold" style={{ fontSize: 36, color: '#0D1117' }}>$100</span>
-                <span style={{ color: '#6B7280', fontSize: 15 }}>/mechanic/month</span>
-              </div>
-              <ul className="flex flex-col gap-2.5 flex-1">
-                {[
-                  'Full mechanic workflow access',
-                  'Document viewing and handling',
-                  'Collaboration with aircraft owners',
-                  'Work order and record linking',
-                  'Export and annotation tools',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <CheckCircle size={14} color="#16A34A" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: '#374151', fontSize: 13.5 }}>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className="mt-8 block w-full py-3.5 rounded-xl font-semibold text-center text-sm"
-                style={{ background: '#F8FAFC', color: '#0D1117', border: '1px solid #E2E8F0' }}
-              >
-                Get Mechanic Access →
-              </Link>
-            </div>
-
-            {/* Scanning & Onboarding */}
-            <div className="rounded-2xl p-8 flex flex-col" style={{ background: '#fff', border: '1px solid #E2E8F0' }}>
-              <ScanLine size={22} color="#2563EB" style={{ marginBottom: 16 }} />
-              <h3 className="font-bold text-lg mb-1" style={{ color: '#0D1117' }}>Scanning & Onboarding</h3>
-              <p style={{ color: '#6B7280', fontSize: 13, marginBottom: 16 }}>One-time fee per aircraft logbook set</p>
-              <div className="mb-6">
-                <span className="font-extrabold" style={{ fontSize: 36, color: '#0D1117' }}>$1,000</span>
-                <span style={{ color: '#6B7280', fontSize: 15 }}>/aircraft logbooks</span>
-              </div>
-              <ul className="flex flex-col gap-2.5 flex-1">
-                {[
-                  'Onsite scanning at your location',
-                  'Optional $100/month payment path',
-                  'Free setup — always included',
-                  'Free ingestion assistance',
-                  'Free accuracy review of all records',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <CheckCircle size={14} color="#16A34A" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: '#374151', fontSize: 13.5 }}>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className="mt-8 block w-full py-3.5 rounded-xl font-semibold text-center text-sm"
-                style={{ background: '#F8FAFC', color: '#0D1117', border: '1px solid #E2E8F0' }}
-              >
-                Schedule Scanning →
-              </Link>
-            </div>
+            <span className="font-semibold text-[14px] text-[#0D1117]">myaircraft.us</span>
           </div>
-
-          {/* Mini FAQ strip */}
-          <div className="rounded-2xl overflow-hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ border: '1px solid #E2E8F0' }}>
-            {[
-              { q: 'Already scanned?', a: 'Upload directly — no scanning fee applies.' },
-              { q: 'Need onsite help?', a: 'We scan at your location for a flat $1,000 fee.' },
-              { q: 'Need setup support?', a: 'Included free with every account, always.' },
-              { q: 'Want clean ingestion?', a: 'Included free — we organize and structure your records.' },
-            ].map(({ q, a }, i) => (
-              <div
-                key={q}
-                className="p-6"
-                style={{
-                  background: '#F8FAFC',
-                  borderRight: i < 3 ? '1px solid #E2E8F0' : 'none',
-                  borderTop: '1px solid #E2E8F0',
-                }}
-              >
-                <p className="font-semibold mb-1" style={{ color: '#0D1117', fontSize: 14 }}>{q}</p>
-                <p style={{ color: '#6B7280', fontSize: 13, lineHeight: 1.55 }}>{a}</p>
-              </div>
-            ))}
-          </div>
+          <p className="text-[13px] text-[#9CA3AF] leading-relaxed">Ask your aircraft anything.</p>
         </div>
+        {[
+          { heading: 'Product', links: ['Document Library', 'AI Search', 'Aircraft Workspaces', 'Team Access', 'Pricing'] },
+          { heading: 'Solutions', links: ['Aircraft Owners', 'Flight Schools', 'Mechanics', 'Repair Stations', 'Part 135 Operators'] },
+          { heading: 'Company', links: ['About', 'Security', 'Blog', 'Docs', 'Contact', 'Log in'] },
+        ].map(col => (
+          <div key={col.heading}>
+            <h4 className="font-semibold text-[13px] text-[#0D1117] mb-3 uppercase tracking-wide">{col.heading}</h4>
+            <ul className="space-y-2">
+              {col.links.map(link => (
+                <li key={link}>
+                  <Link href="#" className="text-[13px] text-[#6B7280] hover:text-[#0D1117] transition-colors">{link}</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-[#E2E8F0] px-6 py-4 max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[12px] text-[#9CA3AF]">© 2025 myaircraft.us</p>
+        <div className="flex gap-4">
+          <Link href="#" className="text-[12px] text-[#9CA3AF] hover:text-[#374151]">Privacy Policy</Link>
+          <Link href="#" className="text-[12px] text-[#9CA3AF] hover:text-[#374151]">Terms of Service</Link>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+export function HomePage() {
+  return <MarketingHomePage />
+}
+
+export function MarketingHomePage() {
+  return (
+    <div className="min-h-screen bg-[#F8F9FB]">
+      <MarketingNav />
+      <HeroSection />
+      <TrustBar />
+      <WhyNowSection />
+      <HowItWorksSection />
+      <FeaturesSection />
+      <section className="py-4 bg-white">
+        <RoleSimulatorSection />
       </section>
-
-      {/* ── 8. ACCURACY / TRUST ─────────────────────────────────────────────── */}
-      <section style={{ background: '#0D1117', padding: '96px 0' }}>
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="max-w-2xl mx-auto text-center mb-14">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#fff', letterSpacing: '-0.02em' }}>
-              Accuracy matters more than automation.
-            </h2>
-            <p style={{ color: '#94A3B8', fontSize: 17, lineHeight: 1.7 }}>
-              Aviation records are legal documents. We combine AI efficiency with human review so your records are organized correctly — not just quickly.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              { title: 'Free account setup', desc: 'Every new account is set up by our team — no DIY configuration required.' },
-              { title: 'Free ingestion assistance', desc: 'We help you get records in the right structure from day one.' },
-              { title: 'Human-reviewed organization support', desc: 'A real person reviews your record organization for accuracy.' },
-              { title: 'Accuracy-first onboarding', desc: 'We prioritize getting it right over getting it fast.' },
-              { title: 'Clean aircraft-by-aircraft structuring', desc: 'Every aircraft gets its own organized, labeled record set.' },
-              { title: 'Built for real aviation records', desc: 'Designed around how aircraft records actually work — not generic documents.' },
-            ].map(({ title, desc }) => (
-              <div
-                key={title}
-                className="rounded-2xl p-6 flex items-start gap-4"
-                style={{ background: '#161B22', border: '1px solid #21262D' }}
-              >
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'rgba(22,163,74,0.15)' }}>
-                  <CheckCircle size={16} color="#4ADE80" />
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-1" style={{ color: '#F1F5F9', fontSize: 15 }}>{title}</h3>
-                  <p style={{ color: '#64748B', fontSize: 13, lineHeight: 1.6 }}>{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 9. FAQ ──────────────────────────────────────────────────────────── */}
-      <section style={{ padding: '96px 0' }}>
-        <div className="max-w-3xl mx-auto px-6">
-          <div className="text-center mb-14">
-            <h2 className="font-extrabold mb-4" style={{ fontSize: 'clamp(1.75rem, 3vw, 2.75rem)', color: '#0D1117', letterSpacing: '-0.02em' }}>
-              Frequently asked questions
-            </h2>
-            <p style={{ color: '#6B7280', fontSize: 17 }}>
-              Everything you need to know before getting started.
-            </p>
-          </div>
-          <FAQAccordion />
-        </div>
-      </section>
-
-      {/* ── 10. FINAL CTA ───────────────────────────────────────────────────── */}
-      <section style={{ background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 50%, #3B82F6 100%)', padding: '96px 0' }}>
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="font-extrabold mb-5" style={{ fontSize: 'clamp(2rem, 4vw, 3rem)', color: '#fff', letterSpacing: '-0.02em' }}>
-            Ready to organize your aircraft records?
-          </h2>
-          <p style={{ color: '#BFDBFE', fontSize: 18, lineHeight: 1.7, maxWidth: 560, margin: '0 auto 40px' }}>
-            Join aircraft owners, mechanics, and operators who trust myaircraft.us with their most important aviation documents.
-          </p>
-          <div className="flex flex-wrap justify-center gap-4">
-            <Link
-              href="/signup"
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold"
-              style={{ background: '#fff', color: '#1E40AF', fontSize: 15, boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}
-            >
-              Book a Demo <ArrowRight size={16} />
-            </Link>
-            <a
-              href="#pricing"
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-semibold text-white"
-              style={{ background: 'rgba(255,255,255,0.15)', fontSize: 15, border: '1px solid rgba(255,255,255,0.25)' }}
-            >
-              View Pricing
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* ── 11. FOOTER ──────────────────────────────────────────────────────── */}
-      <footer style={{ background: '#0D1117', paddingTop: 80 }}>
-        <div className="max-w-6xl mx-auto px-6">
-          {/* Logo + tagline */}
-          <div className="mb-14">
-            <Link href="/" className="flex items-center gap-2.5 mb-3">
-              <div className="w-8 h-8 rounded-[8px] flex items-center justify-center" style={{ background: '#2563EB' }}>
-                <Plane size={16} color="white" />
-              </div>
-              <span className="font-semibold text-[15px] text-white">myaircraft.us</span>
-            </Link>
-            <p style={{ color: '#64748B', fontSize: 14, maxWidth: 320, lineHeight: 1.6 }}>
-              The modern platform for aircraft records, logbooks, and maintenance documentation.
-            </p>
-          </div>
-
-          {/* Link columns */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-8 pb-14" style={{ borderBottom: '1px solid #21262D' }}>
-            {[
-              {
-                heading: 'Product',
-                links: ['Overview', 'AI Search', 'Digital Logbooks', 'Records Hub', 'Mechanic Workflows', 'Sharing & Exports'],
-              },
-              {
-                heading: 'Solutions',
-                links: ['Aircraft Owners', 'Mechanics', 'Flight Departments', 'Brokers & Prebuy', 'Buyers & Sellers', 'Maintenance Teams'],
-              },
-              {
-                heading: 'Pricing',
-                links: ['Subscription Plans', 'Scanning Service', 'Free Setup'],
-              },
-              {
-                heading: 'Scanning',
-                links: ['Onsite Scanning', 'Upload Existing', 'Ingestion & Structuring'],
-              },
-              {
-                heading: 'Security',
-                links: ['Data Protection', 'Access Control', 'Audit Trail'],
-              },
-              {
-                heading: 'Resources',
-                links: ['FAQs', 'Guides', 'Demo', 'Contact'],
-              },
-            ].map(({ heading, links }) => (
-              <div key={heading}>
-                <p style={{ color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>
-                  {heading}
-                </p>
-                <ul className="flex flex-col gap-2.5">
-                  {links.map((link) => (
-                    <li key={link}>
-                      <Link
-                        href="#"
-                        className="text-sm hover:text-white transition-colors"
-                        style={{ color: '#64748B' }}
-                      >
-                        {link}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-
-          {/* Bottom strip */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-6">
-            <p style={{ color: '#475569', fontSize: 13 }}>
-              © {new Date().getFullYear()} myaircraft.us. All rights reserved.
-            </p>
-            <div className="flex items-center gap-5">
-              <Link href="/privacy" className="hover:text-white transition-colors" style={{ color: '#475569', fontSize: 13 }}>Privacy</Link>
-              <Link href="/terms" className="hover:text-white transition-colors" style={{ color: '#475569', fontSize: 13 }}>Terms</Link>
-              <Link href="/signin" className="hover:text-white transition-colors" style={{ color: '#475569', fontSize: 13 }}>Login</Link>
-              <Link
-                href="/signup"
-                className="px-4 py-2 rounded-lg font-semibold text-sm"
-                style={{ background: '#2563EB', color: '#fff' }}
-              >
-                Book Demo →
-              </Link>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <WhoIsItForSection />
+      <SecuritySection />
+      <ComparisonSection />
+      <TestimonialsSection />
+      <FAQSection />
+      <FinalCTASection />
+      <Footer />
     </div>
   )
 }

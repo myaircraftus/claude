@@ -1,3 +1,5 @@
+'use client'
+
 export type SimulatorRole =
   | 'mechanic'
   | 'ia'
@@ -1026,7 +1028,7 @@ const fleetAdminScenarios: RoleScenario[] = [
 
 // ─── ROLE DEFINITIONS ────────────────────────────────────────────────────────
 
-export const roleDefinitions: RoleDefinition[] = [
+export const ROLES: RoleDefinition[] = [
   {
     id: 'mechanic',
     label: 'A&P Mechanic',
@@ -1100,3 +1102,7 @@ export const roleDefinitions: RoleDefinition[] = [
     scenarios: fleetAdminScenarios,
   },
 ]
+
+// Aliases for backward compat and task spec compliance
+export const roleDefinitions = ROLES
+export const DEFAULT_ROLE: SimulatorRole = 'mechanic'

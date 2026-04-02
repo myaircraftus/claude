@@ -2,6 +2,16 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
+const NAV_LINKS = [
+  { label: 'Product',    href: '/product' },
+  { label: 'Solutions',  href: '/solutions' },
+  { label: 'Pricing',    href: '/pricing' },
+  { label: 'Scanning',   href: '/scanning' },
+  { label: 'Security',   href: '/security' },
+  { label: 'Resources',  href: '/resources' },
+  { label: 'Contact',    href: '/contact' },
+]
+
 export function MarketingNav() {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -13,93 +23,101 @@ export function MarketingNav() {
   }, [])
 
   return (
-    <nav
-      className="fixed top-0 left-0 right-0 z-50 transition-all duration-200"
-      style={{
-        background: scrolled ? 'rgba(255,255,255,0.92)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(12px)' : 'none',
-        borderBottom: scrolled ? '1px solid #E2E8F0' : '1px solid transparent',
-        boxShadow: scrolled ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-      }}
-    >
-      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-8 h-8 rounded-[8px] bg-[#2563EB] flex items-center justify-center shadow-[0_2px_8px_rgba(37,99,235,0.3)]">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3L20 8v2l-4 2v6l2 1v2l-6-2-6 2v-2l2-1v-6L4 10V8l8-5z"/>
-            </svg>
-          </div>
-          <span className="font-semibold text-[15px] text-[#0D1117] tracking-tight">myaircraft.us</span>
-        </Link>
-
-        {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-1">
-          {['Product', 'How It Works', 'Solutions', 'Security', 'Pricing'].map(item => (
-            <Link
-              key={item}
-              href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-              className="px-3.5 py-2 text-[14px] text-[#4B5563] hover:text-[#0D1117] rounded-[8px] hover:bg-[#F1F3F7] transition-all duration-150 font-medium"
-            >
-              {item}
-            </Link>
-          ))}
-        </div>
-
-        {/* Desktop CTA */}
-        <div className="hidden md:flex items-center gap-2">
-          <Link
-            href="/signin"
-            className="px-4 py-2 text-[14px] font-medium text-[#4B5563] hover:text-[#0D1117] rounded-[8px] hover:bg-[#F1F3F7] transition-all duration-150"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/signup"
-            className="px-4 py-2 text-[14px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[10px] transition-all duration-150 shadow-[0_2px_8px_rgba(37,99,235,0.25)] hover:shadow-[0_4px_16px_rgba(37,99,235,0.35)]"
-          >
-            Book Demo →
-          </Link>
-        </div>
-
-        {/* Mobile menu button */}
-        <button
-          className="md:hidden p-2 rounded-[8px] hover:bg-[#F1F3F7]"
-          onClick={() => setMobileOpen(!mobileOpen)}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="1.5" strokeLinecap="round">
-            {mobileOpen ? (
-              <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
-            ) : (
-              <><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>
-            )}
-          </svg>
-        </button>
+    <div className="fixed top-0 left-0 right-0 z-50">
+      {/* Announcement Bar */}
+      <div className="bg-blue-600 text-white text-center text-xs py-2">
+        Free setup and ingestion assistance included — start with upload or onsite scanning
       </div>
 
-      {/* Mobile menu */}
-      {mobileOpen && (
-        <div className="md:hidden bg-white border-t border-[#E2E8F0] px-6 py-4 flex flex-col gap-2">
-          {['Product', 'How It Works', 'Solutions', 'Security', 'Pricing'].map(item => (
+      {/* Nav */}
+      <nav
+        className="transition-all duration-200"
+        style={{
+          background: scrolled ? 'rgba(255,255,255,0.92)' : 'transparent',
+          backdropFilter: scrolled ? 'blur(12px)' : 'none',
+          borderBottom: scrolled ? '1px solid #E2E8F0' : '1px solid transparent',
+          boxShadow: scrolled ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+        }}
+      >
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-[8px] bg-[#2563EB] flex items-center justify-center shadow-[0_2px_8px_rgba(37,99,235,0.3)]">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3L20 8v2l-4 2v6l2 1v2l-6-2-6 2v-2l2-1v-6L4 10V8l8-5z"/>
+              </svg>
+            </div>
+            <span className="font-semibold text-[15px] text-[#0D1117] tracking-tight">myaircraft.us</span>
+          </Link>
+
+          {/* Desktop Nav */}
+          <div className="hidden md:flex items-center gap-1">
+            {NAV_LINKS.map(item => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="px-3.5 py-2 text-[14px] text-[#4B5563] hover:text-[#0D1117] rounded-[8px] hover:bg-[#F1F3F7] transition-all duration-150 font-medium"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+
+          {/* Desktop CTA */}
+          <div className="hidden md:flex items-center gap-2">
             <Link
-              key={item}
-              href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-              className="py-2.5 text-[15px] font-medium text-[#374151] border-b border-[#F1F3F7]"
-              onClick={() => setMobileOpen(false)}
+              href="/signin"
+              className="px-4 py-2 text-[14px] font-medium text-[#4B5563] hover:text-[#0D1117] rounded-[8px] hover:bg-[#F1F3F7] transition-all duration-150"
             >
-              {item}
+              Log In
             </Link>
-          ))}
-          <div className="flex flex-col gap-2 pt-2">
-            <Link href="/signin" className="w-full py-3 text-center text-[15px] font-medium text-[#374151] border border-[#E2E8F0] rounded-[10px]">
-              Log in
-            </Link>
-            <Link href="/signup" className="w-full py-3 text-center text-[15px] font-semibold text-white bg-[#2563EB] rounded-[10px]">
+            <Link
+              href="/signup"
+              className="px-4 py-2 text-[14px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[10px] transition-all duration-150 shadow-[0_2px_8px_rgba(37,99,235,0.25)] hover:shadow-[0_4px_16px_rgba(37,99,235,0.35)]"
+            >
               Book Demo →
             </Link>
           </div>
+
+          {/* Mobile menu button */}
+          <button
+            className="md:hidden p-2 rounded-[8px] hover:bg-[#F1F3F7]"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="1.5" strokeLinecap="round">
+              {mobileOpen ? (
+                <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
+              ) : (
+                <><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>
+              )}
+            </svg>
+          </button>
         </div>
-      )}
-    </nav>
+
+        {/* Mobile menu */}
+        {mobileOpen && (
+          <div className="md:hidden bg-white border-t border-[#E2E8F0] px-6 py-4 flex flex-col gap-2">
+            {NAV_LINKS.map(item => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="py-2.5 text-[15px] font-medium text-[#374151] border-b border-[#F1F3F7]"
+                onClick={() => setMobileOpen(false)}
+              >
+                {item.label}
+              </Link>
+            ))}
+            <div className="flex flex-col gap-2 pt-2">
+              <Link href="/signin" className="w-full py-3 text-center text-[15px] font-medium text-[#374151] border border-[#E2E8F0] rounded-[10px]">
+                Log In
+              </Link>
+              <Link href="/signup" className="w-full py-3 text-center text-[15px] font-semibold text-white bg-[#2563EB] rounded-[10px]">
+                Book Demo →
+              </Link>
+            </div>
+          </div>
+        )}
+      </nav>
+    </div>
   )
 }
