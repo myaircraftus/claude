@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// FAA Aircraft Registry lookup proxy
-// Fetches aircraft data by N-number from FAA's public registry API
+// FAA Aircraft Registry lookup — scrapes the public HTML registry page
+// URL: https://registry.faa.gov/aircraftinquiry/Search/NNumberResult?NNumberTxt=<number_without_N>
 
 interface FAALookupResult {
   tail_number: string
@@ -11,25 +11,12 @@ interface FAALookupResult {
   serial_number?: string
   engine_make?: string
   engine_model?: string
-  aircraft_category?: string
   aircraft_type?: string
+  engine_type?: string
+  reg_status?: string
+  cert_issued?: string
   registrant_name?: string
-  base_airport?: string
-}
-
-// Map FAA engine type codes to readable names
-const ENGINE_TYPE_MAP: Record<string, string> = {
-  '1': 'Reciprocating',
-  '2': 'Turbo-prop',
-  '3': 'Turbo-shaft',
-  '4': 'Turbo-jet',
-  '5': 'Turbo-fan',
-  '6': 'Ramjet',
-  '7': '2 Cycle',
-  '8': '4 Cycle',
-  '9': 'Unknown',
-  '10': 'Electric',
-  '11': 'Rotary',
+  registrant_location?: string
 }
 
 export async function GET(request: NextRequest) {
@@ -40,150 +27,164 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'tail number required' }, { status: 400 })
   }
 
-  // Full tail number with N prefix
   const nNumber = `N${tail}`
 
   try {
-    // Try FAA Registry API v1 - the primary JSON endpoint
-    const faaUrl = `https://registry.faa.gov/aircraftinquiry/api/NNumInquiry/${encodeURIComponent(nNumber)}`
+    // FAA HTML registry — NNumberTxt does NOT include the "N" prefix
+    const url = `https://registry.faa.gov/aircraftinquiry/Search/NNumberResult?NNumberTxt=${encodeURIComponent(tail)}`
 
-    const resp = await fetch(faaUrl, {
+    const resp = await fetch(url, {
       headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'MyAircraft/1.0 (aircraft management platform)',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
     })
 
-    if (resp.ok) {
-      const raw = await resp.json()
-      const result = parseFAAResponse(nNumber, raw)
-      if (result) {
-        return NextResponse.json(result)
+    if (!resp.ok) {
+      return NextResponse.json({ error: 'Aircraft not found in FAA Registry' }, { status: 404 })
+    }
+
+    const html = await resp.text()
+
+    // If FAA says not found
+    if (
+      html.toLowerCase().includes('no aircraft found') ||
+      html.toLowerCase().includes('invalid n-number') ||
+      !html.includes('data-label')
+    ) {
+      return NextResponse.json({ error: 'Aircraft not found in FAA Registry' }, { status: 404 })
+    }
+
+    // Parse all data-label="<Label>">Value< pairs from the responsive table
+    const fields: Record<string, string> = {}
+
+    // Primary pattern: <td data-label="Make">CESSNA</td>
+    // Allow multiline content — FAA often puts value on next line after the tag
+    const tdPattern = /data-label="([^"]+)"[^>]*>([\s\S]*?)<\/td>/gi
+    let m: RegExpExecArray | null
+    while ((m = tdPattern.exec(html)) !== null) {
+      const label = m[1].trim()
+      // Strip inner tags and collapse whitespace
+      const value = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      if (label && value && value !== '&nbsp;' && value !== '-' && value.length < 200) {
+        fields[label] = value
       }
     }
 
-    // Fallback: try the av-info API
-    const avInfoUrl = `https://av-info.faa.gov/api/Aircraft/AcftRef?NNum=${encodeURIComponent(nNumber)}`
-    const avResp = await fetch(avInfoUrl, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    })
-
-    if (avResp.ok) {
-      const avRaw = await avResp.json()
-      const result = parseAvInfoResponse(nNumber, avRaw)
-      if (result) {
-        return NextResponse.json(result)
+    // Also extract from th/td table pairs as fallback
+    // Some FAA pages use <th scope="row">Label</th><td>Value</td>
+    const thTdPattern = /<th[^>]*scope="row"[^>]*>([\s\S]*?)<\/th>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/gi
+    while ((m = thTdPattern.exec(html)) !== null) {
+      const label = m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      const value = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      if (label && value && !fields[label] && value.length < 200) {
+        fields[label] = value
       }
     }
 
-    return NextResponse.json({ error: 'Aircraft not found in FAA Registry' }, { status: 404 })
+    // Map FAA field names to our data model
+    const make = (
+      fields['Make'] ||
+      fields['Mfr'] ||
+      fields['Manufacturer'] ||
+      ''
+    ).trim()
+
+    const model = (
+      fields['Model'] ||
+      fields['Model/Series'] ||
+      ''
+    ).trim()
+
+    if (!make && !model) {
+      return NextResponse.json({ error: 'Aircraft not found in FAA Registry' }, { status: 404 })
+    }
+
+    // Year
+    let year: number | undefined
+    const yearRaw = fields['Year Mfr'] || fields['Year'] || fields['Mfr Year'] || ''
+    if (yearRaw) {
+      const parsed = parseInt(yearRaw, 10)
+      if (!isNaN(parsed) && parsed > 1900 && parsed <= new Date().getFullYear() + 2) {
+        year = parsed
+      }
+    }
+
+    // Serial
+    const serial = (fields['Serial Number'] || fields['S/N'] || fields['Serial No'] || '').trim()
+
+    // Engine
+    const engineMake = (
+      fields['Engine Make'] ||
+      fields['Engine Manufacturer'] ||
+      fields['Eng Mfr'] ||
+      ''
+    ).trim()
+
+    const engineModel = (
+      fields['Engine Model'] ||
+      fields['Eng Model'] ||
+      ''
+    ).trim()
+
+    // Aircraft / engine type
+    const aircraftType = (fields['Aircraft Type'] || fields['Type Aircraft'] || '').trim()
+    const engineType = (fields['Engine Type'] || fields['Type Engine'] || '').trim()
+
+    // Registration status
+    const regStatus = (
+      fields['Status'] ||
+      fields['Reg. Status'] ||
+      fields['Certification'] ||
+      fields['Certificate Status'] ||
+      ''
+    ).trim()
+
+    const certIssued = (
+      fields['Cert. Issue Date'] ||
+      fields['Cert Issue Date'] ||
+      fields['Certificate Issue Date'] ||
+      ''
+    ).trim()
+
+    // Registrant
+    const registrantName = (
+      fields['Name'] ||
+      fields['Registrant'] ||
+      fields['Owner'] ||
+      ''
+    ).trim()
+
+    // Location
+    const city = (fields['City'] || '').trim()
+    const state = (fields['State'] || '').trim()
+    const location = city && state ? `${city}, ${state}` : (city || state || '').trim()
+
+    const result: FAALookupResult = {
+      tail_number: nNumber,
+      make,
+      model,
+      year,
+      serial_number: serial || undefined,
+      engine_make: engineMake || undefined,
+      engine_model: engineModel || undefined,
+      aircraft_type: aircraftType || undefined,
+      engine_type: engineType || undefined,
+      reg_status: regStatus || undefined,
+      cert_issued: certIssued || undefined,
+      registrant_name: registrantName || undefined,
+      registrant_location: location || undefined,
+    }
+
+    return NextResponse.json(result)
   } catch (err: any) {
-    // FAA API might be unreachable — return graceful error
+    console.error('[faa-lookup] error:', err?.message)
     return NextResponse.json(
-      { error: 'FAA Registry unreachable. Please enter details manually.' },
+      { error: 'FAA Registry unavailable. Please enter details manually.' },
       { status: 503 }
     )
-  }
-}
-
-function parseFAAResponse(nNumber: string, raw: any): FAALookupResult | null {
-  // The FAA Registry JSON API response structure
-  const ac = raw?.aircraftReference || raw?.aircraft || raw
-  if (!ac) return null
-
-  const desc = raw?.aircraftDescription || raw?.acftRef || ac
-  const engine = raw?.engineReference || raw?.engRef || {}
-  const registrant = raw?.registrantInformation || raw?.registrant || {}
-
-  // Extract manufacturer/make
-  const make = (
-    desc?.manufacturer ||
-    desc?.acftMfr ||
-    ac?.mfr ||
-    ac?.manufacturer ||
-    ''
-  ).trim()
-
-  const model = (
-    desc?.model ||
-    desc?.acftModel ||
-    ac?.model ||
-    ''
-  ).trim()
-
-  if (!make && !model) return null
-
-  // Year from manufacture date or year_mfr
-  let year: number | undefined
-  const yearRaw = desc?.yearMfr || desc?.year_mfr || ac?.yearMfr || ac?.year
-  if (yearRaw) {
-    const parsed = parseInt(String(yearRaw), 10)
-    if (!isNaN(parsed) && parsed > 1900 && parsed <= new Date().getFullYear() + 2) {
-      year = parsed
-    }
-  }
-
-  const serial = (desc?.serialNumber || desc?.serial || ac?.serialNumber || ac?.serial || '').trim()
-
-  // Engine info
-  const engineMfr = (
-    engine?.manufacturer ||
-    engine?.engMfr ||
-    desc?.engMfr ||
-    ac?.engineMfr ||
-    ''
-  ).trim()
-
-  const engineModel = (
-    engine?.model ||
-    engine?.engModel ||
-    desc?.engModel ||
-    ac?.engineModel ||
-    ''
-  ).trim()
-
-  const registrantName = (
-    registrant?.name ||
-    registrant?.registrantName ||
-    raw?.registrantName ||
-    ''
-  ).trim()
-
-  return {
-    tail_number: nNumber,
-    make,
-    model,
-    year,
-    serial_number: serial || undefined,
-    engine_make: engineMfr || undefined,
-    engine_model: engineModel || undefined,
-    registrant_name: registrantName || undefined,
-  }
-}
-
-function parseAvInfoResponse(nNumber: string, raw: any): FAALookupResult | null {
-  if (!raw || (!raw.make && !raw.mfr && !raw.manufacturer)) return null
-
-  const make = (raw.make || raw.mfr || raw.manufacturer || '').trim()
-  const model = (raw.model || raw.acftModel || '').trim()
-
-  if (!make && !model) return null
-
-  let year: number | undefined
-  if (raw.year || raw.yearMfr) {
-    const parsed = parseInt(String(raw.year || raw.yearMfr), 10)
-    if (!isNaN(parsed) && parsed > 1900) year = parsed
-  }
-
-  return {
-    tail_number: nNumber,
-    make,
-    model,
-    year,
-    serial_number: (raw.serialNumber || raw.serial || '').trim() || undefined,
-    engine_make: (raw.engineMfr || raw.engMfr || '').trim() || undefined,
-    engine_model: (raw.engineModel || raw.engModel || '').trim() || undefined,
   }
 }

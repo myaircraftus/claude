@@ -1,4 +1,4 @@
-import { MarketingHomePage } from '@/components/marketing/HomePage'
+import { HomePage } from '@/components/marketing/HomePage'
 export default function Page() {
-  return <MarketingHomePage />
+  return <HomePage />
 }
