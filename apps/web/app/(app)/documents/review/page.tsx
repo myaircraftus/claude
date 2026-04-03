@@ -24,6 +24,9 @@ export default async function ReviewQueuePage() {
   const membership = membershipRes.data
   if (!membership) redirect('/onboarding')
 
+  const orgId = membership.organization_id
+
+  // ── Queue items with full arbitration data ─────────────────────────────────
   let queueItems: any[] = []
   try {
     const { data } = await supabase
@@ -31,20 +34,77 @@ export default async function ReviewQueuePage() {
       .select(`
         *,
         ocr_page_job:ocr_page_job_id(
-          page_number, page_classification, ocr_confidence, ocr_raw_text,
-          document:document_id(title)
+          id,
+          page_number,
+          page_classification,
+          ocr_confidence,
+          ocr_raw_text,
+          arbitration_status,
+          arbitration_confidence,
+          arbitration_reasoning,
+          engines_run,
+          document:document_id(title, doc_type)
         ),
         ocr_extracted_event:ocr_extracted_event_id(
-          event_type, event_date, tach_time, work_description,
-          mechanic_name, mechanic_cert_number, ad_references,
-          confidence_overall, review_status
+          id,
+          event_type,
+          event_date,
+          tach_time,
+          airframe_tt,
+          work_description,
+          mechanic_name,
+          mechanic_cert_number,
+          ia_number,
+          ad_references,
+          part_numbers,
+          confidence_overall,
+          review_status
         )
       `)
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
-      .limit(30)
+      .limit(50)
     queueItems = data ?? []
+  } catch {}
+
+  // ── For each item, load field candidates + conflicts ───────────────────────
+  const enriched: any[] = []
+  for (const item of queueItems) {
+    const pageId = item.ocr_page_job?.id
+    if (!pageId) { enriched.push(item); continue }
+
+    let fieldCandidates: any[] = []
+    let fieldConflicts: any[] = []
+
+    try {
+      const [candidatesRes, conflictsRes] = await Promise.all([
+        supabase
+          .from('extracted_field_candidates')
+          .select('*')
+          .eq('page_id', pageId),
+        supabase
+          .from('field_conflicts')
+          .select('*')
+          .eq('page_id', pageId)
+          .eq('resolution_status', 'pending'),
+      ])
+      fieldCandidates = candidatesRes.data ?? []
+      fieldConflicts = conflictsRes.data ?? []
+    } catch {}
+
+    enriched.push({ ...item, fieldCandidates, fieldConflicts })
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  let totalNeedsReview = 0
+  try {
+    const { count } = await supabase
+      .from('ocr_page_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('needs_human_review', true)
+    totalNeedsReview = count ?? 0
   } catch {}
 
   return (
@@ -56,7 +116,11 @@ export default async function ReviewQueuePage() {
           { label: 'Review Queue' },
         ]}
       />
-      <ReviewQueueClient items={queueItems} orgId={membership.organization_id} />
+      <ReviewQueueClient
+        items={enriched}
+        orgId={orgId}
+        totalNeedsReview={totalNeedsReview}
+      />
     </div>
   )
 }

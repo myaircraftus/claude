@@ -27,6 +27,7 @@ interface SidebarProps {
   selectedAircraftId?: string
   reminderCount?: number
   reviewQueueCount?: number
+  isPlatformAdmin?: boolean
 }
 
 interface NavItem {
@@ -46,6 +47,7 @@ export function Sidebar({
   selectedAircraftId,
   reminderCount,
   reviewQueueCount,
+  isPlatformAdmin,
 }: SidebarProps) {
   const pathname = usePathname()
 
@@ -194,18 +196,20 @@ export function Sidebar({
           <Settings className="h-4 w-4" />
           Settings
         </Link>
-        <Link
-          href="/admin"
-          className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-            pathname.startsWith('/admin')
-              ? 'bg-brand-50 text-brand-700 font-medium'
-              : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-          )}
-        >
-          <Shield className="h-4 w-4" />
-          Admin
-        </Link>
+        {isPlatformAdmin && (
+          <Link
+            href="/admin"
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+              pathname.startsWith('/admin')
+                ? 'bg-brand-50 text-brand-700 font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <Shield className="h-4 w-4" />
+            Admin
+          </Link>
+        )}
       </div>
     </aside>
   )

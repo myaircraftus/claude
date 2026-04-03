@@ -47,6 +47,7 @@ import type {
   AircraftADApplicability,
   MaintenanceEntryDraft,
 } from '@/types'
+import { LiveTrackingSection } from '@/components/aircraft/tracking/LiveTrackingSection'
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,13 @@ function OverviewTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Live Tracking — feature-flagged, renders nothing when flag is off */}
+      <LiveTrackingSection
+        aircraftId={aircraft.id}
+        registration={aircraft.tail_number}
+        enabled={process.env.NEXT_PUBLIC_ENABLE_AIRCRAFT_LIVE_TRACKING === 'true'}
+      />
     </div>
   )
 }

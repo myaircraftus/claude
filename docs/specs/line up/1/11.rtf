@@ -1,0 +1,381 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 You are working on the myaircraft.us app.\
+\
+Goal:\
+Add a new \'93Live Tracking / Recent Flights\'94 capability to each aircraft page, starting with the Operations sync and current usage card. For now, implement the UI and architecture cleanly so it can show a live provider web view plus recent flight history, without disturbing existing app behavior.\
+\
+Important product direction:\
+- Do NOT break or rewrite existing maintenance, documents, registry, AD, or usage ledger flows.\
+- This must be additive and feature-flagged.\
+- Existing cards, tabs, and aircraft detail logic must continue to work.\
+- Keep the current design language but make it cleaner, more modern, and easier to understand.\
+- The current aircraft example shown in UI is N636SA.\
+- For now, the live section can show an embedded/web-view style panel and a normalized recent flights list.\
+- Build production-ready architecture so providers can be swapped later.\
+\
+What to build:\
+\
+1. Add a new aircraft-page section:\
+- Section title: Live Tracking\
+- Place it inside or directly under the \'93Operations sync and current usage\'94 area\
+- Add provider badge at top right\
+- Add last sync timestamp\
+- Add status chip:\
+  - Live now\
+  - Recently active\
+  - No live provider linked\
+  - Provider unavailable\
+\
+2. Add a tabbed card with 3 tabs:\
+- Live View\
+- Recent Flights\
+- Provider Settings\
+\
+3. Live View tab:\
+- Display an embedded provider panel / iframe-style webview container for the selected aircraft tail number\
+- For now support configuration for:\
+  - flightaware\
+  - adsbexchange\
+  - none\
+- If no provider is configured, show empty state:\
+  - \'93No live tracking provider linked yet\'94\
+  - button: Connect Provider\
+- If provider exists but embed is disabled by config, show a fallback message and still show latest structured flight data\
+- Include an \'93Open in provider\'94 external link button\
+- Include a small info row:\
+  - tail number\
+  - ICAO / hex if available\
+  - last position time\
+  - source provider\
+\
+4. Recent Flights tab:\
+- Build a normalized table/list of recent flights for the aircraft\
+- Columns:\
+  - Date\
+  - Flight ID / Callsign\
+  - From\
+  - To\
+  - Departure Time\
+  - Arrival Time\
+  - Duration\
+  - Max Altitude\
+  - Avg / Last Groundspeed\
+  - Status\
+  - Source\
+- Add row click to open a flight detail drawer/modal\
+\
+5. Flight detail drawer/modal:\
+- Show:\
+  - tail number\
+  - callsign / flight id\
+  - provider\
+  - departure / arrival\
+  - off/on times if available\
+  - route polyline summary if stored\
+  - altitude / speed summary\
+  - raw provider payload collapsible JSON section for admin/dev only\
+- Add actions:\
+  - Refresh from provider\
+  - Save evidence note\
+  - Copy provider link\
+\
+6. Provider Settings tab:\
+- Show linked provider\
+- Show whether embed is enabled\
+- Show whether structured sync is enabled\
+- Show sync cadence\
+- Show source priority\
+- Add toggle placeholders for admins:\
+  - Enable live web view\
+  - Enable recent flights sync\
+  - Use provider as ops signal source\
+- Add note:\
+  - reviewed maintenance evidence remains higher priority than provider telemetry in ops reconciliation\
+\
+7. Build backend/provider abstraction:\
+Create a provider adapter layer with a clean interface like:\
+\
+- getAircraftLiveState(registration)\
+- getRecentFlights(registration, limit, cursor?)\
+- getFlightDetails(flightId)\
+- getProviderEmbedUrl(registration)\
+- refreshAircraftTracking(registration)\
+\
+Implement adapters for:\
+- FlightAwareAdapter\
+- AdsbExchangeAdapter\
+- MockTrackingAdapter\
+\
+Do NOT hardcode provider-specific logic into UI components.\
+\
+8. Data normalization:\
+Create normalized types/interfaces for:\
+- AircraftLiveState\
+- RecentFlight\
+- FlightTrackPoint\
+- FlightProviderConfig\
+- FlightSyncLog\
+\
+Normalized AircraftLiveState example fields:\
+- aircraftId\
+- registration\
+- provider\
+- providerAircraftId\
+- hex\
+- callsign\
+- isLive\
+- status\
+- latitude\
+- longitude\
+- altitudeFt\
+- groundspeedKts\
+- headingDeg\
+- lastSeenAt\
+- departedAirport\
+- arrivalAirport\
+- currentFlightId\
+- providerLink\
+- embedUrl\
+- raw\
+\
+Normalized RecentFlight example fields:\
+- id\
+- aircraftId\
+- registration\
+- provider\
+- providerFlightId\
+- callsign\
+- origin\
+- destination\
+- departedAt\
+- arrivedAt\
+- durationMinutes\
+- maxAltitudeFt\
+- avgGroundspeedKts\
+- lastGroundspeedKts\
+- status\
+- providerLink\
+- raw\
+\
+9. Database/schema:\
+Add tables or equivalents for:\
+- aircraft_tracking_provider_config\
+- aircraft_live_state\
+- aircraft_recent_flights\
+- flight_track_points\
+- flight_sync_logs\
+\
+Suggested fields:\
+\
+aircraft_tracking_provider_config\
+- id\
+- aircraft_id\
+- provider\
+- provider_aircraft_id nullable\
+- registration\
+- hex nullable\
+- embed_enabled boolean default false\
+- structured_sync_enabled boolean default false\
+- ops_signal_enabled boolean default false\
+- source_priority int default 50\
+- refresh_interval_minutes int default 15\
+- created_at\
+- updated_at\
+\
+aircraft_live_state\
+- id\
+- aircraft_id\
+- registration\
+- provider\
+- provider_flight_id nullable\
+- callsign nullable\
+- hex nullable\
+- latitude nullable\
+- longitude nullable\
+- altitude_ft nullable\
+- groundspeed_kts nullable\
+- heading_deg nullable\
+- departed_airport nullable\
+- arrival_airport nullable\
+- is_live boolean default false\
+- status nullable\
+- last_seen_at nullable\
+- provider_link nullable\
+- embed_url nullable\
+- raw_json json/jsonb\
+- synced_at\
+- created_at\
+- updated_at\
+\
+aircraft_recent_flights\
+- id\
+- aircraft_id\
+- registration\
+- provider\
+- provider_flight_id\
+- callsign nullable\
+- origin nullable\
+- destination nullable\
+- departed_at nullable\
+- arrived_at nullable\
+- duration_minutes nullable\
+- max_altitude_ft nullable\
+- avg_groundspeed_kts nullable\
+- last_groundspeed_kts nullable\
+- status nullable\
+- provider_link nullable\
+- raw_json json/jsonb\
+- synced_at\
+- created_at\
+- updated_at\
+\
+flight_track_points\
+- id\
+- recent_flight_id\
+- seq_no\
+- latitude\
+- longitude\
+- altitude_ft nullable\
+- groundspeed_kts nullable\
+- heading_deg nullable\
+- recorded_at\
+- created_at\
+\
+flight_sync_logs\
+- id\
+- aircraft_id\
+- registration\
+- provider\
+- sync_type\
+- status\
+- message nullable\
+- records_written default 0\
+- started_at\
+- completed_at nullable\
+- created_at\
+\
+Add indexes on:\
+- aircraft_id\
+- registration\
+- provider\
+- provider_flight_id\
+- synced_at\
+- last_seen_at\
+\
+10. API routes / server actions:\
+Add safe endpoints or actions for:\
+- GET /api/aircraft/:id/tracking/live\
+- GET /api/aircraft/:id/tracking/recent\
+- GET /api/aircraft/:id/tracking/flights/:flightId\
+- POST /api/aircraft/:id/tracking/refresh\
+- GET /api/aircraft/:id/tracking/provider-config\
+- PATCH /api/aircraft/:id/tracking/provider-config\
+\
+Requirements:\
+- All endpoints must fail gracefully\
+- No provider keys in client\
+- Provider calls happen server-side only\
+- Add response validation\
+- Add clear error states and loading states\
+\
+11. Feature flagging:\
+Add feature flags:\
+- ENABLE_AIRCRAFT_LIVE_TRACKING\
+- ENABLE_FLIGHTAWARE_PROVIDER\
+- ENABLE_ADSBEXCHANGE_PROVIDER\
+- ENABLE_TRACKING_EMBED\
+- ENABLE_TRACKING_ADMIN_RAW_PAYLOAD\
+\
+If disabled, hide only the new tracking sections and leave existing app untouched.\
+\
+12. UX requirements:\
+- Keep layout premium, minimal, modern\
+- Use clean cards, subtle gradients, better spacing, concise copy\
+- Reduce long text blocks\
+- Prefer labels, chips, icons, short helper text\
+- Make buttons obvious:\
+  - Open live tracking\
+  - Refresh\
+  - Open provider\
+  - Connect provider\
+- Recent Flights should feel like an operations dashboard, not a developer tool\
+- Mobile responsive\
+- Desktop should show map/webview and recent flights in a polished way\
+\
+13. Reconciliation note:\
+Inside the \'93Operations sync and current usage\'94 logic, do NOT overwrite reviewed maintenance evidence.\
+Instead:\
+- show provider telemetry as a signal/source\
+- mark it lower priority than reviewed evidence\
+- support conflict flagging\
+- preserve existing ledger philosophy\
+\
+14. For now, provider implementation path:\
+Implement with mock + adapter-ready structure first.\
+If env vars are present, support real providers.\
+Expected env placeholders:\
+- FLIGHTAWARE_API_KEY\
+- FLIGHTAWARE_API_SECRET or token if needed\
+- ADSBEXCHANGE_API_KEY\
+\
+Do not assume exact SDKs already exist in the repo.\
+Wrap provider calls behind internal service functions so future changes are easy.\
+\
+15. Embed strategy:\
+Build embed handling so each provider can return:\
+- embedUrl\
+- providerLink\
+- embeddable boolean\
+\
+If iframe/webview is blocked by CSP/X-Frame rules, show:\
+- provider branded preview card\
+- latest live state summary\
+- \'93Open in provider\'94 button\
+\
+16. Seed/demo behavior:\
+For N636SA, allow demo data or mock fallback so UI can be reviewed even without live keys.\
+Include 5\'9610 mock recent flights in dev mode if provider is not configured.\
+\
+17. Tests:\
+Add:\
+- adapter unit tests\
+- normalization tests\
+- API response tests\
+- UI empty/loading/error state tests\
+\
+18. Deliverables:\
+- schema/migration files\
+- backend service/adapters\
+- API/server actions\
+- UI components\
+- feature flags\
+- mock data\
+- tests\
+\
+19. Output format:\
+After implementation, provide:\
+- concise summary of files changed\
+- any migrations required\
+- env vars required\
+- how to enable feature flags\
+- known limitations\
+\
+20. Guardrails:\
+- Do not remove existing features\
+- Do not refactor unrelated modules unless necessary\
+- Do not break aircraft detail page routing\
+- Do not expose secrets client-side\
+- Keep code modular, typed, and production-clean\
+- Prefer additive implementation over risky rewrites\
+\
+Nice-to-have if fast:\
+- small aircraft breadcrumb status chip \'93Tracked / Not Linked\'94\
+- auto-refresh button with cooldown\
+- polling every 60\'96120 seconds on Live View when enabled\
+- CSV export for recent flights}

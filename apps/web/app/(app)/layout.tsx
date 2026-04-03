@@ -74,6 +74,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         aircraft={(aircraft ?? []) as any}
         reminderCount={reminderCount}
         reviewQueueCount={reviewQueueCount}
+        isPlatformAdmin={profile.is_platform_admin === true}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         {children}
