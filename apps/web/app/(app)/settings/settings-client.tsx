@@ -253,6 +253,7 @@ export function SettingsClient({
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="viewer">Viewer — read-only access</SelectItem>
+                                  <SelectItem value="pilot">Pilot — flight ops & logbook</SelectItem>
                                   <SelectItem value="mechanic">Mechanic — can upload & query</SelectItem>
                                   <SelectItem value="admin">Admin — full access</SelectItem>
                                   {isOwner && <SelectItem value="owner">Owner — full control</SelectItem>}
@@ -302,6 +303,7 @@ export function SettingsClient({
                             <SelectContent>
                               <SelectItem value="viewer">Viewer</SelectItem>
                               <SelectItem value="auditor">Auditor</SelectItem>
+                              <SelectItem value="pilot">Pilot</SelectItem>
                               <SelectItem value="mechanic">Mechanic</SelectItem>
                               <SelectItem value="admin">Admin</SelectItem>
                               {isOwner && <SelectItem value="owner">Owner</SelectItem>}

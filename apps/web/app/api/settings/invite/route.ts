@@ -7,7 +7,7 @@ const ADMIN_ROLES: OrgRole[] = ['owner', 'admin']
 
 const inviteSchema = z.object({
   email: z.string().email(),
-  role: z.enum(['owner', 'admin', 'mechanic', 'viewer', 'auditor']),
+  role: z.enum(['owner', 'admin', 'mechanic', 'pilot', 'viewer', 'auditor']),
 })
 
 export async function POST(req: NextRequest) {

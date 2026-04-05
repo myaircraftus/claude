@@ -236,6 +236,7 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                             'text-[10px] px-1 py-0 h-4',
                             doc.uploader_role === 'owner' && 'bg-amber-50 text-amber-700 border-amber-200',
                             doc.uploader_role === 'mechanic' && 'bg-blue-50 text-blue-700 border-blue-200',
+                            doc.uploader_role === 'pilot' && 'bg-sky-50 text-sky-700 border-sky-200',
                             doc.uploader_role === 'admin' && 'bg-slate-100 text-slate-700 border-slate-200'
                           )}
                         >

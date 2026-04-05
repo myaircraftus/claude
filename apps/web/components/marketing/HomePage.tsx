@@ -3,6 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { MarketingNav } from './MarketingNav'
 import { AppMockup } from './AppMockup'
+import { RolePersonaDiagram } from './RolePersonaDiagram'
 
 function HeroSection() {
   return (
@@ -495,6 +496,7 @@ export function MarketingHomePage() {
       <WhyNowSection />
       <HowItWorksSection />
       <FeaturesSection />
+      <RolePersonaDiagram />
       <WhoIsItForSection />
       <SecuritySection />
       <ComparisonSection />

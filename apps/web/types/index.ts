@@ -1,7 +1,7 @@
 // Shared TypeScript types for myaircraft.us
 
 export type Plan = 'starter' | 'pro' | 'fleet' | 'enterprise'
-export type OrgRole = 'owner' | 'admin' | 'mechanic' | 'viewer' | 'auditor'
+export type OrgRole = 'owner' | 'admin' | 'mechanic' | 'pilot' | 'viewer' | 'auditor'
 export type ParsingStatus =
   | 'queued'
   | 'parsing'
@@ -31,7 +31,7 @@ export type DocType =
   | 'miscellaneous'
 export type QueryConfidence = 'high' | 'medium' | 'low' | 'insufficient_evidence'
 export type SourceProvider = 'direct_upload' | 'google_drive'
-export type UploaderRole = 'owner' | 'mechanic' | 'admin'
+export type UploaderRole = 'owner' | 'mechanic' | 'admin' | 'pilot'
 export type ManualAccess = 'private' | 'free' | 'paid'
 export type BookAssignment = 'historical' | 'present'
 export type ListingStatus = 'draft' | 'pending_review' | 'published' | 'rejected'

@@ -59,6 +59,7 @@ const CATEGORY_META: Record<ManualCategory, { label: string; docType: DocType; i
 const ROLE_STYLES: Record<string, string> = {
   owner: 'bg-amber-50 text-amber-700 border-amber-200',
   mechanic: 'bg-blue-50 text-blue-700 border-blue-200',
+  pilot: 'bg-sky-50 text-sky-700 border-sky-200',
   admin: 'bg-slate-100 text-slate-700 border-slate-200',
 }
 
@@ -89,18 +90,39 @@ export function MarketplaceClient({
   const [tab, setTab] = useState(defaultTab)
   const [search, setSearch] = useState('')
   const [showUploadModal, setShowUploadModal] = useState<ManualCategory | null>(null)
-  const canUpload = ['owner', 'admin', 'mechanic'].includes(role)
+  const canUpload = ['owner', 'admin', 'mechanic', 'pilot'].includes(role)
+
+  const [accessFilter, setAccessFilter] = useState<'all' | 'free' | 'paid'>('all')
+  const [sortBy, setSortBy] = useState<'popular' | 'newest' | 'price-low' | 'price-high'>('popular')
+  const PAGE_SIZE = 24
+  const [browsePage, setBrowsePage] = useState(1)
 
   const filteredBrowse = useMemo(() => {
-    if (!search.trim()) return browseListings
-    const q = search.toLowerCase()
-    return browseListings.filter(
-      (l) =>
-        l.title.toLowerCase().includes(q) ||
-        (l.description ?? '').toLowerCase().includes(q) ||
-        (l.uploader_name ?? '').toLowerCase().includes(q)
-    )
-  }, [browseListings, search])
+    let out = browseListings
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      out = out.filter(
+        (l) =>
+          l.title.toLowerCase().includes(q) ||
+          (l.description ?? '').toLowerCase().includes(q) ||
+          (l.uploader_name ?? '').toLowerCase().includes(q)
+      )
+    }
+    if (accessFilter !== 'all') {
+      out = out.filter((l) => l.manual_access === accessFilter)
+    }
+    out = [...out].sort((a, b) => {
+      if (sortBy === 'popular') return (b.download_count ?? 0) - (a.download_count ?? 0)
+      if (sortBy === 'newest') return new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime()
+      if (sortBy === 'price-low') return (a.price_cents ?? 0) - (b.price_cents ?? 0)
+      if (sortBy === 'price-high') return (b.price_cents ?? 0) - (a.price_cents ?? 0)
+      return 0
+    })
+    return out
+  }, [browseListings, search, accessFilter, sortBy])
+
+  const browsePaged = filteredBrowse.slice((browsePage - 1) * PAGE_SIZE, browsePage * PAGE_SIZE)
+  const totalBrowsePages = Math.max(1, Math.ceil(filteredBrowse.length / PAGE_SIZE))
 
   return (
     <main className="flex-1 overflow-y-auto p-6">
@@ -141,15 +163,39 @@ export function MarketplaceClient({
 
           {/* ─── BROWSE ──────────────────────────────────────────────── */}
           <TabsContent value="browse" className="space-y-4 mt-4">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search manuals, parts catalogs…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search manuals, parts catalogs…"
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setBrowsePage(1) }}
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={accessFilter}
+                  onChange={(e) => { setAccessFilter(e.target.value as any); setBrowsePage(1) }}
+                  className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                >
+                  <option value="all">All access</option>
+                  <option value="free">Free only</option>
+                  <option value="paid">Paid only</option>
+                </select>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                >
+                  <option value="popular">Most downloaded</option>
+                  <option value="newest">Newest</option>
+                  <option value="price-low">Price: low to high</option>
+                  <option value="price-high">Price: high to low</option>
+                </select>
+              </div>
             </div>
+
             {filteredBrowse.length === 0 ? (
               <EmptyState
                 icon={ShoppingBag}
@@ -157,11 +203,38 @@ export function MarketplaceClient({
                 description="Published community listings will appear here."
               />
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredBrowse.map((l) => (
-                  <ListingCard key={l.id} listing={l} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {browsePaged.map((l) => (
+                    <ListingCard key={l.id} listing={l} />
+                  ))}
+                </div>
+                {totalBrowsePages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
+                      Page {browsePage} of {totalBrowsePages} · {filteredBrowse.length} listings
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={browsePage === 1}
+                        onClick={() => setBrowsePage((p) => Math.max(1, p - 1))}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={browsePage >= totalBrowsePages}
+                        onClick={() => setBrowsePage((p) => Math.min(totalBrowsePages, p + 1))}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </TabsContent>
 
@@ -297,6 +370,24 @@ function EmptyState({ icon: Icon, title, description }: { icon: any; title: stri
 
 function ListingCard({ listing }: { listing: Listing }) {
   const isPaid = listing.manual_access === 'paid'
+  const [downloading, setDownloading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleDownload() {
+    setDownloading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/marketplace/download/${listing.id}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Download failed')
+      window.open(json.url, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader>
@@ -332,6 +423,16 @@ function ListingCard({ listing }: { listing: Listing }) {
             {listing.download_count ?? 0}
           </span>
         </div>
+        <Button
+          size="sm"
+          className="w-full"
+          variant={isPaid ? 'default' : 'outline'}
+          disabled={downloading}
+          onClick={handleDownload}
+        >
+          {downloading ? 'Loading…' : isPaid ? `Buy · ${formatPrice(listing.price_cents)}` : 'Download'}
+        </Button>
+        {error && <p className="text-[10px] text-destructive">{error}</p>}
       </CardContent>
     </Card>
   )
@@ -378,13 +479,16 @@ function ModerationRow({ listing }: { listing: Listing }) {
 
   async function decide(approved: boolean) {
     setActing(true)
-    const supabase = createBrowserSupabase()
-    const { error } = await (supabase as any)
-      .from('documents')
-      .update({ listing_status: approved ? 'published' : 'rejected' })
-      .eq('id', listing.id)
+    const res = await fetch('/api/marketplace/moderate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        documentId: listing.id,
+        action: approved ? 'approve' : 'reject',
+      }),
+    })
     setActing(false)
-    if (!error) setHandled(approved ? 'approved' : 'rejected')
+    if (res.ok) setHandled(approved ? 'approved' : 'rejected')
   }
 
   if (handled) {

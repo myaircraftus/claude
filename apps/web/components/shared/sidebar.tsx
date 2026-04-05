@@ -15,7 +15,6 @@ import {
   Bell,
   ClipboardCheck,
   Plug2,
-  BookOpen,
   ShoppingBag,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -76,7 +75,6 @@ export function Sidebar({
     {
       items: [
         { label: 'Integrations', href: '/integrations', icon: Plug2 },
-        { label: 'Community Library', href: '/library', icon: BookOpen },
         { label: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
       ],
     },

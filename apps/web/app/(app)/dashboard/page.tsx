@@ -18,7 +18,8 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
-import type { UserProfile } from '@/types'
+import type { UserProfile, OrgRole } from '@/types'
+import { RoleWidgets } from '@/components/dashboard/role-widgets'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -147,7 +148,7 @@ export default async function DashboardPage() {
           {/* Greeting */}
           <div>
             <h1 className="text-2xl font-bold text-foreground">
-              {getGreeting()}, {profile.full_name?.split(' ')[0] ?? 'Pilot'}
+              {getGreeting()}, {profile.full_name?.split(' ')[0] ?? membership.role ?? 'there'}
             </h1>
             <p className="text-muted-foreground">{org.name} · {org.plan} plan</p>
           </div>
@@ -168,6 +169,18 @@ export default async function DashboardPage() {
               </Button>
             </div>
           )}
+
+          {/* Role-based widgets — tailored to what this user does */}
+          <RoleWidgets
+            role={(membership.role as OrgRole) ?? 'viewer'}
+            stats={{
+              aircraftCount: aircraft.length,
+              documentsIndexed: completedDocs,
+              overdueReminders: overdueRemindersCount,
+              dueSoonReminders: dueSoonRemindersCount,
+              lastFlightDate: null,
+            }}
+          />
 
           {/* Stat cards */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

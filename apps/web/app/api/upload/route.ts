@@ -69,10 +69,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
-  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic']
+  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
   if (!ALLOWED_ROLES.includes(membership.role)) {
     return NextResponse.json(
-      { error: 'Insufficient permissions. Mechanic role or higher required.' },
+      { error: 'Insufficient permissions. Pilot, mechanic, or higher required.' },
       { status: 403 }
     )
   }
@@ -136,17 +136,36 @@ export async function POST(req: NextRequest) {
       ? (manualAccessRaw as 'private' | 'free' | 'paid')
       : null
   const communityListing = manualAccess === 'free' || manualAccess === 'paid'
-  const priceCents =
-    manualAccess === 'paid' && priceRaw
-      ? Math.max(0, Math.round(Number(priceRaw) * 100))
-      : null
   const attestation = attestationRaw === 'true'
 
+  // Server-side validation for community listings
+  if (communityListing && !attestation) {
+    return NextResponse.json(
+      { error: 'Attestation required to list in the community marketplace' },
+      { status: 400 }
+    )
+  }
+
+  // Price: cap at $1,000,000 ($100M cents), enforce > 0 for paid
+  const PRICE_CAP_CENTS = 100_000_000 // $1,000,000
+  let priceCents: number | null = null
+  if (manualAccess === 'paid') {
+    const parsed = Number(priceRaw)
+    if (!priceRaw || !Number.isFinite(parsed) || parsed <= 0) {
+      return NextResponse.json(
+        { error: 'Valid price required for paid listings' },
+        { status: 400 }
+      )
+    }
+    priceCents = Math.min(PRICE_CAP_CENTS, Math.round(parsed * 100))
+  }
+
   // Map org role → uploader_role (viewer/auditor won't reach here due to ALLOWED_ROLES)
-  const uploaderRoleMap: Record<string, 'owner' | 'admin' | 'mechanic'> = {
+  const uploaderRoleMap: Record<string, 'owner' | 'admin' | 'mechanic' | 'pilot'> = {
     owner: 'owner',
     admin: 'admin',
     mechanic: 'mechanic',
+    pilot: 'pilot',
   }
   const uploaderRole = uploaderRoleMap[membership.role] ?? 'mechanic'
 
