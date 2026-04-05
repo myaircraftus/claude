@@ -31,6 +31,11 @@ export type DocType =
   | 'miscellaneous'
 export type QueryConfidence = 'high' | 'medium' | 'low' | 'insufficient_evidence'
 export type SourceProvider = 'direct_upload' | 'google_drive'
+export type UploaderRole = 'owner' | 'mechanic' | 'admin'
+export type ManualAccess = 'private' | 'free' | 'paid'
+export type BookAssignment = 'historical' | 'present'
+export type ListingStatus = 'draft' | 'pending_review' | 'published' | 'rejected'
+export type Visibility = 'private' | 'team'
 
 export interface Organization {
   id: string
@@ -123,6 +128,17 @@ export interface Document {
   version_number: number
   supersedes_id?: string
   uploaded_by?: string
+  uploader_role?: UploaderRole
+  uploader_name?: string
+  allow_download?: boolean
+  community_listing?: boolean
+  manual_access?: ManualAccess
+  book_assignment?: BookAssignment
+  price_cents?: number
+  attestation_accepted?: boolean
+  listing_status?: ListingStatus
+  visibility?: Visibility
+  download_count?: number
   uploaded_at: string
   updated_at: string
 }
@@ -270,6 +286,9 @@ export interface FileUploadItem {
   id: string
   aircraftId?: string
   docType: DocType
+  manualAccess: ManualAccess
+  price: string
+  attestation: boolean
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error'
   progress: number
   error?: string

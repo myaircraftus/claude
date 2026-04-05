@@ -124,6 +124,42 @@ export async function POST(req: NextRequest) {
   const aircraftId = formData.get('aircraft_id')?.toString().trim() || null
   const docType = formData.get('doc_type')?.toString().trim() || 'miscellaneous'
   const titleRaw = formData.get('title')?.toString().trim()
+  const manualAccessRaw = formData.get('manual_access')?.toString().trim()
+  const priceRaw = formData.get('price')?.toString().trim()
+  const attestationRaw = formData.get('attestation')?.toString().trim()
+
+  // Ownership/listing derived fields
+  const MANUAL_TYPES = ['maintenance_manual', 'service_manual', 'parts_catalog']
+  const isManualType = MANUAL_TYPES.includes(docType)
+  const manualAccess =
+    isManualType && ['private', 'free', 'paid'].includes(manualAccessRaw ?? '')
+      ? (manualAccessRaw as 'private' | 'free' | 'paid')
+      : null
+  const communityListing = manualAccess === 'free' || manualAccess === 'paid'
+  const priceCents =
+    manualAccess === 'paid' && priceRaw
+      ? Math.max(0, Math.round(Number(priceRaw) * 100))
+      : null
+  const attestation = attestationRaw === 'true'
+
+  // Map org role → uploader_role (viewer/auditor won't reach here due to ALLOWED_ROLES)
+  const uploaderRoleMap: Record<string, 'owner' | 'admin' | 'mechanic'> = {
+    owner: 'owner',
+    admin: 'admin',
+    mechanic: 'mechanic',
+  }
+  const uploaderRole = uploaderRoleMap[membership.role] ?? 'mechanic'
+
+  // Fetch uploader display name
+  const { data: uploaderProfile } = await serviceClient
+    .from('user_profiles')
+    .select('full_name, email')
+    .eq('id', user.id)
+    .single()
+  const uploaderName =
+    (uploaderProfile?.full_name as string | undefined) ||
+    (uploaderProfile?.email as string | undefined) ||
+    null
 
   if (!fileEntry || !(fileEntry instanceof File)) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -182,7 +218,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 9. Create document record ─────────────────────────────────────────────
-  const { data: docRecord, error: insertError } = await serviceClient
+  const { data: docRecord, error: insertError } = await (serviceClient as any)
     .from('documents')
     .insert({
       id: docId,
@@ -200,6 +236,16 @@ export async function POST(req: NextRequest) {
       ocr_required: false,
       version_number: 1,
       uploaded_by: user.id,
+      uploader_role: uploaderRole,
+      uploader_name: uploaderName,
+      allow_download: false,
+      community_listing: communityListing,
+      manual_access: manualAccess,
+      price_cents: priceCents,
+      attestation_accepted: attestation,
+      listing_status: communityListing ? 'pending_review' : null,
+      visibility: 'team',
+      download_count: 0,
       uploaded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })

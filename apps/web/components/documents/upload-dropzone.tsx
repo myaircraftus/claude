@@ -15,7 +15,10 @@ import {
 } from '@/components/ui/select'
 import { cn, formatBytes, DOC_TYPE_LABELS } from '@/lib/utils'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import type { FileUploadItem, DocType, ParsingStatus } from '@/types'
+import type { FileUploadItem, DocType, ParsingStatus, ManualAccess } from '@/types'
+
+// Doc types eligible for community listing (manuals)
+const MANUAL_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_catalog']
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -141,6 +144,9 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
         id: crypto.randomUUID(),
         aircraftId: undefined,
         docType: 'miscellaneous' as DocType,
+        manualAccess: 'private' as ManualAccess,
+        price: '',
+        attestation: false,
         status: 'pending' as const,
         progress: 0,
       }))
@@ -174,6 +180,14 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
     formData.append('title', item.file.name.replace(/\.pdf$/i, ''))
     if (item.aircraftId) {
       formData.append('aircraft_id', item.aircraftId)
+    }
+    // Manual-access fields (only send for manual types)
+    if (MANUAL_TYPES.includes(item.docType)) {
+      formData.append('manual_access', item.manualAccess)
+      if (item.manualAccess === 'paid' && item.price) {
+        formData.append('price', item.price)
+      }
+      formData.append('attestation', String(item.attestation))
     }
 
     try {
@@ -226,6 +240,21 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
   async function handleUploadAll() {
     const pending = files.filter((f) => f.status === 'pending' || f.status === 'error')
     if (pending.length === 0) return
+
+    // Block if any manual listing missing attestation
+    const blocked = pending.find(
+      (f) =>
+        MANUAL_TYPES.includes(f.docType) &&
+        (f.manualAccess === 'free' || f.manualAccess === 'paid') &&
+        !f.attestation
+    )
+    if (blocked) {
+      updateFile(blocked.id, {
+        status: 'error',
+        error: 'Please accept the community library terms',
+      })
+      return
+    }
 
     setIsUploading(true)
     try {
@@ -376,6 +405,68 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                     </Select>
                   </div>
                 )}
+
+                {/* Manual-access controls — only for manual doc types */}
+                {(item.status === 'pending' || item.status === 'error') &&
+                  MANUAL_TYPES.includes(item.docType) && (
+                    <div className="pl-11 space-y-2">
+                      <div className="flex gap-1 rounded-md border border-border p-0.5 bg-muted/30">
+                        {(['private', 'free', 'paid'] as ManualAccess[]).map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => updateFile(item.id, { manualAccess: level })}
+                            className={cn(
+                              'flex-1 px-3 py-1 text-xs rounded font-medium transition-colors',
+                              item.manualAccess === level
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            {level === 'private' ? 'Private' : level === 'free' ? 'Free download' : 'Paid'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground p-2 bg-amber-50 border border-amber-200 rounded">
+                        Manuals, service manuals, and parts catalogs can stay private or become
+                        community downloads. Paid listings follow the requested 50% uploader /
+                        50% myaircraft.us split.
+                      </p>
+                      {item.manualAccess === 'paid' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Price $</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.price}
+                            onChange={(e) => updateFile(item.id, { price: e.target.value })}
+                            className="h-7 px-2 text-xs border border-border rounded w-24 bg-background"
+                            placeholder="0.00"
+                          />
+                          {item.price && Number(item.price) > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              You earn ${(Number(item.price) * 0.5).toFixed(2)} per download
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {(item.manualAccess === 'free' || item.manualAccess === 'paid') && (
+                        <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={item.attestation}
+                            onChange={(e) => updateFile(item.id, { attestation: e.target.checked })}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            I certify I have the right to share this document and accept the
+                            community library terms.
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  )}
 
                 {/* Progress bar during upload */}
                 {item.status === 'uploading' && (

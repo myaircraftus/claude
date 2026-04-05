@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   Plug2,
   BookOpen,
+  ShoppingBag,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -76,6 +77,7 @@ export function Sidebar({
       items: [
         { label: 'Integrations', href: '/integrations', icon: Plug2 },
         { label: 'Community Library', href: '/library', icon: BookOpen },
+        { label: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
       ],
     },
   ]

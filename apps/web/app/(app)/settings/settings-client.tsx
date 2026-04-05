@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Building2, Users, Plug, CreditCard, AlertTriangle,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
-  CheckCircle2
+  CheckCircle2, FileUp, Lock, Unlock, Download, FileText
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -22,8 +22,29 @@ import {
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import { PLAN_LABELS, formatBytes } from '@/lib/utils'
-import type { UserProfile, Organization, OrgRole } from '@/types'
+import { PLAN_LABELS, formatBytes, formatDate, cn, DOC_TYPE_LABELS } from '@/lib/utils'
+import type {
+  UserProfile, Organization, OrgRole, DocType, UploaderRole,
+  ManualAccess, ListingStatus, Visibility
+} from '@/types'
+
+// My Uploads row type (server pre-selects these columns)
+interface MyUploadRow {
+  id: string
+  title: string
+  doc_type: DocType
+  file_size_bytes: number | null
+  uploaded_at: string
+  uploader_role: UploaderRole | null
+  allow_download: boolean
+  community_listing: boolean
+  manual_access: ManualAccess | null
+  price_cents: number | null
+  listing_status: ListingStatus | null
+  download_count: number
+  visibility: Visibility
+  aircraft: { id: string; tail_number: string; make: string; model: string } | null
+}
 
 interface Member {
   id: string
@@ -39,6 +60,7 @@ interface Props {
   role: string
   members: Member[]
   driveConnection: { id: string; google_email?: string; is_active: boolean; created_at: string } | null
+  myUploads: MyUploadRow[]
   defaultTab: string
   showUpgradeSuccess: boolean
 }
@@ -51,7 +73,7 @@ const PLAN_FEATURES = {
 }
 
 export function SettingsClient({
-  profile, organization, role, members, driveConnection, defaultTab, showUpgradeSuccess
+  profile, organization, role, members, driveConnection, myUploads, defaultTab, showUpgradeSuccess
 }: Props) {
   const router = useRouter()
   const [orgName, setOrgName] = useState(organization.name)
@@ -147,6 +169,7 @@ export function SettingsClient({
             <TabsTrigger value="organization"><Building2 className="h-4 w-4 mr-1.5" />Organization</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-4 w-4 mr-1.5" />Members</TabsTrigger>
             <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1.5" />Integrations</TabsTrigger>
+            <TabsTrigger value="uploads"><FileUp className="h-4 w-4 mr-1.5" />My Uploads</TabsTrigger>
             <TabsTrigger value="billing"><CreditCard className="h-4 w-4 mr-1.5" />Billing</TabsTrigger>
             {isOwner && <TabsTrigger value="danger"><AlertTriangle className="h-4 w-4 mr-1.5" />Danger</TabsTrigger>}
           </TabsList>
@@ -481,8 +504,218 @@ export function SettingsClient({
               </Card>
             </TabsContent>
           )}
+
+          {/* My Uploads tab */}
+          <TabsContent value="uploads" className="space-y-4">
+            <MyUploadsSection initialRows={myUploads} />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
+  )
+}
+
+// ─── My Uploads Section ────────────────────────────────────────────────────
+
+function MyUploadsSection({ initialRows }: { initialRows: MyUploadRow[] }) {
+  const [rows, setRows] = useState(initialRows)
+  const [editing, setEditing] = useState<MyUploadRow | null>(null)
+
+  async function toggleAllowDownload(row: MyUploadRow) {
+    const next = !row.allow_download
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, allow_download: next } : r)))
+    const supabase = createBrowserSupabase()
+    const { error } = await (supabase as any)
+      .from('documents')
+      .update({ allow_download: next })
+      .eq('id', row.id)
+    if (error) {
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, allow_download: !next } : r)))
+    }
+  }
+
+  async function delistFromCommunity(row: MyUploadRow) {
+    if (!confirm(`Remove "${row.title}" from the community marketplace? The document stays in your library.`)) return
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === row.id ? { ...r, community_listing: false, listing_status: null } : r
+      )
+    )
+    const supabase = createBrowserSupabase()
+    await (supabase as any)
+      .from('documents')
+      .update({ community_listing: false, listing_status: null })
+      .eq('id', row.id)
+  }
+
+  async function deleteDoc(row: MyUploadRow) {
+    if (row.community_listing) return
+    if (!confirm(`Permanently delete "${row.title}"? This cannot be undone.`)) return
+    setRows((prev) => prev.filter((r) => r.id !== row.id))
+    const supabase = createBrowserSupabase()
+    await (supabase as any).from('documents').delete().eq('id', row.id)
+  }
+
+  const stats = {
+    total: rows.length,
+    community: rows.filter((r) => r.community_listing).length,
+    downloads: rows.reduce((sum, r) => sum + (r.download_count ?? 0), 0),
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>My Uploads</CardTitle>
+          <CardDescription>
+            Documents you've uploaded to this organization. You control access and community listing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="p-3 rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground">Total uploads</p>
+              <p className="text-lg font-semibold">{stats.total}</p>
+            </div>
+            <div className="p-3 rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground">On marketplace</p>
+              <p className="text-lg font-semibold">{stats.community}</p>
+            </div>
+            <div className="p-3 rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground">Total downloads</p>
+              <p className="text-lg font-semibold">{stats.downloads}</p>
+            </div>
+          </div>
+
+          {rows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center mb-2">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">No uploads yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Documents you upload will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Title</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Type</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Aircraft</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Access</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Community</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Downloads</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Date</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rows.map((row) => (
+                    <tr key={row.id} className="hover:bg-muted/20">
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="font-medium truncate max-w-[200px]">{row.title}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                          {DOC_TYPE_LABELS[row.doc_type] ?? row.doc_type}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {row.aircraft ? (
+                          <span className="font-mono">{row.aircraft.tail_number}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleAllowDownload(row)}
+                          className="flex items-center gap-1 text-xs hover:text-foreground transition-colors"
+                          title={row.allow_download ? 'Click to lock downloads' : 'Click to allow downloads'}
+                        >
+                          {row.allow_download ? (
+                            <>
+                              <Unlock className="h-3.5 w-3.5 text-green-600" />
+                              <span className="text-green-700">Unlocked</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-muted-foreground">Locked</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.community_listing ? (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[10px]',
+                              row.listing_status === 'published' && 'bg-green-50 text-green-700 border-green-200',
+                              row.listing_status === 'pending_review' && 'bg-amber-50 text-amber-700 border-amber-200',
+                              row.listing_status === 'rejected' && 'bg-red-50 text-red-700 border-red-200',
+                              row.listing_status === 'draft' && 'bg-slate-100 text-slate-700 border-slate-200'
+                            )}
+                          >
+                            {row.manual_access === 'paid' && row.price_cents != null
+                              ? `$${(row.price_cents / 100).toFixed(2)}`
+                              : 'Free'}
+                            {' · '}
+                            {(row.listing_status ?? 'draft').replace('_', ' ')}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs tabular-nums">
+                        <span className="flex items-center justify-end gap-1">
+                          <Download className="h-3 w-3 text-muted-foreground" />
+                          {row.download_count}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(row.uploaded_at)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex items-center gap-1 justify-end">
+                          {row.community_listing && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => delistFromCommunity(row)}
+                            >
+                              Delist
+                            </Button>
+                          )}
+                          {!row.community_listing && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-destructive hover:text-destructive"
+                              onClick={() => deleteDoc(row)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
   )
 }
