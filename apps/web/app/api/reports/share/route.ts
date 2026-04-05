@@ -1,7 +1,7 @@
 // Generates a shareable link for a completed report (for prebuy/lender/insurer packets)
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { createServerSupabase } from '@/lib/supabase/server'
-import { v4 as uuidv4 } from 'uuid'
 
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -20,11 +20,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Report not ready' }, { status: 400 })
   }
 
-  const shareToken = uuidv4()
+  const shareToken = randomUUID()
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + expires_days)
 
-  await supabase.from('report_jobs').update({
+  await (supabase as any).from('report_jobs').update({
     share_token: shareToken,
     share_token_expires_at: expiresAt.toISOString(),
   }).eq('id', job_id)

@@ -72,11 +72,12 @@ export async function generateReport(jobId: string): Promise<void> {
     if (uploadError) throw uploadError
 
     // Create signed URL (valid 7 days)
-    const { data: { signedUrl } } = await supabase.storage
+    const { data: signedData } = await supabase.storage
       .from('aircraft-reports')
       .createSignedUrl(fileName, 60 * 60 * 24 * 7)
+    const signedUrl = signedData?.signedUrl ?? null
 
-    await supabase.from('report_jobs').update({
+    await (supabase as any).from('report_jobs').update({
       status: 'completed',
       storage_path: fileName,
       signed_url: signedUrl,
@@ -86,7 +87,7 @@ export async function generateReport(jobId: string): Promise<void> {
     }).eq('id', jobId)
 
   } catch (err: any) {
-    await supabase.from('report_jobs').update({
+    await (supabase as any).from('report_jobs').update({
       status: 'failed',
       error_message: err?.message ?? 'Generation failed',
       generation_completed_at: new Date().toISOString(),

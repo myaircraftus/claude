@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 
+export const maxDuration = 30
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { jobId: string } }
@@ -49,14 +51,17 @@ export async function GET(
     const expiresAt = new Date(job.signed_url_expires)
     if (expiresAt.getTime() - Date.now() < 86400000) {
       const supabaseAdmin = createServerSupabase() // use service role for storage
-      const { data: { signedUrl } } = await supabaseAdmin.storage
+      const { data: signedData } = await supabaseAdmin.storage
         .from('aircraft-reports')
         .createSignedUrl(job.storage_path, 60 * 60 * 24 * 7)
-      await supabaseAdmin.from('report_jobs').update({
-        signed_url: signedUrl,
-        signed_url_expires: new Date(Date.now() + 60 * 60 * 24 * 7 * 1000).toISOString(),
-      }).eq('id', params.jobId)
-      job.signed_url = signedUrl
+      const signedUrl = signedData?.signedUrl
+      if (signedUrl) {
+        await (supabaseAdmin as any).from('report_jobs').update({
+          signed_url: signedUrl,
+          signed_url_expires: new Date(Date.now() + 60 * 60 * 24 * 7 * 1000).toISOString(),
+        }).eq('id', params.jobId)
+        job.signed_url = signedUrl
+      }
     }
   }
 

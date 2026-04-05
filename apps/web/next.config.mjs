@@ -1,7 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['@trigger.dev/sdk'],
+    serverComponentsExternalPackages: ['@trigger.dev/sdk', 'puppeteer-core', '@sparticuz/chromium'],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Keep optional PDF-render deps external — installed on demand only.
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        'puppeteer-core',
+        '@sparticuz/chromium',
+      ]
+    }
+    return config
   },
   images: {
     remotePatterns: [

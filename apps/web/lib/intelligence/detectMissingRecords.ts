@@ -1,5 +1,5 @@
+import { randomUUID } from 'crypto'
 import { createServerSupabase } from '@/lib/supabase/server'
-import { v4 as uuidv4 } from 'uuid'
 
 export interface DetectionInput {
   aircraftId: string
@@ -10,7 +10,7 @@ export interface DetectionInput {
 
 export async function detectMissingRecords(input: DetectionInput): Promise<string> {
   const supabase = createServerSupabase()
-  const runId = uuidv4()
+  const runId = randomUUID()
 
   // Create the run record
   await supabase

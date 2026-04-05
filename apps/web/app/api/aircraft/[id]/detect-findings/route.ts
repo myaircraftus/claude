@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { detectMissingRecords } from '@/lib/intelligence/detectMissingRecords'
 
+export const maxDuration = 30
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
