@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { DocumentDetailSlideover } from '@/components/documents/document-detail-slideover'
 import { cn, formatBytes, formatDate, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
@@ -16,7 +16,7 @@ interface DocumentRow extends Document {
 interface DocumentsTableProps {
   documents: DocumentRow[]
   totalCount: number
-  currentUserId?: string
+  currentUserId: string
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -50,26 +50,35 @@ function StatusBadge({ status }: { status: ParsingStatus }) {
 export function DocumentsTable({ documents, totalCount, currentUserId }: DocumentsTableProps) {
   const [selected, setSelected] = useState<DocumentRow | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
-  const [localAllowDownload, setLocalAllowDownload] = useState<Record<string, boolean>>({})
+  const [localDocs, setLocalDocs] = useState(documents)
 
-  async function toggleAllowDownload(docId: string, current: boolean, e: React.MouseEvent) {
+  async function toggleAllowDownload(doc: DocumentRow, e: React.MouseEvent) {
     e.stopPropagation()
-    setLocalAllowDownload((prev) => ({ ...prev, [docId]: !current }))
+    const next = !doc.allow_download
+    // Optimistic update
+    setLocalDocs((prev) =>
+      prev.map((d) => (d.id === doc.id ? { ...d, allow_download: next } : d))
+    )
     try {
-      await fetch(`/api/documents/${docId}`, {
+      const res = await fetch(`/api/documents/${doc.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ allow_download: !current }),
+        body: JSON.stringify({ allow_download: next }),
       })
+      if (!res.ok) throw new Error('Update failed')
     } catch {
-      // revert on error
-      setLocalAllowDownload((prev) => ({ ...prev, [docId]: current }))
+      // Revert on error
+      setLocalDocs((prev) =>
+        prev.map((d) => (d.id === doc.id ? { ...d, allow_download: !next } : d))
+      )
     }
   }
 
-  function getAllowDownload(doc: DocumentRow): boolean {
-    return localAllowDownload[doc.id] ?? doc.allow_download ?? false
-  }
+  // Keep localDocs in sync when props change (pagination, filters)
+  useEffect(() => {
+    setLocalDocs(documents)
+  }, [documents])
+  const docsToRender = localDocs
 
   function toggleCheck(id: string, e: React.MouseEvent) {
     e.stopPropagation()
@@ -83,13 +92,13 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
 
   function toggleAll(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.checked) {
-      setCheckedIds(new Set(documents.map((d) => d.id)))
+      setCheckedIds(new Set(docsToRender.map((d) => d.id)))
     } else {
       setCheckedIds(new Set())
     }
   }
 
-  if (documents.length === 0) {
+  if (docsToRender.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 rounded-xl border border-dashed border-border text-center">
         <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-3">
@@ -113,7 +122,7 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                 <th className="w-10 px-4 py-3 text-left">
                   <input
                     type="checkbox"
-                    checked={checkedIds.size === documents.length && documents.length > 0}
+                    checked={checkedIds.size === docsToRender.length && docsToRender.length > 0}
                     onChange={toggleAll}
                     className="rounded border-border"
                     aria-label="Select all"
@@ -141,12 +150,15 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                   Uploader
                 </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                  Sharing
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground text-xs uppercase tracking-wide">
                   Uploaded
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border bg-card">
-              {documents.map((doc) => (
+              {docsToRender.map((doc) => (
                 <tr
                   key={doc.id}
                   onClick={() => setSelected(doc)}
@@ -178,9 +190,9 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                       <span className="inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200">
                         {doc.manual_access === 'free'
                           ? 'Community · Free'
-                          : doc.price
-                          ? `Community · $${doc.price}`
-                          : 'Community'}
+                          : doc.price_cents != null
+                            ? `Community · $${(doc.price_cents / 100).toFixed(2)}`
+                            : 'Community'}
                       </span>
                     )}
                   </td>
@@ -220,35 +232,57 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                   </td>
 
                   {/* Uploader */}
-                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <span>
-                        {doc.uploader_id === currentUserId ? 'You' : (doc.uploader_name ?? '—')}
+                      <span className="text-xs text-foreground">
+                        {doc.uploaded_by === currentUserId
+                          ? 'You'
+                          : doc.uploader_name || '—'}
                       </span>
-                      {/* Allow-download toggle: only uploader sees this */}
-                      {doc.uploader_id === currentUserId && (
-                        <button
-                          onClick={(e) => toggleAllowDownload(doc.id, getAllowDownload(doc), e)}
-                          title={getAllowDownload(doc) ? 'Disable download' : 'Allow download'}
-                          className="text-muted-foreground hover:text-foreground transition-colors"
+                      {doc.uploader_role && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px] px-1 py-0 h-4',
+                            doc.uploader_role === 'owner' && 'bg-amber-50 text-amber-700 border-amber-200',
+                            doc.uploader_role === 'mechanic' && 'bg-blue-50 text-blue-700 border-blue-200',
+                            doc.uploader_role === 'pilot' && 'bg-sky-50 text-sky-700 border-sky-200',
+                            doc.uploader_role === 'admin' && 'bg-slate-100 text-slate-700 border-slate-200'
+                          )}
                         >
-                          {getAllowDownload(doc) ? (
-                            <Unlock className="h-3.5 w-3.5" />
+                          {doc.uploader_role}
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Sharing */}
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {doc.uploaded_by === currentUserId ? (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleAllowDownload(doc, e)}
+                          className="flex items-center gap-1 text-xs hover:text-foreground text-muted-foreground"
+                          title={doc.allow_download ? 'Downloads allowed' : 'Downloads locked'}
+                        >
+                          {doc.allow_download ? (
+                            <Unlock className="h-3.5 w-3.5 text-green-600" />
                           ) : (
                             <Lock className="h-3.5 w-3.5" />
                           )}
                         </button>
-                      )}
-                      {/* Download icon: shown to non-uploaders when download is allowed */}
-                      {getAllowDownload(doc) && doc.uploader_id !== currentUserId && (
+                      ) : doc.allow_download ? (
                         <a
-                          href={`/api/documents/${doc.id}/download`}
+                          href={`/api/marketplace/download/${doc.id}`}
                           title="Download"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800"
                         >
                           <Download className="h-3.5 w-3.5" />
                         </a>
+                      ) : (
+                        <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                     </div>
                   </td>

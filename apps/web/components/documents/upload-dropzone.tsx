@@ -19,7 +19,14 @@ import {
 } from '@/components/ui/select'
 import { cn, formatBytes, DOC_TYPE_LABELS } from '@/lib/utils'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import type { FileUploadItem, DocType, ParsingStatus } from '@/types'
+import type { FileUploadItem, DocType, ParsingStatus, ManualAccess, BookAssignment } from '@/types'
+
+// Doc types eligible for community listing (manuals)
+const MANUAL_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_catalog']
+
+function isManualType(docType: DocType): boolean {
+  return MANUAL_TYPES.includes(docType)
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,12 +40,6 @@ interface AircraftOption {
 interface UploadDropzoneProps {
   aircraftOptions: AircraftOption[]
   onUploadComplete: () => void
-}
-
-const MANUAL_DOC_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_catalog']
-
-function isManualType(docType: DocType): boolean {
-  return MANUAL_DOC_TYPES.includes(docType)
 }
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
@@ -151,8 +152,8 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
         notes: '',
         aircraftId: undefined,
         docType: 'miscellaneous' as DocType,
-        bookAssignmentType: 'historical' as const,
-        manualAccess: 'private' as const,
+        bookAssignmentType: 'historical' as BookAssignment,
+        manualAccess: 'private' as ManualAccess,
         price: '',
         attestation: false,
         status: 'pending' as const,
@@ -182,28 +183,25 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
   async function uploadFile(item: FileUploadItem): Promise<void> {
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
-    // Ownership fields captured at submit time
-    const communityListing = ['free', 'paid'].includes(item.manualAccess)
-
     const formData = new FormData()
     formData.append('file', item.file)
     formData.append('doc_type', item.docType)
     formData.append('title', item.title || item.file.name.replace(/\.pdf$/i, ''))
     formData.append('visibility', item.visibility)
     formData.append('notes', item.notes)
-    formData.append('allow_download', 'false')
-    formData.append('community_listing', String(communityListing))
+    if (item.aircraftId) {
+      formData.append('aircraft_id', item.aircraftId)
+    }
     if (!isManualType(item.docType)) {
       formData.append('book_assignment_type', item.bookAssignmentType)
     }
+    // Manual-access fields (only for manual doc types)
     if (isManualType(item.docType)) {
       formData.append('manual_access', item.manualAccess)
       if (item.manualAccess === 'paid' && item.price) {
         formData.append('price', item.price)
       }
-    }
-    if (item.aircraftId) {
-      formData.append('aircraft_id', item.aircraftId)
+      formData.append('attestation', String(item.attestation))
     }
 
     try {
@@ -255,6 +253,21 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
   async function handleUploadAll() {
     const pending = files.filter((f) => f.status === 'pending' || f.status === 'error')
     if (pending.length === 0) return
+
+    // Block if any manual listing missing attestation
+    const blocked = pending.find(
+      (f) =>
+        MANUAL_TYPES.includes(f.docType) &&
+        (f.manualAccess === 'free' || f.manualAccess === 'paid') &&
+        !f.attestation
+    )
+    if (blocked) {
+      updateFile(blocked.id, {
+        status: 'error',
+        error: 'Please accept the community library terms',
+      })
+      return
+    }
 
     setIsUploading(true)
     try {

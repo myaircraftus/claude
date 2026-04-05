@@ -48,17 +48,19 @@ export default async function SettingsPage({
     .eq('is_active', true)
     .maybeSingle()
 
-  // Fetch documents uploaded by this user
-  let uploadedDocs: any[] = []
-  try {
-    const { data } = await supabase
-      .from('documents')
-      .select('id, title, doc_type, uploaded_at, manual_access, allow_download, community_listing, price, uploader_role, aircraft:aircraft_id(id, tail_number)')
-      .eq('uploaded_by', user.id)
-      .order('uploaded_at', { ascending: false })
-      .limit(200)
-    uploadedDocs = data ?? []
-  } catch {}
+  // Fetch user's uploads (My Uploads tab)
+  const { data: myUploads } = await (supabase as any)
+    .from('documents')
+    .select(`
+      id, title, doc_type, file_size_bytes, uploaded_at,
+      uploader_role, allow_download, community_listing, manual_access,
+      price_cents, listing_status, download_count, visibility,
+      aircraft:aircraft_id (id, tail_number, make, model)
+    `)
+    .eq('organization_id', orgId)
+    .eq('uploaded_by', user.id)
+    .order('uploaded_at', { ascending: false })
+    .limit(200)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -72,9 +74,9 @@ export default async function SettingsPage({
         role={role}
         members={(members ?? []) as any}
         driveConnection={driveConnection}
+        myUploads={(myUploads ?? []) as any}
         defaultTab={searchParams.tab ?? 'organization'}
         showUpgradeSuccess={searchParams.upgraded === 'true'}
-        uploadedDocs={uploadedDocs}
       />
     </div>
   )
