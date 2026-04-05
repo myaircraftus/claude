@@ -12,11 +12,13 @@ export const metadata = { title: 'Scanner' }
 const STATUS_COLOR: Record<string, string> = {
   capturing: 'bg-blue-50 text-blue-700 border-blue-200',
   submitted: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  uploading: 'bg-sky-50 text-sky-700 border-sky-200',
+  assembled: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   processing: 'bg-amber-50 text-amber-700 border-amber-200',
-  processed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  review_required: 'bg-orange-50 text-orange-700 border-orange-200',
-  processing_failed: 'bg-red-50 text-red-700 border-red-200',
-  archived: 'bg-slate-50 text-slate-500 border-slate-200',
+  review: 'bg-orange-50 text-orange-700 border-orange-200',
+  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  failed: 'bg-red-50 text-red-700 border-red-200',
+  abandoned: 'bg-slate-50 text-slate-500 border-slate-200',
 }
 
 export default async function ScannerPage() {
@@ -58,9 +60,9 @@ export default async function ScannerPage() {
 
   const stats = {
     capturing: batches?.filter(b => b.status === 'capturing').length ?? 0,
-    processing: batches?.filter(b => b.status === 'processing' || b.status === 'submitted').length ?? 0,
-    processed: batches?.filter(b => b.status === 'processed').length ?? 0,
-    review: batches?.filter(b => b.status === 'review_required').length ?? 0,
+    processing: batches?.filter(b => ['submitted','uploading','assembled','processing'].includes(b.status)).length ?? 0,
+    completed: batches?.filter(b => b.status === 'completed').length ?? 0,
+    review: batches?.filter(b => b.status === 'review').length ?? 0,
   }
 
   return (
@@ -82,7 +84,7 @@ export default async function ScannerPage() {
             {[
               { label: 'Capturing', value: stats.capturing, Icon: ScanLine, bg: 'bg-blue-50', color: 'text-blue-600' },
               { label: 'Processing', value: stats.processing, Icon: Clock, bg: 'bg-amber-50', color: 'text-amber-600' },
-              { label: 'Processed', value: stats.processed, Icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
+              { label: 'Completed', value: stats.completed, Icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
               { label: 'Needs Review', value: stats.review, Icon: AlertTriangle, bg: 'bg-orange-50', color: 'text-orange-600' },
             ].map(s => {
               const I = s.Icon

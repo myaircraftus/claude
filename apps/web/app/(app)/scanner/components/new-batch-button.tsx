@@ -8,10 +8,14 @@ import { Button } from '@/components/ui/button'
 interface Aircraft { id: string; tail_number: string; make?: string | null; model?: string | null }
 
 const BATCH_TYPES = [
-  { value: 'historical_logbook', label: 'Historical logbook' },
-  { value: 'work_order', label: 'Work order' },
-  { value: 'discrepancy', label: 'Discrepancy' },
+  { value: 'engine_logbook', label: 'Engine logbook' },
+  { value: 'prop_logbook', label: 'Prop logbook' },
+  { value: 'airframe_logbook', label: 'Airframe logbook' },
+  { value: 'avionics_logbook', label: 'Avionics logbook' },
+  { value: 'work_order_batch', label: 'Work orders' },
+  { value: 'discrepancy_batch', label: 'Discrepancy / squawks' },
   { value: 'general_records', label: 'General records' },
+  { value: 'evidence_batch', label: 'Evidence (one-offs)' },
   { value: 'unknown', label: 'Unsure (classify later)' },
 ]
 
@@ -20,7 +24,7 @@ export function NewBatchButton({ aircraft }: { aircraft: Aircraft[] }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [title, setTitle] = useState('')
-  const [batchType, setBatchType] = useState('historical_logbook')
+  const [batchType, setBatchType] = useState('airframe_logbook')
   const [aircraftId, setAircraftId] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
@@ -33,7 +37,7 @@ export function NewBatchButton({ aircraft }: { aircraft: Aircraft[] }) {
         body: JSON.stringify({
           title: title || null,
           batch_type: batchType,
-          source_mode: 'batch',
+          source_mode: batchType === 'evidence_batch' ? 'evidence' : 'batch',
           aircraft_id: aircraftId || null,
         }),
       })

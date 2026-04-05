@@ -1,17 +1,83 @@
 // Scanner system shared types
 
-export type BatchType = 'historical_logbook' | 'work_order' | 'discrepancy' | 'general_records' | 'unknown'
+export type BatchType =
+  | 'engine_logbook'
+  | 'prop_logbook'
+  | 'airframe_logbook'
+  | 'avionics_logbook'
+  | 'work_order_batch'
+  | 'discrepancy_batch'
+  | 'general_records'
+  | 'evidence_batch'
+  | 'unknown'
+
 export type BatchSourceMode = 'batch' | 'evidence'
+
 export type BatchStatus =
   | 'capturing'
   | 'submitted'
+  | 'uploading'
+  | 'assembled'
   | 'processing'
-  | 'processed'
-  | 'review_required'
-  | 'processing_failed'
-  | 'archived'
+  | 'review'
+  | 'completed'
+  | 'failed'
+  | 'abandoned'
+
 export type PageUploadStatus = 'pending' | 'uploading' | 'uploaded' | 'failed'
-export type PageProcessingStatus = 'queued' | 'processing' | 'processed' | 'failed' | 'skipped'
+
+export type PageProcessingStatus =
+  | 'pending'
+  | 'queued'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'review_required'
+
+export type PageCaptureClassification =
+  | 'logbook_entry'
+  | 'work_order'
+  | 'annual_inspection'
+  | '100hr_inspection'
+  | 'ad_sheet'
+  | 'yellow_tag'
+  | 'form_337'
+  | 'form_8130'
+  | 'discrepancy_sheet'
+  | 'invoice'
+  | 'weight_balance'
+  | 'stc_reference'
+  | 'informational'
+  | 'unknown'
+
+export type EvidenceType =
+  | 'work_order'
+  | 'handwritten_entry'
+  | 'yellow_tag'
+  | 'form_337'
+  | 'form_8130'
+  | 'discrepancy_sheet'
+  | 'invoice'
+  | 'signed_statement'
+  | 'general'
+
+export type EvidenceStorageTarget =
+  | 'airframe_log'
+  | 'engine_log'
+  | 'prop_log'
+  | 'avionics_log'
+  | 'work_order'
+  | 'discrepancy'
+  | 'invoice_support'
+  | 'general_records'
+  | 'unknown_review'
+
+export type EvidenceSuggestedAction =
+  | 'generate_logbook_entry'
+  | 'attach_to_work_order'
+  | 'create_invoice_draft'
+  | 'create_reminder'
+  | 'informational_only'
 
 export interface CaptureWarning {
   kind: 'blur' | 'glare' | 'skew' | 'low_light' | 'cropped' | 'unknown'

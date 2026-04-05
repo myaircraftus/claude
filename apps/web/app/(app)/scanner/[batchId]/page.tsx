@@ -27,7 +27,7 @@ export default async function ScannerBatchPage({ params }: { params: { batchId: 
 
   const { data: pages } = await supabase
     .from('scan_pages')
-    .select('id, page_number, capture_quality_score, capture_warnings, user_marked_unreadable, upload_status, processing_status, original_image_path')
+    .select('id, page_number, capture_quality_score, capture_warnings, capture_classification, user_marked_unreadable, low_quality_override, upload_status, processing_status, original_image_path')
     .eq('scan_batch_id', params.batchId)
     .order('page_number', { ascending: true })
 

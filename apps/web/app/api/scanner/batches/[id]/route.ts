@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const { data: pages } = await supabase
     .from('scan_pages')
-    .select('id, page_number, original_image_path, processed_capture_image_path, capture_quality_score, capture_warnings, user_marked_unreadable, upload_status, processing_status, created_at')
+    .select('id, page_number, original_image_path, processed_capture_image_path, capture_quality_score, capture_warnings, capture_classification, user_marked_unreadable, low_quality_override, upload_status, processing_status, created_at')
     .eq('scan_batch_id', params.id)
     .order('page_number', { ascending: true })
 
