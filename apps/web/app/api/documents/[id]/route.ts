@@ -148,6 +148,96 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   return NextResponse.json({ document: updated })
 }
 
+// ─── PATCH /api/documents/[id] ────────────────────────────────────────────────
+// Partial update for ownership/listing fields. Uploader-only by default, but
+// allow admins/owners to toggle on any doc.
+
+export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = params
+
+  const supabase = createServerSupabase()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { data: membership } = await supabase
+    .from('organization_memberships')
+    .select('organization_id, role')
+    .eq('user_id', user.id)
+    .not('accepted_at', 'is', null)
+    .single()
+
+  if (!membership) {
+    return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
+  }
+
+  // Fetch doc to check ownership
+  const { data: existing } = await (supabase as any)
+    .from('documents')
+    .select('id, uploaded_by, organization_id')
+    .eq('id', id)
+    .eq('organization_id', membership.organization_id)
+    .single()
+
+  if (!existing) {
+    return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+  }
+
+  const isUploader = existing.uploaded_by === user.id
+  const isAdmin = ['owner', 'admin'].includes(membership.role)
+  if (!isUploader && !isAdmin) {
+    return NextResponse.json(
+      { error: 'Only the uploader or an admin may modify ownership fields' },
+      { status: 403 }
+    )
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = (await req.json()) as Record<string, unknown>
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  // Whitelist of patchable fields
+  const allowedFields = [
+    'allow_download',
+    'community_listing',
+    'manual_access',
+    'visibility',
+    'listing_status', // admins only for status changes
+  ]
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  for (const field of allowedFields) {
+    if (field in body) {
+      if (field === 'listing_status' && !isAdmin) continue
+      patch[field] = body[field]
+    }
+  }
+
+  // If delisting from community, clear listing_status
+  if (body.community_listing === false) {
+    patch.listing_status = null
+  }
+
+  const service = createServiceSupabase()
+  const { data: updated, error: updateError } = await (service as any)
+    .from('documents')
+    .update(patch)
+    .eq('id', id)
+    .select('id, allow_download, community_listing, manual_access, listing_status, visibility')
+    .single()
+
+  if (updateError || !updated) {
+    console.error('[documents PATCH] update error:', updateError)
+    return NextResponse.json({ error: 'Failed to update document' }, { status: 500 })
+  }
+
+  return NextResponse.json({ document: updated })
+}
+
 // ─── DELETE /api/documents/[id] ───────────────────────────────────────────────
 
 export async function DELETE(_req: NextRequest, { params }: RouteContext) {
