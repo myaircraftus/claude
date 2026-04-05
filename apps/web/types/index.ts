@@ -284,8 +284,12 @@ export interface NavItem {
 export interface FileUploadItem {
   file: File
   id: string
+  title: string
+  visibility: 'private' | 'team'
+  notes: string
   aircraftId?: string
   docType: DocType
+  bookAssignmentType: BookAssignment
   manualAccess: ManualAccess
   price: string
   attestation: boolean

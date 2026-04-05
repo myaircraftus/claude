@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { DocumentDetailSlideover } from '@/components/documents/document-detail-slideover'
 import { cn, formatBytes, formatDate, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
-import { FileText, Plane, Lock, Unlock, Users } from 'lucide-react'
-import { createBrowserSupabase } from '@/lib/supabase/browser'
+import { FileText, Plane, Lock, Unlock, Download } from 'lucide-react'
 import type { Document, ParsingStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,17 +54,19 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
 
   async function toggleAllowDownload(doc: DocumentRow, e: React.MouseEvent) {
     e.stopPropagation()
-    const supabase = createBrowserSupabase()
     const next = !doc.allow_download
     // Optimistic update
     setLocalDocs((prev) =>
       prev.map((d) => (d.id === doc.id ? { ...d, allow_download: next } : d))
     )
-    const { error } = await (supabase as any)
-      .from('documents')
-      .update({ allow_download: next })
-      .eq('id', doc.id)
-    if (error) {
+    try {
+      const res = await fetch(`/api/documents/${doc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_download: next }),
+      })
+      if (!res.ok) throw new Error('Update failed')
+    } catch {
       // Revert on error
       setLocalDocs((prev) =>
         prev.map((d) => (d.id === doc.id ? { ...d, allow_download: !next } : d))
@@ -185,6 +186,15 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                         {doc.description}
                       </p>
                     )}
+                    {doc.community_listing && (
+                      <span className="inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200">
+                        {doc.manual_access === 'free'
+                          ? 'Community · Free'
+                          : doc.price_cents != null
+                            ? `Community · $${(doc.price_cents / 100).toFixed(2)}`
+                            : 'Community'}
+                      </span>
+                    )}
                   </td>
 
                   {/* Aircraft */}
@@ -263,22 +273,16 @@ export function DocumentsTable({ documents, totalCount, currentUserId }: Documen
                           )}
                         </button>
                       ) : doc.allow_download ? (
-                        <Unlock className="h-3.5 w-3.5 text-green-600" />
+                        <a
+                          href={`/api/marketplace/download/${doc.id}`}
+                          title="Download"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
                       ) : (
                         <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                      {doc.community_listing && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1 py-0 h-4 bg-violet-50 text-violet-700 border-violet-200"
-                        >
-                          <Users className="h-2.5 w-2.5 mr-0.5" />
-                          {doc.manual_access === 'free'
-                            ? 'Community · Free'
-                            : doc.price_cents != null
-                              ? `Community · $${(doc.price_cents / 100).toFixed(2)}`
-                              : 'Community'}
-                        </Badge>
                       )}
                     </div>
                   </td>

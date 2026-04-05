@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createServiceSupabase } from '@/lib/supabase/server'
+import { generateReport } from '@/lib/intelligence/generateReport'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-04-10' })
 
@@ -83,6 +84,34 @@ export async function POST(req: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice
         console.warn(`Payment failed for customer ${invoice.customer}`)
         // TODO: Send notification email
+        break
+      }
+
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        const { aircraft_id, report_type, user_id } = session.metadata ?? {}
+
+        if (aircraft_id && report_type && user_id) {
+          const { data: aircraftData } = await supabase
+            .from('aircraft')
+            .select('organization_id')
+            .eq('id', aircraft_id)
+            .single()
+
+          const { data: job } = await supabase.from('report_jobs').insert({
+            aircraft_id,
+            organization_id: aircraftData?.organization_id,
+            requested_by: user_id,
+            report_type,
+            is_paid: true,
+            stripe_payment_intent_id: session.payment_intent as string,
+            status: 'queued',
+          }).select().single()
+
+          if (job) {
+            generateReport(job.id).catch(console.error)
+          }
+        }
         break
       }
     }

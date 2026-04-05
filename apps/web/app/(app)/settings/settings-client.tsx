@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Building2, Users, Plug, CreditCard, AlertTriangle,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
-  CheckCircle2, FileUp, Lock, Unlock, Download, FileText
+  CheckCircle2, FileUp, Lock, Unlock, Download, FileText,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -467,6 +467,7 @@ export function SettingsClient({
               </Card>
             )}
           </TabsContent>
+
 
           {/* Danger zone */}
           {isOwner && (
