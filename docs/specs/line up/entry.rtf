@@ -1,0 +1,1056 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2865
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # MYAIRCRAFT.US \'97 MASTER BUILD PROMPT\
+## Unified prompt for Claude Code and Codex\
+## Purpose: Build a production-grade AI-powered aircraft records, maintenance entry, and document intelligence platform\
+\
+You are building **myaircraft.us** as a clean, modern, production-ready web application focused on:\
+\
+- AI-powered aircraft maintenance record intelligence\
+- Plain-English maintenance entry generation\
+- Aircraft onboarding from tail number / registry lookup\
+- Mechanic credential-based signing workflows\
+- Smart document/photo ingestion and filing\
+- FAA-aware reminders and workflow suggestions\
+- One universal search bar / command bar for everything\
+\
+This is **not** just a chatbot.\
+\
+This is:\
+\
+**AI chat + aircraft record system + maintenance entry generator + document intelligence engine + workflow/compliance assistant**\
+\
+Build this with the **highest intelligence**, the cleanest structure, and solid architecture.  \
+The system should feel simple on the surface, but very powerful underneath.\
+\
+---\
+\
+# 1. PRODUCT VISION\
+\
+Create a platform where a mechanic, owner, operator, or admin can interact with aircraft records in plain English.\
+\
+Examples:\
+\
+- \'93Prepare a 100-hour entry for N262EE starting tach 1234.56\'94\
+- \'93Create an oil change entry for this aircraft\'94\
+- \'93Scan this invoice and store it in the right aircraft folder\'94\
+- \'93Does this maintenance note belong to airframe or engine log?\'94\
+- \'93Did this work likely require an FAA form?\'94\
+- \'93Show me all entries for the left engine in the last 12 months\'94\
+- \'93Add aircraft N123AB and pull the registry details automatically\'94\
+\
+The application must be designed to reduce recordkeeping friction and make filing, generating, printing, editing, and storing entries extremely easy.\
+\
+---\
+\
+# 2. CORE PRINCIPLES\
+\
+## 2.1 Simplicity first\
+The interface must feel dead simple.\
+\
+Main concept:\
+- one universal search / command bar\
+- one aircraft workspace\
+- one document intelligence flow\
+- one clean draft/preview system\
+\
+## 2.2 AI is assistant, not uncontrolled author\
+The AI should not blindly generate permanent records with no structure.\
+\
+Instead:\
+\
+- AI interprets user intent\
+- AI extracts facts\
+- AI proposes wording\
+- AI suggests filing destination\
+- AI suggests compliance reminders\
+- system validates structured fields\
+- templates generate final formatted entries\
+\
+## 2.3 Role-based intelligence\
+There are different users:\
+\
+- mechanic / A&P\
+- IA\
+- aircraft owner\
+- operator\
+- admin\
+- viewer / general user\
+\
+If a user has verified mechanic credentials and permissions:\
+- allow draft creation\
+- allow signoff blocks\
+- allow printing/export for official entries\
+- allow workflow suggestions tied to mechanic role\
+\
+If a user is not a mechanic:\
+- allow search\
+- allow document upload\
+- allow question asking\
+- allow draft assistance\
+- do not allow official signing as mechanic unless properly credentialed\
+\
+## 2.4 Trust and reviewability\
+Everything AI-generated must remain reviewable and editable before finalization.\
+\
+## 2.5 Aviation-first design\
+This must feel purpose-built for maintenance records and aircraft documents, not like a generic AI wrapper.\
+\
+---\
+\
+# 3. PRIMARY USER FLOWS\
+\
+## 3.1 Mechanic onboarding\
+When a mechanic is onboarded, store a professional profile including:\
+\
+- full legal name\
+- certificate number\
+- rating(s)\
+- IA status if applicable\
+- signature line format\
+- company / shop name\
+- company logo\
+- contact details\
+- preferred wording style\
+- permissions\
+- whether they can generate printable official entries\
+\
+This mechanic profile should automatically populate into generated entries where appropriate.\
+\
+---\
+\
+## 3.2 Aircraft onboarding\
+When a user adds an aircraft, they should be able to enter:\
+\
+- tail number / N-number\
+- optional serial number\
+- optional make/model if needed\
+- optional owner/operator details\
+\
+The system should then:\
+\
+1. query an aircraft registry source/API\
+2. fetch aircraft details automatically where available\
+3. prefill:\
+   - N-number\
+   - manufacturer\
+   - model\
+   - serial number\
+   - aircraft category/class when available\
+   - engine info when available from available data sources\
+   - owner/operator fields where appropriate and legally available\
+4. create the aircraft record\
+5. generate folder/document buckets automatically\
+6. allow user review and correction before saving\
+\
+### Required aircraft workspace structure\
+Each aircraft should have a structured document/data system like:\
+\
+- Overview\
+- Airframe Logs\
+- Engine Logs\
+- Propeller Logs\
+- Avionics / Appliances\
+- FAA Forms\
+- AD / Compliance\
+- Work Orders\
+- Invoices / Receipts\
+- Photos / Scans\
+- Generated Entries\
+- Shared Records\
+- Notes / Activity Timeline\
+\
+### Important\
+Registry lookup should assist, not hard-lock the user.\
+Users must be able to edit or correct aircraft details after lookup.\
+\
+---\
+\
+## 3.3 Universal AI command bar\
+Create one universal command/search/chat bar that can handle all actions.\
+\
+Examples:\
+- ask a question\
+- create an entry\
+- search documents\
+- classify uploads\
+- onboard aircraft\
+- prepare a summary\
+- suggest next steps\
+- locate records\
+- generate printable output\
+\
+The system should intelligently route the request behind the scenes.\
+\
+### Example intents\
+- Q&A intent\
+- create-entry intent\
+- classify-document intent\
+- save-document intent\
+- find-record intent\
+- aircraft-onboarding intent\
+- compliance-suggestion intent\
+- export/share intent\
+\
+---\
+\
+## 3.4 Maintenance entry creation\
+This is a flagship feature.\
+\
+A mechanic should be able to type plain English such as:\
+\
+- \'93Prepare a 100-hour entry for N262EE start tach 1234.56\'94\
+- \'93Create a return-to-service entry after replacing landing light\'94\
+- \'93Write an oil change entry\'94\
+- \'93Prepare annual inspection draft\'94\
+- \'93Create discrepancy correction entry\'94\
+- \'93Make a draft for left magneto replacement\'94\
+\
+The system must then:\
+\
+1. identify aircraft\
+2. identify user role/credential status\
+3. determine entry type\
+4. extract structured facts\
+5. determine missing required data\
+6. ask only if absolutely needed, otherwise make a smart draft\
+7. produce an editable maintenance entry draft\
+8. show AI suggestions/reminders\
+9. allow save / export / print / share\
+10. optionally store in correct aircraft folder and activity history\
+\
+### Entry generation must include:\
+- clean professional language\
+- editable wording\
+- structured metadata\
+- draft status\
+- role-aware signoff section\
+- linked aircraft\
+- linked document references if any\
+- timestamps/audit trail\
+\
+### Important\
+Do not hardcode legally risky claims.  \
+Where compliance is uncertain, the UI should say things like:\
+- \'93This may require review\'94\
+- \'93Please verify whether Form 337 applies\'94\
+- \'93Weight and balance update may be needed\'94\
+- \'93Consider attaching supporting documents\'94\
+\
+---\
+\
+## 3.5 Smart document/photo ingestion\
+A user should be able to:\
+\
+- upload PDF\
+- upload image\
+- take a picture from phone/camera\
+- drag/drop scan\
+- upload invoice/work order/log page\
+\
+Then the AI/document pipeline should:\
+\
+1. extract text\
+2. detect aircraft identifiers\
+3. detect date(s)\
+4. detect logbook type\
+5. detect whether document likely belongs to:\
+   - airframe\
+   - engine\
+   - propeller\
+   - avionics/appliance\
+   - invoice\
+   - work order\
+   - FAA form\
+   - miscellaneous\
+6. detect possible related aircraft record\
+7. propose filing destination\
+8. summarize document for the user\
+9. ask:\
+   - \'93This appears to belong to N123AB \uc0\u8594  Engine Logs \u8594  save here?\'94\
+10. save after confirmation\
+11. create searchable metadata\
+\
+### If confidence is high:\
+show recommendation strongly\
+\
+### If confidence is low:\
+show top likely folders/aircraft choices\
+\
+---\
+\
+## 3.6 Editing and finalizing\
+Once an entry or extracted document is generated:\
+\
+- user can edit text\
+- user can edit structured fields\
+- user can re-run suggestions\
+- user can attach related files\
+- user can save a new version\
+- user can export/print/share\
+\
+Maintain versioning where possible.\
+\
+---\
+\
+## 3.7 Sharing and export\
+Allow:\
+- PDF export\
+- print view\
+- shareable secure link\
+- optional PNG/image export if practical\
+- save to aircraft record\
+- save to generated entries\
+- attach to maintenance history timeline\
+\
+PDF and print should be first-class.\
+\
+---\
+\
+# 4. AI + SYSTEM ARCHITECTURE\
+\
+Build the system as a **hybrid intelligence architecture**, not a single raw prompt chain.\
+\
+## 4.1 Recommended AI flow\
+Use AI for:\
+- natural language understanding\
+- entity extraction\
+- intent classification\
+- document understanding\
+- maintenance wording draft generation\
+- summarization\
+- filing suggestions\
+- compliance reminders\
+- search assistance\
+\
+Use deterministic/backend logic for:\
+- permissions\
+- role enforcement\
+- credential gating\
+- data validation\
+- structured templates\
+- document storage\
+- export formatting\
+- audit trail\
+- aircraft folder logic\
+- final save workflows\
+\
+## 4.2 Golden rule\
+AI proposes.  \
+System validates.  \
+User reviews.  \
+System stores.\
+\
+---\
+\
+# 5. DATA MODEL\
+\
+Design a clean and scalable schema.\
+\
+## 5.1 Users\
+Fields should include:\
+- id\
+- full_name\
+- email\
+- role\
+- company_name\
+- logo_url\
+- credential_status\
+- certificate_number\
+- rating\
+- ia_status\
+- phone\
+- permissions\
+- created_at\
+- updated_at\
+\
+## 5.2 Aircraft\
+Fields should include:\
+- id\
+- tail_number\
+- manufacturer\
+- model\
+- serial_number\
+- year\
+- aircraft_type\
+- owner_name\
+- operator_name\
+- registry_source\
+- registry_snapshot\
+- status\
+- created_at\
+- updated_at\
+\
+## 5.3 Aircraft folders / categories\
+- id\
+- aircraft_id\
+- category_name\
+- parent_id\
+- sort_order\
+\
+## 5.4 Documents\
+- id\
+- aircraft_id nullable\
+- uploader_id\
+- file_name\
+- file_type\
+- storage_url\
+- extracted_text\
+- detected_doc_type\
+- detected_log_category\
+- suggested_aircraft_id\
+- suggested_folder_id\
+- confidence_score\
+- tags\
+- summary\
+- created_at\
+- updated_at\
+\
+## 5.5 Entries\
+- id\
+- aircraft_id\
+- creator_user_id\
+- entry_type\
+- title\
+- draft_text\
+- final_text\
+- structured_data_json\
+- status\
+- signoff_role_required\
+- signed_by_user_id nullable\
+- export_pdf_url nullable\
+- created_at\
+- updated_at\
+\
+## 5.6 Activity timeline\
+- id\
+- aircraft_id\
+- actor_user_id\
+- action_type\
+- entity_type\
+- entity_id\
+- notes\
+- created_at\
+\
+## 5.7 Suggestions / reminders\
+- id\
+- aircraft_id nullable\
+- entry_id nullable\
+- document_id nullable\
+- suggestion_type\
+- title\
+- detail\
+- severity\
+- action_url nullable\
+- status\
+- created_at\
+\
+---\
+\
+# 6. ROLE SYSTEM\
+\
+Implement clear roles and permissions.\
+\
+## 6.1 Roles\
+- admin\
+- mechanic\
+- IA\
+- owner\
+- operator\
+- viewer\
+\
+## 6.2 Permission ideas\
+### admin\
+- full access\
+- user management\
+- aircraft management\
+- system settings\
+- exports\
+- audit logs\
+\
+### mechanic\
+- create/edit drafts\
+- upload docs\
+- classify/store docs\
+- generate entries\
+- print entries according to permissions\
+\
+### IA\
+- mechanic permissions plus elevated inspection/review workflows where configured\
+\
+### owner/operator\
+- onboard aircraft\
+- upload docs\
+- search records\
+- request draft generation\
+- share records\
+- cannot sign as mechanic unless credentialed\
+\
+### viewer\
+- read-only access where granted\
+\
+## 6.3 Credential gating\
+If user has verified mechanic credentials:\
+- enable official maintenance-entry print/sign workflows\
+\
+If not:\
+- allow draft assistance but prevent official mechanic signoff actions\
+\
+---\
+\
+# 7. UNIVERSAL SEARCH / COMMAND EXPERIENCE\
+\
+This is a major differentiator.\
+\
+Build one universal command bar that supports:\
+\
+- Ask\
+- Create\
+- Find\
+- Upload\
+- Save\
+- Export\
+- Link\
+- Suggest\
+\
+## 7.1 Examples\
+- \'93Create a 100-hour entry for N262EE\'94\
+- \'93Find all oil change records for N262EE\'94\
+- \'93Store this upload under engine log\'94\
+- \'93Summarize this document\'94\
+- \'93Did this likely require an FAA form?\'94\
+- \'93Export this as PDF\'94\
+- \'93Show aircraft overview for N123AB\'94\
+\
+## 7.2 Result types\
+The universal bar can return:\
+- answer cards\
+- entry draft panel\
+- aircraft profile panel\
+- document classification modal\
+- suggestion cards\
+- search results list\
+- timeline view\
+- export/share modal\
+\
+---\
+\
+# 8. UI / UX REQUIREMENTS\
+\
+Build the interface to feel modern, clean, premium, and calm.\
+\
+## 8.1 General style\
+- minimal and elegant\
+- aviation-professional, not playful\
+- strong typography\
+- lots of whitespace\
+- intuitive cards/panels\
+- responsive design\
+- mobile-friendly upload experience\
+- easy print/export flow\
+\
+## 8.2 Main layout\
+Suggested app shell:\
+- left sidebar\
+- top universal search/command bar\
+- main workspace\
+- right-side intelligence/suggestions panel when relevant\
+\
+## 8.3 Key pages\
+Create:\
+1. Dashboard\
+2. Aircraft List\
+3. Aircraft Detail Workspace\
+4. Universal Search / AI Workspace\
+5. Entry Draft Workspace\
+6. Document Upload / Classification Workspace\
+7. Mechanic Profile / Credentials\
+8. Admin Settings\
+9. Shared Record Viewer\
+10. Activity Timeline / Audit\
+\
+## 8.4 Dashboard ideas\
+- recent aircraft\
+- recent entries\
+- recent uploads\
+- pending filing confirmations\
+- AI suggestions\
+- quick actions\
+\
+## 8.5 Aircraft detail workspace\
+Should show:\
+- aircraft summary\
+- registry snapshot\
+- documents\
+- entries\
+- folders\
+- timeline\
+- quick create entry\
+- upload document\
+- export/share\
+\
+## 8.6 Entry workspace\
+Must show:\
+- structured fields\
+- draft text\
+- editable text area\
+- suggestions/reminders panel\
+- linked files\
+- save/export buttons\
+- print preview\
+\
+## 8.7 Upload workspace\
+Must show:\
+- uploaded file preview if possible\
+- extracted text\
+- detected aircraft\
+- detected category\
+- confidence indicators\
+- save destination selector\
+- confirm/save button\
+\
+---\
+\
+# 9. AIRCRAFT REGISTRY LOOKUP\
+\
+When onboarding aircraft by tail number:\
+\
+- automatically call a registry/API source\
+- fetch aircraft details\
+- map returned data into aircraft profile\
+- allow manual correction\
+- store a registry snapshot for traceability\
+\
+## 9.1 Registry lookup output goals\
+Populate if available:\
+- tail number\
+- manufacturer\
+- model\
+- serial number\
+- year\
+- aircraft type/category\
+- owner/operator-related fields as legally/technically available\
+- raw registry response snapshot\
+\
+## 9.2 Important implementation note\
+Abstract registry integration behind a service layer so it can be swapped later.\
+\
+Example:\
+- `RegistryLookupService`\
+- `normalizeAircraftRegistryData()`\
+- `saveRegistrySnapshot()`\
+\
+Do not tightly couple the UI directly to one provider.\
+\
+---\
+\
+# 10. DOCUMENT INTELLIGENCE REQUIREMENTS\
+\
+## 10.1 Supported document types\
+- PDFs\
+- JPG/PNG/HEIC images\
+- scans\
+- logbook pages\
+- invoices\
+- work orders\
+- FAA-related forms\
+- handwritten notes where possible\
+\
+## 10.2 Required output\
+For each upload:\
+- extracted text\
+- likely aircraft association\
+- likely logbook/folder category\
+- confidence score\
+- summary\
+- suggested storage location\
+- tags\
+- searchability\
+\
+## 10.3 OCR + multimodal AI approach\
+Implement:\
+- OCR/text extraction pipeline\
+- AI fallback/augmentation for messy scans and images\
+- document classification pipeline\
+- aircraft matching logic\
+\
+---\
+\
+# 11. ENTRY GENERATION SYSTEM\
+\
+Build a robust entry-generation engine using structured templates.\
+\
+## 11.1 Initial entry templates\
+Implement at least:\
+- 100-hour inspection draft\
+- annual inspection draft\
+- oil change entry\
+- discrepancy correction entry\
+- return-to-service entry\
+- general maintenance entry\
+- component replacement entry\
+\
+## 11.2 Generation flow\
+1. parse user request\
+2. identify entry type\
+3. fetch aircraft context\
+4. fetch user/credential context\
+5. extract facts\
+6. fill structured template fields\
+7. generate draft wording\
+8. show reminders/suggestions\
+9. allow editing\
+10. save/export/print\
+\
+## 11.3 Template strategy\
+Use:\
+- structured data schema for each entry type\
+- prompt-based wording generation\
+- backend rendering layer for final draft assembly\
+\
+Do not rely on freeform AI text only.\
+\
+---\
+\
+# 12. SUGGESTION / REMINDER ENGINE\
+\
+A key part of the system should be intelligent suggestions.\
+\
+Examples:\
+- \'93This may require FAA form review\'94\
+- \'93Attach supporting invoice?\'94\
+- \'93Weight and balance review may be needed\'94\
+- \'93Store under engine logs?\'94\
+- \'93This appears related to previous entry from last month\'94\
+- \'93Do you want to save this to the aircraft file?\'94\
+\
+## 12.1 Reminder philosophy\
+Helpful, not bossy.  \
+Advisory, not pretending to be legal authority.\
+\
+Use language such as:\
+- may require review\
+- consider verifying\
+- possible related filing\
+- likely belongs to\
+- suggested next step\
+\
+---\
+\
+# 13. SEARCH + KNOWLEDGE RETRIEVAL\
+\
+The system should support search across:\
+- aircraft\
+- entries\
+- uploaded documents\
+- extracted text\
+- summaries\
+- tags\
+- folders\
+- timeline events\
+\
+## 13.1 Search behaviors\
+Support:\
+- natural language search\
+- keyword search\
+- aircraft-specific filters\
+- date filters\
+- category filters\
+\
+## 13.2 Examples\
+- \'93show all 100-hour entries\'94\
+- \'93find invoices related to N262EE\'94\
+- \'93search for tach 1234.56\'94\
+- \'93find engine log entries in November\'94\
+- \'93show documents mentioning magneto\'94\
+\
+---\
+\
+# 14. EXPORT / PRINT SYSTEM\
+\
+## 14.1 Required\
+- professional print view\
+- PDF export\
+- save generated PDF to record\
+- clean formatting\
+- user logo if available\
+- mechanic credentials block if allowed\
+- signature/signoff display block where applicable\
+\
+## 14.2 Nice-to-have\
+- PNG/image snapshot export\
+- emailed share links\
+- watermarked draft printouts\
+\
+---\
+\
+# 15. AUDIT + VERSIONING\
+\
+Implement an activity history and version-awareness system.\
+\
+Track:\
+- entry created\
+- entry edited\
+- document uploaded\
+- classification changed\
+- aircraft onboarded\
+- export generated\
+- share created\
+- reminder acknowledged\
+\
+This does not need to be overbuilt initially, but the architecture should support it.\
+\
+---\
+\
+# 16. TECHNICAL IMPLEMENTATION GUIDANCE\
+\
+Choose a modern, production-sensible stack.\
+\
+## 16.1 Preferred stack\
+- Next.js\
+- React\
+- TypeScript\
+- Tailwind CSS\
+- server actions or API routes as appropriate\
+- PostgreSQL\
+- Prisma or equivalent ORM\
+- object storage for documents\
+- authentication/authorization layer\
+- background jobs for document processing\
+\
+## 16.2 Suggested architecture\
+### Frontend\
+- clean app router structure\
+- reusable UI component library\
+- responsive command bar\
+- upload dropzone\
+- AI result panels\
+- editable draft editor\
+- print-ready preview\
+\
+### Backend services\
+- AuthService\
+- RolePermissionService\
+- RegistryLookupService\
+- EntryGenerationService\
+- DocumentIngestionService\
+- DocumentClassificationService\
+- SearchService\
+- ExportService\
+- SuggestionEngine\
+- AuditService\
+\
+## 16.3 AI orchestration service\
+Create a dedicated AI service abstraction, e.g.:\
+- `AIOrchestrator`\
+- `classifyIntent()`\
+- `extractEntryFields()`\
+- `generateEntryDraft()`\
+- `classifyDocument()`\
+- `summarizeDocument()`\
+- `suggestCompliancePrompts()`\
+\
+---\
+\
+# 17. AI MODEL STRATEGY\
+\
+Use the highest intelligence available for critical reasoning-heavy tasks.\
+\
+## 17.1 High-intelligence tasks\
+Use strongest model for:\
+- intent classification for ambiguous aviation commands\
+- maintenance entry draft generation\
+- complex document interpretation\
+- aircraft-document matching\
+- suggestion generation\
+- cross-context reasoning\
+\
+## 17.2 Lower-cost/background tasks\
+Use lighter/faster model for:\
+- tagging\
+- low-risk summaries\
+- metadata extraction when confidence is high\
+- indexing support jobs\
+\
+## 17.3 Safety rule\
+Never trust raw AI output without validation in critical workflows.\
+\
+---\
+\
+# 18. NON-NEGOTIABLE UX BEHAVIOR\
+\
+## 18.1 The app must feel easy\
+A mechanic should feel:\
+- \'93I typed what I needed, and it handled the rest.\'94\
+\
+## 18.2 The app must not feel like a toy\
+It must feel:\
+- serious\
+- reliable\
+- premium\
+- structured\
+- aviation-ready\
+\
+## 18.3 The app must not overwhelm users\
+Keep complexity hidden unless needed.\
+\
+---\
+\
+# 19. MVP SCOPE\
+\
+Build the MVP around these must-have capabilities:\
+\
+## 19.1 MVP features\
+- auth + role system\
+- mechanic profile/credential storage\
+- aircraft onboarding by tail number with registry lookup\
+- aircraft detail page\
+- universal AI command bar\
+- entry draft generation for core entry types\
+- document/photo upload\
+- AI document classification and filing suggestion\
+- save to aircraft folders\
+- PDF/print export\
+- search across aircraft, entries, and documents\
+- activity timeline basics\
+\
+## 19.2 Do not overbuild first\
+Prioritize a solid clean MVP over too many edge-case features.\
+\
+---\
+\
+# 20. FUTURE-READY EXTENSIONS\
+\
+Design architecture so future additions are easy:\
+\
+- FAA form workflow links\
+- discrepancy tracking\
+- maintenance planning\
+- AD tracking\
+- team collaboration\
+- customer/operator portal\
+- external sharing controls\
+- e-signature flows\
+- advanced audit logs\
+- mobile-first field capture\
+- offline draft capture\
+- multi-aircraft fleet dashboards\
+\
+---\
+\
+# 21. OUTPUT REQUIREMENTS FOR THIS BUILD\
+\
+When implementing, produce:\
+\
+1. complete application structure\
+2. routes/pages/components\
+3. database schema\
+4. service-layer architecture\
+5. core UI flows\
+6. sample seed data\
+7. example AI prompts/system prompts\
+8. upload/classification flow\
+9. entry generation flow\
+10. aircraft onboarding flow\
+11. export/print flow\
+12. polished UI\
+\
+---\
+\
+# 22. IMPLEMENTATION PRIORITY ORDER\
+\
+Build in this order:\
+\
+## Phase 1\
+- auth\
+- roles\
+- mechanic profile\
+- aircraft onboarding\
+- aircraft list/detail\
+- document storage foundation\
+\
+## Phase 2\
+- universal command bar\
+- AI intent routing\
+- entry generation\
+- entry editing\
+- PDF/print export\
+\
+## Phase 3\
+- document ingestion/classification\
+- filing suggestions\
+- search\
+- timeline\
+- reminders/suggestions\
+\
+## Phase 4\
+- polish\
+- responsiveness\
+- error handling\
+- confidence states\
+- loading states\
+- admin configuration\
+\
+---\
+\
+# 23. QUALITY BAR\
+\
+Everything must be:\
+- clean\
+- modular\
+- elegant\
+- scalable\
+- maintainable\
+- thoughtfully named\
+- production-minded\
+- visually polished\
+\
+Do not generate sloppy scaffolding.  \
+Do not make this look generic.  \
+Do not reduce it to a basic chatbot page.\
+\
+This should feel like a serious aviation records intelligence product.\
+\
+---\
+\
+# 24. IMPORTANT PRODUCT POSITIONING\
+\
+Internally think of the app as:\
+\
+**MyAircraft.us = AI Aircraft Records + Maintenance Entry Intelligence Platform**\
+\
+Not just:\
+- chatbot\
+- OCR uploader\
+- document manager\
+- notes tool\
+\
+It is the combination of all those things in one intelligent workflow system.\
+\
+---\
+\
+# 25. FINAL BUILD DIRECTIVE\
+\
+Build the best possible version of this product with excellent judgment.\
+\
+When decisions are unclear, choose the option that is:\
+- cleaner\
+- more reliable\
+- more scalable\
+- more aviation-professional\
+- more helpful for mechanics and aircraft record users\
+\
+Use strong architecture.  \
+Use the highest intelligence for AI logic.  \
+Make the experience extremely simple for the end user.\
+\
+The outcome should allow a mechanic to type plain English, generate a professional draft entry, review/edit it, export/print it, and save it into the correct aircraft record with minimal friction.\
+\
+Also ensure that entering a tail number can trigger automatic aircraft registry lookup and prefill the aircraft profile as part of onboarding.\
+\
+Deliver this as a serious, polished, end-to-end product foundation.}

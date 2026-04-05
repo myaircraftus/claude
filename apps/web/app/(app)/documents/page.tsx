@@ -348,6 +348,7 @@ export default async function DocumentsPage({
           <DocumentsTable
             documents={documents}
             totalCount={totalCount}
+            currentUserId={user.id}
           />
 
           {/* Pagination */}

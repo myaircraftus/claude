@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   Plug2,
   BookOpen,
+  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -27,6 +28,7 @@ interface SidebarProps {
   selectedAircraftId?: string
   reminderCount?: number
   reviewQueueCount?: number
+  isPlatformAdmin?: boolean
 }
 
 interface NavItem {
@@ -46,6 +48,7 @@ export function Sidebar({
   selectedAircraftId,
   reminderCount,
   reviewQueueCount,
+  isPlatformAdmin,
 }: SidebarProps) {
   const pathname = usePathname()
 
@@ -60,6 +63,7 @@ export function Sidebar({
     {
       items: [
         { label: 'Maintenance', href: '/maintenance', icon: Wrench },
+        { label: 'Work Orders', href: '/work-orders', icon: ClipboardList },
         { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount },
         { label: 'Review Queue', href: '/documents/review', icon: ClipboardCheck, badge: reviewQueueCount },
       ],
@@ -73,7 +77,7 @@ export function Sidebar({
     {
       items: [
         { label: 'Integrations', href: '/integrations', icon: Plug2 },
-        { label: 'Community Library', href: '/library', icon: BookOpen },
+        { label: 'Community', href: '/library?tab=upload', icon: BookOpen },
       ],
     },
   ]
@@ -194,18 +198,20 @@ export function Sidebar({
           <Settings className="h-4 w-4" />
           Settings
         </Link>
-        <Link
-          href="/admin"
-          className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-            pathname.startsWith('/admin')
-              ? 'bg-brand-50 text-brand-700 font-medium'
-              : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-          )}
-        >
-          <Shield className="h-4 w-4" />
-          Admin
-        </Link>
+        {isPlatformAdmin && (
+          <Link
+            href="/admin"
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+              pathname.startsWith('/admin')
+                ? 'bg-brand-50 text-brand-700 font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <Shield className="h-4 w-4" />
+            Admin
+          </Link>
+        )}
       </div>
     </aside>
   )

@@ -1,0 +1,699 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2865
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # MYAIRCRAFT.US \'97 INTEGRATIONS HUB + AUTO-REMINDERS INTELLIGENCE PROMPT\
+\
+You are extending the existing myaircraft.us product. Do NOT rebuild the app from scratch. Inspect the current codebase, preserve all working flows, and add a production-grade integrations layer for aircraft scheduling software plus an automatic reminders intelligence engine.\
+\
+## Primary mission\
+Build a system where each customer account can connect external scheduling/ops software so that:\
+\
+1. aircraft can sync into myaircraft.us automatically\
+2. aircraft tach / time / usage data can stay synchronized automatically\
+3. reminders are generated and updated automatically from:\
+   - aircraft registry data\
+   - scheduling / dispatch / tach / flight activity feeds\
+   - uploaded logbooks and scanned maintenance records\
+   - FAA AD sources\
+   - recurring compliance rules\
+4. users do NOT need to manually enter every reminder\
+5. reminders activate, update, and close automatically as more data arrives\
+\
+---\
+\
+## PRODUCT OBJECTIVE\
+\
+myaircraft.us should become the system of record for:\
+- aircraft identity\
+- aircraft documents\
+- maintenance intelligence\
+- reminders / due items / compliance tracking\
+- AI search and evidence-backed Q&A\
+\
+Scheduling software should serve as a live operational signal source.\
+Documents should serve as evidence and compliance source.\
+FAA / authority data should serve as regulatory source.\
+myaircraft.us should reconcile all of them.\
+\
+---\
+\
+## EXISTING PRODUCT REALITY TO RESPECT\
+\
+The product already has:\
+- auth\
+- org/customer context\
+- aircraft pages\
+- reminders foundations\
+- document uploads\
+- RAG foundations\
+- FAA tail / aircraft lookup behavior\
+- existing live app behavior\
+\
+Do NOT replace these with a parallel system.\
+Extend the current product cleanly.\
+\
+---\
+\
+# PART 1 \'97 BUILD AN INTEGRATIONS HUB\
+\
+Create a first-class Integrations Hub for every account / org.\
+\
+## Core requirement\
+Every account should be able to connect one or more external platforms.\
+\
+Examples to support in architecture and prioritization:\
+- Flight Schedule Pro\
+- Flight Circle\
+- MyFBO\
+- TalonETA / TalonRMS\
+- Avianis\
+- FL3XX\
+- Leon\
+\
+## Research-based prioritization\
+Treat the following as priority connectors because they are common and/or publicly show meaningful integration capability:\
+\
+### Flight schools / clubs / training / rentals\
+1. Flight Schedule Pro\
+2. Flight Circle\
+3. MyFBO\
+4. TalonETA / TalonRMS\
+\
+### Part 91 / charter / Part 135 / business aviation\
+5. Avianis\
+6. FL3XX\
+7. Leon\
+\
+## Integration architecture\
+Build a provider abstraction:\
+\
+- `IntegrationProvider`\
+- `SchedulingProvider`\
+- `AircraftSyncProvider`\
+- `UsageSyncProvider`\
+- `WebhookProvider`\
+- `CredentialVaultAdapter`\
+\
+Concrete provider examples:\
+- `FlightScheduleProProvider`\
+- `FlightCircleProvider`\
+- `MyFboProvider`\
+- `TalonProvider`\
+- `AvianisProvider`\
+- `Fl3xxProvider`\
+- `LeonProvider`\
+\
+Do NOT hard-code the app around one vendor.\
+\
+---\
+\
+# PART 2 \'97 WHAT EACH CONNECTOR MUST DO\
+\
+For each connector, support as much as the provider allows through public API, webhooks, partner API, or adapter polling.\
+\
+## Minimum sync goals\
+Each provider should attempt to retrieve:\
+\
+### Organization/account-level\
+- connected account metadata\
+- external org/account id\
+- sync status\
+- last sync timestamp\
+\
+### Aircraft-level\
+- external aircraft id\
+- tail number / registration\
+- make\
+- model\
+- serial number if available\
+- aircraft status\
+- base/home airport if available\
+- active/inactive state\
+\
+### Usage / schedule / dispatch-level\
+- latest tach or equivalent usage field if available\
+- latest hobbs if available\
+- latest airframe time if available\
+- reservation data\
+- flight block time / flight activity if available\
+- out/in times if available\
+- dispatch/check-in/check-out data if available\
+- maintenance grounding / out-of-service states if available\
+\
+### Delta sync\
+- pull only changed aircraft / reservations / utilization records after prior sync when supported\
+- otherwise poll intelligently\
+\
+### Webhooks\
+- use webhooks when available\
+- fall back to polling when not available\
+\
+---\
+\
+# PART 3 \'97 TACH / TIME SYNCHRONIZATION LOGIC\
+\
+The main business goal is reminders tied to current aircraft utilization.\
+\
+## Build a normalized aircraft usage ledger\
+Do NOT trust one source blindly.\
+Create a normalized usage model:\
+\
+- aircraft_id\
+- source_type\
+- source_provider\
+- source_record_id\
+- usage_timestamp\
+- tach_value\
+- hobbs_value\
+- airframe_time\
+- engine_time if available\
+- block_time\
+- flight_time\
+- reliability_score\
+- raw_payload\
+- ingested_at\
+\
+## Source precedence strategy\
+Implement source precedence and reconciliation:\
+\
+1. manually reviewed maintenance/document evidence can establish hard maintenance events\
+2. high-confidence scheduling/dispatch sync updates current usage state\
+3. registry data provides aircraft identity, not current usage\
+4. AI-derived usage from documents can supplement but must not silently override higher-confidence live operational data\
+\
+## Current usage state\
+Maintain a derived aircraft current-usage snapshot:\
+- current tach\
+- current hobbs\
+- current airframe total time\
+- source of truth\
+- last updated from\
+- confidence / trust score\
+\
+## Conflict handling\
+If two sources disagree:\
+- do not silently overwrite\
+- record conflict\
+- show conflict banner in aircraft admin view\
+- apply precedence rules\
+- create review task if discrepancy exceeds threshold\
+\
+---\
+\
+# PART 4 \'97 AUTO-IMPORT AIRCRAFT FROM CONNECTED SYSTEMS\
+\
+When a customer connects a scheduling platform:\
+\
+1. fetch aircraft list from provider\
+2. match existing aircraft in myaircraft.us by tail number first\
+3. if no match, offer import/create flow\
+4. enrich aircraft record with provider metadata\
+5. connect aircraft record to provider source id\
+6. continue background sync\
+\
+## Matching rules\
+Primary:\
+- tail number / N-number exact match\
+\
+Secondary:\
+- serial number\
+- make/model + tail normalization\
+- manual confirmation if ambiguous\
+\
+Do not create duplicate aircraft silently.\
+\
+---\
+\
+# PART 5 \'97 REMINDERS INTELLIGENCE ENGINE\
+\
+Build a reminder engine that constantly evaluates all available aircraft data and automatically creates, updates, closes, or escalates reminders.\
+\
+## Inputs into reminder engine\
+The reminder engine must continuously read from:\
+\
+1. aircraft registry / imported aircraft identity\
+2. scheduling integrations\
+3. utilization / tach / hobbs sync\
+4. uploaded documents\
+5. OCR / structured extraction from logbooks\
+6. FAA AD catalog + aircraft applicability logic\
+7. existing reminders\
+8. manually entered overrides\
+9. calendar/date-based expiration rules\
+\
+## Reminder engine outputs\
+It must generate/update reminders for:\
+- annual inspection\
+- 100-hour inspection\
+- progressive inspection if later supported\
+- AD due / overdue / unknown compliance\
+- recurring AD reinspection items\
+- ELT battery due\
+- transponder inspection due\
+- static system inspection due\
+- altimeter inspection due where applicable\
+- VOR check reminders if tracked\
+- registration expiration\
+- airworthiness certificate / documentation review items as configured\
+- pitot-static / IFR certification reminders\
+- maintenance events derived from operating rules/templates\
+- custom org-defined reminders\
+- squawk/discrepancy reminders if integrated later\
+\
+## Important rule\
+The platform should preload the full reminder catalog/template set, but individual reminders only activate when:\
+- applicability is confirmed\
+- likely applicability is detected\
+- a document indicates it exists\
+- a provider sync indicates it is relevant\
+- a date/time/tach threshold is met\
+\
+---\
+\
+# PART 6 \'97 FAA AD AUTO-GENERATION\
+\
+Users should not manually build their AD reminders one by one.\
+\
+## Build FAA AD pipeline\
+Create:\
+- `AdCatalogProvider`\
+- `AircraftApplicabilityEngine`\
+- `AdEvidenceMatcher`\
+- `AdReminderOrchestrator`\
+\
+## Workflow\
+1. obtain aircraft identity and configuration\
+2. fetch or refresh AD catalog data from official FAA-accessible sources or approved ingestion source abstraction\
+3. evaluate likely applicability against aircraft and installed components\
+4. create `aircraft_ad_status` records\
+5. generate reminders automatically\
+6. when logbooks are uploaded, detect AD references and match them to catalog records\
+7. update compliance status and reminder status automatically\
+\
+## Reminder states\
+Each AD can be:\
+- applicable\
+- likely_applicable_needs_review\
+- not_applicable\
+- compliant\
+- due_soon\
+- overdue\
+- unknown_compliance\
+\
+---\
+\
+# PART 7 \'97 LLM-DRIVEN DOCUMENT / REMINDER UNDERSTANDING\
+\
+There must be a constant intelligence layer watching uploaded documents and extracted maintenance entries.\
+\
+## Goal\
+As documents are uploaded and parsed, the system should identify reminder-relevant events automatically.\
+\
+## Examples of document-derived reminder signals\
+From logbooks and records, detect:\
+- annual inspection signoff\
+- 100-hour inspection signoff\
+- oil change intervals if configured\
+- ELT battery replacement / expiration\
+- transponder/static/altimeter inspection\
+- AD compliance entries\
+- component overhauls\
+- engine/prop time references\
+- recurring maintenance events\
+- discrepancy closures\
+- return to service language\
+- due-by-date and due-by-hours language\
+\
+## Important behavior\
+The LLM does NOT invent reminders.\
+It helps classify and extract evidence.\
+Canonical reminders are created by deterministic rules + normalized extracted evidence.\
+\
+## Required reminder evidence model\
+Every reminder should be backed by:\
+- source type\
+- source document or integration event\
+- aircraft id\
+- evidence snippet\
+- citation/page if document-based\
+- provider payload ref if integration-based\
+- confidence and reasoning\
+\
+---\
+\
+# PART 8 \'97 PRELOAD THE COMPLETE REMINDER TEMPLATE CATALOG\
+\
+Build a reminder template registry with all major reminder categories.\
+\
+## Core reminder templates to include now\
+- Annual inspection\
+- 100-hour inspection\
+- ELT battery\
+- Transponder inspection\
+- Static system inspection\
+- Altimeter inspection\
+- VOR check\
+- Registration expiration\
+- AD applicability review\
+- AD compliance due\
+- Recurring AD due\
+- Maintenance discrepancy follow-up\
+- Airworthiness document review\
+- Custom operator-defined inspection\
+- Engine recurring time-based event\
+- Prop recurring time-based event\
+\
+## Template structure\
+- code\
+- title\
+- category\
+- applicable_to\
+- source_mode\
+- due_basis (date / tach / hobbs / recurring / evidence-based)\
+- activation_rule\
+- completion_rule\
+- severity rule\
+- default lead time\
+- recurrence logic\
+- requires manual review flag\
+- FAA/reg reference if relevant\
+\
+## Demo requirement\
+In the demo / initial product state, create seeded sample reminder templates for all major categories so the interface already looks complete even before every aircraft has enough evidence to activate them.\
+\
+---\
+\
+# PART 9 \'97 CONNECTORS-SPECIFIC BEHAVIOR\
+\
+Implement per-provider capability maps.\
+\
+## Flight Schedule Pro\
+Use official API integration path.\
+Support:\
+- aircraft sync\
+- schedule/utilization sync\
+- tach/time-related sync if exposed\
+- delta updates\
+- auth/session strategy based on their developer offering\
+\
+## Flight Circle\
+Treat as supported via API-access pathway / partner access.\
+If direct API scope is limited, still implement provider abstraction and admin setup flow.\
+\
+## MyFBO\
+Treat as custom/partner connector first.\
+Design for polling / export / partner/API path.\
+Do not block architecture because public API docs are limited.\
+\
+## TalonETA / TalonRMS\
+Treat as partner/custom connector first unless repo/user later provides direct API details.\
+Design sync around:\
+- aircraft\
+- schedule/ops\
+- maintenance status where accessible\
+\
+## Avianis\
+Use REST API + webhook capability.\
+Support:\
+- aircraft\
+- scheduling\
+- crew/ops context as needed\
+- maintenance-adjacent status where helpful\
+- webhooks + delta sync\
+\
+## FL3XX\
+Use developer API + webhook architecture.\
+Support:\
+- aircraft\
+- schedules / bookings\
+- maintenance schedule-related data if accessible\
+- operational updates\
+\
+## Leon\
+Treat as business aviation / charter-focused connector.\
+Support direct API or partner integration path if available to the customer.\
+Design around:\
+- aircraft\
+- scheduling\
+- TAC/TAH feed\
+- maintenance feed where available\
+\
+---\
+\
+# PART 10 \'97 ACCOUNT / UI EXPERIENCE\
+\
+## Add Integrations Hub UI\
+For each org/account:\
+- Integrations landing page\
+- list of supported providers\
+- connection status\
+- connect/disconnect actions\
+- last sync\
+- sync health\
+- per-aircraft mapping screen\
+- provider logs\
+- credential/config form\
+- webhook status if applicable\
+\
+## Aircraft page additions\
+Aircraft detail pages should show:\
+- connected external systems\
+- current synchronized tach/hobbs/time\
+- source and timestamp\
+- sync health\
+- reminders summary\
+- due soon / overdue / unknown\
+- AD summary\
+- compliance evidence links\
+- document-derived events\
+- \'93sync now\'94 actions\
+\
+## Reminder page additions\
+- grouped by aircraft\
+- grouped by source\
+- grouped by category\
+- show activation basis\
+- show evidence\
+- show due-by-date and/or due-by-tach\
+- show auto-created vs manual\
+- show confidence/review state\
+\
+---\
+\
+# PART 11 \'97 BACKGROUND JOBS\
+\
+Implement durable background jobs for:\
+\
+1. provider initial account sync\
+2. periodic aircraft sync\
+3. periodic usage/tach sync\
+4. webhook processing\
+5. document-derived reminder recomputation\
+6. FAA AD catalog refresh\
+7. aircraft applicability recalculation\
+8. reminder recalculation\
+9. conflict detection and reconciliation\
+10. stale connection alerting\
+\
+---\
+\
+# PART 12 \'97 DATA MODEL EXTENSIONS\
+\
+Add or extend:\
+\
+## integrations\
+- id\
+- org_id\
+- provider\
+- status\
+- auth_type\
+- encrypted_credentials_ref\
+- external_account_id\
+- config\
+- last_sync_at\
+- last_success_at\
+- last_error_at\
+\
+## integration_aircraft_links\
+- id\
+- integration_id\
+- aircraft_id\
+- external_aircraft_id\
+- external_tail\
+- sync_enabled\
+- last_synced_at\
+\
+## aircraft_usage_events\
+- id\
+- aircraft_id\
+- provider\
+- source_record_id\
+- usage_timestamp\
+- tach_value\
+- hobbs_value\
+- airframe_time\
+- engine_time\
+- block_time\
+- raw_payload\
+- trust_score\
+\
+## aircraft_current_usage\
+- aircraft_id\
+- current_tach\
+- current_hobbs\
+- current_airframe_time\
+- source_provider\
+- source_timestamp\
+- confidence\
+- conflict_state\
+\
+## reminder_templates\
+- id\
+- code\
+- title\
+- category\
+- due_basis\
+- activation_rule\
+- recurrence_rule\
+- severity_rule\
+- default_lead_time\
+\
+## reminder_instances\
+- id\
+- org_id\
+- aircraft_id\
+- template_id\
+- status\
+- due_date\
+- due_tach\
+- due_hobbs\
+- source_kind\
+- source_ref\
+- evidence_ref\
+- confidence\
+- last_evaluated_at\
+\
+## aircraft_ad_status\
+- id\
+- aircraft_id\
+- ad_number\
+- applicability_status\
+- compliance_status\
+- next_due_date\
+- next_due_hours\
+- evidence_ref\
+- confidence\
+- reminder_instance_id\
+\
+## review_tasks\
+- id\
+- org_id\
+- entity_type\
+- entity_id\
+- issue_type\
+- severity\
+- source\
+- payload\
+- status\
+\
+---\
+\
+# PART 13 \'97 DETERMINISTIC RULES + LLM RULES\
+\
+## Deterministic engine handles:\
+- date math\
+- tach/hobbs threshold math\
+- recurrence schedules\
+- exact AD matching\
+- exact due logic\
+- template activation/deactivation\
+- provider sync state transitions\
+\
+## LLM layer handles:\
+- extracting maintenance facts from documents\
+- classifying maintenance events\
+- identifying reminder-relevant text\
+- drafting explanations\
+- summarizing evidence\
+- spotting likely-but-uncertain compliance references\
+\
+## Hard rule\
+The LLM may suggest, classify, and extract.\
+The deterministic rules engine decides actual reminder activation and due state.\
+\
+---\
+\
+# PART 14 \'97 CREDENTIALS / SETUP BEHAVIOR\
+\
+When external credentials are needed, do not stop vaguely.\
+Tell the user exactly:\
+1. which provider\
+2. why it is needed\
+3. whether it is required now or later\
+4. exact setup steps\
+5. exact env vars / secrets\
+6. how to test the connection\
+\
+This applies to:\
+- Flight Schedule Pro developer credentials\
+- Avianis credentials\
+- FL3XX developer credentials\
+- any provider API keys / OAuth settings\
+- Google Document AI\
+- OpenAI\
+- FAA-source config if any non-public feed is later used\
+\
+---\
+\
+# PART 15 \'97 IMPLEMENTATION ORDER\
+\
+## Phase 1\
+- inspect current repo\
+- preserve current aircraft/reminders/documents flows\
+- add integrations schema\
+- add Integrations Hub UI shell\
+- implement provider abstraction\
+- implement Flight Schedule Pro first if feasible\
+- implement normalized usage ledger\
+- update aircraft current usage snapshot\
+\
+## Phase 2\
+- implement Avianis and FL3XX provider support\
+- add Flight Circle/MyFBO/Talon as custom-capability connectors\
+- build sync logs, mapping UI, conflict handling\
+\
+## Phase 3\
+- implement reminder template registry\
+- implement reminder evaluation engine\
+- integrate current usage + dates + registry + docs\
+- auto-generate reminders\
+\
+## Phase 4\
+- implement FAA AD pipeline\
+- match ADs to aircraft\
+- create AD reminders\
+- link document evidence to AD status\
+\
+## Phase 5\
+- deepen LLM-based document reminder extraction\
+- finalize aircraft and reminder UI\
+- add tests, admin tools, backfills, and review queue flows\
+\
+---\
+\
+# PART 16 \'97 SUCCESS CRITERIA\
+\
+The build is successful when:\
+- a customer can connect a scheduling platform from the Integrations Hub\
+- aircraft can sync into myaircraft.us automatically\
+- tach/current usage stays synchronized automatically\
+- reminders no longer depend on manual setup for common inspection/compliance items\
+- uploaded logbooks automatically activate reminder-relevant evidence\
+- FAA ADs automatically populate aircraft-linked AD status/reminder records\
+- aircraft pages show real-time current usage + reminders + AD status + evidence\
+- conflicts are surfaced safely\
+- everything works as an extension of the existing live app, not a disconnected rebuild}

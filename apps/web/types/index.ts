@@ -125,6 +125,16 @@ export interface Document {
   uploaded_by?: string
   uploaded_at: string
   updated_at: string
+  // Community / access control fields
+  uploader_id?: string
+  uploader_name?: string
+  visibility?: 'private' | 'team'
+  book_assignment_type?: 'historical' | 'present'
+  manual_access?: 'private' | 'free' | 'paid'
+  price?: number
+  allow_download?: boolean
+  community_listing?: boolean
+  uploader_role?: 'owner' | 'mechanic' | 'admin'
 }
 
 export interface DocumentChunk {
@@ -268,8 +278,15 @@ export interface NavItem {
 export interface FileUploadItem {
   file: File
   id: string
+  title: string
+  visibility: 'private' | 'team'
+  notes: string
   aircraftId?: string
   docType: DocType
+  bookAssignmentType: 'historical' | 'present'
+  manualAccess: 'private' | 'free' | 'paid'
+  price: string
+  attestation: boolean
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error'
   progress: number
   error?: string
@@ -392,5 +409,77 @@ export interface OCRExtractedEvent {
   ad_references?: string[]
   confidence_overall?: number
   review_status: string
+  created_at: string
+}
+
+// ─── Work Order types ─────────────────────────────────────────────────────────
+
+export type WorkOrderStatus =
+  | 'draft'
+  | 'open'
+  | 'awaiting_approval'
+  | 'awaiting_parts'
+  | 'in_progress'
+  | 'waiting_on_customer'
+  | 'ready_for_signoff'
+  | 'closed'
+  | 'invoiced'
+  | 'paid'
+  | 'archived'
+
+export type WorkOrderLineType = 'labor' | 'part' | 'outside_service' | 'discrepancy' | 'note'
+
+export interface WorkOrder {
+  id: string
+  organization_id: string
+  work_order_number: string
+  aircraft_id: string | null
+  customer_id: string | null
+  thread_id: string | null
+  assigned_mechanic_id: string | null
+  status: WorkOrderStatus
+  complaint: string | null
+  discrepancy: string | null
+  troubleshooting_notes: string | null
+  findings: string | null
+  corrective_action: string | null
+  labor_total: number
+  parts_total: number
+  outside_services_total: number
+  tax_amount: number
+  total_amount: number
+  internal_notes: string | null
+  customer_visible_notes: string | null
+  opened_at: string
+  closed_at: string | null
+  invoiced_at: string | null
+  linked_invoice_id: string | null
+  linked_logbook_entry_id: string | null
+  created_at: string
+  updated_at: string
+  aircraft?: any
+  customer?: any
+  lines?: WorkOrderLine[]
+}
+
+export interface WorkOrderLine {
+  id: string
+  work_order_id: string
+  line_type: WorkOrderLineType
+  description: string
+  quantity: number
+  unit_price: number
+  line_total: number
+  part_number: string | null
+  serial_number_removed: string | null
+  serial_number_installed: string | null
+  vendor: string | null
+  condition: string | null
+  status: string
+  mechanic_id: string | null
+  hours: number | null
+  rate: number | null
+  notes: string | null
+  sort_order: number
   created_at: string
 }

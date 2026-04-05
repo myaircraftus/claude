@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { DocumentDetailSlideover } from '@/components/documents/document-detail-slideover'
 import { cn, formatBytes, formatDate, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
-import { FileText, Plane } from 'lucide-react'
+import { FileText, Plane, Lock, Unlock, Download } from 'lucide-react'
 import type { Document, ParsingStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,6 +16,7 @@ interface DocumentRow extends Document {
 interface DocumentsTableProps {
   documents: DocumentRow[]
   totalCount: number
+  currentUserId?: string
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -46,9 +47,29 @@ function StatusBadge({ status }: { status: ParsingStatus }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DocumentsTable({ documents, totalCount }: DocumentsTableProps) {
+export function DocumentsTable({ documents, totalCount, currentUserId }: DocumentsTableProps) {
   const [selected, setSelected] = useState<DocumentRow | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+  const [localAllowDownload, setLocalAllowDownload] = useState<Record<string, boolean>>({})
+
+  async function toggleAllowDownload(docId: string, current: boolean, e: React.MouseEvent) {
+    e.stopPropagation()
+    setLocalAllowDownload((prev) => ({ ...prev, [docId]: !current }))
+    try {
+      await fetch(`/api/documents/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_download: !current }),
+      })
+    } catch {
+      // revert on error
+      setLocalAllowDownload((prev) => ({ ...prev, [docId]: current }))
+    }
+  }
+
+  function getAllowDownload(doc: DocumentRow): boolean {
+    return localAllowDownload[doc.id] ?? doc.allow_download ?? false
+  }
 
   function toggleCheck(id: string, e: React.MouseEvent) {
     e.stopPropagation()
@@ -117,6 +138,9 @@ export function DocumentsTable({ documents, totalCount }: DocumentsTableProps) {
                   Size
                 </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                  Uploader
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground text-xs uppercase tracking-wide">
                   Uploaded
                 </th>
               </tr>
@@ -149,6 +173,15 @@ export function DocumentsTable({ documents, totalCount }: DocumentsTableProps) {
                       <p className="text-xs text-muted-foreground truncate mt-0.5 pl-6">
                         {doc.description}
                       </p>
+                    )}
+                    {doc.community_listing && (
+                      <span className="inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200">
+                        {doc.manual_access === 'free'
+                          ? 'Community · Free'
+                          : doc.price
+                          ? `Community · $${doc.price}`
+                          : 'Community'}
+                      </span>
                     )}
                   </td>
 
@@ -184,6 +217,40 @@ export function DocumentsTable({ documents, totalCount }: DocumentsTableProps) {
                   {/* Size */}
                   <td className="px-4 py-3 text-right text-xs text-muted-foreground tabular-nums">
                     {doc.file_size_bytes != null ? formatBytes(doc.file_size_bytes) : '—'}
+                  </td>
+
+                  {/* Uploader */}
+                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <span>
+                        {doc.uploader_id === currentUserId ? 'You' : (doc.uploader_name ?? '—')}
+                      </span>
+                      {/* Allow-download toggle: only uploader sees this */}
+                      {doc.uploader_id === currentUserId && (
+                        <button
+                          onClick={(e) => toggleAllowDownload(doc.id, getAllowDownload(doc), e)}
+                          title={getAllowDownload(doc) ? 'Disable download' : 'Allow download'}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {getAllowDownload(doc) ? (
+                            <Unlock className="h-3.5 w-3.5" />
+                          ) : (
+                            <Lock className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      )}
+                      {/* Download icon: shown to non-uploaders when download is allowed */}
+                      {getAllowDownload(doc) && doc.uploader_id !== currentUserId && (
+                        <a
+                          href={`/api/documents/${doc.id}/download`}
+                          title="Download"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </div>
                   </td>
 
                   {/* Uploaded */}

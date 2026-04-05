@@ -47,6 +47,9 @@ import type {
   AircraftADApplicability,
   MaintenanceEntryDraft,
 } from '@/types'
+import { LiveTrackingSection } from '@/components/aircraft/tracking/LiveTrackingSection'
+import { IntelligenceTab } from '@/components/intelligence/IntelligenceTab'
+import type { AircraftComputedStatus, RecordFinding, FindingsRun, ReportJob } from '@/types/intelligence'
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -236,6 +239,13 @@ function OverviewTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Live Tracking — feature-flagged, renders nothing when flag is off */}
+      <LiveTrackingSection
+        aircraftId={aircraft.id}
+        registration={aircraft.tail_number}
+        enabled={process.env.NEXT_PUBLIC_ENABLE_AIRCRAFT_LIVE_TRACKING === 'true'}
+      />
     </div>
   )
 }
@@ -1148,6 +1158,52 @@ export default async function AircraftDetailPage({
     entries = (data ?? []) as MaintenanceEntryDraft[]
   } catch {}
 
+  // Intelligence tab data — graceful fallback if tables don't exist yet
+  let computedStatus: AircraftComputedStatus | null = null
+  let intelligenceFindings: RecordFinding[] = []
+  let intelligenceRun: FindingsRun | null = null
+  let reportJobs: ReportJob[] = []
+
+  try {
+    const { data } = await supabase
+      .from('aircraft_computed_status')
+      .select('*')
+      .eq('aircraft_id', params.id)
+      .single()
+    computedStatus = data as AircraftComputedStatus | null
+  } catch {}
+
+  try {
+    const { data: latestRun } = await supabase
+      .from('findings_runs')
+      .select('*')
+      .eq('aircraft_id', params.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    intelligenceRun = latestRun as FindingsRun | null
+
+    if (latestRun) {
+      const { data: findingsData } = await supabase
+        .from('record_findings')
+        .select('*')
+        .eq('findings_run_id', latestRun.id)
+        .eq('is_resolved', false)
+        .order('severity')
+      intelligenceFindings = (findingsData ?? []) as RecordFinding[]
+    }
+  } catch {}
+
+  try {
+    const { data } = await supabase
+      .from('report_jobs')
+      .select('*')
+      .eq('aircraft_id', params.id)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    reportJobs = (data ?? []) as ReportJob[]
+  } catch {}
+
   const overdueADs = adApplicability.filter(a => a.compliance_status === 'overdue').length
   const activeRemindersCount = reminders.length
   const draftEntriesCount = entries.filter(e => e.status === 'draft').length
@@ -1272,6 +1328,15 @@ export default async function AircraftDetailPage({
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger value="intelligence" className="flex items-center gap-1.5">
+                  <Shield className="h-3.5 w-3.5" />
+                  Intelligence
+                  {computedStatus && computedStatus.health_score < 70 && (
+                    <Badge variant="warning" className="ml-1 text-xs py-0 px-1.5 h-4">
+                      {computedStatus.health_score}
+                    </Badge>
+                  )}
+                </TabsTrigger>
                 <TabsTrigger value="settings" className="flex items-center gap-1.5">
                   <Settings className="h-3.5 w-3.5" />
                   Settings
@@ -1309,6 +1374,16 @@ export default async function AircraftDetailPage({
 
               <TabsContent value="entries">
                 <EntriesTab aircraftId={aircraft.id} entries={entries} />
+              </TabsContent>
+
+              <TabsContent value="intelligence">
+                <IntelligenceTab
+                  aircraftId={aircraft.id}
+                  initialStatus={computedStatus}
+                  initialFindings={intelligenceFindings}
+                  initialRun={intelligenceRun}
+                  initialReports={reportJobs}
+                />
               </TabsContent>
 
               <TabsContent value="settings">

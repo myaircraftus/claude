@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2 } from 'lucide-react'
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Unlock, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -29,6 +33,12 @@ interface AircraftOption {
 interface UploadDropzoneProps {
   aircraftOptions: AircraftOption[]
   onUploadComplete: () => void
+}
+
+const MANUAL_DOC_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_catalog']
+
+function isManualType(docType: DocType): boolean {
+  return MANUAL_DOC_TYPES.includes(docType)
 }
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
@@ -91,11 +101,9 @@ const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS) as [DocType, string][]
 export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDropzoneProps) {
   const [files, setFiles] = useState<FileUploadItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
-  // Map from documentId → realtime parsing status
   const [parsingStatuses, setParsingStatuses] = useState<Record<string, ParsingStatus>>({})
   const channelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabase>['channel']> | null>(null)
 
-  // Subscribe to realtime updates for documents we've uploaded
   useEffect(() => {
     const docIds = files
       .filter((f) => f.documentId)
@@ -105,7 +113,6 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
 
     const supabase = createBrowserSupabase()
 
-    // Clean up previous subscription
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current)
     }
@@ -139,8 +146,15 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
       const newItems: FileUploadItem[] = acceptedFiles.map((file) => ({
         file,
         id: crypto.randomUUID(),
+        title: file.name.replace(/\.pdf$/i, ''),
+        visibility: 'private' as const,
+        notes: '',
         aircraftId: undefined,
         docType: 'miscellaneous' as DocType,
+        bookAssignmentType: 'historical' as const,
+        manualAccess: 'private' as const,
+        price: '',
+        attestation: false,
         status: 'pending' as const,
         progress: 0,
       }))
@@ -152,7 +166,7 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'application/pdf': ['.pdf'] },
-    maxSize: 500 * 1024 * 1024, // 500 MB
+    maxSize: 500 * 1024 * 1024,
     multiple: true,
     disabled: isUploading,
   })
@@ -168,22 +182,37 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
   async function uploadFile(item: FileUploadItem): Promise<void> {
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
+    // Ownership fields captured at submit time
+    const communityListing = ['free', 'paid'].includes(item.manualAccess)
+
     const formData = new FormData()
     formData.append('file', item.file)
     formData.append('doc_type', item.docType)
-    formData.append('title', item.file.name.replace(/\.pdf$/i, ''))
+    formData.append('title', item.title || item.file.name.replace(/\.pdf$/i, ''))
+    formData.append('visibility', item.visibility)
+    formData.append('notes', item.notes)
+    formData.append('allow_download', 'false')
+    formData.append('community_listing', String(communityListing))
+    if (!isManualType(item.docType)) {
+      formData.append('book_assignment_type', item.bookAssignmentType)
+    }
+    if (isManualType(item.docType)) {
+      formData.append('manual_access', item.manualAccess)
+      if (item.manualAccess === 'paid' && item.price) {
+        formData.append('price', item.price)
+      }
+    }
     if (item.aircraftId) {
       formData.append('aircraft_id', item.aircraftId)
     }
 
     try {
-      // Use XMLHttpRequest for upload progress tracking
       const documentId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
 
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 90) // cap at 90 until server responds
+            const pct = Math.round((e.loaded / e.total) * 90)
             updateFile(item.id, { progress: pct })
           }
         })
@@ -274,11 +303,15 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
         <div className="space-y-2">
           {files.map((item) => {
             const realtimeStatus = item.documentId ? parsingStatuses[item.documentId] : undefined
+            const manual = isManualType(item.docType)
+            const isPaid = item.manualAccess === 'paid'
+            const needsAttestation = ['free', 'paid'].includes(item.manualAccess) && manual
+            const uploaderShare = item.price ? (parseFloat(item.price) * 0.5).toFixed(2) : '0.00'
 
             return (
               <div
                 key={item.id}
-                className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-card"
+                className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-card"
               >
                 {/* Row 1: icon + name + status + remove */}
                 <div className="flex items-center gap-3">
@@ -291,7 +324,6 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                     <p className="text-xs text-muted-foreground">{formatBytes(item.file.size)}</p>
                   </div>
 
-                  {/* Status indicator */}
                   <div className="flex-shrink-0">
                     {item.status === 'pending' && (
                       <Badge variant="secondary" className="text-xs">Pending</Badge>
@@ -319,7 +351,6 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                     )}
                   </div>
 
-                  {/* Remove */}
                   {item.status !== 'uploading' && (
                     <button
                       type="button"
@@ -331,10 +362,47 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                   )}
                 </div>
 
-                {/* Row 2: selectors (only when pending or error) */}
+                {/* Form fields — only when pending or error */}
                 {(item.status === 'pending' || item.status === 'error') && (
-                  <div className="flex gap-2 pl-11">
-                    {/* Aircraft selector */}
+                  <div className="pl-11 space-y-2.5">
+
+                    {/* 1. Document Title */}
+                    <Input
+                      value={item.title}
+                      onChange={(e) => updateFile(item.id, { title: e.target.value })}
+                      placeholder="Document title (required)"
+                      className="h-8 text-xs"
+                    />
+
+                    {/* 2. Visibility toggle — Private / Shared with team */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateFile(item.id, { visibility: 'private' })}
+                        className={cn(
+                          'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
+                          item.visibility === 'private'
+                            ? 'bg-gray-900 text-white border-gray-900'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        )}
+                      >
+                        <Lock className="h-3 w-3" /> Private
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateFile(item.id, { visibility: 'team' })}
+                        className={cn(
+                          'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
+                          item.visibility === 'team'
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        )}
+                      >
+                        <Users className="h-3 w-3" /> Shared with team
+                      </button>
+                    </div>
+
+                    {/* 3. Aircraft */}
                     <Select
                       value={item.aircraftId ?? '__none__'}
                       onValueChange={(val) =>
@@ -343,7 +411,7 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                         })
                       }
                     >
-                      <SelectTrigger className="h-8 text-xs flex-1">
+                      <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Aircraft (optional)" />
                       </SelectTrigger>
                       <SelectContent>
@@ -356,14 +424,26 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                       </SelectContent>
                     </Select>
 
-                    {/* Doc type selector */}
+                    {/* 4. Notes */}
+                    <Textarea
+                      value={item.notes}
+                      onChange={(e) => updateFile(item.id, { notes: e.target.value })}
+                      placeholder="Notes (optional)"
+                      className="text-xs min-h-[60px] resize-none"
+                    />
+
+                    {/* 5. Document Type */}
                     <Select
                       value={item.docType}
                       onValueChange={(val) =>
-                        updateFile(item.id, { docType: val as DocType })
+                        updateFile(item.id, {
+                          docType: val as DocType,
+                          manualAccess: 'private',
+                          attestation: false,
+                        })
                       }
                     >
-                      <SelectTrigger className="h-8 text-xs flex-1">
+                      <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -374,6 +454,109 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* 6. Book Assignment Type — non-manual types only */}
+                    {!manual && (
+                      <div className="flex gap-2">
+                        {(['historical', 'present'] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => updateFile(item.id, { bookAssignmentType: t })}
+                            className={cn(
+                              'px-2.5 py-1 rounded text-xs border transition-colors capitalize',
+                              item.bookAssignmentType === t
+                                ? 'bg-gray-900 text-white border-gray-900'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                            )}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 7. Manual Access — manual types only */}
+                    {manual && (
+                      <>
+                        <div className="flex gap-2">
+                          {([
+                            { value: 'private', label: 'Private' },
+                            { value: 'free', label: 'Free Download' },
+                            { value: 'paid', label: 'Paid' },
+                          ] as const).map(({ value, label }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() =>
+                                updateFile(item.id, {
+                                  manualAccess: value,
+                                  attestation: false,
+                                })
+                              }
+                              className={cn(
+                                'px-2.5 py-1 rounded text-xs border transition-colors',
+                                item.manualAccess === value
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* 7a. Disclosure text */}
+                        <p className="text-xs text-muted-foreground mt-2 p-2 bg-amber-50 rounded">
+                          Manuals, service manuals, and parts catalogs can stay private or become
+                          community downloads. Paid listings follow the requested 50% uploader /
+                          50% myaircraft.us split.
+                        </p>
+                      </>
+                    )}
+
+                    {/* 8. Price input — paid only */}
+                    {manual && isPaid && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.price}
+                          onChange={(e) => updateFile(item.id, { price: e.target.value })}
+                          placeholder="0.00"
+                          className="h-8 text-xs w-28"
+                        />
+                      </div>
+                    )}
+
+                    {/* 9. Revenue preview — paid only */}
+                    {manual && isPaid && item.price && (
+                      <p className="text-xs text-muted-foreground">
+                        You earn <span className="font-medium text-foreground">${uploaderShare}</span>{' '}
+                        · myaircraft.us earns <span className="font-medium">${uploaderShare}</span>{' '}
+                        (50 / 50 split)
+                      </p>
+                    )}
+
+                    {/* 10. Attestation checkbox — free or paid manual */}
+                    {needsAttestation && (
+                      <div className="flex items-start gap-2">
+                        <Checkbox
+                          id={`attest-${item.id}`}
+                          checked={item.attestation}
+                          onCheckedChange={(checked) =>
+                            updateFile(item.id, { attestation: !!checked })
+                          }
+                          className="mt-0.5"
+                        />
+                        <Label htmlFor={`attest-${item.id}`} className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
+                          I confirm I have the right to share this document and that sharing it
+                          does not violate any copyright or licensing restrictions.
+                        </Label>
+                      </div>
+                    )}
                   </div>
                 )}
 
