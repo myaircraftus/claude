@@ -6,7 +6,11 @@ import type { UserProfile } from '@/types'
 
 export const metadata = { title: 'Community Library' }
 
-export default async function LibraryPage() {
+export default async function LibraryPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string }
+}) {
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -42,7 +46,14 @@ export default async function LibraryPage() {
         profile={profile}
         breadcrumbs={[{ label: 'Community Library' }]}
       />
-      <LibraryClient items={items} orgId={membership.organization_id} />
+      <LibraryClient
+        items={items}
+        orgId={membership.organization_id}
+        userId={user.id}
+        userName={profile?.full_name ?? profile?.email}
+        userRole={membership.role}
+        initialTab={searchParams?.tab === 'upload' ? 'upload' : 'browse'}
+      />
     </div>
   )
 }

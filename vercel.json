@@ -9,6 +9,17 @@
       "destination": "/api/:path*"
     }
   ],
+  "functions": {
+    "apps/web/app/api/reports/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/reports/[jobId]/route.ts": {
+      "maxDuration": 30
+    },
+    "apps/web/app/api/aircraft/[id]/detect-findings/route.ts": {
+      "maxDuration": 30
+    }
+  },
   "headers": [
     {
       "source": "/api/(.*)",

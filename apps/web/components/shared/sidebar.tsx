@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   Plug2,
   BookOpen,
+  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -62,6 +63,7 @@ export function Sidebar({
     {
       items: [
         { label: 'Maintenance', href: '/maintenance', icon: Wrench },
+        { label: 'Work Orders', href: '/work-orders', icon: ClipboardList },
         { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount },
         { label: 'Review Queue', href: '/documents/review', icon: ClipboardCheck, badge: reviewQueueCount },
       ],
@@ -75,7 +77,7 @@ export function Sidebar({
     {
       items: [
         { label: 'Integrations', href: '/integrations', icon: Plug2 },
-        { label: 'Community Library', href: '/library', icon: BookOpen },
+        { label: 'Community', href: '/library?tab=upload', icon: BookOpen },
       ],
     },
   ]

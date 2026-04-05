@@ -125,6 +125,16 @@ export interface Document {
   uploaded_by?: string
   uploaded_at: string
   updated_at: string
+  // Community / access control fields
+  uploader_id?: string
+  uploader_name?: string
+  visibility?: 'private' | 'team'
+  book_assignment_type?: 'historical' | 'present'
+  manual_access?: 'private' | 'free' | 'paid'
+  price?: number
+  allow_download?: boolean
+  community_listing?: boolean
+  uploader_role?: 'owner' | 'mechanic' | 'admin'
 }
 
 export interface DocumentChunk {
@@ -268,8 +278,15 @@ export interface NavItem {
 export interface FileUploadItem {
   file: File
   id: string
+  title: string
+  visibility: 'private' | 'team'
+  notes: string
   aircraftId?: string
   docType: DocType
+  bookAssignmentType: 'historical' | 'present'
+  manualAccess: 'private' | 'free' | 'paid'
+  price: string
+  attestation: boolean
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error'
   progress: number
   error?: string

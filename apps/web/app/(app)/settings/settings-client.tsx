@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Building2, Users, Plug, CreditCard, AlertTriangle,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
-  CheckCircle2
+  CheckCircle2, Upload, Globe, Lock, X, FileText,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -22,8 +22,8 @@ import {
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import { PLAN_LABELS, formatBytes } from '@/lib/utils'
-import type { UserProfile, Organization, OrgRole } from '@/types'
+import { PLAN_LABELS, formatBytes, formatDate, DOC_TYPE_LABELS, cn } from '@/lib/utils'
+import type { UserProfile, Organization, OrgRole, DocType } from '@/types'
 
 interface Member {
   id: string
@@ -31,6 +31,19 @@ interface Member {
   invited_at: string
   accepted_at?: string
   user_profiles: { id: string; email: string; full_name?: string; avatar_url?: string } | null
+}
+
+interface UploadedDoc {
+  id: string
+  title: string
+  doc_type: DocType
+  uploaded_at: string
+  manual_access?: 'private' | 'free' | 'paid'
+  allow_download?: boolean
+  community_listing?: boolean
+  price?: number
+  uploader_role?: 'owner' | 'mechanic' | 'admin'
+  aircraft?: { id: string; tail_number: string } | null
 }
 
 interface Props {
@@ -41,6 +54,7 @@ interface Props {
   driveConnection: { id: string; google_email?: string; is_active: boolean; created_at: string } | null
   defaultTab: string
   showUpgradeSuccess: boolean
+  uploadedDocs?: UploadedDoc[]
 }
 
 const PLAN_FEATURES = {
@@ -51,7 +65,7 @@ const PLAN_FEATURES = {
 }
 
 export function SettingsClient({
-  profile, organization, role, members, driveConnection, defaultTab, showUpgradeSuccess
+  profile, organization, role, members, driveConnection, defaultTab, showUpgradeSuccess, uploadedDocs = []
 }: Props) {
   const router = useRouter()
   const [orgName, setOrgName] = useState(organization.name)
@@ -65,6 +79,55 @@ export function SettingsClient({
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const isOwner = role === 'owner'
   const isAdmin = role === 'admin' || isOwner
+
+  // My Uploads state
+  const [localDocs, setLocalDocs] = useState<UploadedDoc[]>(uploadedDocs)
+  const [editingDoc, setEditingDoc] = useState<UploadedDoc | null>(null)
+  const [editAccessLevel, setEditAccessLevel] = useState<'private' | 'free' | 'paid'>('private')
+  const [editPrice, setEditPrice] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  function openEditAccess(doc: UploadedDoc) {
+    setEditingDoc(doc)
+    setEditAccessLevel(doc.manual_access ?? 'private')
+    setEditPrice(doc.price ? String(doc.price) : '')
+  }
+
+  async function handleEditAccess() {
+    if (!editingDoc) return
+    setEditSaving(true)
+    try {
+      await fetch(`/api/documents/${editingDoc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manual_access: editAccessLevel, price: editPrice || null }),
+      })
+      setLocalDocs(prev => prev.map(d =>
+        d.id === editingDoc.id
+          ? { ...d, manual_access: editAccessLevel, price: editPrice ? parseFloat(editPrice) : undefined }
+          : d
+      ))
+    } finally {
+      setEditSaving(false)
+      setEditingDoc(null)
+    }
+  }
+
+  async function handleRemoveFromCommunity(docId: string) {
+    await fetch(`/api/documents/${docId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ community_listing: false }),
+    })
+    setLocalDocs(prev => prev.map(d => d.id === docId ? { ...d, community_listing: false } : d))
+  }
+
+  async function handleDeleteDoc(doc: UploadedDoc) {
+    if (doc.community_listing) return
+    if (!confirm(`Delete "${doc.title}"? This cannot be undone.`)) return
+    await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
+    setLocalDocs(prev => prev.filter(d => d.id !== doc.id))
+  }
 
   async function saveOrgName() {
     setSavingOrg(true)
@@ -148,6 +211,7 @@ export function SettingsClient({
             <TabsTrigger value="members"><Users className="h-4 w-4 mr-1.5" />Members</TabsTrigger>
             <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1.5" />Integrations</TabsTrigger>
             <TabsTrigger value="billing"><CreditCard className="h-4 w-4 mr-1.5" />Billing</TabsTrigger>
+            <TabsTrigger value="uploads"><Upload className="h-4 w-4 mr-1.5" />My Uploads</TabsTrigger>
             {isOwner && <TabsTrigger value="danger"><AlertTriangle className="h-4 w-4 mr-1.5" />Danger</TabsTrigger>}
           </TabsList>
 
@@ -442,6 +506,194 @@ export function SettingsClient({
               </Card>
             )}
           </TabsContent>
+
+          {/* My Uploads tab */}
+          <TabsContent value="uploads" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>My Uploads</CardTitle>
+                <CardDescription>
+                  Documents you have uploaded — manage access levels and community listings.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {localDocs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-3">
+                      <FileText className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm font-medium">No uploads yet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Documents you upload will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/40 border-b border-border">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Title</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Type</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Aircraft</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Access</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Downloads</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">In Marketplace</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Date</th>
+                          <th className="px-4 py-3" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {localDocs.map(doc => {
+                          const roleBadgeEl = doc.uploader_role === 'owner'
+                            ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">Owner</span>
+                            : doc.uploader_role === 'mechanic'
+                            ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">Mechanic</span>
+                            : doc.uploader_role === 'admin'
+                            ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Admin</span>
+                            : null
+
+                          return (
+                            <tr key={doc.id} className="hover:bg-muted/20 transition-colors">
+                              <td className="px-4 py-3 max-w-[200px]">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  <span className="truncate font-medium text-foreground text-xs">{doc.title}</span>
+                                </div>
+                                {roleBadgeEl && <div className="mt-1 pl-5">{roleBadgeEl}</div>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant="outline" className="text-xs whitespace-nowrap">
+                                  {DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {doc.aircraft?.tail_number ?? '—'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={cn(
+                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border',
+                                  doc.manual_access === 'paid'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                    : doc.manual_access === 'free'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                                )}>
+                                  {doc.manual_access === 'paid' ? `$${doc.price ?? '—'}` : doc.manual_access === 'free' ? 'Free' : 'Private'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right text-xs text-muted-foreground">—</td>
+                              <td className="px-4 py-3">
+                                {doc.community_listing ? (
+                                  <span className="inline-flex items-center gap-1 text-xs text-violet-700">
+                                    <Globe className="h-3 w-3" />Listed
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                {formatDate(doc.uploaded_at)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1 justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => openEditAccess(doc)}
+                                  >
+                                    Edit Access
+                                  </Button>
+                                  {doc.community_listing && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs text-amber-600 hover:text-amber-700"
+                                      onClick={() => handleRemoveFromCommunity(doc.id)}
+                                    >
+                                      Delist
+                                    </Button>
+                                  )}
+                                  {!doc.community_listing && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                      onClick={() => handleDeleteDoc(doc)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Edit Access Modal */}
+          {editingDoc && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-background rounded-xl shadow-xl w-full max-w-sm">
+                <div className="flex items-center justify-between p-5 border-b border-border">
+                  <h2 className="text-base font-semibold">Edit Access Level</h2>
+                  <button onClick={() => setEditingDoc(null)} className="p-1 rounded hover:bg-muted">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div>
+                    <Label className="text-xs mb-1.5 block">Access Level</Label>
+                    <div className="flex rounded-md overflow-hidden border border-input">
+                      {(['private', 'free', 'paid'] as const).map(level => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setEditAccessLevel(level)}
+                          className={cn(
+                            'flex-1 py-2 text-xs font-medium transition-colors capitalize',
+                            editAccessLevel === level
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-background text-muted-foreground hover:bg-muted'
+                          )}
+                        >
+                          {level === 'private' ? 'Private' : level === 'free' ? 'Free' : 'Paid'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {editAccessLevel === 'paid' && (
+                    <div>
+                      <Label htmlFor="edit-price">Price (USD)</Label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                        <Input
+                          id="edit-price"
+                          type="number"
+                          min="1"
+                          max="500"
+                          value={editPrice}
+                          onChange={e => setEditPrice(e.target.value)}
+                          placeholder="29"
+                          className="pl-6"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3 p-5 pt-0">
+                  <Button variant="outline" className="flex-1" onClick={() => setEditingDoc(null)}>Cancel</Button>
+                  <Button className="flex-1" onClick={handleEditAccess} disabled={editSaving}>
+                    {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Danger zone */}
           {isOwner && (

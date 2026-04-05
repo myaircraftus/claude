@@ -48,6 +48,18 @@ export default async function SettingsPage({
     .eq('is_active', true)
     .maybeSingle()
 
+  // Fetch documents uploaded by this user
+  let uploadedDocs: any[] = []
+  try {
+    const { data } = await supabase
+      .from('documents')
+      .select('id, title, doc_type, uploaded_at, manual_access, allow_download, community_listing, price, uploader_role, aircraft:aircraft_id(id, tail_number)')
+      .eq('uploaded_by', user.id)
+      .order('uploaded_at', { ascending: false })
+      .limit(200)
+    uploadedDocs = data ?? []
+  } catch {}
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar
@@ -62,6 +74,7 @@ export default async function SettingsPage({
         driveConnection={driveConnection}
         defaultTab={searchParams.tab ?? 'organization'}
         showUpgradeSuccess={searchParams.upgraded === 'true'}
+        uploadedDocs={uploadedDocs}
       />
     </div>
   )

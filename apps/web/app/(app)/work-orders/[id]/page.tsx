@@ -1,0 +1,70 @@
+import { redirect, notFound } from 'next/navigation'
+import Link from 'next/link'
+import { createServerSupabase } from '@/lib/supabase/server'
+import { Topbar } from '@/components/shared/topbar'
+import { WorkOrderDetailClient } from './work-order-detail-client'
+import type { UserProfile, WorkOrder } from '@/types'
+
+export default async function WorkOrderDetailPage({ params }: { params: { id: string } }) {
+  const supabase = createServerSupabase()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const [profileRes, membershipRes] = await Promise.all([
+    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
+    supabase
+      .from('organization_memberships')
+      .select('organization_id, role')
+      .eq('user_id', user.id)
+      .not('accepted_at', 'is', null)
+      .single(),
+  ])
+
+  const profile = profileRes.data as UserProfile
+  if (!profile || !membershipRes.data) redirect('/login')
+
+  const orgId = membershipRes.data.organization_id
+
+  const { data: wo } = await supabase
+    .from('work_orders')
+    .select(`
+      *,
+      aircraft:aircraft_id (id, tail_number, make, model, year),
+      lines:work_order_lines (*)
+    `)
+    .eq('id', params.id)
+    .eq('organization_id', orgId)
+    .single()
+
+  if (!wo) notFound()
+
+  // Sort lines by sort_order
+  if (wo.lines) {
+    (wo.lines as any[]).sort((a, b) => a.sort_order - b.sort_order)
+  }
+
+  // Fetch aircraft list for reassignment
+  const { data: aircraft } = await supabase
+    .from('aircraft')
+    .select('id, tail_number, make, model')
+    .eq('organization_id', orgId)
+    .eq('is_archived', false)
+    .order('tail_number')
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <Topbar
+        profile={profile}
+        breadcrumbs={[
+          { label: 'Work Orders', href: '/work-orders' },
+          { label: wo.work_order_number },
+        ]}
+      />
+      <WorkOrderDetailClient
+        workOrder={wo as WorkOrder}
+        aircraft={aircraft ?? []}
+        userRole={membershipRes.data.role}
+      />
+    </div>
+  )
+}
