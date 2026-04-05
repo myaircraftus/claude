@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { generateReport } from '@/lib/intelligence/generateReport'
 
+export const maxDuration = 60
+
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()

@@ -1,14 +1,29 @@
 // PDF rendering using puppeteer-core + @sparticuz/chromium for Vercel compatibility
-// Install: npm install puppeteer-core @sparticuz/chromium
-
-import chromium from '@sparticuz/chromium'
-import puppeteer from 'puppeteer-core'
+// Install: pnpm add puppeteer-core @sparticuz/chromium
+// These packages are loaded at runtime only (see next.config.mjs externals).
+// If not installed, renderReportToPDF will throw a clear error at call time.
 
 export async function renderReportToPDF(
   data: Record<string, unknown>,
   template: string
 ): Promise<Buffer> {
   const html = buildReportHTML(data, template)
+
+  let chromium: any
+  let puppeteer: any
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    chromium = require('@sparticuz/chromium')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    puppeteer = require('puppeteer-core')
+    if (chromium && chromium.default) chromium = chromium.default
+    if (puppeteer && puppeteer.default) puppeteer = puppeteer.default
+  } catch (err) {
+    throw new Error(
+      'PDF generation requires puppeteer-core and @sparticuz/chromium. ' +
+      'Run: pnpm --filter @myaircraft/web add puppeteer-core @sparticuz/chromium'
+    )
+  }
 
   const browser = await puppeteer.launch({
     args: chromium.args,
