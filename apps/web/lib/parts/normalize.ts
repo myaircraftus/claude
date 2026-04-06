@@ -32,6 +32,17 @@ export function extractPartNumber(text: string): string | null {
   return m ? m[0].toUpperCase() : null
 }
 
+/** Strip garbage values like "Unknown" from aircraft context strings. */
+function cleanContext(s: string | null | undefined): string | null {
+  if (!s) return null
+  // Remove "Unknown", "N/A", "None", "TBD" etc. that pollute search queries
+  const cleaned = s
+    .replace(/\b(unknown|n\/?a|none|tbd|unspecified|other)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned.length >= 2 ? cleaned : null
+}
+
 /** Build provider-ready query strings, with aircraft context if available. */
 export function buildProviderQuery(
   query: string,
@@ -39,8 +50,18 @@ export function buildProviderQuery(
 ): string {
   const q = normalizeQuery(query)
   if (opts.mode === 'exact_part') return q
+
   const bits = [q]
-  if (opts.aircraftMakeModel) bits.push(opts.aircraftMakeModel)
-  if (opts.engineModel) bits.push(opts.engineModel)
+  const acContext = cleanContext(opts.aircraftMakeModel)
+  if (acContext) bits.push(acContext)
+  const engContext = cleanContext(opts.engineModel)
+  if (engContext) bits.push(engContext)
+
+  // For keyword/general mode with no usable aircraft context, add "aircraft" so
+  // Google Shopping returns aviation-relevant results instead of car parts.
+  if ((opts.mode === 'keyword' || opts.mode === 'general') && bits.length === 1) {
+    bits.push('aircraft')
+  }
+
   return bits.join(' ')
 }

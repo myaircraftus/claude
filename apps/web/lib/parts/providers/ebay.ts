@@ -19,56 +19,106 @@ const EBAY_ENDPOINTS = {
 // Aviation categories on eBay: Business & Industrial > Aviation Parts & Accessories (26436)
 const EBAY_AVIATION_CATEGORY = '26436'
 
-let cachedToken: { value: string; expiresAt: number } | null = null
+let cachedToken: { value: string; expiresAt: number; env: string } | null = null
 
-async function getEbayToken(): Promise<string | null> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) return cachedToken.value
+async function getEbayToken(env: 'sandbox' | 'production'): Promise<string | null> {
+  if (cachedToken && cachedToken.env === env && Date.now() < cachedToken.expiresAt - 60_000) {
+    return cachedToken.value
+  }
   const appId = process.env.EBAY_APP_ID
   const certId = process.env.EBAY_CERT_ID
-  if (!appId || !certId) return null
-  const env = (process.env.EBAY_ENV ?? 'sandbox') as 'sandbox' | 'production'
+  if (!appId || !certId) {
+    console.warn('[ebay] Missing EBAY_APP_ID or EBAY_CERT_ID')
+    return null
+  }
+
   const url = EBAY_ENDPOINTS[env].token
   const creds = Buffer.from(`${appId}:${certId}`).toString('base64')
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
-    scope: 'https://api.ebay.com/oauth/api_scope',
+    scope: env === 'production'
+      ? 'https://api.ebay.com/oauth/api_scope'
+      : 'https://api.ebay.com/oauth/api_scope',
   })
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${creds}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-  })
-  if (!resp.ok) return null
-  const j: any = await resp.json()
-  if (!j.access_token) return null
-  cachedToken = {
-    value: j.access_token,
-    expiresAt: Date.now() + (j.expires_in ?? 7200) * 1000,
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${creds}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    })
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '')
+      console.error(`[ebay] Token request failed (${env}): HTTP ${resp.status} - ${errText.slice(0, 200)}`)
+      return null
+    }
+    const j: any = await resp.json()
+    if (!j.access_token) {
+      console.error('[ebay] Token response missing access_token:', JSON.stringify(j).slice(0, 200))
+      return null
+    }
+    cachedToken = {
+      value: j.access_token,
+      expiresAt: Date.now() + (j.expires_in ?? 7200) * 1000,
+      env,
+    }
+    console.log(`[ebay] Got ${env} token, expires in ${j.expires_in}s`)
+    return cachedToken.value
+  } catch (err: any) {
+    console.error(`[ebay] Token fetch error (${env}):`, err?.message)
+    return null
   }
-  return cachedToken.value
 }
 
 export async function runEbayProvider(ctx: ProviderContext): Promise<ProviderResult> {
   const started = Date.now()
-  const env = (process.env.EBAY_ENV ?? 'sandbox') as 'sandbox' | 'production'
-  const token = await getEbayToken()
+  const env = (process.env.EBAY_ENV ?? 'production') as 'sandbox' | 'production'
+  const token = await getEbayToken(env)
   if (!token) {
-    return { provider: 'ebay', ok: false, offers: [], error: 'eBay token unavailable (check EBAY_APP_ID/EBAY_CERT_ID)', durationMs: Date.now() - started }
+    return {
+      provider: 'ebay',
+      ok: false,
+      offers: [],
+      error: 'eBay token unavailable (check EBAY_APP_ID/EBAY_CERT_ID)',
+      durationMs: Date.now() - started,
+    }
   }
 
+  // First try with aviation category filter
+  let offers = await fetchEbayOffers(ctx, token, env, EBAY_AVIATION_CATEGORY)
+
+  // If 0 results with aviation category, retry without category filter
+  if (offers.length === 0) {
+    console.log(`[ebay] 0 results in aviation category for "${ctx.query}", retrying without category filter`)
+    offers = await fetchEbayOffers(ctx, token, env, null)
+  }
+
+  console.log(`[ebay] Final: ${offers.length} results for "${ctx.query}" (${env})`)
+  return { provider: 'ebay', ok: true, offers, durationMs: Date.now() - started }
+}
+
+async function fetchEbayOffers(
+  ctx: ProviderContext,
+  token: string,
+  env: 'sandbox' | 'production',
+  categoryId: string | null,
+): Promise<NormalizedOffer[]> {
   const params = new URLSearchParams({
     q: ctx.query,
     limit: String(Math.min(ctx.maxResults, 50)),
-    category_ids: EBAY_AVIATION_CATEGORY,
   })
+  if (categoryId) {
+    params.set('category_ids', categoryId)
+  }
 
   try {
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), ctx.timeoutMs)
-    const resp = await fetch(`${EBAY_ENDPOINTS[env].browse}?${params.toString()}`, {
+    const url = `${EBAY_ENDPOINTS[env].browse}?${params.toString()}`
+    const resp = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
@@ -77,21 +127,23 @@ export async function runEbayProvider(ctx: ProviderContext): Promise<ProviderRes
       signal: ctrl.signal,
     })
     clearTimeout(timeout)
+
     if (!resp.ok) {
-      return { provider: 'ebay', ok: false, offers: [], error: `HTTP ${resp.status}`, durationMs: Date.now() - started }
+      const errBody = await resp.text().catch(() => '')
+      console.error(`[ebay] Browse API HTTP ${resp.status} for "${ctx.query}" (cat=${categoryId}): ${errBody.slice(0, 300)}`)
+      // If we get a 500 from sandbox, don't throw - just return empty
+      return []
     }
+
     const json: any = await resp.json()
     const items: any[] = json.itemSummaries ?? []
-    const offers: NormalizedOffer[] = items.map((r: any) => mapEbayItem(r, ctx.query)).filter(Boolean) as NormalizedOffer[]
-    return { provider: 'ebay', ok: true, offers, durationMs: Date.now() - started }
+    console.log(`[ebay] Browse API returned ${items.length} items for "${ctx.query}" (cat=${categoryId})`)
+    return items
+      .map((r: any) => mapEbayItem(r, ctx.normalizedQuery))
+      .filter(Boolean) as NormalizedOffer[]
   } catch (err: any) {
-    return {
-      provider: 'ebay',
-      ok: false,
-      offers: [],
-      error: err?.name === 'AbortError' ? 'timeout' : (err?.message ?? 'unknown'),
-      durationMs: Date.now() - started,
-    }
+    console.error(`[ebay] Fetch error for "${ctx.query}":`, err?.message)
+    return []
   }
 }
 
