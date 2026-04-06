@@ -1,11 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Loader2, ExternalLink, ShieldCheck, Globe, AlertTriangle, ShoppingBag } from 'lucide-react'
+import {
+  Search, Loader2, ExternalLink, ShieldCheck, Globe,
+  AlertTriangle, ShoppingBag, Sparkles, Cpu, Tag,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { RankedOffer, SearchResponse } from '@/lib/parts/types'
+import type { RankedOffer, SearchResponse, AIResolutionInfo } from '@/lib/parts/types'
 
 interface Aircraft { id: string; tail_number: string; make?: string | null; model?: string | null; year?: number | null }
 
@@ -102,7 +105,7 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
           <Input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search by part number or description (e.g. CH48110-1, Lycoming O-360 oil filter)"
+            placeholder="Search by part number or description (e.g. oil filter, spark plugs, brake pads)"
             className="pl-9"
           />
         </div>
@@ -123,6 +126,14 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
         </Button>
       </form>
 
+      {/* Loading state with AI indicator */}
+      {busy && aircraftId && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-brand-200 bg-brand-50/50 text-sm">
+          <Sparkles className="h-4 w-4 text-brand-600 animate-pulse" />
+          <span className="text-brand-700">AI is identifying the exact part numbers for your aircraft…</span>
+        </div>
+      )}
+
       {error && (
         <div className="flex items-start gap-2 p-3 rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-800">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -132,6 +143,9 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
 
       {response && (
         <>
+          {/* AI Resolution Card */}
+          {response.aiResolution && <AIResolutionCard resolution={response.aiResolution} />}
+
           {/* Provider summary */}
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             {Object.entries(response.providerSummary).map(([p, info]) => (
@@ -176,6 +190,83 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
     </div>
   )
 }
+
+// ─── AI Resolution Card ────────────────────────────────────────────────────
+
+function AIResolutionCard({ resolution }: { resolution: AIResolutionInfo }) {
+  const confidenceColors = {
+    high: 'border-emerald-200 bg-emerald-50/80',
+    medium: 'border-amber-200 bg-amber-50/80',
+    low: 'border-slate-200 bg-slate-50/80',
+  }
+  const confidenceDot = {
+    high: 'bg-emerald-500',
+    medium: 'bg-amber-500',
+    low: 'bg-slate-400',
+  }
+
+  return (
+    <div className={cn('rounded-xl border p-4 space-y-2', confidenceColors[resolution.confidence])}>
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-lg bg-brand-100 flex-shrink-0">
+          <Sparkles className="h-4 w-4 text-brand-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-semibold text-foreground">AI Part Identification</h3>
+            <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <span className={cn('w-1.5 h-1.5 rounded-full', confidenceDot[resolution.confidence])} />
+              {resolution.confidence} confidence
+            </span>
+          </div>
+
+          {/* Part numbers */}
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {resolution.partNumbers.map((pn, i) => (
+              <span
+                key={pn}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-semibold border',
+                  i === 0
+                    ? 'bg-brand-50 text-brand-700 border-brand-200'
+                    : 'bg-white text-foreground border-border'
+                )}
+              >
+                <Tag className="h-3 w-3" />
+                {pn}
+                {i === 0 && <span className="text-[9px] font-sans font-medium ml-1 text-brand-500">PRIMARY</span>}
+              </span>
+            ))}
+            {resolution.alternates.length > 0 && (
+              <>
+                {resolution.alternates.map(alt => (
+                  <span key={alt} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono border bg-white/60 text-muted-foreground border-border/50">
+                    {alt}
+                    <span className="text-[9px] font-sans">ALT</span>
+                  </span>
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* Description */}
+          <p className="text-xs text-foreground/80 leading-relaxed">{resolution.description}</p>
+
+          {/* System + Reasoning */}
+          <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Cpu className="h-3 w-3" />
+              {resolution.system.replace(/_/g, ' ')}
+            </span>
+            <span className="truncate">{resolution.reasoning}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Offer Card ─────────────────────────────────────────────────────────────
 
 function OfferCard({ offer, onClick, loading }: { offer: RankedOffer; onClick: () => void; loading: boolean }) {
   const bucketBadge =
