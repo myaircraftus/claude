@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import CryptoJS from 'crypto-js'
 import { createServerSupabase } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 const TEN_MINUTES_MS = 10 * 60 * 1000
 
 interface StatePayload {

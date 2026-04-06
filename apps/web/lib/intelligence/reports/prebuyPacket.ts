@@ -2,7 +2,9 @@ import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { renderReportToPDF } from './pdfRenderer'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+}
 
 export type PacketAudience = 'prebuy_packet' | 'lender_packet' | 'insurer_packet'
 
@@ -66,7 +68,7 @@ Write a concise 3-4 paragraph executive summary for this aircraft. Be specific, 
 Flag the most important issues in the first paragraph.
 `
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: executiveSummaryPrompt }],
     max_tokens: 600,

@@ -89,9 +89,21 @@ export async function POST(req: NextRequest) {
 
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-        const { aircraft_id, report_type, user_id } = session.metadata ?? {}
+        const { aircraft_id, report_type, user_id, invoice_id } = session.metadata ?? {}
 
-        if (aircraft_id && report_type && user_id) {
+        if (invoice_id) {
+          // Connect invoice payment completed — customer paid via "Pay Now" link
+          await supabase
+            .from('invoices')
+            .update({
+              status: 'paid',
+              stripe_paid_at: new Date().toISOString(),
+              balance_due: 0,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', invoice_id)
+        } else if (aircraft_id && report_type && user_id) {
+          // Report purchase payment completed
           const { data: aircraftData } = await supabase
             .from('aircraft')
             .select('organization_id')

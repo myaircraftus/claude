@@ -49,6 +49,7 @@ import type {
 } from '@/types'
 import { LiveTrackingSection } from '@/components/aircraft/tracking/LiveTrackingSection'
 import { IntelligenceTab } from '@/components/intelligence/IntelligenceTab'
+import { OwnerPicker } from '@/components/aircraft/owner-picker'
 import type { AircraftComputedStatus, RecordFinding, FindingsRun, ReportJob } from '@/types/intelligence'
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
@@ -938,7 +939,7 @@ function EntriesTab({
 
 // ─── Settings tab ─────────────────────────────────────────────────────────────
 
-function SettingsTab({ aircraft }: { aircraft: Aircraft }) {
+function SettingsTab({ aircraft, ownerCustomer }: { aircraft: Aircraft; ownerCustomer: { id: string; name: string; email?: string } | null }) {
   // Field rows helper
   const Field = ({ label, value }: { label: string; value?: string | number | null }) => (
     <div className="grid grid-cols-3 gap-4 py-3">
@@ -972,6 +973,18 @@ function SettingsTab({ aircraft }: { aircraft: Aircraft }) {
             <Field label="Operator" value={aircraft.operator_name} />
             <Field label="Total time (hrs)" value={aircraft.total_time_hours} />
           </dl>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Owner / Customer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <OwnerPicker
+            aircraftId={aircraft.id}
+            currentOwner={ownerCustomer}
+          />
         </CardContent>
       </Card>
 
@@ -1204,6 +1217,19 @@ export default async function AircraftDetailPage({
     reportJobs = (data ?? []) as ReportJob[]
   } catch {}
 
+  // Fetch owner customer if set
+  let ownerCustomer: { id: string; name: string; email?: string } | null = null
+  if (aircraft.owner_customer_id) {
+    try {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name, email')
+        .eq('id', aircraft.owner_customer_id)
+        .single()
+      ownerCustomer = data as any
+    } catch {}
+  }
+
   const overdueADs = adApplicability.filter(a => a.compliance_status === 'overdue').length
   const activeRemindersCount = reminders.length
   const draftEntriesCount = entries.filter(e => e.status === 'draft').length
@@ -1387,7 +1413,7 @@ export default async function AircraftDetailPage({
               </TabsContent>
 
               <TabsContent value="settings">
-                <SettingsTab aircraft={aircraft} />
+                <SettingsTab aircraft={aircraft} ownerCustomer={ownerCustomer} />
               </TabsContent>
             </Tabs>
           </div>

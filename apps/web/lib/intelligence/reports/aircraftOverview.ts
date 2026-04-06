@@ -2,7 +2,9 @@ import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { renderReportToPDF } from '@/lib/intelligence/reports/pdfRenderer'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+}
 
 export async function generateAircraftOverviewReport(
   aircraftId: string,
@@ -37,7 +39,7 @@ Write a concise 2-3 paragraph executive summary of this aircraft's maintenance s
 Be factual. Note the overall health, key dates, and any significant concerns.
 Write for an aircraft owner or buyer — not a mechanic.
 `
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: narrativePrompt }],
     max_tokens: 500,

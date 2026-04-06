@@ -3,14 +3,16 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { cn, formatDate } from '@/lib/utils'
 import {
-  Plus, Trash2, Loader2, Save, Plane, DollarSign,
+  Plus, Trash2, Loader2, Save, Plane,
   Wrench, Package, ExternalLink, ChevronDown, FileText,
+  Receipt, Sparkles, MessageSquare,
 } from 'lucide-react'
+import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
+import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import type { WorkOrder, WorkOrderLine, WorkOrderLineType, WorkOrderStatus } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
   const [saving, setSaving] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [showAddLine, setShowAddLine] = useState(false)
+  const [showAIPlan, setShowAIPlan] = useState(false)
 
   // Editable fields
   const [complaint, setComplaint] = useState(workOrder.complaint ?? '')
@@ -197,6 +200,19 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
       outside_services_total: woData.outside_services_total,
       total_amount: woData.total_amount,
     }))
+  }
+
+  async function handleAcceptPlan(planLines: any[]) {
+    for (const line of planLines) {
+      await fetch(`/api/work-orders/${wo.id}/lines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(line),
+      })
+    }
+    // Reload to pick up new lines and recalculated totals
+    router.refresh()
+    window.location.reload()
   }
 
   const isReadonly = ['closed', 'invoiced', 'paid', 'archived'].includes(wo.status)
@@ -569,6 +585,74 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
           </div>
         </div>
 
+        {/* Action Buttons */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground mb-3">Actions</h2>
+          <div className="flex flex-wrap gap-2">
+            {!isReadonly && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAIPlan(true)}
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1" />
+                AI Work Plan
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const res = await fetch('/api/invoices', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ work_order_id: wo.id }),
+                })
+                const data = await res.json()
+                if (data.id) {
+                  window.location.href = `/invoices/${data.id}`
+                } else {
+                  alert(data.error ?? 'Failed to generate invoice')
+                }
+              }}
+            >
+              <Receipt className="h-3.5 w-3.5 mr-1" />
+              Generate Invoice
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const el = document.getElementById('wo-chat-section')
+                el?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              Activity Log
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <a href={`/parts?work_order_id=${wo.id}&aircraft_id=${(wo as any).aircraft?.id ?? ''}`}>
+                <Package className="h-3.5 w-3.5 mr-1" />
+                Find Parts
+              </a>
+            </Button>
+          </div>
+        </div>
+
+        {/* Chat Timeline Section */}
+        <div id="wo-chat-section" className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 pt-4 pb-2">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Activity & Messages
+            </h2>
+          </div>
+          <WoChatTimeline
+            workOrderId={wo.id}
+            className="h-[400px]"
+          />
+        </div>
+
         {/* Metadata footer */}
         <div className="text-xs text-muted-foreground flex flex-wrap gap-4 pt-2 border-t border-border">
           <span>Opened: {formatDate(wo.opened_at)}</span>
@@ -587,6 +671,14 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
           </div>
         )}
       </div>
+
+      {/* AI Plan Drawer */}
+      <AIPlanDrawer
+        workOrderId={wo.id}
+        open={showAIPlan}
+        onClose={() => setShowAIPlan(false)}
+        onAcceptPlan={handleAcceptPlan}
+      />
     </div>
   )
 }
