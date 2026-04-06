@@ -19,6 +19,8 @@ import {
   ClipboardList,
   Package,
   ScanLine,
+  Users,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -66,7 +68,9 @@ export function Sidebar({
       items: [
         { label: 'Maintenance', href: '/maintenance', icon: Wrench },
         { label: 'Work Orders', href: '/work-orders', icon: ClipboardList },
+        { label: 'Customers', href: '/customers', icon: Users },
         { label: 'Parts', href: '/parts', icon: Package },
+        { label: 'Invoices', href: '/invoices', icon: Receipt },
         { label: 'Scanner', href: '/scanner', icon: ScanLine },
         { label: 'Reminders', href: '/reminders', icon: Bell, badge: reminderCount },
         { label: 'Review Queue', href: '/documents/review', icon: ClipboardCheck, badge: reviewQueueCount },

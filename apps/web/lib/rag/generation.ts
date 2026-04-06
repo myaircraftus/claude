@@ -1,7 +1,9 @@
 import OpenAI from 'openai';
 import type { RetrievedChunk, AnswerCitation, AnswerResult, QueryConfidence } from '@/types';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 // ─── System Prompt ─────────────────────────────────────────────────────────────
 
@@ -101,7 +103,7 @@ export async function generateAnswer(
   });
 
   // 4. Call GPT-4o with json_object response_format, temperature 0.1
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
     messages,
     response_format: { type: 'json_object' },

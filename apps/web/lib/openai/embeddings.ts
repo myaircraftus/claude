@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 /**
  * Generate embeddings for an array of text chunks using OpenAI.
@@ -17,7 +19,7 @@ export async function generateEmbeddings(
     const batch = chunks.slice(i, i + BATCH_SIZE);
     const texts = batch.map((c) => c.text);
 
-    const response = await openai.embeddings.create({
+    const response = await getOpenAI().embeddings.create({
       model,
       input: texts,
       dimensions: 1536,

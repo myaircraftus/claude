@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Building2, Users, Plug, CreditCard, AlertTriangle,
+  Building2, Users, Plug, CreditCard, AlertTriangle, DollarSign,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
   CheckCircle2, FileUp, Lock, Unlock, Download, FileText,
+  RefreshCw, Clock, Plane, AlertCircle, XCircle,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -49,9 +50,102 @@ interface MyUploadRow {
 interface Member {
   id: string
   role: string
+  permissions: Record<string, boolean>
   invited_at: string
   accepted_at?: string
+  stripe_connect_account_id?: string
+  stripe_connect_onboarded?: boolean
   user_profiles: { id: string; email: string; full_name?: string; avatar_url?: string } | null
+}
+
+const PERMISSION_LABELS: Record<string, string> = {
+  can_create_wo: 'Create work orders',
+  can_see_rates: 'View rates & pricing',
+  can_invoice: 'Create & send invoices',
+  can_approve: 'Approve work orders',
+  can_manage_customers: 'Manage customers',
+}
+
+interface Integration {
+  id: string
+  provider: string
+  display_name: string
+  status: string
+  last_sync_at: string | null
+  aircraft_count_synced: number | null
+  last_sync_status: string | null
+  last_sync_error: string | null
+  settings: Record<string, unknown>
+  created_at: string
+}
+
+const PROVIDER_CONFIG: Record<string, {
+  name: string
+  description: string
+  logo: string
+  color: string
+  fields: { key: string; label: string; placeholder: string; required?: boolean }[]
+  comingSoon?: boolean
+}> = {
+  flight_schedule_pro: {
+    name: 'Flight Schedule Pro',
+    description: 'Sync aircraft, squawks, and flight hours from FSP. Automatically imports maintenance discrepancies and time tracking.',
+    logo: 'FSP',
+    color: 'bg-sky-100 text-sky-700',
+    fields: [
+      { key: 'api_key', label: 'API Key', placeholder: 'Enter your Flight Schedule Pro API key', required: true },
+      { key: 'account_id', label: 'Account ID (optional)', placeholder: 'Multi-location account ID' },
+    ],
+  },
+  flight_circle: {
+    name: 'Flight Circle',
+    description: 'Import aircraft fleet data and flight hours from Flight Circle. Keeps hobbs and tach times in sync.',
+    logo: 'FC',
+    color: 'bg-emerald-100 text-emerald-700',
+    fields: [
+      { key: 'api_key', label: 'API Key', placeholder: 'Enter your Flight Circle API key', required: true },
+    ],
+  },
+  myfbo: {
+    name: 'MyFBO',
+    description: 'Connect your MyFBO account to sync fuel purchases, aircraft scheduling, and customer records.',
+    logo: 'MF',
+    color: 'bg-orange-100 text-orange-700',
+    fields: [],
+    comingSoon: true,
+  },
+  avianis: {
+    name: 'Avianis',
+    description: 'Integrate with Avianis FBO management for fuel, hangar, and aircraft data synchronization.',
+    logo: 'AV',
+    color: 'bg-indigo-100 text-indigo-700',
+    fields: [],
+    comingSoon: true,
+  },
+  fl3xx: {
+    name: 'FL3XX',
+    description: 'Sync fleet, trip, and maintenance data from your FL3XX charter management platform.',
+    logo: 'FL',
+    color: 'bg-violet-100 text-violet-700',
+    fields: [],
+    comingSoon: true,
+  },
+  leon: {
+    name: 'Leon Software',
+    description: 'Connect Leon for crew scheduling, flight planning, and aircraft maintenance tracking.',
+    logo: 'LE',
+    color: 'bg-rose-100 text-rose-700',
+    fields: [],
+    comingSoon: true,
+  },
+  talon: {
+    name: 'TalonETA / RMS',
+    description: 'Import repair station data, work orders, and parts inventory from TalonETA or RMS.',
+    logo: 'TL',
+    color: 'bg-amber-100 text-amber-700',
+    fields: [],
+    comingSoon: true,
+  },
 }
 
 interface Props {
@@ -60,6 +154,7 @@ interface Props {
   role: string
   members: Member[]
   driveConnection: { id: string; google_email?: string; is_active: boolean; created_at: string } | null
+  integrations: Integration[]
   myUploads: MyUploadRow[]
   defaultTab: string
   showUpgradeSuccess: boolean
@@ -73,7 +168,7 @@ const PLAN_FEATURES = {
 }
 
 export function SettingsClient({
-  profile, organization, role, members, driveConnection, myUploads, defaultTab, showUpgradeSuccess
+  profile, organization, role, members, driveConnection, integrations: initialIntegrations, myUploads, defaultTab, showUpgradeSuccess
 }: Props) {
   const router = useRouter()
   const [orgName, setOrgName] = useState(organization.name)
@@ -85,6 +180,16 @@ export function SettingsClient({
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
   const [billingLoading, setBillingLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+
+  // Integration state
+  const [integrations, setIntegrations] = useState<Integration[]>(initialIntegrations)
+  const [connectDialogOpen, setConnectDialogOpen] = useState<string | null>(null)
+  const [connectCredentials, setConnectCredentials] = useState<Record<string, string>>({})
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<{ provider: string; message: string } | null>(null)
+
   const isOwner = role === 'owner'
   const isAdmin = role === 'admin' || isOwner
 
@@ -150,6 +255,87 @@ export function SettingsClient({
     router.refresh()
   }
 
+  async function connectIntegration(provider: string) {
+    setConnecting(true)
+    setConnectError(null)
+    try {
+      const res = await fetch('/api/integrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, credentials: connectCredentials, settings: {} }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setConnectError(data.error ?? 'Failed to connect')
+        setConnecting(false)
+        return
+      }
+      // Update local state
+      setIntegrations(prev => {
+        const idx = prev.findIndex(i => i.provider === provider)
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = data.integration
+          return updated
+        }
+        return [...prev, data.integration]
+      })
+      setConnectDialogOpen(null)
+      setConnectCredentials({})
+    } catch {
+      setConnectError('Network error. Please try again.')
+    }
+    setConnecting(false)
+  }
+
+  async function disconnectIntegration(integrationId: string, _provider: string) {
+    const res = await fetch(`/api/integrations?id=${integrationId}`, { method: 'DELETE' })
+    if (res.ok) {
+      setIntegrations(prev => prev.filter(i => i.id !== integrationId))
+    }
+  }
+
+  async function syncIntegration(integrationId: string, provider: string) {
+    setSyncing(provider)
+    setSyncResult(null)
+    try {
+      const res = await fetch(`/api/integrations/${integrationId}/sync`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setSyncResult({ provider, message: `Synced ${data.records_synced ?? 0} records (${data.aircraft_synced ?? 0} aircraft)` })
+        // Refresh integrations to get updated last_sync_at
+        const listRes = await fetch('/api/integrations')
+        if (listRes.ok) {
+          const listData = await listRes.json()
+          setIntegrations(listData.integrations ?? [])
+        }
+      } else {
+        setSyncResult({ provider, message: data.error ?? 'Sync failed' })
+      }
+    } catch {
+      setSyncResult({ provider, message: 'Network error during sync' })
+    }
+    setSyncing(null)
+  }
+
+  function getIntegration(provider: string): Integration | undefined {
+    return integrations.find(i => i.provider === provider && i.status === 'connected')
+  }
+
+  function formatRelativeTime(dateStr: string | null): string {
+    if (!dateStr) return 'Never'
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    const diffHrs = Math.floor(diffMins / 60)
+    if (diffHrs < 24) return `${diffHrs}h ago`
+    const diffDays = Math.floor(diffHrs / 24)
+    return `${diffDays}d ago`
+  }
+
   const storageUsedGB = 0 // TODO: fetch from aggregate query
   const storagePercent = Math.min(100, (storageUsedGB / organization.plan_storage_gb) * 100)
   const queryPercent = Math.min(100, (organization.queries_used_this_month / organization.plan_queries_monthly) * 100)
@@ -171,6 +357,7 @@ export function SettingsClient({
             <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1.5" />Integrations</TabsTrigger>
             <TabsTrigger value="uploads"><FileUp className="h-4 w-4 mr-1.5" />My Uploads</TabsTrigger>
             <TabsTrigger value="billing"><CreditCard className="h-4 w-4 mr-1.5" />Billing</TabsTrigger>
+            {isAdmin && <TabsTrigger value="payments"><DollarSign className="h-4 w-4 mr-1.5" />Payments</TabsTrigger>}
             {isOwner && <TabsTrigger value="danger"><AlertTriangle className="h-4 w-4 mr-1.5" />Danger</TabsTrigger>}
           </TabsList>
 
@@ -282,7 +469,8 @@ export function SettingsClient({
                       ?? up?.email[0]?.toUpperCase() ?? '?'
                     const isPending = !member.accepted_at
                     return (
-                      <div key={member.id} className="flex items-center gap-3 py-3">
+                      <React.Fragment key={member.id}>
+                      <div className="flex items-center gap-3 py-3">
                         <Avatar className="h-8 w-8">
                           <AvatarImage src={up?.avatar_url ?? undefined} />
                           <AvatarFallback className="text-xs">{initials}</AvatarFallback>
@@ -323,6 +511,34 @@ export function SettingsClient({
                           </Button>
                         )}
                       </div>
+                      {/* Granular permissions (expandable) */}
+                      {isAdmin && !isPending && member.role === 'mechanic' && (
+                        <div className="pl-11 pb-3 flex flex-wrap gap-3">
+                          {Object.entries(PERMISSION_LABELS).map(([key, label]) => {
+                            const checked = member.permissions?.[key] ?? (key === 'can_create_wo')
+                            return (
+                              <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={async () => {
+                                    const newPerms = { ...(member.permissions ?? {}), [key]: !checked }
+                                    const supabase = createBrowserSupabase()
+                                    await supabase
+                                      .from('organization_memberships')
+                                      .update({ permissions: newPerms })
+                                      .eq('id', member.id)
+                                    router.refresh()
+                                  }}
+                                  className="rounded border-border h-3.5 w-3.5"
+                                />
+                                <span className={cn('text-muted-foreground', checked && 'text-foreground')}>{label}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </React.Fragment>
                     )
                   })}
                 </div>
@@ -332,30 +548,31 @@ export function SettingsClient({
 
           {/* Integrations tab */}
           <TabsContent value="integrations" className="space-y-4">
+            {/* Google Drive card — keep existing */}
             <Card>
               <CardHeader>
-                <CardTitle>Google Drive</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700">G</div>
+                  Google Drive
+                </CardTitle>
                 <CardDescription>Import PDF documents directly from your Google Drive</CardDescription>
               </CardHeader>
               <CardContent>
                 {driveConnection ? (
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm">G</div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium">Connected</p>
-                      <p className="text-xs text-muted-foreground">{driveConnection.google_email}</p>
+                      <p className="text-sm font-medium">Connected as {driveConnection.google_email}</p>
+                      <p className="text-xs text-muted-foreground">Since {formatDate(driveConnection.created_at)}</p>
                     </div>
-                    <Badge variant="success">Active</Badge>
+                    <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" />Active</Badge>
                     <Button variant="outline" size="sm" onClick={disconnectDrive} className="text-destructive">
                       Disconnect
                     </Button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm text-muted-foreground">G</div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium">Not connected</p>
-                      <p className="text-xs text-muted-foreground">Connect to import PDFs from Google Drive</p>
+                      <p className="text-sm text-muted-foreground">Connect to import PDFs from Google Drive</p>
                     </div>
                     {organization.plan !== 'starter' ? (
                       <Button size="sm" asChild>
@@ -368,6 +585,189 @@ export function SettingsClient({
                 )}
               </CardContent>
             </Card>
+
+            {/* Aviation provider integrations */}
+            <div className="pt-2">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Plane className="h-4 w-4" />
+                Aviation Scheduling &amp; FBO Providers
+              </h3>
+            </div>
+
+            {Object.entries(PROVIDER_CONFIG).map(([provider, config]) => {
+              const connected = getIntegration(provider)
+              const isSyncing = syncing === provider
+
+              if (config.comingSoon) {
+                return (
+                  <Card key={provider} className="opacity-60">
+                    <CardContent className="py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold', config.color)}>
+                          {config.logo}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{config.name}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{config.description}</p>
+                        </div>
+                        <Badge variant="secondary" className="flex-shrink-0">Coming Soon</Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              }
+
+              return (
+                <Card key={provider}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold', config.color)}>
+                        {config.logo}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-base">{config.name}</CardTitle>
+                        <CardDescription className="text-xs">{config.description}</CardDescription>
+                      </div>
+                      {connected && (
+                        <Badge variant="success" className="gap-1 flex-shrink-0">
+                          <CheckCircle2 className="h-3 w-3" />Connected
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {connected ? (
+                      <div className="space-y-3">
+                        {/* Sync status row */}
+                        <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 text-sm">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>Last sync:</span>
+                            <span className="font-medium text-foreground">
+                              {formatRelativeTime(connected.last_sync_at)}
+                            </span>
+                          </div>
+                          {connected.aircraft_count_synced != null && connected.aircraft_count_synced > 0 && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Plane className="h-3.5 w-3.5" />
+                              <span>{connected.aircraft_count_synced} aircraft synced</span>
+                            </div>
+                          )}
+                          {connected.last_sync_status === 'failed' && (
+                            <div className="flex items-center gap-1.5 text-destructive">
+                              <AlertCircle className="h-3.5 w-3.5" />
+                              <span className="text-xs">{connected.last_sync_error ?? 'Sync failed'}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Sync result toast */}
+                        {syncResult?.provider === provider && (
+                          <Alert variant={syncResult.message.includes('fail') ? 'destructive' : 'default'} className="py-2">
+                            <AlertDescription className="text-xs">{syncResult.message}</AlertDescription>
+                          </Alert>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => syncIntegration(connected.id, provider)}
+                            disabled={isSyncing}
+                          >
+                            {isSyncing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            )}
+                            {isSyncing ? 'Syncing...' : 'Sync Now'}
+                          </Button>
+                          {isAdmin && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => disconnectIntegration(connected.id, provider)}
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                              Disconnect
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm text-muted-foreground flex-1">Not connected</p>
+                        {isAdmin ? (
+                          <Dialog
+                            open={connectDialogOpen === provider}
+                            onOpenChange={(open) => {
+                              setConnectDialogOpen(open ? provider : null)
+                              if (!open) { setConnectCredentials({}); setConnectError(null) }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button size="sm">
+                                <Plug className="h-3.5 w-3.5" />
+                                Connect
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2">
+                                  <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold', config.color)}>
+                                    {config.logo}
+                                  </div>
+                                  Connect {config.name}
+                                </DialogTitle>
+                                <DialogDescription>
+                                  Enter your API credentials to connect. Your key is encrypted and stored securely.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4 py-2">
+                                {config.fields.map(field => (
+                                  <div key={field.key} className="space-y-1.5">
+                                    <Label>{field.label}</Label>
+                                    <Input
+                                      type={field.key.includes('key') ? 'password' : 'text'}
+                                      placeholder={field.placeholder}
+                                      value={connectCredentials[field.key] ?? ''}
+                                      onChange={e => setConnectCredentials(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                      autoComplete="off"
+                                    />
+                                  </div>
+                                ))}
+                                {connectError && (
+                                  <Alert variant="destructive" className="py-2">
+                                    <AlertCircle className="h-4 w-4" />
+                                    <AlertDescription className="text-xs">{connectError}</AlertDescription>
+                                  </Alert>
+                                )}
+                              </div>
+                              <DialogFooter>
+                                <Button variant="outline" onClick={() => { setConnectDialogOpen(null); setConnectCredentials({}); setConnectError(null) }}>
+                                  Cancel
+                                </Button>
+                                <Button
+                                  onClick={() => connectIntegration(provider)}
+                                  disabled={connecting || !config.fields.filter(f => f.required).every(f => connectCredentials[f.key]?.trim())}
+                                >
+                                  {connecting && <Loader2 className="h-4 w-4 animate-spin" />}
+                                  {connecting ? 'Testing connection...' : 'Connect'}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+                        ) : (
+                          <Badge variant="secondary">Admin required</Badge>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </TabsContent>
 
           {/* Billing tab */}
@@ -468,6 +868,88 @@ export function SettingsClient({
             )}
           </TabsContent>
 
+
+          {/* Payments tab — Stripe Connect + labor rates + markup settings */}
+          {isAdmin && (
+            <TabsContent value="payments" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Stripe Connect — Accept Payments</CardTitle>
+                  <CardDescription>
+                    Connect your Stripe account to accept credit card payments on invoices.
+                    Each mechanic/admin can connect their own Stripe account.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-4 p-4 rounded-lg border border-border">
+                    <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-sm flex-shrink-0">S</div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Your Stripe Account</p>
+                      <p className="text-xs text-muted-foreground">
+                        Connect to receive payments directly to your bank account when customers pay invoices.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        const res = await fetch('/api/stripe/connect/onboard', { method: 'POST' })
+                        const data = await res.json()
+                        if (data.url) window.location.href = data.url
+                      }}
+                    >
+                      Connect Stripe
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Stripe handles all payment processing securely. We never store credit card information.
+                    When you send an invoice with a &quot;Pay Now&quot; button, the payment goes directly to your connected Stripe account.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Default Labor Rate</CardTitle>
+                  <CardDescription>Set your default hourly rate for labor line items on work orders and invoices.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm flex-shrink-0">Rate ($/hr):</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      defaultValue="125.00"
+                      className="w-32"
+                      onBlur={async (e) => {
+                        const rate = parseFloat(e.target.value) || 0
+                        await fetch('/api/labor-rates', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: 'Default', default_hourly_rate: rate, is_default: true }),
+                        })
+                      }}
+                    />
+                    <span className="text-sm text-muted-foreground">per hour</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Default Parts Markup</CardTitle>
+                  <CardDescription>Applied automatically when adding parts to invoices from the parts library.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm flex-shrink-0">Markup:</Label>
+                    <Input type="number" min="0" max="200" step="1" defaultValue="20" className="w-24" />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
 
           {/* Danger zone */}
           {isOwner && (

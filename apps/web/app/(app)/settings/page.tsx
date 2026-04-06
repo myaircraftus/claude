@@ -35,7 +35,7 @@ export default async function SettingsPage({
   // Fetch members
   const { data: members } = await supabase
     .from('organization_memberships')
-    .select('id, role, invited_at, accepted_at, user_profiles(id, email, full_name, avatar_url)')
+    .select('id, role, permissions, invited_at, accepted_at, stripe_connect_account_id, stripe_connect_onboarded, user_profiles(id, email, full_name, avatar_url)')
     .eq('organization_id', orgId)
     .order('invited_at')
 
@@ -47,6 +47,15 @@ export default async function SettingsPage({
     .eq('user_id', user.id)
     .eq('is_active', true)
     .maybeSingle()
+
+  // Fetch connected integrations
+  const { data: integrationRows } = await supabase
+    .from('integrations')
+    .select(
+      'id, provider, display_name, status, last_sync_at, aircraft_count_synced, last_sync_status, last_sync_error, settings, created_at'
+    )
+    .eq('organization_id', orgId)
+    .eq('status', 'connected')
 
   // Fetch user's uploads (My Uploads tab)
   const { data: myUploads } = await (supabase as any)
@@ -74,6 +83,7 @@ export default async function SettingsPage({
         role={role}
         members={(members ?? []) as any}
         driveConnection={driveConnection}
+        integrations={(integrationRows ?? []) as any}
         myUploads={(myUploads ?? []) as any}
         defaultTab={searchParams.tab ?? 'organization'}
         showUpgradeSuccess={searchParams.upgraded === 'true'}
