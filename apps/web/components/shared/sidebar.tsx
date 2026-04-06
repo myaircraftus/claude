@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   LayoutDashboard,
   Plane,
@@ -55,6 +55,8 @@ export function Sidebar({
   isPlatformAdmin,
 }: SidebarProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const currentTab = searchParams.get('tab')
 
   const navSections: NavSection[] = [
     {
@@ -67,6 +69,8 @@ export function Sidebar({
     {
       items: [
         { label: 'Maintenance', href: '/maintenance', icon: Wrench },
+        { label: 'Work Orders', href: '/maintenance?tab=work-orders', icon: ClipboardList },
+        { label: 'Parts', href: '/maintenance?tab=parts', icon: Package },
         { label: 'Customers', href: '/customers', icon: Users },
         { label: 'Invoices', href: '/invoices', icon: Receipt },
         { label: 'Scanner', href: '/scanner', icon: ScanLine },
@@ -152,12 +156,24 @@ export function Sidebar({
                 <div className="my-2 border-t border-border" />
               )}
               {section.items.map(({ label, href, icon: Icon, badge }) => {
-                // For documents/review, only match that exact path
-                const isActive = href === '/documents/review'
-                  ? pathname === href || pathname.startsWith(href + '/')
-                  : href === '/documents'
-                  ? pathname === href || (pathname.startsWith(href + '/') && !pathname.startsWith('/documents/review'))
-                  : pathname === href || pathname.startsWith(href + '/')
+                // Handle query-param-based routes (e.g. /maintenance?tab=work-orders)
+                const [hrefPath, hrefQuery] = href.split('?')
+                const hrefTab = hrefQuery ? new URLSearchParams(hrefQuery).get('tab') : null
+
+                let isActive: boolean
+                if (hrefTab) {
+                  // Query-param route: active when path matches AND tab param matches
+                  isActive = pathname === hrefPath && currentTab === hrefTab
+                } else if (href === '/documents/review') {
+                  isActive = pathname === href || pathname.startsWith(href + '/')
+                } else if (href === '/documents') {
+                  isActive = pathname === href || (pathname.startsWith(href + '/') && !pathname.startsWith('/documents/review'))
+                } else if (href === '/maintenance') {
+                  // Maintenance hub: active when on /maintenance with no tab or tab=entries
+                  isActive = pathname === href && (!currentTab || currentTab === 'entries')
+                } else {
+                  isActive = pathname === href || pathname.startsWith(href + '/')
+                }
 
                 return (
                   <Link
