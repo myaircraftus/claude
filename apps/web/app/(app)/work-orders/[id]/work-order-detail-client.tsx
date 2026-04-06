@@ -87,7 +87,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
   const [findings, setFindings] = useState(workOrder.findings ?? '')
   const [correctiveAction, setCorrectiveAction] = useState(workOrder.corrective_action ?? '')
   const [internalNotes, setInternalNotes] = useState(workOrder.internal_notes ?? '')
-  const [customerNotes, setCustomerNotes] = useState(workOrder.customer_visible_notes ?? '')
+  const [customerNotes, setCustomerNotes] = useState(workOrder.customer_notes ?? '')
   const [taxAmount, setTaxAmount] = useState(String(workOrder.tax_amount ?? 0))
   const [dirty, setDirty] = useState(false)
 
@@ -146,7 +146,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
       body: JSON.stringify({ status: newStatus }),
     })
     const data = await res.json()
-    setWo(prev => ({ ...prev, status: data.status, closed_at: data.closed_at, invoiced_at: data.invoiced_at }))
+    setWo(prev => ({ ...prev, status: data.status, closed_at: data.closed_at }))
     router.refresh()
   }
 
@@ -657,7 +657,6 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
         <div className="text-xs text-muted-foreground flex flex-wrap gap-4 pt-2 border-t border-border">
           <span>Opened: {formatDate(wo.opened_at)}</span>
           {wo.closed_at && <span>Closed: {formatDate(wo.closed_at)}</span>}
-          {wo.invoiced_at && <span>Invoiced: {formatDate(wo.invoiced_at)}</span>}
           <span>Updated: {formatDate(wo.updated_at)}</span>
         </div>
 

@@ -39,13 +39,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     (data.line_items as any[]).sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   }
 
-  // Sort payments by date
-  if (data.payments) {
-    (data.payments as any[]).sort((a: any, b: any) =>
-      new Date(b.payment_date ?? b.created_at).getTime() - new Date(a.payment_date ?? a.created_at).getTime()
-    )
-  }
-
   return NextResponse.json(data)
 }
 

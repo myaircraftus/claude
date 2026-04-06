@@ -77,20 +77,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json()
   const allowedFields = [
     'status', 'customer_complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
-    'corrective_action', 'internal_notes', 'customer_visible_notes',
+    'corrective_action', 'internal_notes', 'customer_notes',
     'assigned_mechanic_id', 'aircraft_id', 'tax_amount',
-    'closed_at', 'invoiced_at',
+    'closed_at',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  // Map frontend field name to DB column name
+  // Map frontend field names to DB column names
   if ('complaint' in body) body.customer_complaint = body.complaint
+  if ('customer_visible_notes' in body) body.customer_notes = body.customer_visible_notes
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
   }
 
   // Auto-set timestamps based on status
   if (body.status === 'closed' && !updates.closed_at) updates.closed_at = new Date().toISOString()
-  if (body.status === 'invoiced' && !updates.invoiced_at) updates.invoiced_at = new Date().toISOString()
 
   const { data, error } = await supabase
     .from('work_orders')

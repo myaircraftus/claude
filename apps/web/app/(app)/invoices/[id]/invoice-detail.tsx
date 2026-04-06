@@ -101,7 +101,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
   const customer = invoice.customer as any
   const aircraft = invoice.aircraft as any
   const workOrder = invoice.work_order as any
-  const payments = invoice.payments as any[] ?? []
+  const payments: any[] = []
   const isEditable = invoice.status === 'draft' || invoice.status === 'sent'
 
   function markDirty() { setDirty(true) }

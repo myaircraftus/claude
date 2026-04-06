@@ -456,12 +456,9 @@ export interface WorkOrder {
   tax_amount: number
   total: number
   internal_notes: string | null
-  customer_visible_notes: string | null
+  customer_notes: string | null
   opened_at: string
   closed_at: string | null
-  invoiced_at: string | null
-  linked_invoice_id: string | null
-  linked_logbook_entry_id: string | null
   created_at: string
   updated_at: string
   aircraft?: any
