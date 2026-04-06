@@ -34,6 +34,7 @@ interface Props {
   invoices: Invoice[]
   pendingRequests: MaintRequest[]
   currentUserId: string
+  embedded?: boolean
 }
 
 const WO_STATUS_COLORS: Record<string, string> = {
@@ -49,7 +50,7 @@ const WO_STATUS_COLORS: Record<string, string> = {
 }
 
 export function OpsDashboardClient({
-  members, workOrders, aircraft, invoices, pendingRequests, currentUserId,
+  members, workOrders, aircraft, invoices, pendingRequests, currentUserId, embedded,
 }: Props) {
 
   const mechanics = useMemo(
