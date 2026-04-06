@@ -1,0 +1,191 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 Build a production-ready human-in-the-loop RAG ingestion system for myaircraft.us focused on aircraft maintenance records, engine logbooks, prop logbooks, avionics logbooks, airframe logbooks, yellow tags, work orders, AD compliance sheets, status sheets, and mixed scanned attachments.\
+\
+Core requirement:\
+This system must NOT rely on raw OCR alone. It must support messy historical aviation records including handwritten text, faded scans, open-book spreads, rotated pages, portrait/landscape variations, low-contrast scans, pasted inserts, repair tags, printed forms, and mixed document layouts. It must preserve a single source of truth and always link extracted data back to original page evidence.\
+\
+Goals:\
+1. Accept uploaded PDFs/images of aircraft records.\
+2. Preprocess each page for OCR and layout understanding.\
+3. Classify page type before extraction.\
+4. Extract text and structured events with confidence scoring.\
+5. Route uncertain fields/pages to a human review queue.\
+6. Normalize reviewed information into a clean evidence-backed record model.\
+7. Index only reviewed/high-confidence structured content plus evidence-linked page summaries into the RAG.\
+8. Enable grounded Q&A with page-level citations and evidence previews.\
+\
+System design:\
+- Separate ingestion pipeline from user-facing app.\
+- Clean modular architecture:\
+  - upload service\
+  - page preprocessing\
+  - page classification\
+  - OCR/extraction\
+  - normalization\
+  - review workflow\
+  - RAG indexing\
+  - retrieval API\
+- Must be easy to merge into the current myaircraft.us codebase later.\
+\
+Pipeline requirements:\
+\
+A. Intake\
+- Store original file unchanged.\
+- Create document, page, and aircraft IDs.\
+- Support grouping by aircraft, logbook type, and upload batch.\
+\
+B. Page preprocessing\
+- Detect rotation/orientation.\
+- De-skew and crop borders.\
+- Split open-book spreads into left/right logical pages when needed.\
+- Improve contrast and denoise.\
+- Detect blank pages, backside bleed-through, inserts, pasted labels, and attachments.\
+- Save both original page image and processed image.\
+\
+C. Page classification\
+Classify each page into categories such as:\
+- cover\
+- engine log\
+- prop log\
+- airframe log\
+- avionics log\
+- maintenance entry page\
+- printed work order\
+- serviceable tag / yellow tag\
+- AD compliance sheet\
+- status sheet\
+- parts/reference page\
+- checklist/reference insert\
+- blank/ignore\
+- unknown-needs-review\
+\
+D. Extraction\
+Use page-type-specific extraction:\
+- printed OCR for typed pages\
+- handwriting-aware extraction for handwritten entries\
+- layout-aware extraction for tabular/ruled maintenance pages\
+- attachment parser for labels/tags/cards\
+- freeform narrative extraction for long maintenance descriptions\
+\
+E. Structured normalization\
+Convert extraction results into normalized evidence-backed entities such as:\
+- maintenance_event\
+- inspection_event\
+- oil_change\
+- overhaul\
+- repair\
+- installation\
+- removal\
+- AD_compliance\
+- component_status\
+- discrepancy\
+- signoff\
+- check_result\
+- unknown_event\
+\
+Every entity must include:\
+- aircraft id / tail number\
+- component domain (engine, prop, avionics, airframe, general)\
+- source file id\
+- page number\
+- page image reference\
+- extracted raw text\
+- normalized summary\
+- parsed fields (date, tach, hobbs, TT, TSMOH, part number, serial number, work performed, signer, certificate number, references)\
+- confidence score\
+- review status\
+- created/updated timestamps\
+\
+F. Human review workflow\
+Create a review queue for:\
+- low OCR confidence\
+- uncertain handwriting extraction\
+- ambiguous date/time/tach parsing\
+- uncertain part or serial numbers\
+- contradictory values across pages\
+- uncertain page classification\
+- compliance-critical wording\
+- pages with mixed attachments or abnormal layout\
+\
+Review UI should let a reviewer:\
+- see original page and processed page side by side\
+- see extracted text and parsed structured fields\
+- edit/correct fields\
+- approve/reject/reclassify\
+- mark page as unreadable\
+- mark page as informational-only\
+- create one or more structured events from a single page\
+\
+G. RAG strategy\
+Do NOT chunk raw OCR blindly.\
+Index:\
+1. reviewed/high-confidence structured events\
+2. page summaries linked to source evidence\
+3. aircraft/component timelines\
+4. compliance summaries\
+5. document-level summaries with page references\
+\
+Every retrieval result must preserve:\
+- source file\
+- page number\
+- evidence snippet\
+- confidence\
+- whether answer came from structured reviewed data or raw fallback\
+\
+H. Retrieval behavior\
+When user asks questions, the system should prefer:\
+1. reviewed structured data\
+2. high-confidence extracted summaries\
+3. raw page evidence only as fallback\
+\
+Answers must:\
+- be grounded\
+- show citations to file and page\
+- avoid hallucinating unreadable handwriting\
+- explicitly say when a field is uncertain or requires review\
+\
+I. Data model\
+Design a schema that supports:\
+- aircraft\
+- documents\
+- pages\
+- page classifications\
+- extracted blocks\
+- structured events\
+- components\
+- reviewers\
+- review tasks\
+- embeddings\
+- citations\
+\
+J. Mergeability\
+This must be built so it can be merged cleanly into the current project.\
+Keep interfaces explicit:\
+- ingestion API\
+- review API\
+- indexing job\
+- retrieval API\
+\
+K. Non-goals\
+- Do not assume all records are clean typed PDFs.\
+- Do not assume a single OCR pass is enough.\
+- Do not store only plain text chunks.\
+- Do not answer with unsupported certainty when the page is unreadable.\
+\
+Deliverables:\
+1. recommended architecture\
+2. folder structure\
+3. database schema\
+4. ingestion pipeline flow\
+5. human review flow\
+6. RAG indexing strategy\
+7. sample API contracts\
+8. confidence scoring rules\
+9. merge plan into existing myaircraft.us system\
+10. phased implementation plan prioritizing single-source-of-truth and evidence-backed retrieval}

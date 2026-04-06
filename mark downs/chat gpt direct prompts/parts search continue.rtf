@@ -1,0 +1,744 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Roman;\f1\froman\fcharset0 Times-Bold;\f2\fmodern\fcharset0 Courier;
+\f3\froman\fcharset0 Times-Italic;\f4\fmodern\fcharset0 Courier-Bold;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc0\levelnfcn0\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{decimal\}}{\leveltext\leveltemplateid1\'01\'00;}{\levelnumbers\'01;}\fi-360\li720\lin720 }{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat0\levelspace360\levelindent0{\*\levelmarker \{circle\}}{\leveltext\leveltemplateid2\'01\uc0\u9702 ;}{\levelnumbers;}\fi-360\li1440\lin1440 }{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat0\levelspace360\levelindent0{\*\levelmarker \{square\}}{\leveltext\leveltemplateid3\'01\uc0\u9642 ;}{\levelnumbers;}\fi-360\li2160\lin2160 }{\listname ;}\listid1}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\fs24 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\
+Summary:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Primary Request and Intent:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f1\b \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Initial request
+\f0\b0 : Build the complete "Atlas Parts Network" feature inside myaircraft.us per a detailed 26-section spec (
+\f2\fs26 17. myaircraft_atlas_parts_network_master_prompt.md
+\f0\fs24 ). This covers: parts search modal, multi-provider search (SerpAPI + eBay + curated vendors), normalized result cards, click-out ordering, work order integration, Supabase schema with RLS, audit logging, analytics, and deployment.\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Scanner restoration
+\f0\b0 : After the first deployment, the user reported that the "Scanner" sidebar nav item had disappeared. Key feedback: 
+\f3\i "when you adding function and i give additional prompt dont remove functions bring the scanner back and with same functions"
+\f0\i0  \'97 never remove existing functionality.\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Hardening request
+\f0\b0  (most recent, in-progress): A comprehensive "Build and Configure the Recommended Parts Search Stack" prompt requiring: audit of current impl, hardened SerpAPI (exact-match quoting, organic fallback, price calc), hardened eBay (MPN extraction, dual search strategy, stock label fix), fixed provider failure tracking, fixed deduplication, improved ranking, providersFailed in summary, updated UI partial-failure display, and final deployment.\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Key Technical Concepts:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Next.js 14 App Router (server + client components), TypeScript strict mode\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Supabase Postgres with Row Level Security (
+\f2\fs26 get_my_org_ids()
+\f0\fs24 , 
+\f2\fs26 has_org_role()
+\f0\fs24 )\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Multi-tenant organization-scoped data isolation (5 roles: owner/admin/mechanic/viewer/auditor)\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 SerpAPI Google Shopping engine + Google organic fallback\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 eBay Browse API v1 with OAuth2 client_credentials token caching\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Curated aviation vendor search URL generation (Aircraft Spruce, Univair, Skygeek)\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Promise.allSettled
+\f0\fs24  for parallel provider calls with graceful failure\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Provider abstraction pattern: 
+\f2\fs26 PartSearchProvider \{ name: string; search(input): Promise<ExternalPartOffer[]> \}
+\f0\fs24 \
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Normalized offer schema (
+\f2\fs26 NormalizedPartOffer
+\f0\fs24 ) shared across all providers\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Deduplication by normalized URL + vendor+partNumber fingerprint\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Multi-mode ranking: best_match, best_price, fastest_delivery, best_condition, top_rated\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Audit logging via 
+\f2\fs26 audit_logs
+\f0\fs24  table (
+\f2\fs26 user_id, action, entity_type, entity_id, metadata_json
+\f0\fs24 )\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 PostHog analytics events for parts searches and orders\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 crypto.randomUUID()
+\f0\fs24  (no 
+\f2\fs26 uuid
+\f0\fs24  package in project)\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Zod validation on all API routes\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Rate limiting: 10 searches/org/minute (in-memory Map)\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Vercel deployment via 
+\f2\fs26 deploy-claude.js
+\f0\fs24  script; Supabase migration via psycopg2\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	3	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Files and Code Sections:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 supabase/migrations/019_atlas_parts_network.sql
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 New migration creating 4 tables + extending work_order_lines\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Includes 
+\f2\fs26 touch_updated_at()
+\f0\fs24  function definition (was missing in DB)\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Key tables: 
+\f2\fs26 atlas_part_searches
+\f0\fs24 , 
+\f2\fs26 atlas_part_offers
+\f0\fs24 , 
+\f2\fs26 atlas_order_records
+\f0\fs24 , 
+\f2\fs26 atlas_order_events
+\f0\fs24 \
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Extends 
+\f2\fs26 work_order_lines
+\f0\fs24  with 
+\f2\fs26 atlas_order_record_id
+\f0\fs24  and 
+\f2\fs26 atlas_offer_id
+\f0\fs24  FK columns\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Full RLS on all tables\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/types.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Defines: 
+\f2\fs26 PartSearchMode
+\f0\fs24 , 
+\f2\fs26 PartCondition
+\f0\fs24 , 
+\f2\fs26 PartSourceType
+\f0\fs24 , 
+\f2\fs26 PartOrderStatus
+\f0\fs24 , 
+\f2\fs26 PartSortMode
+\f0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 PartSearchInput
+\f0\fs24 , 
+\f2\fs26 ExternalPartOffer
+\f0\fs24 , 
+\f2\fs26 PartSearchProvider
+\f0\fs24  interface\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 NormalizedPartOffer extends ExternalPartOffer
+\f0\fs24  with 
+\f2\fs26 rankScore
+\f0\fs24  and 
+\f2\fs26 sortBucket
+\f0\fs24 \
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 PartSearchResponse \{ searchId, query, offers, summary \}
+\f0\fs24 \
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 PartSearchSummary \{ count, providersUsed, bestPrice, fastestDeliveryLabel \}
+\f0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 DB row types: 
+\f2\fs26 AtlasPartSearch
+\f0\fs24 , 
+\f2\fs26 AtlasPartOffer
+\f0\fs24 , 
+\f2\fs26 AtlasOrderRecord
+\f0\fs24 , 
+\f2\fs26 AtlasOrderEvent
+\f0\fs24 \
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/normalize.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 normalizeUrl(url)
+\f0\fs24  \'97 strips tracking params\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractDomain(url)
+\f0\fs24  \'97 strips www prefix\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 titleFingerprint(title)
+\f0\fs24  \'97 for dedup\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 classifyQuery(query)
+\f0\fs24  \uc0\u8594  
+\f2\fs26 'exact_part' | 'likely_part' | 'description' | 'contextual'
+\f0\fs24 \
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 normalizeCondition(raw)
+\f0\fs24  \uc0\u8594  
+\f2\fs26 PartCondition
+\f0\fs24 \
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 parsePrice(raw)
+\f0\fs24  \uc0\u8594  
+\f2\fs26 number | undefined
+\f0\fs24 \
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 deduplicateOffers(offers)
+\f0\fs24  \'97 by normalized URL, vendor+partNumber, vendor+title\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/ranking.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 TRUSTED_DOMAINS
+\f0\fs24  Set of 18 aviation/general domains\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 scoreOffer(offer, query)
+\f0\fs24  \'97 0-100 score with exact part match (+30), image (+10), price (+8), trusted domain (+15), aviation keywords (+3 each max 12), rating bonus, condition bonus; penalties for missing URL\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 rankOffers(offers, query, sortMode)
+\f0\fs24  \uc0\u8594  
+\f2\fs26 NormalizedPartOffer[]
+\f0\fs24  sorted by mode\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/providers/serp.ts
+\f0\b0\fs24  \uc0\u8592  
+\f1\b REWRITTEN in current session
+\f0\b0 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Now exports 
+\f2\fs26 extractPartNumber(title, query?)
+\f0\fs24  for reuse by eBay provider\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Query classification gates context enrichment (only for descriptive, not part-number queries)\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Exact part numbers quoted: 
+\f2\fs26 "CH48110-1"
+\f0\fs24  for exact matching\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Dual fetch: 
+\f2\fs26 fetchSerpShopping
+\f0\fs24  + 
+\f2\fs26 fetchSerpOrganic
+\f0\fs24  (organic only for exact parts, only fills in if shopping < 5 results)\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 totalEstimatedPrice = price + (shippingPrice ?? 0)
+\f0\fs24  (was just 
+\f2\fs26 price
+\f0\fs24  before \'97 bug fixed)\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 sanitizeUrl()
+\f0\fs24  \'97 validates http/https protocol\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 isAviationVendorUrl()
+\f0\fs24  \'97 checks 14 aviation vendor patterns\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractCompatibility()
+\f0\fs24  \'97 extracts "fits/compatible with" from snippets\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 PROVIDER_TIMEOUT_MS raised to 12_000\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/providers/ebay.ts
+\f0\b0\fs24  \uc0\u8592  
+\f1\b REWRITTEN in current session
+\f0\b0 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Dual search strategy: aviation category (26429) + broad search, merged and deduped\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractEbayPartNumber()
+\f0\fs24  checks MPN/Manufacturer Part Number in 
+\f2\fs26 localizedAspects
+\f0\fs24  first, then falls back to 
+\f2\fs26 extractPartNumber
+\f0\fs24  from serp.ts\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractEbayStockLabel()
+\f0\fs24  uses 
+\f2\fs26 estimatedAvailabilities[].estimatedAvailabilityStatus
+\f0\fs24  (was using wrong 
+\f2\fs26 quantityLimitPerBuyer
+\f0\fs24  field)\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractEbayShipping()
+\f0\fs24  properly handles free shipping (type === 'FREE_SHIPPING')\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 extractEbayCertifications()
+\f0\fs24  \'97 extracts FAA/PMA/TSOA/STC from aspects\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Token refresh buffer increased to 120_000ms (2 min vs 1 min)\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 buildConditionFilter()
+\f0\fs24  supports multi-condition OR filter\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 filters.push('deliveryCountry:US')
+\f0\fs24  added\
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Badges: added "99%+ Feedback" badge for high-trust sellers\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/providers/curated.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Generates search landing page links for Aircraft Spruce, Univair, Skygeek (SteinAir disabled pending direct API)\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Returns synthetic offers with 
+\f2\fs26 sourceType: 'vendor'
+\f0\fs24  and 
+\f2\fs26 badges: ['Trusted Vendor']
+\f0\fs24 \
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/search.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 runPartsSearch()
+\f0\fs24  orchestrates all providers via 
+\f2\fs26 Promise.allSettled
+\f0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Persists 
+\f2\fs26 atlas_part_searches
+\f0\fs24  and up to 50 
+\f2\fs26 atlas_part_offers
+\f0\fs24 \
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Bug: failed providers stored as 
+\f2\fs26 providerSummary['unknown']
+\f0\fs24  instead of by provider name \'97 
+\f1\b PENDING FIX
+\f0\b0 \
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/parts/orders.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 createOrderRecord()
+\f0\fs24  \'97 inserts atlas_order_records + atlas_order_events click-out event\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 updateOrderRecord()
+\f0\fs24  \'97 patches status/fields + appends status_changed event\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 attachToWorkOrder()
+\f0\fs24  \'97 updates order + inserts work_order_lines part row + appends event\
+\ls1\ilvl2
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 getOrdersForOrg()
+\f0\fs24  \'97 paginated fetch with filters\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/search/route.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 POST with Zod validation, rate limit check, org membership, aircraft context enrichment\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Calls 
+\f2\fs26 runPartsSearch()
+\f0\fs24 , writes audit log\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/click/route.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 POST: fetches offer from DB, validates/sanitizes URL (http/https only), calls 
+\f2\fs26 createOrderRecord()
+\f0\fs24 , returns 
+\f2\fs26 \{order_record_id, redirect_url, status\}
+\f0\fs24 \
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/orders/route.ts
+\f0\b0\fs24  \'97 GET paginated orders\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/orders/[id]/route.ts
+\f0\b0\fs24  \'97 GET (with events) + PATCH\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/attach-to-work-order/route.ts
+\f0\b0\fs24  \'97 POST\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/parts/searches/[id]/route.ts
+\f0\b0\fs24  \'97 GET search with offers\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/(app)/parts/page.tsx
+\f0\b0\fs24  \'97 Server component: fetches user profile, membership, passes 
+\f2\fs26 canWrite
+\f0\fs24  bool to client\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/(app)/parts/parts-content.tsx
+\f0\b0\fs24  \'97 Client component: stats cards, order table, detail panel, search modal trigger\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/components/parts/AtlasSearchModal.tsx
+\f0\b0\fs24  \'97 Split-pane: search left, results right; client-side re-sort support\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/components/parts/AtlasResultsDrawer.tsx
+\f0\b0\fs24  \'97 Hero summary (best price / fastest / count), sort bar, partial-failure warning (currently based on 
+\f2\fs26 providersUsed.length < 3
+\f0\fs24 )\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/components/parts/PartOfferCard.tsx
+\f0\b0\fs24  \'97 Image, part#, condition badge, quantity stepper, order button, compatibility disclaimer\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f1\b \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Other components
+\f0\b0 : PartSearchInput, PartCommonSearchChips, PartOfferSortBar, PartOfferList, PartOrdersTable, PartOrderStatusBadge, PartOrderDetailsPanel, MarkOrderedDialog, AttachToWorkOrderDialog\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/components/shared/sidebar.tsx
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Added 
+\f2\fs26 ShoppingCart
+\f0\fs24  + 
+\f2\fs26 ScanLine
+\f0\fs24  imports\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Added 
+\f2\fs26 \{ label: 'Parts Orders', href: '/parts', icon: ShoppingCart \}
+\f0\fs24  to maintenance section\
+\ls1\ilvl2\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Added 
+\f2\fs26 \{ label: 'Scanner', href: '/logbook-scanning', icon: ScanLine \}
+\f0\fs24  to Integrations section (restored)\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/lib/analytics/posthog.tsx
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Added: 
+\f2\fs26 partSearchRun
+\f0\fs24 , 
+\f2\fs26 partOfferClick
+\f0\fs24 , 
+\f2\fs26 partOrderStatusChanged
+\f0\fs24 , 
+\f2\fs26 partAttachedToWorkOrder
+\f0\fs24 \
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\sa240\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 apps/web/app/api/ocr/arbitrate/route.ts
+\f0\b0\fs24 \
+\pard\tx1660\tx2160\pardeftab720\li2160\fi-2160\partightenfactor0
+\ls1\ilvl2\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9642 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Pre-existing TS error fixed: 
+\f2\fs26 for (const [fieldName, candidates] of candidatesByField.entries())
+\f0\fs24  \uc0\u8594  
+\f2\fs26 Array.from(candidatesByField.entries())
+\f0\fs24 \
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	4	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Errors and fixes:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f4\b\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 uuid
+\f1\fs24  package not in package.json
+\f0\b0 : Replaced all 
+\f2\fs26 import \{ v4 as uuidv4 \} from 'uuid'
+\f0\fs24  with 
+\f2\fs26 crypto.randomUUID()
+\f0\fs24  in all three provider files\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Topbar
+\f1\fs24  requires 
+\f4\fs26 profile: UserProfile
+\f1\fs24  prop
+\f0\b0 : Split parts page into server component (
+\f2\fs26 page.tsx
+\f0\fs24  fetches profile) + client component (
+\f2\fs26 parts-content.tsx
+\f0\fs24 )\
+\ls1\ilvl1
+\f4\b\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 touch_updated_at()
+\f1\fs24  function does not exist
+\f0\b0 : Added 
+\f2\fs26 CREATE OR REPLACE FUNCTION touch_updated_at()
+\f0\fs24  to migration 019 before the trigger definition\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f1\b \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Pre-existing TS error in 
+\f4\fs26 ocr/arbitrate/route.ts
+\f0\b0\fs24  (
+\f2\fs26 MapIterator
+\f0\fs24  ES target): Fixed with 
+\f2\fs26 Array.from(candidatesByField.entries())
+\f0\fs24 \
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Scanner nav item missing after deployment
+\f0\b0 : The Scanner item existed in the deployed Vercel app but not in git or the worktree. Added 
+\f2\fs26 \{ label: 'Scanner', href: '/logbook-scanning', icon: ScanLine \}
+\f0\fs24  back to sidebar\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	5	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Problem Solving:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f1\b \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Provider context pollution
+\f0\b0 : SerpAPI was appending aircraft make/model to ALL queries including exact part numbers, breaking exact matches. Fixed by gating context enrichment on query type.\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Empty Google Shopping results for aviation parts
+\f0\b0 : Many niche aviation parts have no Google Shopping entries. Fixed by adding organic results fallback (only when shopping < 5 results, only for exact part queries).\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 eBay returning no part numbers
+\f0\b0 : eBay doesn't parse part numbers from titles automatically. Fixed by checking 
+\f2\fs26 localizedAspects
+\f0\fs24  for MPN field first, then falling back to regex extraction.\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 eBay stock label wrong
+\f0\b0 : Was using 
+\f2\fs26 quantityLimitPerBuyer
+\f0\fs24  (buyer purchase limit, not stock indicator). Fixed to use 
+\f2\fs26 estimatedAvailabilities[].estimatedAvailabilityStatus
+\f0\fs24 .\
+\ls1\ilvl1
+\f1\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Provider failure loses provider identity
+\f0\b0 : 
+\f2\fs26 providerSummary['unknown']
+\f0\fs24  overwrites on multiple failures. Pending fix in search.ts.\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	6	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 All user messages:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1
+\f2\fs26 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 @/Users/andy/.../17. myaircraft_atlas_parts_network_master_prompt.md
+\f0\fs24  \'97 initial spec, build the Atlas Parts Network feature\
+\ls1\ilvl1
+\f2\fs26 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 [image] where is the scanner option is gone no longer seen and when you adding function and i give additional prompt dont remove functions bring the scanner back and with same functions
+\f0\fs24  \'97 feedback after first deploy: Scanner was removed, restore it and never remove existing features\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Large "Build and Configure the Recommended Parts Search Stack" prompt \'97 audit and harden: SerpAPI as primary, eBay as aftermarket, curated vendors, optional Perplexity fallback only, fix all identified issues, verify full workflow, deploy\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	7	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Pending Tasks:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls1\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Fix 
+\f2\fs26 search.ts
+\f0\fs24 : provider failure tracking by provider name (not 'unknown'), add 
+\f2\fs26 providersFailed: string[]
+\f0\fs24  to the search summary\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Fix 
+\f2\fs26 normalize.ts
+\f0\fs24 : deduplication edge case where empty URLs collapse all unlinked offers together\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Fix 
+\f2\fs26 ranking.ts
+\f0\fs24 : expand trusted aviation domain list, fix keyword bonus cap logic\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Fix 
+\f2\fs26 types.ts
+\f0\fs24 : add 
+\f2\fs26 providersFailed: string[]
+\f0\fs24  to 
+\f2\fs26 PartSearchSummary
+\f0\fs24 \
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Fix 
+\f2\fs26 AtlasResultsDrawer.tsx
+\f0\fs24 : use 
+\f2\fs26 providersFailed
+\f0\fs24  array instead of 
+\f2\fs26 providersUsed.length < 3
+\f0\fs24  for partial failure display\
+\ls1\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Deploy final hardened version to Vercel\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	8	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Current Work: Working through the "Build and Configure" hardening prompt. Two provider files just rewritten:\uc0\u8232 
+\f1\b serp.ts
+\f0\b0  (completed) \'97 key changes:\uc0\u8232 
+\f2\fs26 // Query classification gates context enrichment\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	9	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 const isExactPart = queryType === 'exact_part' || queryType === 'likely_part'\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	10	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 if (isExactPart) \{\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	11	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   effectiveQuery = `"$\{effectiveQuery\}"` // Quote for exact match\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	12	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \} else if (input.aircraftContext) \{\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	13	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   // Only enrich descriptive queries\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	14	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \}\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	15	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // Dual fetch: shopping + organic fallback\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	16	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 const [shoppingOffers, organicOffers] = await Promise.all([\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	17	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   fetchSerpShopping(effectiveQuery, apiKey, input.query),\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	18	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   isExactPart ? fetchSerpOrganic(effectiveQuery, apiKey, input.query) : Promise.resolve([]),\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	19	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 ])\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	20	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // Fixed price calc\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	21	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 const totalEstimatedPrice = price != null ? price + (shippingPrice ?? 0) : undefined\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	22	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \uc0\u8232 
+\f1\b\fs24 ebay.ts
+\f0\b0  (completed) \'97 key changes:\uc0\u8232 
+\f2\fs26 // Dual search: aviation category + broad\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	23	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 const [aviationResults, broadResults] = await Promise.all([\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	24	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   fetchEbay(searchUrl, token, query, '26429', conditionFilter),\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	25	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   fetchEbay(searchUrl, token, query, undefined, conditionFilter),\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	26	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 ])\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	27	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // MPN extraction from aspects\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	28	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 function extractEbayPartNumber(item, query) \{\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	29	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   const mpnAspect = aspects.find(a => ['mpn', 'manufacturer part number', ...].includes(a.name.toLowerCase()))\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	30	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   if (mpnAspect?.value?.[0]) return mpnAspect.value[0].toUpperCase()\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	31	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   return extractPartNumber(titleStr, query) // fallback to regex\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	32	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \}\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	33	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 // Correct stock label\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	34	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 function extractEbayStockLabel(item) \{\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	35	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   const status = qty[0].estimatedAvailabilityStatus // was quantityLimitPerBuyer\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	36	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2   if (status === 'IN_STOCK') return 'In stock'\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	37	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \}\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls1\ilvl0
+\f0\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	38	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 \
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	39	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Optional Next Step: Continue the pending fixes from the "Build and Configure" prompt. The next file to fix is 
+\f2\fs26 search.ts
+\f0\fs24  to properly track which specific providers failed (instead of using the generic 
+\f2\fs26 'unknown'
+\f0\fs24  key) and add 
+\f2\fs26 providersFailed
+\f0\fs24  to the search summary. Then fix 
+\f2\fs26 types.ts
+\f0\fs24 , 
+\f2\fs26 normalize.ts
+\f0\fs24 , 
+\f2\fs26 ranking.ts
+\f0\fs24 , 
+\f2\fs26 AtlasResultsDrawer.tsx
+\f0\fs24 , and finally deploy.\uc0\u8232 From the most recent work: the todo list shows 
+\f2\fs26 Fix search.ts: provider failure tracking, providersFailed in summary
+\f0\fs24  as the next pending item after the two completed provider file rewrites.\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/andy/.claude/projects/-Users-andy-Library-Mobile-Documents-com-apple-CloudDocs-claude-imac-claude-code-myaircraft--claude-worktrees-confident-varahamihira/9c76a55c-eb0e-41bc-bd07-dc97367a0f40.jsonl Continue the conversation from where it left off without asking the user any further questions. Resume directly \'97 do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.\
+}

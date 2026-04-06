@@ -1,0 +1,1264 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2865
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 .SFNS-Semibold;\f1\fnil\fcharset0 .SFNS-Regular;\f2\fnil\fcharset0 HelveticaNeue-Bold;
+\f3\fswiss\fcharset0 Helvetica;\f4\fnil\fcharset0 .SFNS-RegularItalic;\f5\fnil\fcharset0 .AppleSystemUIFontMonospaced-Regular;
+}
+{\colortbl;\red255\green255\blue255;\red14\green14\blue14;}
+{\*\expandedcolortbl;;\cssrgb\c6700\c6700\c6700;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs48 \cf2 myaircraft.us \'97 Codex Master Build Spec (Web + Mobile + Enterprise SaaS)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx860\tx1420\tx1980\tx2540\tx3100\tx3660\tx4220\tx4780\tx5340\tx5900\tx6460\tx7020\li300\sl324\slmult1\partightenfactor0
+
+\f2\b \cf2 Instruction to Codex:
+\f1\b0  This document is the single source of truth for building myaircraft.us across Web (Next.js on Vercel) and Mobile (Expo iOS/Android). Implement end-to-end in the order specified. Do not skip. Correctness + trust + citations > speed. If a conflict exists, prefer privacy + RLS + evidence-first answering.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 0) Mission + Product Promise
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 myaircraft.us
+\f1\b0  is a multi-tenant aviation document intelligence platform for:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Aircraft owners\
+	\'95	Flight schools\
+	\'95	Mechanics / IAs\
+	\'95	Repair stations\
+	\'95	Part 135 operators\
+	\'95	Fleet operators / management companies\
+\
+Users upload or connect aircraft documents (logbooks, POH, AFM, manuals, IPC, AD/SB, 337, 8130, work orders). The system ingests them into a per-organization, per-aircraft RAG system.\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Users ask plain-English questions.
+\f1\b0  The system responds with:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Answer grounded only in the user\'92s uploaded documents\
+	\'95	
+\f2\b Exact citations:
+\f1\b0  document title, page number(s), section, snippet\
+	\'95	
+\f2\b Confidence badge:
+\f1\b0  high / medium / low / insufficient evidence\
+	\'95	
+\f2\b Refusal to guess:
+\f1\b0  if insufficient evidence, it must say so\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Tagline:
+\f1\b0  
+\f4\i \cf2 Ask your aircraft anything. Get answers from your own records.
+\f1\i0 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 1) Key Differentiators (Non-Negotiable)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 1. Citation-first UX
+\f1\b0\fs32 \
+\
+Every factual claim must have a citation marker tied to:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	document_id\
+	\'95	chunk_id\
+	\'95	page number(s)\
+	\'95	snippet\
+	\'95	a \'93jump to page\'94 viewer action\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 2. Hallucination gate
+\f1\b0\fs32 \
+\
+If retrieved evidence does not support the answer, respond with:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 INSUFFICIENT_EVIDENCE
+\f1 \cf2  (machine)\
+	\'95	a user-friendly message (UI)\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 3. Per-aircraft retrieval scope
+\f1\b0\fs32 \
+\
+Search defaults to the selected aircraft. Option to expand to org-wide.\
+\
+
+\f0\b\fs34 4. Multi-tenant isolation with RLS
+\f1\b0\fs32 \
+\
+RLS is required on all tenant data.\
+\
+
+\f0\b\fs34 5. Sharing vs Private Library (from your transcript)
+\f1\b0\fs32 \
+\
+Every document must be categorized into one of these 
+\f2\b library scopes
+\f1\b0 :\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f2\b Private Library (Owner-only):
+\f1\b0  user chooses \'93Do not share.\'94\
+	\'95	
+\f2\b Shared Library (Org/Team):
+\f1\b0  user chooses \'93Share with my org/team.\'94\
+\
+This must be enforceable by database policies + UI states.\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6. Trust posture
+\f1\b0\fs32 \
+\
+Never claim \'93airworthiness determination.\'94 Always show disclaimer:\
+\
+\pard\tx860\tx1420\tx1980\tx2540\tx3100\tx3660\tx4220\tx4780\tx5340\tx5900\tx6460\tx7020\li300\sl324\slmult1\partightenfactor0
+\cf2 \'93myaircraft.us provides document retrieval and organization, not FAA compliance advice.\'94\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 2) The \'93Private vs Shared\'94 Concept \'97 Make It Real (Important)
+\f1\b0\fs32 \cf2 \
+\
+Your transcript says:\
+\
+\pard\tx860\tx1420\tx1980\tx2540\tx3100\tx3660\tx4220\tx4780\tx5340\tx5900\tx6460\tx7020\li300\sl324\slmult1\partightenfactor0
+\cf2 \'93If user clicks no share, file stays only with him\'85 we only see embeddings\'85 can\'92t reconstruct PDF.\'94\
+\
+That idea is directionally good, but 
+\f2\b embeddings alone are not enough to answer with citations
+\f1\b0 , because:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	you need the chunk text to produce an answer and snippet\
+	\'95	you need page mapping (page numbers + offsets)\
+	\'95	\'93embeddings-only\'94 prevents the server from generating an answer unless retrieval + generation happens client-side (hard, unreliable, expensive on mobile)\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 The practical solution (enterprise-grade, realistic):
+\f1\b0\fs32 \
+\
+Implement 
+\f2\b two privacy tiers
+\f1\b0 :\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs30 \cf2 A) Standard Mode (default)
+\f1\b0\fs32 \cf2 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Store original PDFs in Supabase Storage (private bucket)\
+	\'95	Store extracted pages + chunks in DB\
+	\'95	Store embeddings in pgvector\
+	\'95	Works like normal SaaS RAG\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs30 \cf2 B) Private Library Mode (user-controlled privacy)
+\f1\b0\fs32 \cf2 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Files + extracted text are stored 
+\f2\b encrypted at rest
+\f1\b0  with 
+\f2\b customer-controlled keys
+\f1\b0 \
+	\'95	Server stores:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	ciphertext blobs (encrypted original + encrypted extracted text)\
+	\'95	embeddings (still stored; disclose that embeddings may leak semantic signals)\
+	\'95	minimal metadata (doc type, page count, created_at)\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Server can still answer if it can decrypt using a tenant key service (see below)\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs30 \cf2 Two sub-options for Private Library Mode:
+\f1\b0\fs32 \cf2 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	
+\f2\b \cf2 Org-managed key (recommended)
+\f1\b0 \cf2 \
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	A per-organization encryption key stored in KMS (or Supabase Vault equivalent), access controlled by org owner/admin.\
+	\'95	Server can decrypt to answer queries 
+\f4\i \cf2 only for authorized users in that org
+\f1\i0 \cf2 .\
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	2.	
+\f2\b \cf2 User-only key (maximum privacy)
+\f1\b0 \cf2 \
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Only user device can decrypt (E2EE).\
+	\'95	Server cannot generate answers.\
+	\'95	Queries must be done locally in the client (complex; optional later).\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Codex Implementation Rule:
+\f1\b0 \
+For v1, implement Private Library Mode as 
+\f2\b Org-managed key encryption
+\f1\b0 .\
+It preserves your \'93we can\'92t read it freely\'94 idea while keeping the product usable.\
+\
+
+\f0\b\fs34 Sharing logic (must exist everywhere)
+\f1\b0\fs32 \
+\
+For each document:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 visibility_scope = 'shared' | 'private'
+\f1 \cf2 \
+	\'95	If 
+\f5 \cf2 private
+\f1 \cf2 : only uploader (and optionally org owner if policy allows) can access\
+	\'95	If 
+\f5 \cf2 shared
+\f1 \cf2 : org users with access can read\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Admin/Operator visibility requirement:
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Platform admins see only usage metrics + embeddings metadata, not plaintext (unless explicitly allowed)\
+	\'95	Support tools must respect visibility_scope\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 3) Platforms + Deployment Targets
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Web
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Next.js 14 App Router\
+	\'95	Deploy: Vercel\
+	\'95	Supabase: hosted\
+	\'95	Trigger.dev: background jobs\
+	\'95	FastAPI parser: Fly.io/Railway\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Mobile
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Expo (React Native)\
+	\'95	iOS + Android\
+	\'95	Same API endpoints as web\
+	\'95	Special flows: camera scan, offline queue, push notifications, share sheet import, doc viewer\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Enterprise
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	SSO/SAML (Phase 2)\
+	\'95	SCIM (Phase 3)\
+	\'95	Audit export + retention controls\
+	\'95	Custom domains (Phase 3)\
+	\'95	Dedicated tenant isolation options (Phase 4)\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 4) Monorepo (Codex-friendly)
+\f1\b0\fs32 \cf2 \
+\
+Use pnpm + turborepo:\
+\
+myaircraft-us/\
+\uc0\u9500 \u9472  apps/\
+\uc0\u9474   \u9500 \u9472  web/                 # Next.js\
+\uc0\u9474   \u9500 \u9472  mobile/              # Expo\
+\uc0\u9474   \u9492 \u9472  parser/              # FastAPI\
+\uc0\u9500 \u9472  packages/\
+\uc0\u9474   \u9500 \u9472  ui/                  # shared UI primitives (web+mobile variants)\
+\uc0\u9474   \u9500 \u9472  core/                # shared business logic + types\
+\uc0\u9474   \u9500 \u9472  database/            # migrations + generated types\
+\uc0\u9474   \u9492 \u9472  config/              # env schemas, constants\
+\uc0\u9500 \u9472  supabase/\
+\uc0\u9474   \u9500 \u9472  migrations/\
+\uc0\u9474   \u9500 \u9472  functions/\
+\uc0\u9474   \u9492 \u9472  seed/\
+\uc0\u9500 \u9472  trigger/\
+\uc0\u9474   \u9500 \u9472  jobs/\
+\uc0\u9474   \u9492 \u9472  trigger.config.ts\
+\uc0\u9492 \u9472  docs/\
+   \uc0\u9500 \u9472  CODEX_MASTER_SPEC.md  # this file\
+   \uc0\u9500 \u9472  API.md\
+   \uc0\u9500 \u9472  SECURITY.md\
+   \uc0\u9492 \u9472  RUNBOOK.md\
+\
+\
+
+\f0\b\fs38 \cf2 5) Tech Stack (Final)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Frontend Web
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Next.js 14\
+	\'95	Tailwind v3 + shadcn/ui\
+	\'95	TanStack Query\
+	\'95	Zustand\
+	\'95	RHF + Zod\
+	\'95	Framer Motion\
+	\'95	PDF viewer: @react-pdf-viewer/core\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Mobile (Expo)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Expo SDK latest stable\
+	\'95	React Navigation\
+	\'95	TanStack Query\
+	\'95	Zustand\
+	\'95	Document viewer:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	iOS: 
+\f5 \cf2 react-native-pdf
+\f1 \cf2  or expo-compatible PDF renderer\
+	\'95	fallback: webview pdf viewer for signed URLs\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Camera scan:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	expo-camera\
+	\'95	image processing + \'93scan\'94 crop UX (phase 2)\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Push notifications:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Expo Notifications\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Deep linking:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	expo-linking\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Backend
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Next.js Route Handlers for API\
+	\'95	FastAPI for parsing/OCR/chunking\
+	\'95	Trigger.dev for ingestion pipeline\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Storage + DB
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Supabase Auth\
+	\'95	Supabase Postgres + pgvector\
+	\'95	Supabase Storage (private buckets)\
+	\'95	Signed URL delivery\
+	\'95	Realtime for processing status\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 AI
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Embeddings: 
+\f5 \cf2 text-embedding-3-large
+\f1 \cf2  default\
+	\'95	Answer model: 
+\f5 \cf2 gpt-4o
+\f1 \cf2  default, 
+\f5 \cf2 gpt-4o-mini
+\f1 \cf2  cost tier\
+	\'95	OCR fallback: vision model for hard pages (phase 2)\
+	\'95	Hybrid retrieval: pgvector + full text search (tsvector)\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 6) Data Model (Additions to Your Claude Spec)
+\f1\b0\fs32 \cf2 \
+\
+You already have a good schema. Add these 
+\f2\b critical SaaS/enterprise fields
+\f1\b0 :\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.1 user_profiles additions
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 is_platform_admin boolean default false
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 phone text nullable
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 last_seen_at timestamptz
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.2 organization_memberships additions
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 status enum('invited','active','suspended')
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 aircraft_access_scope enum('all','specific')
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 aircraft_ids uuid[] nullable
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.3 documents additions (privacy + sharing)
+\f1\b0\fs32 \
+\
+Add:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 visibility_scope text check (visibility_scope in ('shared','private')) default 'shared'
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 owner_user_id uuid references user_profiles(id)
+\f1 \cf2  (uploader)\
+	\'95	
+\f5 \cf2 encryption_mode text check (encryption_mode in ('none','org_key','user_key')) default 'none'
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 encrypted_blob_path text nullable
+\f1 \cf2  (if storing encrypted)\
+	\'95	
+\f5 \cf2 is_deleted boolean default false
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 deleted_at timestamptz nullable
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.4 audit logs additions
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 severity enum('info','warn','critical')
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 request_id text
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 correlation_id text
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.5 Feature flags
+\f1\b0\fs32 \
+\
+Create:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 feature_flags
+\f1 \cf2  table\
+	\'95	
+\f5 \cf2 org_feature_flags
+\f1 \cf2  overrides\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 6.6 Enterprise: retention + legal hold (Phase 2+)
+\f1\b0\fs32 \
+\
+Create:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 retention_policies
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 legal_holds
+\f1 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 7) RLS Policies (Must cover Private vs Shared)
+\f1\b0\fs32 \cf2 \
+\
+Your RLS is good, but needs 
+\f2\b document visibility rules
+\f1\b0 .\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Document SELECT policy must become:
+\f1\b0\fs32 \
+\
+A user can read a document if:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	document.organization_id in user orgs\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\li260\sl324\slmult1\pardirnatural\partightenfactor0
+\cf2 AND (\
+document.visibility_scope = \'91shared\'92\
+OR (document.visibility_scope = \'91private\'92 AND document.owner_user_id = auth.uid())\
+OR (document.visibility_scope = \'91private\'92 AND has_org_role(document.organization_id, [\'91owner\'92,\'91admin\'92]) AND org_policy_allows_admin_private_access = true)\
+)\
+\
+Add an organization setting:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 organizations.private_docs_admin_access boolean default false
+\f1 \cf2 \
+\
+Default: 
+\f5 \cf2 false
+\f1 \cf2  (private truly means private).\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Same rule must apply to:
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	document_pages\
+	\'95	document_chunks\
+	\'95	document_embeddings\
+	\'95	citations\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 8) Product Roles (Clear and enforceable)
+\f1\b0\fs32 \cf2 \
+\
+Roles:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	owner\
+	\'95	admin\
+	\'95	mechanic\
+	\'95	viewer\
+	\'95	auditor\
+\
+Permissions matrix (v1):\
+	\'95	viewer: read shared docs + ask AI (limited) + cannot upload\
+	\'95	mechanic: upload shared docs, edit aircraft, run reprocessing\
+	\'95	admin: manage users, billing, org settings, can upload\
+	\'95	owner: everything + org key mgmt\
+	\'95	auditor: read-only + export report\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 9) Core UX Flows (Web + Mobile)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 9.1 Onboarding (Web + Mobile)
+\f1\b0\fs32 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	Create account\
+	2.	Create org\
+	3.	Choose persona: owner / school / mechanic / repair station / operator\
+	4.	Add aircraft\
+	5.	Upload documents:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	choose aircraft\
+	\'95	choose document type\
+	\'95	choose \'93Shared\'94 vs \'93Private\'94\
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	6.	Ask first question\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 9.2 Document upload (Web)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Dropzone\
+	\'95	Multi-file queue\
+	\'95	Per-file metadata form\
+	\'95	\'93Private vs Shared\'94 toggle per file (default shared)\
+	\'95	Real-time processing status\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 9.3 Document upload (Mobile)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Import:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	camera scan to PDF (phase 2)\
+	\'95	upload PDF from Files app / share sheet\
+	\'95	photo-to-PDF converter (phase 2)\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Same metadata capture\
+	\'95	Upload queue with background retry\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 9.4 Ask AI (Flagship)
+\f1\b0\fs32 \
+\
+3-pane on web:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	left: aircraft + history\
+	\'95	center: answer + citations\
+	\'95	right: document preview w/ highlighted page\
+\
+Mobile:\
+	\'95	1-pane with tabs:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Answer\
+	\'95	Citations\
+	\'95	Source Preview\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 10) Ingestion Pipeline (Hard Requirements)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 10.1 Pipeline states
+\f1\b0\fs32 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f5 \cf2 queued \uc0\u8594  parsing \u8594  chunking \u8594  embedding \u8594  completed
+\f1 \cf2 \
+fallbacks:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	scanned: 
+\f5 \cf2 needs_ocr \uc0\u8594  ocr_processing \u8594  chunking...
+\f1 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\li260\sl324\slmult1\pardirnatural\partightenfactor0
+\cf2 fail:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 failed
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 10.2 Minimum stored artifacts for citations
+\f1\b0\fs32 \
+\
+To cite page numbers, you must store:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	page_count\
+	\'95	per-page text OR page image reference OR both\
+	\'95	chunks with page_number and page_number_end\
+	\'95	citations with snippet\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 10.3 Private Library Mode storage
+\f1\b0\fs32 \
+\
+If encryption_mode = 
+\f5 \cf2 org_key
+\f1 \cf2 :\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	store encrypted original file\
+	\'95	store encrypted page text JSON and chunk text JSON\
+	\'95	store embeddings (not encrypted, but tied to private scope)\
+	\'95	store citations snippet:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Either encrypted snippet and decrypted on render\
+	\'95	Or generate snippet on client after decrypt\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\li660\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 v1 approach:
+\f1\b0  store encrypted snippet and decrypt in API response for authorized users.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 11) Retrieval + Answering (Strict Anti-Hallucination)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 11.1 Retrieval rules
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	must scope by organization_id always\
+	\'95	by default scope to selected aircraft_id\
+	\'95	allow doc_type filters\
+	\'95	require status completed\
+	\'95	require document visibility RLS\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 11.2 RAG output contract (API)
+\f1\b0\fs32 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f5 \cf2 POST /api/query
+\f1 \cf2 \
+\
+Returns:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 answer
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 confidence
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 confidence_score
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 citations[]
+\f1 \cf2  with doc title, doc id, page, snippet, section, signed_url target\
+	\'95	
+\f5 \cf2 warning_flags[]
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 follow_up_questions[]
+\f1 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 11.3 Answer generation rules
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Use only provided chunks\
+	\'95	Each claim has [N]\
+	\'95	If insufficient, respond with 
+\f5 \cf2 INSUFFICIENT_EVIDENCE
+\f1 \cf2  (system response), then API converts to friendly text + confidence state\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 11.4 \'93Extended memory\'94 requirement (what this means)
+\f1\b0\fs32 \
+\
+Do 
+\f2\b not
+\f1\b0  \'93remember\'94 cross-tenant or cross-aircraft content.\
+\'93Extended memory\'94 here should mean:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	conversation history for that user within that aircraft workspace\
+	\'95	saved questions + bookmarks\
+	\'95	aircraft summary card generated from verified sources\
+	\'95	extracted metadata timeline\
+\
+Implement:\
+	\'95	
+\f5 \cf2 conversations
+\f1 \cf2  table\
+	\'95	
+\f5 \cf2 conversation_messages
+\f1 \cf2  table\
+	\'95	optional \'93projected memory summary\'94 stored per aircraft, regenerated when new docs are ingested\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 12) Enterprise SaaS Requirements (Real SaaS)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 12.1 Billing + Plans
+\f1\b0\fs32 \
+\
+Starter / Pro / Fleet / Enterprise (as you defined)\
+\
+Enforcement:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	aircraft limit\
+	\'95	storage limit\
+	\'95	monthly query limit\
+	\'95	team member limit\
+	\'95	feature gates: OCR, gdrive import, API access, audit export\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 12.2 Organization settings panel
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	logo\
+	\'95	plan + usage\
+	\'95	invite users\
+	\'95	role assignment\
+	\'95	security settings:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	private_docs_admin_access toggle\
+	\'95	session timeout (phase 2)\
+	\'95	SSO required (phase 2)\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	audit log viewer\
+	\'95	export data room (phase 2)\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 12.3 Enterprise features roadmap
+\f1\b0\fs32 \
+\
+
+\f2\b Phase 2 (Enterprise Lite)
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	SSO (SAML/OIDC)\
+	\'95	audit export\
+	\'95	retention policy\
+	\'95	support SLA toggle\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Phase 3
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	SCIM\
+	\'95	custom roles\
+	\'95	custom domain\
+	\'95	DLP export controls\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Phase 4
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	dedicated DB / dedicated storage bucket\
+	\'95	on-prem parser option\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 13) API Surface (Web + Mobile)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Public auth
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Supabase auth\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 App API (Next.js)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 POST /api/aircraft
+\f1 \cf2  create\
+	\'95	
+\f5 \cf2 GET /api/aircraft
+\f1 \cf2  list\
+	\'95	
+\f5 \cf2 GET /api/aircraft/:id
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 PUT /api/aircraft/:id
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 POST /api/upload
+\f1 \cf2  upload PDF\
+	\'95	
+\f5 \cf2 POST /api/query
+\f1 \cf2  ask question\
+	\'95	
+\f5 \cf2 GET /api/documents
+\f1 \cf2  list docs w filters\
+	\'95	
+\f5 \cf2 GET /api/documents/:id/signed-url
+\f1 \cf2  view file\
+	\'95	
+\f5 \cf2 GET /api/pages/:id/signed-url
+\f1 \cf2  view page image\
+	\'95	
+\f5 \cf2 POST /api/documents/:id/reprocess
+\f1 \cf2  (mechanic+)\
+	\'95	
+\f5 \cf2 POST /api/members/invite
+\f1 \cf2  (admin+)\
+	\'95	
+\f5 \cf2 POST /api/members/role
+\f1 \cf2  (admin+)\
+	\'95	
+\f5 \cf2 GET /api/audit
+\f1 \cf2  (admin+)\
+	\'95	
+\f5 \cf2 GET /api/usage
+\f1 \cf2  usage stats\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Integrations
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Google Drive connect/import (Pro+)\
+	\'95	Stripe webhooks\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Parser service (FastAPI)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	
+\f5 \cf2 POST /ingest
+\f1 \cf2 \
+	\'95	
+\f5 \cf2 POST /health
+\f1 \cf2 \
+	\'95	internal auth via secret header\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 14) Web UI Pages (Customer App)
+\f1\b0\fs32 \cf2 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Marketing site (public)\
+	\'95	Auth\
+	\'95	Onboarding\
+	\'95	Dashboard\
+	\'95	Aircraft list + aircraft detail\
+	\'95	Documents library + document viewer\
+	\'95	Ask AI\
+	\'95	History (queries)\
+	\'95	Settings (org + members + billing)\
+	\'95	Admin console (platform admin only)\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 15) Mobile App Pages (Expo)
+\f1\b0\fs32 \cf2 \
+\
+Tabs (recommended):\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Home\
+	\'95	Aircraft\
+	\'95	Upload\
+	\'95	Ask\
+	\'95	Settings\
+\
+Key mobile specifics:\
+	\'95	Offline upload queue\
+	\'95	Retry failed uploads\
+	\'95	Push notifications for processing completion / failure\
+	\'95	Share sheet \'93Upload to myaircraft.us\'94\
+	\'95	FaceID/biometric optional (phase 2)\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 16) Security + Privacy (Codex must implement)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 16.1 Minimum requirements
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	RLS everywhere\
+	\'95	Service role key only server-side\
+	\'95	Signed URLs for file viewing\
+	\'95	Rate limiting per org + per user\
+	\'95	Input validation (Zod)\
+	\'95	Audit logs for upload/query/access\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 16.2 Encryption for Private Library Mode (org_key)
+\f1\b0\fs32 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Generate org encryption key on org creation\
+	\'95	Store in secure secret store (KMS / Vault)\
+	\'95	Encrypt:\
+\pard\tqr\tx500\tx660\li660\fi-660\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	original files\
+	\'95	extracted page text JSON\
+	\'95	chunk text JSON\
+	\'95	citation snippets (if stored)\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Decrypt only inside server for authorized users\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 16.3 Disclosure (UI + terms)
+\f1\b0\fs32 \
+\
+Be transparent:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	\'93Embeddings are stored and may contain semantic signals; originals are encrypted.\'94\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 17) Build Order (Codex Execution Plan)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Sprint A \'97 Foundation (Web + DB)
+\f1\b0\fs32 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	monorepo + turborepo\
+	2.	Supabase project + migrations + RLS\
+	3.	Next.js auth + onboarding + app shell\
+	4.	aircraft CRUD\
+	5.	documents table + upload UI + storage integration\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Sprint B \'97 Ingestion + RAG
+\f1\b0\fs32 \
+\pard\tqr\tx240\tx400\li400\fi-400\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	Trigger.dev pipeline\
+	2.	FastAPI ingestion (PDF parse + OCR baseline)\
+	3.	chunking\
+	4.	embeddings\
+	5.	retrieval RPC\
+	6.	query API with strict anti-hallucination\
+	7.	Ask UI with citations + doc viewer jump-to-page\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Sprint C \'97 Mobile App (Expo)
+\f1\b0\fs32 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	auth\
+	2.	aircraft list\
+	3.	upload from files + queue + progress\
+	4.	Ask UI + citations\
+	5.	doc viewer via signed URL\
+	6.	push notifications for pipeline status\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Sprint D \'97 SaaS + Enterprise baseline
+\f1\b0\fs32 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	Stripe billing + plan enforcement\
+	2.	team invites + roles\
+	3.	org settings + audit viewer\
+	4.	private/shared doc enforcement UX\
+	5.	private library encryption (org_key)\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 Sprint E \'97 Hardening
+\f1\b0\fs32 \
+\pard\tqr\tx280\tx440\li440\fi-440\sl324\slmult1\sb240\partightenfactor0
+\cf2 	1.	Sentry + PostHog\
+	2.	load tests on ingestion\
+	3.	security audit RLS\
+	4.	backups + disaster runbook\
+	5.	pricing pages + customer-facing site polish\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 18) Critical Clarifications (Codex must not get wrong)
+\f1\b0\fs32 \cf2 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 18.1 Embeddings-only cannot power citations
+\f1\b0\fs32 \
+\
+You must store enough metadata/text to cite pages.\
+If you choose privacy mode, store encrypted artifacts\'97not nothing.\
+\
+
+\f0\b\fs34 18.2 Citations are first-class objects
+\f1\b0\fs32 \
+\
+Every answer must reference citations and citations must map to:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	a PDF preview page (signed URL)\
+	\'95	a snippet highlight\
+	\'95	chunk id\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs34 \cf2 18.3 Private means private
+\f1\b0\fs32 \
+\
+If user selects \'93Private\'94, other org members must not see it by default.\
+\
+
+\f0\b\fs34 18.4 Multi-user is core, not later
+\f1\b0\fs32 \
+\
+Invites, roles, and RLS must ship in v1.\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 19) \'93Share or Not Share\'94 UX (From Your Transcript)
+\f1\b0\fs32 \cf2 \
+\
+Every upload screen (web + mobile) includes:\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f2\b \cf2 Visibility toggle
+\f1\b0 \
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	Shared with team (recommended)\
+	\'95	Private (only me)\
+\
+When private is selected:\
+	\'95	show subtle lock icon\
+	\'95	show \'93Only you can access this document\'94 copy\
+	\'95	show \'93You can change this later\'94 (if policy allows)\
+	\'95	show \'93Support cannot view your document contents\'94 (if private encryption is enabled)\
+\
+Also add a \'93Library\'94 concept:\
+	\'95	
+\f2\b Shared Library
+\f1\b0 \
+	\'95	
+\f2\b My Private Library
+\f1\b0 \
+\
+Document library UI filter:\
+	\'95	All\
+	\'95	Shared\
+	\'95	Private\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural\partightenfactor0
+
+\f3\fs24 \cf0 \
+\uc0\u11835 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f1\fs32 \cf2 \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\sl324\slmult1\pardirnatural\partightenfactor0
+
+\f0\b\fs38 \cf2 20) Codex Deliverables (What \'93Done\'94 Means)
+\f1\b0\fs32 \cf2 \
+\
+Codex output is \'93done\'94 only when:\
+\pard\tqr\tx100\tx260\li260\fi-260\sl324\slmult1\sb240\partightenfactor0
+\cf2 	\'95	web app deployed on Vercel\
+	\'95	mobile app runs on iOS + Android (Expo dev + build pipeline)\
+	\'95	ingestion works end-to-end\
+	\'95	Ask AI returns citations with correct page numbers\
+	\'95	private/shared enforcement works\
+	\'95	multi-user membership works with roles\
+	\'95	billing gates features\
+	\'95	audit logs exist for key actions}

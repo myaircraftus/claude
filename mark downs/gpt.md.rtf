@@ -1,0 +1,602 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2865
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # myaircraft.us \'97 Product + Technical Build Spec\
+\
+## Project Summary\
+Build **myaircraft.us**, a multi-tenant aviation document intelligence platform for aircraft owners, mechanics, flight schools, and operators.\
+\
+Users can upload:\
+- aircraft logbooks\
+- POH / AFM / AFM supplements\
+- maintenance manuals\
+- service manuals\
+- parts catalogs / IPC\
+- work orders\
+- inspection reports\
+- 337s / 8130s\
+- service bulletins\
+- airworthiness directives\
+- related aircraft documents\
+\
+The platform must ingest documents from:\
+1. direct PDF upload\
+2. Google Drive import\
+\
+After upload, the system should:\
+- parse documents\
+- split them into pages and semantic chunks\
+- generate embeddings using OpenAI\
+- store embeddings and metadata in Supabase\
+- organize all records by tenant and aircraft\
+- provide a chat interface that answers questions only from uploaded records\
+- return exact citations with document name, page number, section, chunk, and snippet\
+- reduce hallucinations by refusing to answer when evidence is insufficient\
+\
+---\
+\
+## Core Product Requirements\
+\
+### Multi-tenant architecture\
+Each organization must have complete data isolation.\
+\
+Entities:\
+- Organization / Tenant\
+- Users\
+- Aircraft\
+- Documents\
+- Document Versions\
+- Queries\
+- Citations\
+\
+### Aircraft-based organization\
+Every document should be attachable to a specific aircraft.\
+\
+Aircraft metadata:\
+- tail number\
+- serial number\
+- make\
+- model\
+- year\
+- engine model\
+- propeller model\
+- operator\
+- base location (optional)\
+\
+### Document categories\
+Support at minimum:\
+- Logbooks\
+- POH\
+- AFM\
+- AFM Supplements\
+- Maintenance Manual\
+- Service Manual\
+- Parts Catalog / IPC\
+- AD / SB / SL\
+- Work Orders\
+- Inspection Reports\
+- 337 / 8130 / certification documents\
+- Miscellaneous\
+\
+### Upload methods\
+#### Direct upload\
+- drag and drop PDF upload\
+- multiple file upload\
+- folder upload if practical\
+\
+#### Google Drive\
+- connect user Google account\
+- select files/folders\
+- ingest selected PDFs and supported files\
+- store source metadata and source URL\
+\
+---\
+\
+## Tech Stack\
+\
+### Frontend\
+- Next.js\
+- TypeScript\
+- Tailwind\
+- shadcn/ui\
+\
+### Backend\
+- Next.js API routes or separate FastAPI service\
+- TypeScript preferred for consistency unless Python is better for parsing pipeline\
+\
+### Infrastructure\
+- Supabase Auth\
+- Supabase Postgres\
+- Supabase Storage\
+- Supabase pgvector\
+- Row Level Security for per-tenant access\
+\
+### AI / LLM\
+- OpenAI API\
+- Embeddings model:\
+  - default: text-embedding-3-large\
+  - fallback/cost-sensitive: text-embedding-3-small\
+- Answer generation:\
+  - OpenAI Responses API\
+\
+### Background jobs\
+- Trigger.dev or Inngest\
+\
+---\
+\
+## Non-Negotiable Product Principles\
+\
+1. Never answer from general model memory if tenant documents do not support the answer.\
+2. Every factual answer must include citations.\
+3. If evidence is insufficient, say so clearly.\
+4. Page-level traceability is mandatory.\
+5. The original file is always the source of truth.\
+6. Maintain audit logs for uploads, processing, and queries.\
+\
+---\
+\
+## Parsing and Ingestion Pipeline\
+\
+### Step 1: upload intake\
+On upload:\
+- create document record\
+- attach tenant_id and aircraft_id\
+- store original file in Supabase Storage\
+- calculate checksum\
+- assign document type\
+- mark status = queued\
+\
+### Step 2: parse document\
+For each PDF:\
+- detect if text-native PDF\
+- if text-native: extract page text directly\
+- if scanned: run OCR\
+- preserve page boundaries\
+- preserve document title and section headings when possible\
+- create page records\
+\
+### Step 3: chunking\
+Chunking rules:\
+- chunk by semantic section when possible\
+- preserve page number in every chunk\
+- target chunk size around 500-1000 tokens\
+- overlap chunks by ~10-15%\
+- store section title and neighboring context\
+\
+### Step 4: embeddings\
+For each chunk:\
+- prepend metadata header before embedding, including:\
+  - aircraft make/model\
+  - document type\
+  - document title\
+  - section title\
+  - page number\
+- generate embedding with OpenAI\
+- store vector in Supabase pgvector\
+\
+### Step 5: extracted metadata\
+Attempt structured extraction for:\
+- tail number\
+- serial number\
+- document revision\
+- manual title\
+- effective date\
+- references to components\
+- inspection types\
+- total time / tach time if visible\
+- dates mentioned in entries\
+\
+Store extracted metadata separately from raw text.\
+\
+---\
+\
+## Database Schema\
+\
+### organizations\
+- id\
+- name\
+- slug\
+- created_at\
+\
+### users\
+- id\
+- email\
+- full_name\
+- created_at\
+\
+### organization_memberships\
+- id\
+- organization_id\
+- user_id\
+- role\
+\
+### aircraft\
+- id\
+- organization_id\
+- tail_number\
+- serial_number\
+- make\
+- model\
+- year\
+- engine_model\
+- prop_model\
+- notes\
+- created_at\
+\
+### documents\
+- id\
+- organization_id\
+- aircraft_id\
+- title\
+- doc_type\
+- file_path\
+- source_provider\
+- source_url\
+- checksum\
+- page_count\
+- parsing_status\
+- uploaded_by\
+- uploaded_at\
+\
+### document_pages\
+- id\
+- document_id\
+- page_number\
+- page_text\
+- ocr_confidence\
+- image_path\
+\
+### document_chunks\
+- id\
+- document_id\
+- page_number\
+- chunk_index\
+- section_title\
+- chunk_text\
+- token_count\
+- parser_confidence\
+- metadata_json\
+\
+### document_embeddings\
+- id\
+- chunk_id\
+- embedding vector\
+\
+### queries\
+- id\
+- organization_id\
+- aircraft_id\
+- user_id\
+- question\
+- answer\
+- confidence\
+- created_at\
+\
+### citations\
+- id\
+- query_id\
+- document_id\
+- page_number\
+- chunk_id\
+- snippet\
+- relevance_score\
+\
+### audit_logs\
+- id\
+- organization_id\
+- user_id\
+- action\
+- entity_type\
+- entity_id\
+- metadata_json\
+- created_at\
+\
+---\
+\
+## Retrieval and Answering Pipeline\
+\
+### Query flow\
+When a user asks a question:\
+1. determine organization_id and aircraft_id\
+2. classify query type:\
+   - maintenance history\
+   - manual lookup\
+   - parts lookup\
+   - compliance question\
+   - document search\
+3. retrieve chunks using hybrid search:\
+   - vector similarity\
+   - keyword search\
+   - metadata filtering\
+4. re-rank top chunks\
+5. generate answer only from retrieved chunks\
+6. attach citations\
+7. log query and result\
+\
+### Prompt rules for the model\
+System prompt must enforce:\
+- answer only from provided retrieved evidence\
+- do not use external aviation knowledge unless explicitly allowed\
+- cite each factual claim\
+- if evidence conflicts, state the conflict\
+- if evidence is missing, say "Insufficient evidence in uploaded records"\
+- do not make airworthiness or compliance determinations without explicit supporting records\
+- keep answer concise, factual, and traceable\
+\
+### Output format\
+Return JSON with:\
+- answer\
+- confidence\
+- citations[]\
+- warning_flags[]\
+- follow_up_questions[]\
+\
+Each citation should include:\
+- document_title\
+- page_number\
+- section_title\
+- chunk_id\
+- quoted_snippet\
+\
+---\
+\
+## Hallucination Reduction Strategy\
+\
+Implement all of the following:\
+\
+1. retrieval-gated answering\
+2. citation-required response formatting\
+3. confidence scoring\
+4. "insufficient evidence" response path\
+5. conflict detection across sources\
+6. exact page preview link in UI\
+7. source snippet display beside every answer\
+8. aircraft-level and tenant-level filters on retrieval\
+9. separate extracted metadata from inferred metadata\
+10. full audit logging\
+\
+---\
+\
+## UI Requirements\
+\
+### Main layout\
+Three-pane layout:\
+- left: aircraft selector + chat history + query input\
+- center: answer output with citations\
+- right: document/page preview with highlight\
+\
+### Main screens\
+1. Login / Signup\
+2. Organization dashboard\
+3. Aircraft list\
+4. Aircraft detail page\
+5. Document library\
+6. Upload / Import page\
+7. Chat / Ask page\
+8. Query history\
+9. Admin settings\
+\
+### Ask page requirements\
+- query input\
+- suggested prompts\
+- answer box\
+- citation cards\
+- clickable page preview\
+- \'93show surrounding context\'94\
+- \'93open original file\'94\
+- \'93insufficient evidence\'94 state\
+- \'93sources searched\'94 list\
+\
+### Document library requirements\
+- filter by aircraft\
+- filter by doc type\
+- search by title\
+- processing status\
+- page count\
+- upload date\
+- source type\
+- versioning support\
+\
+---\
+\
+## Permissions and Roles\
+\
+Roles:\
+- Owner / Admin\
+- Mechanic / Editor\
+- Viewer\
+- External Auditor / Inspector (view-only, optional)\
+- Broker / Buyer (temporary data room access, later)\
+\
+Rules:\
+- all retrieval queries must be scoped by organization\
+- all document fetches must respect row-level security\
+- users only see aircraft and documents they have access to\
+\
+---\
+\
+## Google Drive Integration\
+\
+Requirements:\
+- OAuth sign-in to Google\
+- picker for file/folder selection\
+- ingest PDF files\
+- retain Drive file ID and source URL\
+- allow manual re-sync\
+- avoid deleting original source file\
+- store imported copy in Supabase Storage for stable processing\
+\
+---\
+\
+## OCR and Document Handling\
+\
+Support these lanes:\
+\
+### Lane A \'97 clean digital PDFs\
+- full automation\
+- highest confidence\
+\
+### Lane B \'97 scanned PDFs\
+- OCR\
+- confidence scoring\
+- page previews\
+\
+### Lane C \'97 handwritten logbooks\
+- advanced OCR pipeline\
+- lower confidence allowed\
+- optional human verification workflow for critical pages\
+\
+Do not claim perfect handwritten extraction.\
+\
+---\
+\
+## Roadmap\
+\
+### MVP\
+- auth\
+- organizations\
+- aircraft records\
+- PDF upload\
+- Google Drive import\
+- parsing\
+- chunking\
+- embeddings\
+- Supabase vector search\
+- chat with citations\
+- page preview\
+- audit logs\
+\
+### V1.1\
+- OCR for scanned documents\
+- query history\
+- saved answers\
+- better filters\
+- source highlighting\
+\
+### V1.2\
+- structured extraction\
+- maintenance event timeline\
+- component summaries\
+- recurring inspection summaries\
+- AD/SB document linking\
+\
+### V2\
+- mechanic portal\
+- shop collaboration\
+- prebuy mode\
+- temporary external data rooms\
+- insurer / lender access\
+- API access\
+\
+---\
+\
+## Pricing Strategy\
+\
+### Starter\
+- 1 aircraft\
+- limited storage\
+- limited queries\
+\
+### Pro\
+- multiple aircraft\
+- team access\
+- OCR credits\
+- advanced search\
+\
+### Fleet\
+- many aircraft\
+- advanced permissions\
+- audit exports\
+- premium support\
+- API access\
+\
+### Services revenue\
+- white-glove digitization\
+- logbook cleanup\
+- setup/onboarding\
+- prebuy intelligence packages\
+\
+---\
+\
+## Go-to-Market Positioning\
+\
+Primary positioning:\
+"myaircraft.us turns aircraft records into searchable intelligence."\
+\
+Secondary positioning:\
+"Upload your logbooks, manuals, POH, and maintenance records. Ask questions in plain English. Get exact answers with page citations."\
+\
+Avoid:\
+- claiming guaranteed compliance\
+- claiming guaranteed airworthiness conclusions\
+- claiming zero hallucination\
+\
+Use:\
+- citation-backed answers\
+- grounded in your own uploaded records\
+- designed for trustworthy aircraft record retrieval\
+\
+---\
+\
+## Success Metrics\
+\
+Track:\
+- time to first upload\
+- time to first useful answer\
+- citation click-through rate\
+- query success rate\
+- insufficient evidence rate\
+- average aircraft docs uploaded\
+- document processing success rate\
+- retention by aircraft count\
+- conversion from free to paid\
+\
+---\
+\
+## Build Order\
+\
+### Sprint 1\
+- project setup\
+- auth\
+- organizations\
+- aircraft CRUD\
+- document upload UI\
+- Supabase schema\
+\
+### Sprint 2\
+- parsing pipeline\
+- page/chunk storage\
+- embeddings generation\
+- vector search function\
+\
+### Sprint 3\
+- chat UI\
+- answer generation\
+- citations\
+- page preview\
+\
+### Sprint 4\
+- Google Drive import\
+- audit logs\
+- roles and permissions\
+- production polish\
+\
+### Sprint 5\
+- OCR improvements\
+- saved queries\
+- structured extraction\
+\
+---\
+\
+## Final Product Goal\
+myaircraft.us should become the most trusted AI workspace for aircraft records:\
+- grounded\
+- citation-backed\
+- per-aircraft\
+- multi-tenant\
+- aviation-specific\
+- useful to owners, mechanics, schools, and operators}

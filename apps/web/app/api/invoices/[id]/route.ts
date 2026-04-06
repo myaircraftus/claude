@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .select(`
       *,
       line_items:invoice_line_items (*),
-      customer:customer_id (id, name, email, phone, address_line1, address_line2, city, state, zip),
+      customer:customer_id (id, name, email, phone, billing_address),
       aircraft:aircraft_id (id, tail_number, make, model),
       work_order:work_order_id (id, work_order_number, status),
       payments:payments (*)
@@ -72,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const allowedFields = [
     'status', 'due_date', 'tax_rate', 'tax_amount', 'discount_amount',
-    'notes', 'internal_notes', 'payment_terms', 'issue_date',
+    'notes', 'internal_notes', 'invoice_date', 'payment_terms',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const field of allowedFields) {
@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const taxAmount = 'tax_amount' in updates
     ? updates.tax_amount as number
     : Math.round(subtotal * taxRate) / 100
-  const discountAmount = (updates.discount_amount ?? current.discount_amount) as number
+  const discountAmount = (updates.discount_amount ?? current.discount_amount ?? 0) as number
   const total = subtotal + (taxAmount as number) - discountAmount
 
   updates.tax_amount = taxAmount

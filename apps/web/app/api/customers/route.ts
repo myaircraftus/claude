@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     .from('customers')
     .select(`
       id, name, company, email, phone, secondary_email, secondary_phone,
-      billing_address, notes, preferred_communication, tags, portal_access,
+      billing_address, notes, preferred_contact, tags, portal_access,
       imported_at, import_source, created_at, updated_at,
       aircraft_customer_assignments (
         id, aircraft_id, relationship, is_primary,

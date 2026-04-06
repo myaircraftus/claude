@@ -18,10 +18,12 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
   const [aircraftId, setAircraftId] = useState('')
   const [complaint, setComplaint] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
+    setError('')
     try {
       const res = await fetch('/api/work-orders', {
         method: 'POST',
@@ -32,12 +34,17 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
           status: 'open',
         }),
       })
-      const data = await res.json()
-      if (data.id) {
-        setOpen(false)
-        router.push(`/work-orders/${data.id}`)
-        router.refresh()
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        setError(body?.error || `Failed to create work order (${res.status})`)
+        return
       }
+      const data = await res.json()
+      setOpen(false)
+      router.push(`/work-orders/${data.id}`)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error — please try again')
     } finally {
       setSaving(false)
     }
@@ -45,7 +52,7 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)}>
+      <Button size="sm" onClick={() => { setError(''); setOpen(true) }}>
         <Plus className="h-4 w-4 mr-1.5" />
         New Work Order
       </Button>
@@ -84,6 +91,9 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
                   className="mt-1"
                 />
               </div>
+              {error && (
+                <div className="text-sm text-red-600 dark:text-red-400">{error}</div>
+              )}
               <div className="flex gap-3 pt-1">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Cancel</Button>
                 <Button type="submit" className="flex-1" disabled={saving}>

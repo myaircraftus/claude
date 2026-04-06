@@ -30,7 +30,7 @@ export default async function InvoicesPage() {
   const { data: invoices } = await supabase
     .from('invoices')
     .select(`
-      id, invoice_number, status, issue_date, due_date,
+      id, invoice_number, status, invoice_date, due_date,
       subtotal, total, amount_paid, balance_due, created_at,
       customer:customer_id (id, name, email),
       aircraft:aircraft_id (id, tail_number)
@@ -60,7 +60,7 @@ export default async function InvoicesPage() {
   // Fetch work orders for new invoice dialog
   const { data: workOrders } = await supabase
     .from('work_orders')
-    .select('id, work_order_number, status, total_amount, aircraft:aircraft_id (tail_number)')
+    .select('id, work_order_number, status, total, aircraft:aircraft_id (tail_number)')
     .eq('organization_id', orgId)
     .in('status', ['closed', 'ready_for_signoff', 'in_progress', 'open'])
     .order('created_at', { ascending: false })

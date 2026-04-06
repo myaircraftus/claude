@@ -42,7 +42,7 @@ export default async function OpsDashboardPage() {
   // Fetch work order stats by assignee
   const { data: workOrders } = await supabase
     .from('work_orders')
-    .select('id, status, assigned_to, aircraft_id, customer_id, created_at, updated_at')
+    .select('id, status, assigned_mechanic_id, aircraft_id, customer_id, created_at, updated_at')
     .eq('organization_id', orgId)
     .not('status', 'in', '("archived")')
     .order('updated_at', { ascending: false })
