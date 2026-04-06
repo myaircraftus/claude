@@ -43,6 +43,8 @@ export async function searchParts(
     mode: searchMode,
   })
 
+  console.log(`[parts-search] query="${input.query}" → normalized="${normalized}" mode=${searchMode} providerQuery="${providerQuery}" aircraft="${input.aircraftMakeModel ?? 'none'}"`)
+
   const ctx: ProviderContext = {
     query: providerQuery,
     normalizedQuery: normalized,
@@ -62,6 +64,7 @@ export async function searchParts(
   const providers: ProviderResult[] = [serp, ebay, curated]
 
   const allOffers = providers.flatMap(p => p.offers)
+  console.log(`[parts-search] Provider totals: serp=${serp.offers.length} ebay=${ebay.offers.length} curated=${curated.offers.length} → ${allOffers.length} total offers`)
   const queryPartNumber = extractPartNumber(normalized)
   const ranked = rankOffers(allOffers, queryPartNumber).slice(0, ctx.maxResults)
 
