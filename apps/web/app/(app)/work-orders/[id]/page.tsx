@@ -56,7 +56,7 @@ export default async function WorkOrderDetailPage({ params }: { params: { id: st
       <Topbar
         profile={profile}
         breadcrumbs={[
-          { label: 'Work Orders', href: '/work-orders' },
+          { label: 'Work Orders', href: '/maintenance?tab=work-orders' },
           { label: wo.work_order_number },
         ]}
       />

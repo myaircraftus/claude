@@ -38,7 +38,7 @@ export default async function PartsLibraryPage() {
       <Topbar
         profile={profile}
         breadcrumbs={[
-          { label: 'Parts', href: '/parts' },
+          { label: 'Parts', href: '/maintenance?tab=parts' },
           { label: 'Library' },
         ]}
       />

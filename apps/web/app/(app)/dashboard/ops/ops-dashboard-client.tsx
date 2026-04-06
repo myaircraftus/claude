@@ -101,7 +101,7 @@ export function OpsDashboardClient({
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-foreground">Work Order Pipeline</h2>
-          <Link href="/work-orders" className="text-xs text-brand-600 hover:underline flex items-center gap-1">
+          <Link href="/maintenance?tab=work-orders" className="text-xs text-brand-600 hover:underline flex items-center gap-1">
             View all <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
@@ -234,7 +234,7 @@ export function OpsDashboardClient({
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-3">
-        <Link href="/work-orders" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-accent transition-colors">
+        <Link href="/maintenance?tab=work-orders" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-accent transition-colors">
           <ClipboardList className="h-4 w-4" /> Work Orders
         </Link>
         <Link href="/invoices" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-accent transition-colors">
