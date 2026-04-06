@@ -29,11 +29,11 @@ async function recalculateTotals(
   const outside_services_total = (lines ?? [])
     .filter(l => l.line_type === 'outside_service')
     .reduce((s, l) => s + (l.line_total ?? 0), 0)
-  const total_amount = labor_total + parts_total + outside_services_total
+  const total = labor_total + parts_total + outside_services_total
 
   await supabase
     .from('work_orders')
-    .update({ labor_total, parts_total, outside_services_total, total_amount, updated_at: new Date().toISOString() })
+    .update({ labor_total, parts_total, outside_services_total, total, updated_at: new Date().toISOString() })
     .eq('id', workOrderId)
 }
 
@@ -76,12 +76,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const body = await req.json()
   const allowedFields = [
-    'status', 'complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
+    'status', 'customer_complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
     'corrective_action', 'internal_notes', 'customer_visible_notes',
     'assigned_mechanic_id', 'aircraft_id', 'tax_amount',
     'closed_at', 'invoiced_at',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  // Map frontend field name to DB column name
+  if ('complaint' in body) body.customer_complaint = body.complaint
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
   }

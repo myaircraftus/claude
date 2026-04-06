@@ -445,7 +445,7 @@ export interface WorkOrder {
   thread_id: string | null
   assigned_mechanic_id: string | null
   status: WorkOrderStatus
-  complaint: string | null
+  customer_complaint: string | null
   discrepancy: string | null
   troubleshooting_notes: string | null
   findings: string | null
@@ -454,7 +454,7 @@ export interface WorkOrder {
   parts_total: number
   outside_services_total: number
   tax_amount: number
-  total_amount: number
+  total: number
   internal_notes: string | null
   customer_visible_notes: string | null
   opened_at: string

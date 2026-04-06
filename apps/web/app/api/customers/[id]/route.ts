@@ -41,7 +41,7 @@ export async function GET(
   const { data: workOrders } = await supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, status, complaint, total_amount, opened_at, created_at,
+      id, work_order_number, status, customer_complaint, total, opened_at, created_at,
       aircraft:aircraft_id (id, tail_number)
     `)
     .eq('organization_id', membership.organization_id)

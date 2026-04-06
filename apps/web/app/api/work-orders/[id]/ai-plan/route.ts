@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: wo } = await supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, complaint, discrepancy, findings,
+      id, work_order_number, customer_complaint, discrepancy, findings,
       troubleshooting_notes, corrective_action,
       aircraft:aircraft_id (id, tail_number, make, model, year, engine_make, engine_model)
     `)
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const prompt = `Aircraft: ${aircraftInfo}
 
 Work Order ${wo.work_order_number}:
-- Complaint: ${wo.complaint ?? 'None recorded'}
+- Complaint: ${wo.customer_complaint ?? 'None recorded'}
 - Discrepancy: ${wo.discrepancy ?? 'None recorded'}
 - Findings: ${wo.findings ?? 'None recorded'}
 - Troubleshooting: ${wo.troubleshooting_notes ?? 'None recorded'}

@@ -315,7 +315,7 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
                             </p>
                           </div>
                           <span className="text-xs font-semibold tabular-nums text-foreground">
-                            {formatCurrency(wo.total_amount ?? 0)}
+                            {formatCurrency(wo.total ?? 0)}
                           </span>
                         </button>
                       ))}
