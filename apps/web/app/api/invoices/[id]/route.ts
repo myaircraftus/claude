@@ -26,8 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       line_items:invoice_line_items (*),
       customer:customer_id (id, name, email, phone, billing_address),
       aircraft:aircraft_id (id, tail_number, make, model),
-      work_order:work_order_id (id, work_order_number, status),
-      payments:payments (*)
+      work_order:work_order_id (id, work_order_number, status)
     `)
     .eq('id', params.id)
     .eq('organization_id', orgId)
