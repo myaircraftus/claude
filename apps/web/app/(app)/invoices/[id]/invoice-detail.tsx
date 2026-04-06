@@ -305,6 +305,12 @@ export function InvoiceDetail({ initialInvoice }: Props) {
             <Send className="h-3.5 w-3.5 mr-1" />
             Send Email
           </Button>
+          <Button size="sm" variant="outline" asChild>
+            <a href={`/api/invoices/${invoice.id}/pdf`} target="_blank" rel="noopener noreferrer">
+              <Download className="h-3.5 w-3.5 mr-1" />
+              Download PDF
+            </a>
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setShowPaymentDialog(true)} disabled={invoice.status === 'paid' || invoice.status === 'void'}>
             <DollarSign className="h-3.5 w-3.5 mr-1" />
             Record Payment

@@ -90,6 +90,7 @@ const updateAircraftSchema = z.object({
   operator_name: z.string().max(120).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   total_time_hours: z.number().min(0).optional().nullable(),
+  owner_customer_id: z.string().uuid().optional().nullable(),
 })
 
 export async function PUT(

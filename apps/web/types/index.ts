@@ -94,6 +94,7 @@ export interface Aircraft {
   operator_name?: string
   notes?: string
   total_time_hours?: number
+  owner_customer_id?: string
   is_archived: boolean
   created_by?: string
   created_at: string
