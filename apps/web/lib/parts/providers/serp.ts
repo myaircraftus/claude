@@ -8,7 +8,7 @@ const SERP_URL = 'https://serpapi.com/search.json'
 
 export async function runSerpProvider(ctx: ProviderContext): Promise<ProviderResult> {
   const started = Date.now()
-  const key = process.env.SERPAPI_KEY || process.env.SERP_API_KEY
+  const key = process.env.SERPAPI_KEY || process.env.SERP_API_KEY || process.env.SERPAPI_API_KEY
   if (!key) {
     return { provider: 'serpapi', ok: false, offers: [], error: 'SERPAPI_KEY not set', durationMs: Date.now() - started }
   }
