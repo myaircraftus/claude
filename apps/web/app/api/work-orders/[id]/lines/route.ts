@@ -20,11 +20,11 @@ async function recalculateTotals(supabase: any, workOrderId: string) {
   const labor_total = (lines ?? []).filter((l: any) => l.line_type === 'labor').reduce((s: number, l: any) => s + (l.line_total ?? 0), 0)
   const parts_total = (lines ?? []).filter((l: any) => l.line_type === 'part').reduce((s: number, l: any) => s + (l.line_total ?? 0), 0)
   const outside_services_total = (lines ?? []).filter((l: any) => l.line_type === 'outside_service').reduce((s: number, l: any) => s + (l.line_total ?? 0), 0)
-  const total_amount = labor_total + parts_total + outside_services_total
+  const total = labor_total + parts_total + outside_services_total
 
   await supabase
     .from('work_orders')
-    .update({ labor_total, parts_total, outside_services_total, total_amount, updated_at: new Date().toISOString() })
+    .update({ labor_total, parts_total, outside_services_total, total, updated_at: new Date().toISOString() })
     .eq('id', workOrderId)
 }
 

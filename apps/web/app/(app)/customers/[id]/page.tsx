@@ -50,7 +50,7 @@ export default async function CustomerDetailPage({
   const { data: workOrders } = await supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, status, complaint, total_amount, opened_at, created_at,
+      id, work_order_number, status, customer_complaint, total, opened_at, created_at,
       aircraft:aircraft_id (id, tail_number)
     `)
     .eq('organization_id', orgId)
@@ -61,13 +61,13 @@ export default async function CustomerDetailPage({
   // Fetch invoice count + total
   const { data: invoiceData } = await supabase
     .from('work_orders')
-    .select('total_amount')
+    .select('total')
     .eq('organization_id', orgId)
     .eq('customer_id', params.id)
     .in('status', ['invoiced', 'paid'])
 
   const invoiceCount = invoiceData?.length ?? 0
-  const invoiceTotal = invoiceData?.reduce((sum, wo) => sum + (wo.total_amount ?? 0), 0) ?? 0
+  const invoiceTotal = invoiceData?.reduce((sum, wo) => sum + (wo.total ?? 0), 0) ?? 0
 
   // Fetch all org aircraft for the assign dropdown
   const { data: orgAircraft } = await supabase

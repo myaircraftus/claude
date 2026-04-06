@@ -48,8 +48,8 @@ interface WorkOrder {
   id: string
   work_order_number: string
   status: string
-  complaint: string | null
-  total_amount: number | null
+  customer_complaint: string | null
+  total: number | null
   opened_at: string | null
   created_at: string
   aircraft: { id: string; tail_number: string } | null
@@ -422,10 +422,10 @@ export function CustomerDetail({
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-xs text-foreground max-w-xs truncate">
-                      {wo.complaint || <span className="text-muted-foreground italic">No complaint</span>}
+                      {wo.customer_complaint || <span className="text-muted-foreground italic">No complaint</span>}
                     </td>
                     <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">
-                      ${(wo.total_amount ?? 0).toFixed(2)}
+                      ${(wo.total ?? 0).toFixed(2)}
                     </td>
                   </tr>
                 ))}

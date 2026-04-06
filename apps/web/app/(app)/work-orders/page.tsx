@@ -76,8 +76,8 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
   let query = supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, status, complaint, labor_total, parts_total,
-      outside_services_total, total_amount, opened_at, created_at,
+      id, work_order_number, status, customer_complaint, labor_total, parts_total,
+      outside_services_total, total, opened_at, created_at,
       aircraft:aircraft_id (id, tail_number, make, model)
     `, { count: 'exact' })
     .eq('organization_id', orgId)
@@ -233,11 +233,11 @@ export default async function WorkOrdersPage({ searchParams }: { searchParams: S
                         </td>
                         <td className="px-4 py-3 max-w-xs">
                           <p className="text-xs text-foreground truncate">
-                            {wo.complaint ?? <span className="text-muted-foreground italic">No complaint recorded</span>}
+                            {wo.customer_complaint ?? <span className="text-muted-foreground italic">No complaint recorded</span>}
                           </p>
                         </td>
                         <td className="px-4 py-3 text-right text-xs font-semibold tabular-nums">
-                          ${(wo.total_amount ?? 0).toFixed(2)}
+                          ${(wo.total ?? 0).toFixed(2)}
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(wo.opened_at)}

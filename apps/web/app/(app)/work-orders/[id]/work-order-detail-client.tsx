@@ -81,7 +81,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
   const [showAIPlan, setShowAIPlan] = useState(false)
 
   // Editable fields
-  const [complaint, setComplaint] = useState(workOrder.complaint ?? '')
+  const [complaint, setComplaint] = useState(workOrder.customer_complaint ?? '')
   const [discrepancy, setDiscrepancy] = useState(workOrder.discrepancy ?? '')
   const [troubleshootingNotes, setTroubleshootingNotes] = useState(workOrder.troubleshooting_notes ?? '')
   const [findings, setFindings] = useState(workOrder.findings ?? '')
@@ -178,7 +178,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
         labor_total: woData.labor_total,
         parts_total: woData.parts_total,
         outside_services_total: woData.outside_services_total,
-        total_amount: woData.total_amount,
+        total: woData.total,
       }))
       setNewLine({ line_type: 'labor', description: '', quantity: '1', unit_price: '0', part_number: '', hours: '', rate: '', notes: '' })
       setShowAddLine(false)
@@ -198,7 +198,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
       labor_total: woData.labor_total,
       parts_total: woData.parts_total,
       outside_services_total: woData.outside_services_total,
-      total_amount: woData.total_amount,
+      total: woData.total,
     }))
   }
 

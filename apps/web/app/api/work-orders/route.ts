@@ -23,8 +23,8 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, status, complaint, labor_total, parts_total,
-      outside_services_total, tax_amount, total_amount, opened_at, closed_at,
+      id, work_order_number, status, customer_complaint, labor_total, parts_total,
+      outside_services_total, tax_amount, total, opened_at, closed_at,
       created_at, updated_at, aircraft_id, assigned_mechanic_id,
       aircraft:aircraft_id (id, tail_number, make, model)
     `, { count: 'exact' })
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       work_order_number,
       aircraft_id: body.aircraft_id ?? null,
       status: body.status ?? 'open',
-      complaint: body.complaint ?? null,
+      customer_complaint: body.complaint ?? null,
       assigned_mechanic_id: body.assigned_mechanic_id ?? null,
     })
     .select()
