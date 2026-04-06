@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .select(`
       *,
       line_items:invoice_line_items (*),
-      customer:customer_id (id, name, email, address_line1, city, state, zip),
+      customer:customer_id (id, name, email, billing_address),
       aircraft:aircraft_id (id, tail_number),
       organization:organization_id (id, name)
     `)
@@ -95,11 +95,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               <td style="vertical-align: top; width: 50%;">
                 <p style="margin: 0; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Bill To</p>
                 <p style="margin: 4px 0 0; font-size: 14px; color: #111827; font-weight: 600;">${customer?.name ?? 'Customer'}</p>
-                ${customer?.address_line1 ? `<p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${customer.address_line1}</p>` : ''}
-                ${customer?.city ? `<p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${customer.city}, ${customer.state ?? ''} ${customer.zip ?? ''}</p>` : ''}
+                ${customer?.billing_address ? `<p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${customer.billing_address}</p>` : ''}
               </td>
               <td style="vertical-align: top; text-align: right;">
-                <p style="margin: 0; font-size: 13px; color: #6b7280;">Issue Date: <strong>${formatDate(invoice.issue_date)}</strong></p>
+                <p style="margin: 0; font-size: 13px; color: #6b7280;">Issue Date: <strong>${formatDate(invoice.invoice_date)}</strong></p>
                 <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Due Date: <strong>${formatDate(invoice.due_date)}</strong></p>
                 ${aircraft ? `<p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Aircraft: <strong>${aircraft.tail_number}</strong></p>` : ''}
                 <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Terms: <strong>${invoice.payment_terms ?? 'Net 30'}</strong></p>

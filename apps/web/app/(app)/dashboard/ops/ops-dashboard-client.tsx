@@ -17,7 +17,7 @@ interface Member {
 interface WorkOrder {
   id: string
   status: string
-  assigned_to: string | null
+  assigned_mechanic_id: string | null
   aircraft_id: string | null
   customer_id: string | null
   created_at: string
@@ -68,7 +68,7 @@ export function OpsDashboardClient({
   const woByAssignee = useMemo(() => {
     const map: Record<string, WorkOrder[]> = {}
     for (const wo of workOrders) {
-      const key = wo.assigned_to ?? 'unassigned'
+      const key = wo.assigned_mechanic_id ?? 'unassigned'
       if (!map[key]) map[key] = []
       map[key].push(wo)
     }

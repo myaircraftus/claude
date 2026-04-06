@@ -333,7 +333,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3 rounded-lg border border-border bg-card">
             <p className="text-xs text-muted-foreground">Issue Date</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">{invoice.issue_date ? formatDate(invoice.issue_date) : '--'}</p>
+            <p className="text-sm font-medium text-foreground mt-0.5">{invoice.invoice_date ? formatDate(invoice.invoice_date) : '--'}</p>
           </div>
           <div className="p-3 rounded-lg border border-border bg-card">
             <p className="text-xs text-muted-foreground">Due Date</p>

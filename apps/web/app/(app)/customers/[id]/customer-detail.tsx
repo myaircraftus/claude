@@ -65,7 +65,7 @@ interface CustomerData {
   secondary_phone: string | null
   billing_address: Record<string, string> | null
   notes: string | null
-  preferred_communication: string
+  preferred_contact: string
   tags: string[] | null
   portal_access: boolean
   imported_at: string | null

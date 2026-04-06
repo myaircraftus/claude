@@ -81,15 +81,13 @@ export async function searchParts(
     .insert({
       organization_id: input.organizationId,
       aircraft_id: input.aircraftId ?? null,
-      work_order_id: input.workOrderId ?? null,
       maintenance_draft_id: input.maintenanceDraftId ?? null,
-      query: normalized,
+      search_query: normalized,
       normalized_query: normalized,
       search_mode: searchMode,
       provider_summary: providerSummary,
       result_count: ranked.length,
       created_by: input.userId,
-      results: [], // legacy column kept empty; real offers live in part_offers
     })
     .select('id')
     .single()

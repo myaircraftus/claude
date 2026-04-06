@@ -64,6 +64,7 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
   const [filter, setFilter] = useState('all')
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const now = new Date()
   const filtered = invoices.filter(inv => {
@@ -76,19 +77,27 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
 
   async function handleCreateInvoice(workOrderId?: string) {
     setCreating(true)
+    setCreateError(null)
     try {
       const res = await fetch('/api/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(workOrderId ? { work_order_id: workOrderId } : {}),
       })
-      if (res.ok) {
-        const data = await res.json()
-        router.push(`/invoices/${data.id}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const msg = body?.error ?? `Failed to create invoice (${res.status})`
+        setCreateError(msg)
+        setCreating(false)
+        return
       }
+      const data = await res.json()
+      setShowNewDialog(false)
+      router.push(`/invoices/${data.id}`)
+    } catch (err: any) {
+      setCreateError(err.message ?? 'Network error creating invoice')
     } finally {
       setCreating(false)
-      setShowNewDialog(false)
     }
   }
 
@@ -111,7 +120,7 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
             <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
             <p className="text-muted-foreground text-sm">Create and manage invoices for maintenance work</p>
           </div>
-          <Button onClick={() => setShowNewDialog(true)}>
+          <Button onClick={() => { setCreateError(null); setShowNewDialog(true) }}>
             <Plus className="h-4 w-4 mr-1" />
             New Invoice
           </Button>
@@ -253,14 +262,21 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
 
         {/* New Invoice Dialog */}
         {showNewDialog && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNewDialog(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setCreateError(null); setShowNewDialog(false) }}>
             <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-semibold text-foreground">New Invoice</h3>
-                <button onClick={() => setShowNewDialog(false)} className="p-1 rounded text-muted-foreground hover:text-foreground">
+                <button onClick={() => { setCreateError(null); setShowNewDialog(false) }} className="p-1 rounded text-muted-foreground hover:text-foreground">
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {createError && (
+                <div className="mb-3 flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{createError}</span>
+                </div>
+              )}
 
               <div className="space-y-3">
                 {/* Blank invoice */}

@@ -33,7 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     .select(`
       *,
       line_items:invoice_line_items (*),
-      customer:customer_id (id, name, email, address_line1, address_line2, city, state, zip),
+      customer:customer_id (id, name, email, billing_address),
       aircraft:aircraft_id (id, tail_number),
       organization:organization_id (id, name)
     `)
@@ -273,7 +273,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           <p class="org-name">${orgName}</p>
         </div>
         <div class="invoice-meta">
-          <p>Issue Date: <strong>${formatDate(invoice.issue_date)}</strong></p>
+          <p>Issue Date: <strong>${formatDate(invoice.invoice_date)}</strong></p>
           <p>Due Date: <strong>${formatDate(invoice.due_date)}</strong></p>
           <p>Terms: <strong>${invoice.payment_terms ?? 'Net 30'}</strong></p>
           <p>Status: <strong>${(invoice.status ?? 'draft').replace('_', ' ').toUpperCase()}</strong></p>
@@ -285,9 +285,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         <div class="bill-to">
           <p class="label">Bill To</p>
           <p class="name">${customer?.name ?? 'Customer'}</p>
-          ${customer?.address_line1 ? `<p class="address">${customer.address_line1}</p>` : ''}
-          ${customer?.address_line2 ? `<p class="address">${customer.address_line2}</p>` : ''}
-          ${customer?.city ? `<p class="address">${customer.city}, ${customer.state ?? ''} ${customer.zip ?? ''}</p>` : ''}
+          ${customer?.billing_address ? `<p class="address">${customer.billing_address}</p>` : ''}
           ${customer?.email ? `<p class="address">${customer.email}</p>` : ''}
         </div>
         <div class="invoice-details">

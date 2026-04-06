@@ -34,10 +34,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { data: membership } = await supabase
+    .from('organization_memberships')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .not('accepted_at', 'is', null)
+    .single()
+  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+
   const { data: part, error } = await (supabase as any)
     .from('parts_library')
     .select('*')
     .eq('id', params.id)
+    .eq('organization_id', membership.organization_id)
     .single()
 
   if (error || !part) return NextResponse.json({ error: 'Not found' }, { status: 404 })
