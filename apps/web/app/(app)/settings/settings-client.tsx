@@ -868,7 +868,6 @@ export function SettingsClient({
             )}
           </TabsContent>
 
-
           {/* Payments tab — Stripe Connect + labor rates + markup settings */}
           {isAdmin && (
             <TabsContent value="payments" className="space-y-4">
