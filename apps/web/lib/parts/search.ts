@@ -1,4 +1,4 @@
-// Parts search orchestrator: runs providers in parallel, normalizes, ranks, persists.
+// Parts search orchestrator: runs AI resolution + providers in parallel, normalizes, ranks, persists.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
@@ -7,12 +7,14 @@ import type {
   RankedOffer,
   SearchResponse,
   ProviderId,
+  AIResolutionInfo,
 } from './types'
 import { classifySearchMode, normalizeQuery, buildProviderQuery, extractPartNumber } from './normalize'
 import { rankOffers } from './ranking'
 import { runSerpProvider } from './providers/serp'
 import { runEbayProvider } from './providers/ebay'
 import { runCuratedProvider } from './providers/curated'
+import { resolvePartWithAI, type AircraftContext } from './ai-resolve'
 
 export interface SearchInput {
   query: string
@@ -26,6 +28,8 @@ export interface SearchInput {
   engineModel?: string | null
   maxResults?: number
   timeoutMs?: number
+  /** Full aircraft context for AI resolution */
+  aircraftContext?: AircraftContext | null
 }
 
 export async function searchParts(
@@ -37,18 +41,44 @@ export async function searchParts(
 
   const normalized = normalizeQuery(query)
   const searchMode = classifySearchMode(normalized)
-  const providerQuery = buildProviderQuery(normalized, {
+
+  // ─── AI Part Resolution ─────────────────────────────────────────────────────
+  // If we have aircraft context and the query is plain English (not already a
+  // part number), ask GPT-4o to resolve it to exact part number(s).
+  let aiResolution: AIResolutionInfo | null = null
+  let aiSearchQuery: string | null = null
+
+  if (input.aircraftContext && searchMode !== 'exact_part') {
+    try {
+      const resolution = await resolvePartWithAI(normalized, input.aircraftContext)
+      if (resolution && resolution.partNumbers.length > 0) {
+        aiResolution = resolution
+        aiSearchQuery = resolution.searchQuery
+        console.log(`[parts-search] AI resolved "${normalized}" → P/N: ${resolution.partNumbers.join(', ')} | query: "${resolution.searchQuery}" (${resolution.confidence})`)
+      }
+    } catch (err: any) {
+      console.error('[parts-search] AI resolution failed (continuing without):', err?.message)
+    }
+  }
+
+  // Use the AI-optimized query if available, otherwise fall back to the old builder
+  const providerQuery = aiSearchQuery ?? buildProviderQuery(normalized, {
     aircraftMakeModel: input.aircraftMakeModel,
     engineModel: input.engineModel,
     mode: searchMode,
   })
 
-  console.log(`[parts-search] query="${input.query}" → normalized="${normalized}" mode=${searchMode} providerQuery="${providerQuery}" aircraft="${input.aircraftMakeModel ?? 'none'}"`)
+  // If AI resolved to exact P/N with high confidence, switch to exact_part mode
+  const effectiveMode = (aiResolution?.confidence === 'high' && aiResolution.partNumbers.length > 0)
+    ? 'exact_part' as const
+    : searchMode
+
+  console.log(`[parts-search] query="${input.query}" → normalized="${normalized}" mode=${effectiveMode} providerQuery="${providerQuery}" aircraft="${input.aircraftMakeModel ?? 'none'}" aiResolved=${!!aiResolution}`)
 
   const ctx: ProviderContext = {
     query: providerQuery,
     normalizedQuery: normalized,
-    searchMode,
+    searchMode: effectiveMode,
     aircraftMakeModel: input.aircraftMakeModel,
     aircraftYear: input.aircraftYear,
     engineModel: input.engineModel,
@@ -65,7 +95,9 @@ export async function searchParts(
 
   const allOffers = providers.flatMap(p => p.offers)
   console.log(`[parts-search] Provider totals: serp=${serp.offers.length} ebay=${ebay.offers.length} curated=${curated.offers.length} → ${allOffers.length} total offers`)
-  const queryPartNumber = extractPartNumber(normalized)
+
+  // Use AI-resolved part number for ranking boost if available
+  const queryPartNumber = (aiResolution?.partNumbers?.[0]) ?? extractPartNumber(normalized)
   const ranked = rankOffers(allOffers, queryPartNumber).slice(0, ctx.maxResults)
 
   const providerSummary: Record<string, { ok: boolean; count: number; error?: string; durationMs: number }> = {}
@@ -87,7 +119,7 @@ export async function searchParts(
       maintenance_draft_id: input.maintenanceDraftId ?? null,
       search_query: normalized,
       normalized_query: normalized,
-      search_mode: searchMode,
+      search_mode: effectiveMode,
       provider_summary: providerSummary,
       result_count: ranked.length,
       created_by: input.userId,
@@ -152,10 +184,11 @@ export async function searchParts(
   return {
     searchId,
     query: normalized,
-    searchMode,
+    searchMode: effectiveMode,
     offers: ranked,
     providerSummary: providerSummary as Record<ProviderId, { ok: boolean; count: number; error?: string; durationMs: number }>,
     resultCount: ranked.length,
+    aiResolution,
   }
 }
 

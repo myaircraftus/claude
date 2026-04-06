@@ -71,6 +71,16 @@ export interface ProviderResult {
   durationMs: number
 }
 
+export interface AIResolutionInfo {
+  partNumbers: string[]
+  searchQuery: string
+  description: string
+  system: string
+  alternates: string[]
+  confidence: 'high' | 'medium' | 'low'
+  reasoning: string
+}
+
 export interface SearchResponse {
   searchId: string
   query: string
@@ -78,6 +88,8 @@ export interface SearchResponse {
   offers: RankedOffer[]
   providerSummary: Record<ProviderId, { ok: boolean; count: number; error?: string; durationMs: number }>
   resultCount: number
+  /** AI-resolved part info (only present when aircraft context was provided) */
+  aiResolution?: AIResolutionInfo | null
 }
 
 export type PartOrderStatus =
