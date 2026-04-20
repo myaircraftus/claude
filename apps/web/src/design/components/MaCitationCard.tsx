@@ -34,7 +34,7 @@ export function MaCitationCard({ docName, docType, section, pageNumber, snippet,
       </div>
       <p className="font-medium text-[#0D1117] text-[13px] truncate mb-0.5">{docName}</p>
       {section && <p className="text-[11px] text-[#9CA3AF] mb-1.5">{section}</p>}
-      <p className="text-[13px] text-[#4B5563] line-clamp-2 leading-relaxed">"{snippet}"</p>
+      <p className="text-[13px] text-[#4B5563] line-clamp-2 leading-relaxed">&ldquo;{snippet}&rdquo;</p>
       {onPreview && (
         <button onClick={onPreview} className="mt-2 text-[12px] text-[#2563EB] font-medium hover:underline flex items-center gap-1">
           View source <MaIcon name="arrowRight" size={11} />

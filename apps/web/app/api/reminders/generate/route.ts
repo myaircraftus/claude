@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { getOperationTypeLabels, isForHireOperation } from '@/lib/aircraft/operations'
 
 interface StandardReminder {
   reminder_type: string
@@ -8,6 +9,13 @@ interface StandardReminder {
   priority: string
   due_date?: string
   due_hours?: number
+  current_hours?: number
+  hours_remaining?: number
+  activation_state: 'canonical' | 'informational_only' | 'review_required' | 'ignore'
+  activation_block_reason?: string | null
+  evidence_document_id?: string | null
+  evidence_segment_id?: string | null
+  canonical_record_version_id?: string | null
 }
 
 function addMonths(date: Date, months: number): Date {
@@ -18,6 +26,13 @@ function addMonths(date: Date, months: number): Date {
 
 function toDateString(date: Date): string {
   return date.toISOString().split('T')[0]
+}
+
+function isCanonicalMaintenanceEvent(event: any) {
+  if (!event) return false
+  if (event.truth_state === 'canonical') return true
+  if (event.canonicalization_status === 'canonical') return true
+  return event.truth_state === 'legacy' && Boolean(event.is_verified)
 }
 
 export async function POST(req: NextRequest) {
@@ -46,7 +61,7 @@ export async function POST(req: NextRequest) {
   // Fetch aircraft details
   const { data: aircraft, error: acError } = await supabase
     .from('aircraft')
-    .select('id, tail_number, make, model, year, total_time_hours, organization_id')
+    .select('id, tail_number, make, model, year, total_time_hours, organization_id, operation_types')
     .eq('id', aircraft_id)
     .eq('organization_id', orgId)
     .single()
@@ -58,7 +73,18 @@ export async function POST(req: NextRequest) {
   // Fetch most recent maintenance events to find last annual date
   const { data: maintenanceEvents } = await supabase
     .from('maintenance_events')
-    .select('event_date, event_type, airframe_tt')
+    .select(`
+      id,
+      event_date,
+      event_type,
+      airframe_tt,
+      truth_state,
+      canonicalization_status,
+      is_verified,
+      document_id,
+      source_segment_id,
+      current_canonical_version_id
+    `)
     .eq('aircraft_id', aircraft_id)
     .order('event_date', { ascending: false })
     .limit(50)
@@ -74,6 +100,10 @@ export async function POST(req: NextRequest) {
     e.event_type?.toLowerCase().includes('transponder') ||
     e.event_type?.toLowerCase().includes('pitot')
   )
+  const lastHundredHour = maintenanceEvents?.find(e =>
+    e.event_type?.toLowerCase().includes('100') ||
+    e.event_type?.toLowerCase().includes('100-hour')
+  )
 
   // Check existing active reminders for this aircraft to avoid duplicates
   const { data: existingReminders } = await supabase
@@ -87,70 +117,136 @@ export async function POST(req: NextRequest) {
 
   const now = new Date()
   const remindersToCreate: StandardReminder[] = []
+  const canonicalAnnual = lastAnnual && isCanonicalMaintenanceEvent(lastAnnual) ? lastAnnual : null
+  const canonicalTransponder = lastTransponder && isCanonicalMaintenanceEvent(lastTransponder) ? lastTransponder : null
+  const canonicalHundredHour = lastHundredHour && isCanonicalMaintenanceEvent(lastHundredHour) ? lastHundredHour : null
+  const operationLabels = getOperationTypeLabels(aircraft.operation_types)
+  const forHireOperation = isForHireOperation(aircraft.operation_types)
 
-  // Annual inspection (due 12 months from last annual, or 12 months from now if unknown)
+  // Annual inspection: auto-activate only when backed by canonical evidence.
   if (!existingTypes.has('annual')) {
-    const baseDate = lastAnnual?.event_date ? new Date(lastAnnual.event_date) : now
-    const dueDate = addMonths(baseDate, 12)
-    remindersToCreate.push({
-      reminder_type: 'annual',
-      title: 'Annual Inspection',
-      description: lastAnnual
-        ? `Based on last annual recorded on ${lastAnnual.event_date}. FAR 91.409 requires annual inspection every 12 calendar months.`
-        : 'No prior annual found in records. Date estimated — verify with logbooks. FAR 91.409 requires annual inspection every 12 calendar months.',
-      priority: dueDate < now ? 'critical' : dueDate < addMonths(now, 2) ? 'high' : 'normal',
-      due_date: toDateString(dueDate),
-    })
+    if (canonicalAnnual?.event_date) {
+      const dueDate = addMonths(new Date(canonicalAnnual.event_date), 12)
+      remindersToCreate.push({
+        reminder_type: 'annual',
+        title: 'Annual Inspection',
+        description: `Backed by canonical maintenance evidence dated ${canonicalAnnual.event_date}. FAR 91.409 requires annual inspection every 12 calendar months.`,
+        priority: dueDate < now ? 'critical' : dueDate < addMonths(now, 2) ? 'high' : 'normal',
+        due_date: toDateString(dueDate),
+        activation_state: 'canonical',
+        activation_block_reason: null,
+        evidence_document_id: canonicalAnnual.document_id ?? null,
+        evidence_segment_id: canonicalAnnual.source_segment_id ?? null,
+        canonical_record_version_id: canonicalAnnual.current_canonical_version_id ?? null,
+      })
+    } else {
+      remindersToCreate.push({
+        reminder_type: 'annual',
+        title: 'Annual Inspection',
+        description: 'No canonical annual inspection record is available yet. Review scanned logbook evidence before treating this as an active compliance reminder.',
+        priority: 'high',
+        activation_state: 'review_required',
+        activation_block_reason: 'missing_canonical_annual_evidence',
+      })
+    }
   }
 
-  // 100-hour inspection (if operated for hire; due at current_hours + 100)
+  // 100-hour inspection depends on operating context; keep it informational until the basis is reviewed.
   if (!existingTypes.has('100hr')) {
     const currentHours = aircraft.total_time_hours
-    remindersToCreate.push({
-      reminder_type: '100hr',
-      title: '100-Hour Inspection',
-      description: currentHours != null
-        ? `Current airframe TT: ${currentHours.toLocaleString()} hrs. FAR 91.409 requires 100-hour inspection for aircraft operated for hire.`
-        : 'Current hours unknown. FAR 91.409 requires 100-hour inspection for aircraft operated for hire.',
-      priority: 'normal',
-      due_hours: currentHours != null ? Math.ceil((currentHours + 100) / 10) * 10 : undefined,
-    })
+    const operationSummary = operationLabels.length > 0
+      ? `Current operation profile: ${operationLabels.join(', ')}.`
+      : 'No operation profile is stored yet.'
+
+    if (forHireOperation && canonicalHundredHour?.airframe_tt != null) {
+      const dueHours = Number(canonicalHundredHour.airframe_tt) + 100
+      const hoursRemaining = currentHours != null ? dueHours - currentHours : undefined
+      remindersToCreate.push({
+        reminder_type: '100hr',
+        title: '100-Hour Inspection',
+        description: `${operationSummary} 100-hour inspections apply to for-hire/training operations. Baseline evidence is the canonical 100-hour event at ${Number(canonicalHundredHour.airframe_tt).toLocaleString()} hrs.`,
+        priority: hoursRemaining != null && hoursRemaining <= 10 ? 'high' : 'normal',
+        due_hours: dueHours,
+        current_hours: currentHours ?? undefined,
+        hours_remaining: hoursRemaining,
+        activation_state: 'canonical',
+        activation_block_reason: null,
+        evidence_document_id: canonicalHundredHour.document_id ?? null,
+        evidence_segment_id: canonicalHundredHour.source_segment_id ?? null,
+        canonical_record_version_id: canonicalHundredHour.current_canonical_version_id ?? null,
+      })
+    } else if (forHireOperation) {
+      remindersToCreate.push({
+        reminder_type: '100hr',
+        title: '100-Hour Inspection',
+        description: `${operationSummary} This aircraft appears to be in a for-hire/training context, but no canonical 100-hour baseline was found. Review logbook evidence before activating a hard due reminder.`,
+        priority: 'high',
+        current_hours: currentHours ?? undefined,
+        activation_state: 'review_required',
+        activation_block_reason: 'missing_canonical_100hr_baseline',
+      })
+    } else {
+      remindersToCreate.push({
+        reminder_type: '100hr',
+        title: '100-Hour Inspection',
+        description: `${operationSummary} FAR 91.409 requires 100-hour inspections only for aircraft operated for hire. Keep this informational unless the aircraft begins rental, training, club, or charter use.`,
+        priority: 'normal',
+        current_hours: currentHours ?? undefined,
+        activation_state: 'informational_only',
+        activation_block_reason: operationLabels.length > 0 ? 'operation_profile_not_for_hire' : 'operating_basis_unknown',
+      })
+    }
   }
 
-  // Transponder check (every 24 months per FAR 91.413)
+  // Transponder check: auto-activate only when backed by canonical evidence.
   if (!existingTypes.has('transponder')) {
-    const baseDate = lastTransponder?.event_date ? new Date(lastTransponder.event_date) : now
-    const dueDate = addMonths(baseDate, 24)
-    remindersToCreate.push({
-      reminder_type: 'transponder',
-      title: 'Transponder Check (FAR 91.413)',
-      description: 'FAR 91.413 requires transponder testing and inspection every 24 calendar months.',
-      priority: dueDate < now ? 'high' : 'normal',
-      due_date: toDateString(dueDate),
-    })
+    if (canonicalTransponder?.event_date) {
+      const dueDate = addMonths(new Date(canonicalTransponder.event_date), 24)
+      remindersToCreate.push({
+        reminder_type: 'transponder',
+        title: 'Transponder Check (FAR 91.413)',
+        description: `Backed by canonical transponder/pitot-static evidence dated ${canonicalTransponder.event_date}. FAR 91.413 requires inspection every 24 calendar months.`,
+        priority: dueDate < now ? 'high' : 'normal',
+        due_date: toDateString(dueDate),
+        activation_state: 'canonical',
+        activation_block_reason: null,
+        evidence_document_id: canonicalTransponder.document_id ?? null,
+        evidence_segment_id: canonicalTransponder.source_segment_id ?? null,
+        canonical_record_version_id: canonicalTransponder.current_canonical_version_id ?? null,
+      })
+    } else {
+      remindersToCreate.push({
+        reminder_type: 'transponder',
+        title: 'Transponder Check (FAR 91.413)',
+        description: 'No canonical transponder compliance record is available yet. Review maintenance evidence before treating this as an active compliance reminder.',
+        priority: 'normal',
+        activation_state: 'review_required',
+        activation_block_reason: 'missing_canonical_transponder_evidence',
+      })
+    }
   }
 
-  // ELT inspection (every 12 months per FAR 91.207)
+  // ELT inspection: keep informational until supported by evidence.
   if (!existingTypes.has('elt')) {
-    const dueDate = addMonths(now, 12)
     remindersToCreate.push({
       reminder_type: 'elt',
       title: 'ELT Inspection (FAR 91.207)',
-      description: 'FAR 91.207 requires ELT inspection within 12 calendar months. Also check battery expiration date.',
+      description: 'FAR 91.207 requires ELT inspection within 12 calendar months. This reminder is informational until a canonical ELT record is linked.',
       priority: 'normal',
-      due_date: toDateString(dueDate),
+      activation_state: 'informational_only',
+      activation_block_reason: 'missing_canonical_elt_evidence',
     })
   }
 
-  // Static/pitot system check (every 24 months for IFR, FAR 91.411)
+  // Static/pitot system check: informational until IFR evidence and equipment applicability are confirmed.
   if (!existingTypes.has('static_pitot')) {
-    const dueDate = addMonths(now, 24)
     remindersToCreate.push({
       reminder_type: 'static_pitot',
       title: 'Altimeter/Static System Check (FAR 91.411)',
-      description: 'FAR 91.411 requires altimeter and static pressure system check every 24 calendar months for IFR operations.',
+      description: 'FAR 91.411 applies to IFR operations. This reminder remains informational until applicable equipment and canonical compliance evidence are confirmed.',
       priority: 'normal',
-      due_date: toDateString(dueDate),
+      activation_state: 'informational_only',
+      activation_block_reason: 'ifr_applicability_and_evidence_pending',
     })
   }
 
@@ -171,6 +267,13 @@ export async function POST(req: NextRequest) {
         priority: r.priority,
         due_date: r.due_date,
         due_hours: r.due_hours,
+        current_hours: r.current_hours,
+        hours_remaining: r.hours_remaining,
+        canonical_record_version_id: r.canonical_record_version_id ?? null,
+        evidence_segment_id: r.evidence_segment_id ?? null,
+        evidence_document_id: r.evidence_document_id ?? null,
+        activation_state: r.activation_state,
+        activation_block_reason: r.activation_block_reason ?? null,
         auto_generated: true,
         status: 'active',
       }))

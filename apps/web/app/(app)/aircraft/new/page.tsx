@@ -1,19 +1,25 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import { Loader2, Plane, Search, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Topbar } from '@/components/shared/topbar'
+import {
+  AIRCRAFT_OPERATION_TYPES,
+  buildOperationProfile,
+  OPERATION_TYPE_OPTIONS,
+} from '@/lib/aircraft/operations'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -27,6 +33,8 @@ const newAircraftSchema = z.object({
   engine_make: z.string().max(80).optional(),
   engine_model: z.string().max(80).optional(),
   base_airport: z.string().max(10).optional(),
+  operator_name: z.string().max(120).optional(),
+  operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).default([]),
   notes: z.string().max(2000).optional(),
 })
 
@@ -37,7 +45,7 @@ type FAAStatus = 'idle' | 'loading' | 'found' | 'not_found' | 'error'
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewAircraftPage() {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [serverError, setServerError] = useState<string | null>(null)
   const [orgId, setOrgId] = useState<string | null>(null)
   const [faaStatus, setFAAStatus] = useState<FAAStatus>('idle')
@@ -61,6 +69,8 @@ export default function NewAircraftPage() {
       engine_make: '',
       engine_model: '',
       base_airport: '',
+      operator_name: '',
+      operation_types: [],
       notes: '',
     },
   })
@@ -162,6 +172,8 @@ export default function NewAircraftPage() {
           engine_make: values.engine_make || undefined,
           engine_model: values.engine_model || undefined,
           base_airport: values.base_airport?.toUpperCase() || undefined,
+          operator_name: values.operator_name || undefined,
+          operation_types: values.operation_types,
           notes: values.notes || undefined,
         }),
       })
@@ -181,6 +193,16 @@ export default function NewAircraftPage() {
 
   const topbarProfile = {
     id: '', email: '', full_name: undefined, avatar_url: undefined, created_at: '', updated_at: '',
+  }
+  const selectedOperationTypes = watch('operation_types')
+  const operationProfile = buildOperationProfile(selectedOperationTypes)
+
+  function toggleOperationType(value: (typeof AIRCRAFT_OPERATION_TYPES)[number], checked: boolean) {
+    const current = watch('operation_types') ?? []
+    const next = checked
+      ? Array.from(new Set([...current, value])).slice(0, 4)
+      : current.filter(entry => entry !== value)
+    setValue('operation_types', next, { shouldDirty: true, shouldValidate: true })
   }
 
   return (
@@ -322,6 +344,75 @@ export default function NewAircraftPage() {
                     }}
                   />
                 </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="operator_name">Operator / management company</Label>
+                  <Input
+                    id="operator_name"
+                    placeholder="Owner-operated, Acme Flight Dept, or management company"
+                    {...register('operator_name')}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Operation Profile</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Choose the operating context that best fits this aircraft. We use this to tune reminder expectations, maintenance workflow defaults, and document guidance.
+                </p>
+
+                <div className="grid gap-3">
+                  {OPERATION_TYPE_OPTIONS.map(option => {
+                    const checked = selectedOperationTypes.includes(option.value)
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${checked ? 'border-brand-300 bg-brand-50/60' : 'border-border hover:bg-accent/50'}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(value) => toggleOperationType(option.value, value === true)}
+                        />
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium text-foreground">{option.label}</div>
+                          <p className="text-xs text-muted-foreground">{option.description}</p>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+
+                {operationProfile.types.length > 0 && (
+                  <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Suggested role presets
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {operationProfile.rolePresets.map(role => (
+                          <span
+                            key={role}
+                            className="inline-flex items-center rounded-full bg-background px-2.5 py-1 text-xs font-medium text-foreground border border-border"
+                          >
+                            {role}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Reminder focus
+                      </p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {operationProfile.reminderFocus.join(' · ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { documentMatchesClassification } from '@/lib/documents/classification'
+import type { DocType, Document } from '@/types'
 
 export interface DetectionInput {
   aircraftId: string
@@ -36,7 +38,9 @@ export async function detectMissingRecords(input: DetectionInput): Promise<strin
 
     const { data: documents } = await supabase
       .from('documents')
-      .select('*')
+      .select(
+        'id, title, doc_type, document_group_id, document_detail_id, truth_role, completeness_relevance'
+      )
       .eq('aircraft_id', input.aircraftId)
 
     const { data: aircraft } = await supabase
@@ -52,15 +56,20 @@ export async function detectMissingRecords(input: DetectionInput): Promise<strin
 
     if (!events || !aircraft) throw new Error('Could not load aircraft data')
 
+    const eligibleEvents = events.filter(isFindingEligibleMaintenanceEvent)
+    const suppressedEvents = events.filter((event) => !isFindingEligibleMaintenanceEvent(event))
+    const eligibleAdRecords = (adRecords ?? []).filter(isFindingEligibleAdRecord)
+
     // Run all detection rules
-    findings.push(...detectAnnualGaps(events, aircraft))
-    findings.push(...detectInspectionGaps(events))
-    findings.push(...detectLogbookContinuityGaps(events))
-    findings.push(...detectMissingEngineDocumentation(events, documents ?? []))
+    findings.push(...detectAnnualGaps(eligibleEvents, aircraft))
+    findings.push(...detectInspectionGaps(eligibleEvents))
+    findings.push(...detectLogbookContinuityGaps(eligibleEvents))
+    findings.push(...detectMissingEngineDocumentation(eligibleEvents, documents ?? []))
     findings.push(...detectMissingRequiredDocuments(documents ?? []))
-    findings.push(...detectMissing337ForRepairs(events, documents ?? []))
-    findings.push(...detectTimeDiscrepancies(events))
-    findings.push(...detectAdComplianceGaps(adRecords ?? [], events))
+    findings.push(...detectMissing337ForRepairs(eligibleEvents, documents ?? []))
+    findings.push(...detectTimeDiscrepancies(eligibleEvents))
+    findings.push(...detectAdComplianceGaps(eligibleAdRecords, eligibleEvents))
+    findings.push(...detectSuppressedEvidenceNotice(suppressedEvents))
 
     // Write all findings
     if (findings.length > 0) {
@@ -102,6 +111,68 @@ type FindingRecord = Omit<
   any,
   'id' | 'aircraft_id' | 'organization_id' | 'findings_run_id' | 'created_at'
 >
+
+type IntelligenceDocument = Pick<
+  Document,
+  'id' | 'title' | 'doc_type' | 'document_group_id' | 'document_detail_id' | 'truth_role' | 'completeness_relevance'
+>
+
+function hasStructuredDocumentClassification(document: Partial<IntelligenceDocument>) {
+  return Boolean(document.document_group_id || document.document_detail_id)
+}
+
+function documentMatchesIntelligenceClassification(
+  document: Partial<IntelligenceDocument>,
+  match: {
+    docTypes?: DocType[]
+    groupIds?: string[]
+    detailIds?: string[]
+  },
+  options?: {
+    allowLegacyDocTypes?: DocType[]
+  }
+) {
+  const docType = document.doc_type ?? 'miscellaneous'
+  const candidate = {
+    doc_type: docType,
+    document_group_id: document.document_group_id ?? null,
+    document_detail_id: document.document_detail_id ?? null,
+  }
+
+  if (hasStructuredDocumentClassification(document)) {
+    return documentMatchesClassification(candidate, match)
+  }
+
+  return Boolean(options?.allowLegacyDocTypes?.includes(docType))
+}
+
+function isFindingEligibleMaintenanceEvent(event: any) {
+  if (!event) return false
+  if (event.truth_state === 'canonical') return true
+  if (event.canonicalization_status === 'canonical') return true
+  return event.truth_state === 'legacy' && Boolean(event.is_verified)
+}
+
+function isFindingEligibleAdRecord(adRecord: any) {
+  if (!adRecord) return false
+  if (adRecord.manually_overridden) return true
+  if (adRecord.evidence_state === 'canonical') return true
+  return adRecord.compliance_status === 'unknown'
+}
+
+function detectSuppressedEvidenceNotice(events: any[]): FindingRecord[] {
+  if (events.length === 0) return []
+
+  return [{
+    finding_type: 'suppressed_noncanonical_evidence',
+    severity: 'info',
+    title: `${events.length} Unresolved OCR-Derived Record${events.length > 1 ? 's' : ''} Excluded From Findings`,
+    description: `${events.length} maintenance record candidate${events.length > 1 ? 's were' : ' was'} excluded from automated findings because the evidence is not canonical yet. This reduces false positives until review or precedence resolution is complete.`,
+    recommendation: 'Review unresolved scanned-logbook entries and approve canonical evidence where appropriate.',
+    affected_component: 'records',
+    source_event_ids: events.map((event) => event.id).filter(Boolean),
+  }]
+}
 
 /**
  * RULE: Annual Inspection Gaps
@@ -274,15 +345,31 @@ function detectLogbookContinuityGaps(events: any[]): FindingRecord[] {
  * RULE: Missing Engine Overhaul Documentation
  * If an overhaul event is present but no supporting Form 8130 or shop paperwork exists.
  */
-function detectMissingEngineDocumentation(events: any[], documents: any[]): FindingRecord[] {
+function detectMissingEngineDocumentation(events: any[], documents: IntelligenceDocument[]): FindingRecord[] {
   const findings: FindingRecord[] = []
 
   const overhauls = events.filter(e =>
     ['engine_overhaul', 'engine_replacement'].includes(e.event_type)
   )
 
-  const has8130 = documents.some(d => d.document_type === 'form_8130')
-  const hasWorkOrder = documents.some(d => d.document_type === 'work_order')
+  const has8130 = documents.some((document) =>
+    documentMatchesIntelligenceClassification(
+      document,
+      {
+        detailIds: ['faa_form_8130_documents', 'faa_form_8130_3'],
+      },
+      { allowLegacyDocTypes: ['form_8130'] }
+    )
+  )
+  const hasWorkOrder = documents.some((document) =>
+    documentMatchesIntelligenceClassification(
+      document,
+      {
+        detailIds: ['maintenance_work_orders'],
+      },
+      { allowLegacyDocTypes: ['work_order'] }
+    )
+  )
 
   if (overhauls.length > 0 && !has8130 && !hasWorkOrder) {
     findings.push({
@@ -303,26 +390,34 @@ function detectMissingEngineDocumentation(events: any[], documents: any[]): Find
  * RULE: Missing Required Documents
  * Registration, Airworthiness Certificate, Weight & Balance.
  */
-function detectMissingRequiredDocuments(documents: any[]): FindingRecord[] {
+function detectMissingRequiredDocuments(documents: IntelligenceDocument[]): FindingRecord[] {
   const findings: FindingRecord[] = []
 
   const required = [
     {
-      type: 'registration',
+      detailIds: ['certificate_of_aircraft_registration', 'temporary_registration'],
       findingType: 'missing_registration' as const,
       label: 'Aircraft Registration (FAA Form AC 8050-1)',
       regulation: '14 CFR 91.203(a)(1)',
       severity: 'critical' as const,
     },
     {
-      type: 'airworthiness_cert',
+      detailIds: [
+        'standard_airworthiness_certificate',
+        'special_airworthiness_certificate',
+        'export_certificate_of_airworthiness',
+      ],
       findingType: 'missing_airworthiness_cert' as const,
       label: 'Airworthiness Certificate',
       regulation: '14 CFR 91.203(a)(1)',
       severity: 'critical' as const,
     },
     {
-      type: 'weight_balance',
+      detailIds: [
+        'weight_and_balance_report',
+        'revised_weight_and_balance_amendments',
+        'updated_weight_and_balance_records',
+      ],
       findingType: 'missing_weight_balance' as const,
       label: 'Current Weight and Balance',
       regulation: '14 CFR Part 23',
@@ -331,7 +426,9 @@ function detectMissingRequiredDocuments(documents: any[]): FindingRecord[] {
   ]
 
   for (const req of required) {
-    const hasDoc = documents.some(d => d.document_type === req.type)
+    const hasDoc = documents.some((document) =>
+      documentMatchesIntelligenceClassification(document, { detailIds: req.detailIds })
+    )
     if (!hasDoc) {
       findings.push({
         finding_type: req.findingType,
@@ -351,13 +448,19 @@ function detectMissingRequiredDocuments(documents: any[]): FindingRecord[] {
  * RULE: Missing Form 337 for Major Repairs
  * If a maintenance entry describes a major repair/alteration but no Form 337 exists.
  */
-function detectMissing337ForRepairs(events: any[], documents: any[]): FindingRecord[] {
+function detectMissing337ForRepairs(events: any[], documents: IntelligenceDocument[]): FindingRecord[] {
   const findings: FindingRecord[] = []
 
   const majorRepairEvents = events.filter(e =>
     e.event_type === 'major_repair' || e.event_type === 'major_alteration'
   )
-  const has337 = documents.some(d => d.document_type === 'form_337')
+  const has337 = documents.some((document) =>
+    documentMatchesIntelligenceClassification(
+      document,
+      { detailIds: ['faa_form_337_records'] },
+      { allowLegacyDocTypes: ['form_337'] }
+    )
+  )
 
   if (majorRepairEvents.length > 0 && !has337) {
     findings.push({

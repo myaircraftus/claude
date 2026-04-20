@@ -28,6 +28,8 @@ Required services to set up:
 - [OpenAI](https://platform.openai.com) — get API key
 - [Stripe](https://stripe.com) — create account, get keys
 - [Google Cloud Console](https://console.cloud.google.com) — create OAuth app with Drive scope
+- [Google Cloud Document AI](https://cloud.google.com/document-ai) — primary OCR for scanned PDFs
+- [AWS Textract](https://aws.amazon.com/textract/) — OCR fallback for scanned PDFs
 - [Trigger.dev](https://trigger.dev) — create project
 - [Sentry](https://sentry.io) — create project (optional)
 - [PostHog](https://posthog.com) — create project (optional)
@@ -55,14 +57,14 @@ supabase db push --local
 ### Storage Buckets (create in Supabase dashboard or CLI)
 
 ```bash
-supabase storage create-bucket aircraft-documents --no-public
+supabase storage create-bucket documents --no-public
 supabase storage create-bucket page-previews --no-public
 supabase storage create-bucket org-assets --public
 ```
 
 ### Storage RLS Policies
 
-In the Supabase dashboard, add these policies to `aircraft-documents`:
+In the Supabase dashboard, add these policies to `documents`:
 - Users can upload: `auth.uid() IS NOT NULL`
 - Users can read: `auth.uid() IS NOT NULL`
 
@@ -98,6 +100,31 @@ STRIPE_PRICE_ENTERPRISE=price_xxx
 4. Create OAuth 2.0 credentials (Web application)
 5. Add authorized redirect URI: `https://yourdomain.com/api/gdrive/callback`
 6. Copy Client ID and Secret to env vars
+
+## 5b. Google Document AI
+
+1. In Google Cloud, enable the Document AI API
+2. Create or select a processor for OCR in the `us` region
+3. Copy these values into `apps/web/.env.local` and Vercel:
+   - `GOOGLE_CLOUD_PROJECT`
+   - `DOCUMENT_AI_LOCATION`
+   - `DOCUMENT_AI_PROCESSOR_ID`
+4. Create a service account with Document AI access
+5. Store the full service account JSON in:
+   - `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON`
+
+Notes:
+- Vercel cannot call Document AI from just the Google OAuth app credentials used for Drive.
+- For server-to-server OCR, a service account credential is required unless you move the app onto Google-managed identity.
+
+## 5c. AWS Textract
+
+Set these env vars in `apps/web/.env.local` and Vercel:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+
+Textract is used as the scanned-PDF OCR fallback when Document AI is unavailable or returns unusable text.
 
 ## 6. Trigger.dev Setup
 
@@ -189,6 +216,8 @@ Set all environment variables in Vercel dashboard.
 - [ ] Storage buckets created with correct RLS
 - [ ] Stripe webhooks configured and verified
 - [ ] Google Drive OAuth redirect URIs updated for production domain
+- [ ] Google Document AI processor configured and service account JSON set
+- [ ] AWS Textract credentials configured
 - [ ] Trigger.dev jobs deployed
 - [ ] Parser service deployed and accessible
 - [ ] PARSER_SERVICE_URL env var set to deployed parser URL
@@ -236,6 +265,12 @@ WHERE email = 'admin@yourdomain.com';
 │   Trigger.dev   │────▶│   OpenAI API     │              │
 │   - ingest job  │     │   - Embeddings   │──────────────┘
 │   - retry logic │     │   - GPT-4o       │
-└─────────────────┘     │   - Vision OCR   │
+└─────────────────┘     │   - Extraction   │
                         └──────────────────┘
+         │
+         ▼
+┌─────────────────┐     ┌──────────────────┐
+│ Google Document │────▶│ AWS Textract     │
+│ AI (primary)    │     │ (fallback OCR)   │
+└─────────────────┘     └──────────────────┘
 ```

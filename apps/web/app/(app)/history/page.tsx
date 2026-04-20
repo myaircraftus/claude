@@ -1,8 +1,6 @@
-import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { HistoryClient } from './history-client'
-import type { UserProfile } from '@/types'
 
 export const metadata = { title: 'Query History' }
 
@@ -11,22 +9,7 @@ export default async function HistoryPage({
 }: {
   searchParams: { aircraft?: string; confidence?: string; page?: string; query?: string }
 }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase.from('organization_memberships')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  const membership = membershipRes.data
-  if (!membership) redirect('/onboarding')
+  const { supabase, profile, membership } = await requireAppServerSession()
 
   const orgId = membership.organization_id
   const page = parseInt(searchParams.page ?? '1')

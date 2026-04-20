@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import {
   Building2, Users, Plug, CreditCard, AlertTriangle, DollarSign,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
@@ -170,7 +170,7 @@ const PLAN_FEATURES = {
 export function SettingsClient({
   profile, organization, role, members, driveConnection, integrations: initialIntegrations, myUploads, defaultTab, showUpgradeSuccess
 }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [orgName, setOrgName] = useState(organization.name)
   const [savingOrg, setSavingOrg] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -1052,7 +1052,7 @@ function MyUploadsSection({ initialRows }: { initialRows: MyUploadRow[] }) {
         <CardHeader>
           <CardTitle>My Uploads</CardTitle>
           <CardDescription>
-            Documents you've uploaded to this organization. You control access and community listing.
+            Documents you&apos;ve uploaded to this organization. You control access and community listing.
           </CardDescription>
         </CardHeader>
         <CardContent>

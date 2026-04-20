@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -58,13 +59,43 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Document count
-    const { count: documentCount } = await supabase
-      .from('documents')
-      .select('id', { count: 'exact', head: true })
-      .eq('aircraft_id', params.id)
+    const [documentCountRes, ownerCustomerRes, assignmentsRes] = await Promise.all([
+      supabase
+        .from('documents')
+        .select('id', { count: 'exact', head: true })
+        .eq('aircraft_id', params.id),
+      aircraft.owner_customer_id
+        ? supabase
+            .from('customers')
+            .select('id, name, company, email, phone')
+            .eq('organization_id', aircraft.organization_id)
+            .eq('id', aircraft.owner_customer_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from('aircraft_customer_assignments')
+        .select(`
+          id,
+          relationship,
+          is_primary,
+          customer:customer_id (
+            id,
+            name,
+            company,
+            email,
+            phone
+          )
+        `)
+        .eq('organization_id', aircraft.organization_id)
+        .eq('aircraft_id', params.id),
+    ])
 
-    return NextResponse.json({ ...aircraft, document_count: documentCount ?? 0 })
+    return NextResponse.json({
+      ...aircraft,
+      document_count: documentCountRes.count ?? 0,
+      owner_customer: ownerCustomerRes.data ?? null,
+      linked_customers: assignmentsRes.data ?? [],
+    })
   } catch (err) {
     console.error('[GET /api/aircraft/[id]] unexpected error', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -88,6 +119,7 @@ const updateAircraftSchema = z.object({
   avionics_notes: z.string().max(2000).optional().nullable(),
   base_airport: z.string().max(10).optional().nullable(),
   operator_name: z.string().max(120).optional().nullable(),
+  operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   total_time_hours: z.number().min(0).optional().nullable(),
   owner_customer_id: z.string().uuid().optional().nullable(),

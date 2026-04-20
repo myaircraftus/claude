@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { createServerSupabase } from '@/lib/supabase/server'
+import Link from '@/components/shared/tenant-link'
 import { Topbar } from '@/components/shared/topbar'
 import { cn, formatDate } from '@/lib/utils'
 import { ScanLine, CheckCircle2, Clock, AlertTriangle } from 'lucide-react'
-import type { UserProfile } from '@/types'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { NewBatchButton } from './components/new-batch-button'
 
 export const metadata = { title: 'Scanner' }
@@ -21,24 +19,18 @@ const STATUS_COLOR: Record<string, string> = {
   abandoned: 'bg-slate-50 text-slate-500 border-slate-200',
 }
 
-export default async function ScannerPage() {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-  const profile = profileRes.data as UserProfile
-  if (!profile || !membershipRes.data) redirect('/login')
-
-  const orgId = membershipRes.data.organization_id
+export default async function ScannerPage({
+  searchParams,
+}: {
+  searchParams?: {
+    aircraft?: string
+    document_group?: string
+    document_detail?: string
+    document_subtype?: string
+  }
+}) {
+  const { supabase, profile, membership } = await requireAppServerSession()
+  const orgId = membership.organization_id
 
   const { data: aircraft } = await supabase
     .from('aircraft')
@@ -70,7 +62,15 @@ export default async function ScannerPage() {
       <Topbar
         profile={profile}
         breadcrumbs={[{ label: 'Scanner' }]}
-        actions={<NewBatchButton aircraft={(aircraft ?? []) as any} />}
+        actions={
+          <NewBatchButton
+            aircraft={(aircraft ?? []) as any}
+            defaultAircraftId={searchParams?.aircraft}
+            defaultDocumentGroupId={searchParams?.document_group}
+            defaultDocumentDetailId={searchParams?.document_detail}
+            defaultDocumentSubtype={searchParams?.document_subtype}
+          />
+        }
       />
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
@@ -111,7 +111,13 @@ export default async function ScannerPage() {
               <p className="text-sm font-medium text-foreground">No scan batches yet</p>
               <p className="text-xs text-muted-foreground mt-1">Start a new batch to capture logbook pages or evidence photos.</p>
               <div className="mt-4">
-                <NewBatchButton aircraft={(aircraft ?? []) as any} />
+                <NewBatchButton
+                  aircraft={(aircraft ?? []) as any}
+                  defaultAircraftId={searchParams?.aircraft}
+                  defaultDocumentGroupId={searchParams?.document_group}
+                  defaultDocumentDetailId={searchParams?.document_detail}
+                  defaultDocumentSubtype={searchParams?.document_subtype}
+                />
               </div>
             </div>
           ) : (

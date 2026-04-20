@@ -1,17 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import Link from 'next/link'
 import { Plane, Building2, FileText, Check, ArrowRight, Loader2 } from 'lucide-react'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn, slugify } from '@/lib/utils'
+import { withTenantPrefix } from '@/lib/auth/tenant-routing'
 
 // ─── Zod schemas ────────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ function StepIndicator({ current }: { current: number }) {
 function StepOrganization({
   onSuccess,
 }: {
-  onSuccess: (orgId: string) => void
+  onSuccess: (organization: { id: string; slug: string }) => void
 }) {
   const [serverError, setServerError] = useState<string | null>(null)
 
@@ -137,7 +137,7 @@ function StepOrganization({
         setServerError(data.error ?? 'Failed to create organization')
         return
       }
-      onSuccess(data.id)
+      onSuccess({ id: data.id, slug: data.slug })
     } catch {
       setServerError('Network error. Please try again.')
     }
@@ -349,7 +349,13 @@ function StepAircraft({
 
 // ─── Step 3: Upload First Document ───────────────────────────────────────────
 
-function StepDocument({ onSkip }: { onSkip: () => void }) {
+function StepDocument({
+  onSkip,
+  uploadHref,
+}: {
+  onSkip: () => void
+  uploadHref: string
+}) {
   return (
     <Card className="w-full max-w-lg shadow-panel">
       <CardHeader className="pb-4">
@@ -377,7 +383,7 @@ function StepDocument({ onSkip }: { onSkip: () => void }) {
         </div>
 
         <Button className="w-full" asChild>
-          <Link href="/documents/upload">
+          <Link href={uploadHref}>
             <FileText className="mr-2 h-4 w-4" />
             Upload documents
           </Link>
@@ -398,12 +404,14 @@ function StepDocument({ onSkip }: { onSkip: () => void }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [organizationId, setOrganizationId] = useState<string>('')
+  const [organizationSlug, setOrganizationSlug] = useState<string>('')
 
-  function handleOrgCreated(orgId: string) {
-    setOrganizationId(orgId)
+  function handleOrgCreated(organization: { id: string; slug: string }) {
+    setOrganizationId(organization.id)
+    setOrganizationSlug(organization.slug)
     setStep(2)
   }
 
@@ -412,7 +420,7 @@ export default function OnboardingPage() {
   }
 
   function handleSkipToDashboard() {
-    router.push('/dashboard')
+    router.push(withTenantPrefix('/dashboard', organizationSlug))
   }
 
   return (
@@ -445,7 +453,12 @@ export default function OnboardingPage() {
           onSuccess={handleAircraftCreated}
         />
       )}
-      {step === 3 && <StepDocument onSkip={handleSkipToDashboard} />}
+      {step === 3 && (
+        <StepDocument
+          onSkip={handleSkipToDashboard}
+          uploadHref={withTenantPrefix('/documents/upload', organizationSlug)}
+        />
+      )}
 
       <p className="mt-6 text-xs text-white/40">
         Already have an account?{' '}

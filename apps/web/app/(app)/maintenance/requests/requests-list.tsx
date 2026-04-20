@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,11 +29,15 @@ interface MaintenanceRequest {
   squawk_ids: string[]
   status: 'pending' | 'accepted' | 'declined' | 'converted_to_wo'
   created_work_order_id: string | null
+  request_source?: 'general' | 'reminder' | 'squawk'
+  source_reminder_id?: string | null
+  source_summary?: string | null
   created_at: string
   responded_at: string | null
   requester?: { id: string; full_name?: string; email: string; avatar_url?: string } | null
   mechanic?: { id: string; full_name?: string; email: string; avatar_url?: string } | null
   aircraft?: { id: string; tail_number: string; make: string; model: string } | null
+  source_reminder?: { id: string; title?: string; reminder_type?: string } | null
 }
 
 interface RequestsListProps {
@@ -63,7 +66,7 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function RequestsList({ initialRequests, currentUserRole }: RequestsListProps) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [requests, setRequests] = useState<MaintenanceRequest[]>(initialRequests)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [processingId, setProcessingId] = useState<string | null>(null)
@@ -188,11 +191,21 @@ export function RequestsList({ initialRequests, currentUserRole }: RequestsListP
                           <Badge variant="outline" className="text-xs">
                             {request.squawk_ids.length} squawk{request.squawk_ids.length !== 1 ? 's' : ''}
                           </Badge>
+                          {request.request_source === 'reminder' && (
+                            <Badge variant="info" className="text-xs">
+                              From reminder
+                            </Badge>
+                          )}
                         </div>
 
                         {request.message && (
                           <p className="text-sm text-foreground line-clamp-2 mt-1">
                             {request.message}
+                          </p>
+                        )}
+                        {!request.message && request.source_summary && (
+                          <p className="text-sm text-foreground line-clamp-2 mt-1">
+                            {request.source_summary}
                           </p>
                         )}
 

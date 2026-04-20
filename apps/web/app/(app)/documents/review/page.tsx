@@ -25,6 +25,8 @@ export default async function ReviewQueuePage() {
   if (!membership) redirect('/onboarding')
 
   const orgId = membership.organization_id
+  let reviewLoadState: 'loaded' | 'error' = 'loaded'
+  let reviewLoadError: string | null = null
 
   // ── Queue items with full arbitration data ─────────────────────────────────
   let queueItems: any[] = []
@@ -43,7 +45,52 @@ export default async function ReviewQueuePage() {
           arbitration_confidence,
           arbitration_reasoning,
           engines_run,
-          document:document_id(title, doc_type)
+          document:document_id(
+            id,
+            title,
+            doc_type,
+            document_group_id,
+            document_detail_id,
+            document_subtype,
+            record_family,
+            truth_role,
+            parser_strategy,
+            review_priority,
+            canonical_eligibility,
+            reminder_relevance,
+            ad_relevance,
+            inspection_relevance,
+            completeness_relevance,
+            intelligence_tags
+          )
+        ),
+        ocr_entry_segment:ocr_entry_segment_id(
+          id,
+          segment_type,
+          evidence_state,
+          confidence,
+          text_content,
+          excerpt_text,
+          normalized_text,
+          source_engine,
+          segment_group_key,
+          cross_page_continuation,
+          bounding_regions,
+          metadata_json,
+          document_group_id,
+          document_detail_id,
+          document_subtype,
+          record_family,
+          document_class,
+          truth_role,
+          parser_strategy,
+          review_priority,
+          canonical_eligibility,
+          reminder_relevance,
+          ad_relevance,
+          inspection_relevance,
+          completeness_relevance,
+          intelligence_tags
         ),
         ocr_extracted_event:ocr_extracted_event_id(
           id,
@@ -66,31 +113,67 @@ export default async function ReviewQueuePage() {
       .order('created_at', { ascending: true })
       .limit(50)
     queueItems = data ?? []
-  } catch {}
+  } catch (err) {
+    reviewLoadState = 'error'
+    reviewLoadError = err instanceof Error ? err.message : 'Failed to load review queue'
+  }
 
   // ── For each item, load field candidates + conflicts ───────────────────────
   const enriched: any[] = []
   for (const item of queueItems) {
     const pageId = item.ocr_page_job?.id
+    const segmentId = item.ocr_entry_segment?.id ?? item.ocr_entry_segment_id ?? null
     if (!pageId) { enriched.push(item); continue }
 
     let fieldCandidates: any[] = []
     let fieldConflicts: any[] = []
 
     try {
-      const [candidatesRes, conflictsRes] = await Promise.all([
-        supabase
-          .from('extracted_field_candidates')
-          .select('*')
-          .eq('page_id', pageId),
-        supabase
-          .from('field_conflicts')
-          .select('*')
-          .eq('page_id', pageId)
-          .eq('resolution_status', 'pending'),
-      ])
-      fieldCandidates = candidatesRes.data ?? []
-      fieldConflicts = conflictsRes.data ?? []
+      if (segmentId) {
+        const [segmentCandidatesRes, segmentConflictsRes, legacyCandidatesRes, legacyConflictsRes] = await Promise.all([
+          supabase
+            .from('ocr_segment_field_candidates')
+            .select('*')
+            .eq('segment_id', segmentId),
+          supabase
+            .from('segment_conflicts')
+            .select('*')
+            .eq('segment_id', segmentId)
+            .eq('resolution_status', 'pending'),
+          supabase
+            .from('extracted_field_candidates')
+            .select('*')
+            .eq('page_id', pageId),
+          supabase
+            .from('field_conflicts')
+            .select('*')
+            .eq('page_id', pageId)
+            .eq('resolution_status', 'pending'),
+        ])
+
+        fieldCandidates = [
+          ...(segmentCandidatesRes.data ?? []),
+          ...(legacyCandidatesRes.data ?? []),
+        ]
+        fieldConflicts = [
+          ...(segmentConflictsRes.data ?? []),
+          ...(legacyConflictsRes.data ?? []),
+        ]
+      } else {
+        const [candidatesRes, conflictsRes] = await Promise.all([
+          supabase
+            .from('extracted_field_candidates')
+            .select('*')
+            .eq('page_id', pageId),
+          supabase
+            .from('field_conflicts')
+            .select('*')
+            .eq('page_id', pageId)
+            .eq('resolution_status', 'pending'),
+        ])
+        fieldCandidates = candidatesRes.data ?? []
+        fieldConflicts = conflictsRes.data ?? []
+      }
     } catch {}
 
     enriched.push({ ...item, fieldCandidates, fieldConflicts })
@@ -120,6 +203,8 @@ export default async function ReviewQueuePage() {
         items={enriched}
         orgId={orgId}
         totalNeedsReview={totalNeedsReview}
+        loadState={reviewLoadState}
+        loadError={reviewLoadError}
       />
     </div>
   )

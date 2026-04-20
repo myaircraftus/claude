@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import '@react-pdf-viewer/core/lib/styles/index.css'
+import '@react-pdf-viewer/search/lib/styles/index.css'
 
 export const metadata: Metadata = {
   title: {
@@ -15,6 +17,11 @@ export const metadata: Metadata = {
     url: 'https://myaircraft.us',
     siteName: 'myaircraft.us',
     type: 'website',
+  },
+  icons: {
+    icon: '/redesign/MY_AIRCRAFT_LOGO.svg',
+    shortcut: '/redesign/MY_AIRCRAFT_LOGO.svg',
+    apple: '/redesign/MY_AIRCRAFT_LOGO.svg',
   },
 }
 

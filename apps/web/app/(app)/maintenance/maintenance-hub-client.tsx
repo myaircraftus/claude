@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import {
   Wrench, FileText, ClipboardList, Package, LayoutDashboard,
   Plus, Clock, Plane, ChevronRight,
@@ -108,7 +108,7 @@ export function MaintenanceHubClient({
   invoices,
   pendingRequests,
 }: MaintenanceHubProps) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const searchParams = useSearchParams()
 
   const currentTab = (searchParams.get('tab') as TabKey) || (defaultTab as TabKey) || 'entries'
@@ -330,6 +330,7 @@ export function MaintenanceHubClient({
             orders={orders}
             stats={partsStats}
             initialTab="search"
+            initialAircraftId={initialAircraftId ?? undefined}
           />
         </TabsContent>
 
@@ -353,4 +354,3 @@ export function MaintenanceHubClient({
     </div>
   )
 }
-

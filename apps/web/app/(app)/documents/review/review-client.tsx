@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ClipboardCheck,
   CheckCircle2,
@@ -23,6 +23,18 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import {
+  getDocumentClassificationProfileBySelection,
+  type ParserStrategy,
+  type TruthRole,
+} from '@/lib/documents/classification'
+import {
+  DOCUMENT_TAXONOMY_GROUPS,
+  getDocumentItemsForGroup,
+  inferLegacyClassification,
+  isDocumentGroupId,
+  resolveStoredDocumentClassification,
+} from '@/lib/documents/taxonomy'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -147,6 +159,112 @@ interface EditedFields {
   ad_references: string
 }
 
+type SegmentEvidenceState =
+  | 'canonical_candidate'
+  | 'informational_only'
+  | 'non_canonical_evidence'
+  | 'review_required'
+  | 'ignore'
+
+interface ClassificationEdits {
+  document_group_id: string
+  document_detail_id: string
+  document_subtype: string
+  truth_role: TruthRole
+  parser_strategy: ParserStrategy
+  evidence_state: SegmentEvidenceState
+  reminder_relevance: boolean
+  ad_relevance: boolean
+  inspection_relevance: boolean
+}
+
+interface BoundingRegionHighlight {
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  source: string
+}
+
+const TRUTH_ROLE_OPTIONS: Array<{ value: TruthRole; label: string }> = [
+  { value: 'source_of_truth', label: 'Source of truth' },
+  { value: 'canonical_evidence', label: 'Canonical evidence' },
+  { value: 'supporting_evidence', label: 'Supporting evidence' },
+  { value: 'reference_only', label: 'Reference only' },
+  { value: 'derived_summary', label: 'Derived summary' },
+  { value: 'regulatory_reference', label: 'Regulatory reference' },
+  { value: 'operational_support', label: 'Operational support' },
+  { value: 'financial_commercial', label: 'Financial / commercial' },
+  { value: 'historical_archive', label: 'Historical archive' },
+  { value: 'temporary_working', label: 'Temporary working' },
+  { value: 'non_canonical_evidence', label: 'Non-canonical evidence' },
+  { value: 'needs_review', label: 'Needs review' },
+  { value: 'ignore', label: 'Ignore' },
+]
+
+const PARSER_STRATEGY_OPTIONS: Array<{ value: ParserStrategy; label: string }> = [
+  { value: 'native_text_document', label: 'Native text document' },
+  { value: 'typed_scanned_form', label: 'Typed scanned form' },
+  { value: 'handwritten_logbook', label: 'Handwritten logbook' },
+  { value: 'mixed_handwritten_typed', label: 'Mixed handwritten + typed' },
+  { value: 'table_heavy', label: 'Table-heavy document' },
+  { value: 'certificate_tag_form', label: 'Certificate / tag / form' },
+  { value: 'letter_correspondence', label: 'Letter / correspondence' },
+  { value: 'checklist_reference', label: 'Checklist / reference' },
+  { value: 'photo_evidence', label: 'Photo evidence' },
+  { value: 'packet_bundle', label: 'Packet / bundle' },
+  { value: 'digital_derived_file', label: 'Digital / derived file' },
+  { value: 'manual_review_only', label: 'Manual review only' },
+  { value: 'ignore', label: 'Ignore' },
+]
+
+const EVIDENCE_STATE_OPTIONS: Array<{ value: SegmentEvidenceState; label: string }> = [
+  { value: 'canonical_candidate', label: 'Canonical candidate' },
+  { value: 'informational_only', label: 'Informational only' },
+  { value: 'non_canonical_evidence', label: 'Non-canonical evidence' },
+  { value: 'review_required', label: 'Needs review' },
+  { value: 'ignore', label: 'Ignore' },
+]
+
+const QUICK_CLASSIFICATION_MODES: Array<{
+  id: string
+  label: string
+  truthRole: TruthRole
+  evidenceState: SegmentEvidenceState
+}> = [
+  {
+    id: 'canonical',
+    label: 'Canonical',
+    truthRole: 'canonical_evidence',
+    evidenceState: 'canonical_candidate',
+  },
+  {
+    id: 'supporting',
+    label: 'Supporting',
+    truthRole: 'supporting_evidence',
+    evidenceState: 'informational_only',
+  },
+  {
+    id: 'reference',
+    label: 'Reference',
+    truthRole: 'reference_only',
+    evidenceState: 'informational_only',
+  },
+  {
+    id: 'non_canonical',
+    label: 'Non-canonical',
+    truthRole: 'non_canonical_evidence',
+    evidenceState: 'non_canonical_evidence',
+  },
+  {
+    id: 'ignore',
+    label: 'Ignore',
+    truthRole: 'ignore',
+    evidenceState: 'ignore',
+  },
+]
+
 function fieldInputCls() {
   return 'w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2'
 }
@@ -159,10 +277,19 @@ function QueueItemCard({
   loading,
 }: {
   item: any
-  onAction: (id: string, action: string, fields: EditedFields, pageId?: string, extractedEventId?: string) => void
+  onAction: (
+    id: string,
+    action: string,
+    fields: EditedFields,
+    pageId?: string,
+    extractedEventId?: string,
+    segmentId?: string,
+    classification?: ClassificationEdits
+  ) => void
   loading: boolean
 }) {
   const job = item.ocr_page_job ?? {}
+  const segment = item.ocr_entry_segment ?? {}
   const event = item.ocr_extracted_event ?? {}
   const reasoning = job.arbitration_reasoning ?? {}
   const fieldResults = reasoning.field_results ?? {}
@@ -174,6 +301,10 @@ function QueueItemCard({
 
   const [expanded, setExpanded] = useState(true)
   const [showRaw, setShowRaw] = useState(false)
+  const [pageImageUrl, setPageImageUrl] = useState<string | null>(null)
+  const [pageImageVariant, setPageImageVariant] = useState<'processed' | 'original'>('processed')
+  const [pageImageError, setPageImageError] = useState<string | null>(null)
+  const [pageImageLoading, setPageImageLoading] = useState(false)
 
   // Proposed values from arbitration (fall back to extracted event)
   function proposedFor(fieldName: string, fallback: string) {
@@ -192,8 +323,163 @@ function QueueItemCard({
     ),
   })
 
+  const currentDocumentClassification = useMemo(() => {
+    const documentRecord = job.document
+    if (documentRecord) {
+      return resolveStoredDocumentClassification({
+        doc_type: documentRecord.doc_type ?? 'miscellaneous',
+        document_group_id: documentRecord.document_group_id ?? null,
+        document_detail_id: documentRecord.document_detail_id ?? null,
+      })
+    }
+    const fallback = inferLegacyClassification((job.document?.doc_type ?? 'miscellaneous') as any)
+    return fallback
+  }, [job.document])
+
+  const [classification, setClassification] = useState<ClassificationEdits>(() => {
+    const groupId =
+      segment.document_group_id ??
+      job.document?.document_group_id ??
+      currentDocumentClassification.groupId
+    const detailId =
+      segment.document_detail_id ??
+      job.document?.document_detail_id ??
+      currentDocumentClassification.detailId
+    const derivedProfile = getDocumentClassificationProfileBySelection(
+      groupId,
+      detailId,
+      (job.document?.doc_type ?? 'miscellaneous') as any
+    )
+
+    return {
+      document_group_id: groupId,
+      document_detail_id: detailId,
+      document_subtype:
+        segment.document_subtype ??
+        job.document?.document_subtype ??
+        '',
+      truth_role:
+        (segment.truth_role as TruthRole | undefined) ??
+        (job.document?.truth_role as TruthRole | undefined) ??
+        derivedProfile?.truthRole ??
+        'supporting_evidence',
+      parser_strategy:
+        (segment.parser_strategy as ParserStrategy | undefined) ??
+        (job.document?.parser_strategy as ParserStrategy | undefined) ??
+        derivedProfile?.parserStrategy ??
+        'native_text_document',
+      evidence_state:
+        (segment.evidence_state as SegmentEvidenceState | undefined) ??
+        (derivedProfile?.isCanonicalCandidate ? 'canonical_candidate' : 'review_required'),
+      reminder_relevance:
+        segment.reminder_relevance ??
+        job.document?.reminder_relevance ??
+        derivedProfile?.canActivateReminder ??
+        false,
+      ad_relevance:
+        segment.ad_relevance ??
+        job.document?.ad_relevance ??
+        derivedProfile?.canSatisfyAdRequirement ??
+        false,
+      inspection_relevance:
+        segment.inspection_relevance ??
+        job.document?.inspection_relevance ??
+        derivedProfile?.canSatisfyInspectionRequirement ??
+        false,
+    }
+  })
+
+  const selectedClassificationProfile = useMemo(
+    () =>
+      getDocumentClassificationProfileBySelection(
+        classification.document_group_id,
+        classification.document_detail_id,
+        (job.document?.doc_type ?? 'miscellaneous') as any
+      ),
+    [classification.document_detail_id, classification.document_group_id, job.document?.doc_type]
+  )
+
+  const highlightRegions = useMemo<BoundingRegionHighlight[]>(() => {
+    const rawRegions = Array.isArray(segment.bounding_regions) ? segment.bounding_regions : []
+    return rawRegions
+      .map((region: any) => ({
+        page: Number(region.page ?? segment.page_number ?? job.page_number),
+        x: Number(region.x ?? 0),
+        y: Number(region.y ?? 0),
+        width: Number(region.width ?? 0),
+        height: Number(region.height ?? 0),
+        source: typeof region.source === 'string' ? region.source : 'unknown',
+      }))
+      .filter((region: BoundingRegionHighlight) =>
+        Number.isFinite(region.x) &&
+        Number.isFinite(region.y) &&
+        Number.isFinite(region.width) &&
+        Number.isFinite(region.height) &&
+        region.width > 0 &&
+        region.height > 0 &&
+        region.source !== 'page_fallback'
+      )
+  }, [segment.bounding_regions, segment.page_number, job.page_number])
+
+  useEffect(() => {
+    if (!expanded || !job.id || pageImageUrl || pageImageLoading) return
+    let cancelled = false
+
+    async function loadImage() {
+      setPageImageLoading(true)
+      setPageImageError(null)
+
+      try {
+        const res = await fetch(`/api/ocr/pages/${job.id}/image?variant=processed`)
+        const data = await res.json()
+
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to load page image')
+        }
+
+        if (data?.url) {
+          if (cancelled) return
+          setPageImageUrl(data.url)
+          setPageImageVariant(data.variant === 'original' ? 'original' : 'processed')
+          return
+        }
+
+        if (cancelled) return
+        setPageImageError('No page image available')
+      } catch (err) {
+        if (cancelled) return
+        setPageImageError(err instanceof Error ? err.message : 'Failed to load page image')
+      } finally {
+        if (!cancelled) setPageImageLoading(false)
+      }
+    }
+
+    loadImage()
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, job.id, pageImageUrl, pageImageLoading])
+
+  const classificationDetailOptions = useMemo(
+    () => getDocumentItemsForGroup(classification.document_group_id),
+    [classification.document_group_id]
+  )
+
   function update(key: keyof EditedFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function updateClassification<K extends keyof ClassificationEdits>(key: K, value: ClassificationEdits[K]) {
+    setClassification((prev) => {
+      const next = { ...prev, [key]: value }
+      if (key === 'document_group_id' && isDocumentGroupId(value as string)) {
+        const nextItems = getDocumentItemsForGroup(value as string)
+        if (nextItems.length > 0 && !nextItems.some((item) => item.id === next.document_detail_id)) {
+          next.document_detail_id = nextItems[0].id
+        }
+      }
+      return next
+    })
   }
 
   const docTitle = job.document?.title ?? 'Unknown Document'
@@ -292,6 +578,61 @@ function QueueItemCard({
 
             {/* ── LEFT: raw text + multi-engine candidates ─────────────────── */}
             <div className="space-y-4">
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <span>Page Image</span>
+                  {pageImageUrl && (
+                    <a
+                      href={pageImageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-brand-600 hover:underline font-medium normal-case"
+                    >
+                      Open {pageImageVariant === 'processed' ? 'processed' : 'original'}
+                    </a>
+                  )}
+                </div>
+
+                <div className="mt-2">
+                  {pageImageLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading page preview…
+                    </div>
+                  )}
+
+                  {!pageImageLoading && pageImageError && (
+                    <div className="text-xs text-muted-foreground">{pageImageError}</div>
+                  )}
+
+                  {!pageImageLoading && pageImageUrl && (
+                    <div className="relative w-full overflow-hidden rounded-md border border-border bg-white">
+                      <img
+                        src={pageImageUrl}
+                        alt={`Page ${pageNumber}`}
+                        className="w-full h-auto block"
+                      />
+                      {highlightRegions.length > 0 && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          {highlightRegions.map((region: BoundingRegionHighlight, idx: number) => (
+                            <div
+                              key={`${region.page}-${idx}`}
+                              className="absolute border-2 border-brand-500/70 bg-brand-200/25 rounded-sm"
+                              style={{
+                                left: `${region.x * 100}%`,
+                                top: `${region.y * 100}%`,
+                                width: `${region.width * 100}%`,
+                                height: `${region.height * 100}%`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
@@ -461,8 +802,8 @@ function QueueItemCard({
                 </div>
               </div>
 
-              {/* AD References */}
-              <div>
+	              {/* AD References */}
+	              <div>
                 <label className={cn(
                   'block text-xs font-medium mb-1',
                   fieldResults['ad_reference']?.validationStatus === 'suspicious' ? 'text-amber-600' : 'text-muted-foreground'
@@ -477,50 +818,219 @@ function QueueItemCard({
                   value={fields.ad_references}
                   onChange={(e) => update('ad_references', e.target.value)}
                   placeholder="e.g. 2023-14-05, 2021-08-10"
-                  className={fieldInputCls()}
-                />
-              </div>
+	                  className={fieldInputCls()}
+	                />
+	              </div>
 
-              {/* Action buttons */}
-              <div className="flex flex-wrap gap-2 pt-2">
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                  <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                    Classification &amp; Evidence
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_CLASSIFICATION_MODES.map((mode) => {
+                      const active =
+                        classification.truth_role === mode.truthRole &&
+                        classification.evidence_state === mode.evidenceState
+                      return (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => {
+                            updateClassification('truth_role', mode.truthRole)
+                            updateClassification('evidence_state', mode.evidenceState)
+                          }}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                            active
+                              ? 'border-brand-200 bg-brand-50 text-brand-700'
+                              : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                          )}
+                        >
+                          {mode.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Major section</label>
+                    <select
+                      value={classification.document_group_id}
+                      onChange={(e) => updateClassification('document_group_id', e.target.value)}
+                      className={fieldInputCls()}
+                    >
+                      {DOCUMENT_TAXONOMY_GROUPS.map((group) => (
+                        <option key={group.id} value={group.id}>{group.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Exact document type</label>
+                    <select
+                      value={classification.document_detail_id}
+                      onChange={(e) => updateClassification('document_detail_id', e.target.value)}
+                      className={fieldInputCls()}
+                    >
+                      {classificationDetailOptions.map((detail) => (
+                        <option key={detail.id} value={detail.id}>{detail.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Subtype / volume</label>
+                    <input
+                      type="text"
+                      value={classification.document_subtype}
+                      onChange={(e) => updateClassification('document_subtype', e.target.value)}
+                      placeholder="Optional"
+                      className={fieldInputCls()}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-muted-foreground mb-1">Truth role</label>
+                      <select
+                        value={classification.truth_role}
+                        onChange={(e) => updateClassification('truth_role', e.target.value as TruthRole)}
+                        className={fieldInputCls()}
+                      >
+                        {TRUTH_ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence handling</label>
+                      <select
+                        value={classification.evidence_state}
+                        onChange={(e) => updateClassification('evidence_state', e.target.value as SegmentEvidenceState)}
+                        className={fieldInputCls()}
+                      >
+                        {EVIDENCE_STATE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Parser strategy</label>
+                    <select
+                      value={classification.parser_strategy}
+                      onChange={(e) => updateClassification('parser_strategy', e.target.value as ParserStrategy)}
+                      className={fieldInputCls()}
+                    >
+                      {PARSER_STRATEGY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                      </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 rounded-md border border-border bg-background px-3 py-2">
+                    <label className="flex items-center justify-between gap-3 text-xs text-foreground">
+                      <span>Can drive reminders</span>
+                      <input
+                        type="checkbox"
+                        checked={classification.reminder_relevance}
+                        onChange={(e) => updateClassification('reminder_relevance', e.target.checked)}
+                        className="rounded border-border"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-xs text-foreground">
+                      <span>Can satisfy AD evidence</span>
+                      <input
+                        type="checkbox"
+                        checked={classification.ad_relevance}
+                        onChange={(e) => updateClassification('ad_relevance', e.target.checked)}
+                        className="rounded border-border"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-xs text-foreground">
+                      <span>Can satisfy inspection evidence</span>
+                      <input
+                        type="checkbox"
+                        checked={classification.inspection_relevance}
+                        onChange={(e) => updateClassification('inspection_relevance', e.target.checked)}
+                        className="rounded border-border"
+                      />
+                    </label>
+                  </div>
+
+                  {selectedClassificationProfile && (
+                    <div className="rounded-md border border-brand-100 bg-brand-50/60 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                      <p className="font-medium text-foreground">{selectedClassificationProfile.groupLabel} / {selectedClassificationProfile.detailLabel}</p>
+                      <p>
+                        Record family: {selectedClassificationProfile.recordFamily.replace(/_/g, ' ')} · Review priority: {selectedClassificationProfile.reviewPriority}
+                      </p>
+                      <p>
+                        Reminder: {selectedClassificationProfile.canActivateReminder ? 'eligible' : 'no'} · AD evidence: {selectedClassificationProfile.canSatisfyAdRequirement ? 'eligible' : 'no'} · Inspection evidence: {selectedClassificationProfile.canSatisfyInspectionRequirement ? 'eligible' : 'no'}
+                      </p>
+                      <p>
+                        Segmentation: {selectedClassificationProfile.needsSegmentation ? 'required' : 'not required'} · Cross-page linking: {selectedClassificationProfile.needsCrossPageLinking ? 'expected' : 'not expected'}
+                      </p>
+                      <p>
+                        Visibility: {selectedClassificationProfile.visibleTo.join(' · ')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+	              {/* Action buttons */}
+	              <div className="flex flex-wrap gap-2 pt-2">
+	                <Button
+	                  size="sm"
+	                  variant="outline"
+	                  disabled={loading}
+	                  onClick={() => onAction(item.id, 'reclassify', fields, job.id, event.id, segment.id, classification)}
+	                >
+	                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+	                  Save classification
+	                </Button>
+	                <Button
+	                  size="sm"
+	                  className="bg-green-600 hover:bg-green-700 text-white"
+	                  disabled={loading}
+	                  onClick={() => onAction(item.id, 'approve', fields, job.id, event.id, segment.id, classification)}
+	                >
+	                  {loading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+	                  {classification.evidence_state === 'canonical_candidate'
+	                    ? 'Approve & Canonicalize'
+	                    : 'Approve & Save'}
+	                </Button>
+
                 <Button
                   size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={loading}
-                  onClick={() => onAction(item.id, 'approve', fields, job.id, event.id)}
-                >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
-                  Approve &amp; Canonicalize
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-300 text-red-600 hover:bg-red-50"
-                  disabled={loading}
-                  onClick={() => onAction(item.id, 'reject', fields, job.id, event.id)}
-                >
+	                  variant="outline"
+	                  className="border-red-300 text-red-600 hover:bg-red-50"
+	                  disabled={loading}
+	                  onClick={() => onAction(item.id, 'reject', fields, job.id, event.id, segment.id, classification)}
+	                >
                   <XCircle className="w-3.5 h-3.5 mr-1.5" />
                   Reject
                 </Button>
 
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="text-muted-foreground"
-                  disabled={loading}
-                  onClick={() => onAction(item.id, 'unreadable', fields, job.id, event.id)}
-                >
+	                  variant="outline"
+	                  className="text-muted-foreground"
+	                  disabled={loading}
+	                  onClick={() => onAction(item.id, 'unreadable', fields, job.id, event.id, segment.id, classification)}
+	                >
                   <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
                   Unreadable
                 </Button>
 
                 <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={loading}
-                  onClick={() => onAction(item.id, 'skip', fields, job.id, event.id)}
-                >
+	                  size="sm"
+	                  variant="outline"
+	                  disabled={loading}
+	                  onClick={() => onAction(item.id, 'skip', fields, job.id, event.id, segment.id, classification)}
+	                >
                   <SkipForward className="w-3.5 h-3.5 mr-1.5" />
                   Skip
                 </Button>
@@ -541,10 +1051,14 @@ export default function ReviewQueueClient({
   items: initialItems,
   orgId,
   totalNeedsReview,
+  loadState,
+  loadError,
 }: {
   items: any[]
   orgId: string
   totalNeedsReview: number
+  loadState: 'loaded' | 'error'
+  loadError: string | null
 }) {
   const [items, setItems] = useState<any[]>(initialItems)
   const [filter, setFilter] = useState<FilterType>('all')
@@ -560,22 +1074,100 @@ export default function ReviewQueueClient({
     return true
   })
 
+  function serializeCorrectedFields(correctedFields: EditedFields) {
+    return {
+      event_type: correctedFields.event_type,
+      event_date: correctedFields.event_date || null,
+      tach_time: correctedFields.tach_time ? parseFloat(correctedFields.tach_time) : null,
+      work_description: correctedFields.work_description,
+      mechanic_name: correctedFields.mechanic_name,
+      mechanic_cert_number: correctedFields.mechanic_cert_number,
+      ad_references: correctedFields.ad_references
+        ? correctedFields.ad_references.split(',').map((s) => s.trim()).filter(Boolean)
+        : [],
+    }
+  }
+
   async function handleAction(
     id: string,
     action: string,
     correctedFields: EditedFields,
     pageId?: string,
-    extractedEventId?: string
+    extractedEventId?: string,
+    segmentId?: string,
+    classification?: ClassificationEdits
   ) {
     setActionLoading((prev) => ({ ...prev, [id]: true }))
     try {
-      if (action === 'approve' && pageId) {
-        // Call canonicalize endpoint
-        await fetch('/api/ocr/canonicalize', {
+      if (action === 'reclassify') {
+        const response = await fetch('/api/ocr/review', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id,
+            action,
+            corrected_fields: serializeCorrectedFields(correctedFields),
+            extracted_event_id: extractedEventId,
+            segment_id: segmentId,
+            classification_overrides: classification ?? null,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to save classification')
+        }
+
+        setItems((prev) =>
+          prev.map((item) => {
+            if (item.id !== id || !classification) return item
+
+            const nextDocument = item.ocr_page_job?.document
+              ? {
+                  ...item.ocr_page_job.document,
+                  document_group_id: classification.document_group_id,
+                  document_detail_id: classification.document_detail_id,
+                  document_subtype: classification.document_subtype || null,
+                  truth_role: classification.truth_role,
+                  parser_strategy: classification.parser_strategy,
+                }
+              : item.ocr_page_job?.document
+
+            const nextSegment = item.ocr_entry_segment
+              ? {
+                  ...item.ocr_entry_segment,
+                  document_group_id: classification.document_group_id,
+                  document_detail_id: classification.document_detail_id,
+                  document_subtype: classification.document_subtype || null,
+                  truth_role: classification.truth_role,
+                  parser_strategy: classification.parser_strategy,
+                  evidence_state: classification.evidence_state,
+                }
+              : item.ocr_entry_segment
+
+            return {
+              ...item,
+              ocr_page_job: item.ocr_page_job
+                ? { ...item.ocr_page_job, document: nextDocument }
+                : item.ocr_page_job,
+              ocr_entry_segment: nextSegment,
+            }
+          })
+        )
+        return
+      }
+
+      if (
+        action === 'approve' &&
+        pageId &&
+        classification?.evidence_state === 'canonical_candidate'
+      ) {
+        const response = await fetch('/api/ocr/canonicalize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             page_id: pageId,
+            segment_id: segmentId ?? null,
+            review_queue_item_id: id,
             corrected_fields: {
               event_type: correctedFields.event_type,
               event_date: correctedFields.event_date || null,
@@ -585,30 +1177,30 @@ export default function ReviewQueueClient({
               mechanic_cert_number: correctedFields.mechanic_cert_number,
               ad_reference: correctedFields.ad_references,
             },
+            classification_overrides: classification ?? null,
           }),
         })
+
+        if (!response.ok) {
+          throw new Error('Failed to canonicalize review item')
+        }
       } else {
-        // Reject / unreadable / skip — update review queue item
-        await fetch('/api/ocr/review', {
+        const response = await fetch('/api/ocr/review', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id,
             action,
-            corrected_fields: {
-              event_type: correctedFields.event_type,
-              event_date: correctedFields.event_date || null,
-              tach_time: correctedFields.tach_time ? parseFloat(correctedFields.tach_time) : null,
-              work_description: correctedFields.work_description,
-              mechanic_name: correctedFields.mechanic_name,
-              mechanic_cert_number: correctedFields.mechanic_cert_number,
-              ad_references: correctedFields.ad_references
-                ? correctedFields.ad_references.split(',').map((s) => s.trim()).filter(Boolean)
-                : [],
-            },
+            corrected_fields: serializeCorrectedFields(correctedFields),
             extracted_event_id: extractedEventId,
+            segment_id: segmentId,
+            classification_overrides: classification ?? null,
           }),
         })
+
+        if (!response.ok) {
+          throw new Error('Failed to update review item')
+        }
       }
       setItems((prev) => prev.filter((i) => i.id !== id))
     } catch {
@@ -687,17 +1279,33 @@ export default function ReviewQueueClient({
         {/* Empty state */}
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
-              <ClipboardCheck className="w-8 h-8 text-green-600" />
-            </div>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
-              {items.length === 0 ? 'Queue is clear!' : 'No items match this filter'}
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-md">
-              {items.length === 0
-                ? 'All extractions have passed arbitration or been reviewed.'
-                : 'Try a different filter to see more items.'}
-            </p>
+            {loadState === 'error' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                  <AlertTriangle className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  Something went wrong loading the review queue
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  {loadError ?? 'The queue could not be loaded right now. Please refresh and try again.'}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                  <ClipboardCheck className="w-8 h-8 text-green-600" />
+                </div>
+                <h2 className="text-lg font-semibold text-foreground mb-1">
+                  {items.length === 0 ? 'Queue is clear!' : 'No items match this filter'}
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  {items.length === 0
+                    ? 'All extractions have passed arbitration or been reviewed.'
+                    : 'Try a different filter to see more items.'}
+                </p>
+              </>
+            )}
           </div>
         )}
 

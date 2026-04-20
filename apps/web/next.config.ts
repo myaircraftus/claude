@@ -2,7 +2,18 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['@trigger.dev/sdk'],
+    serverComponentsExternalPackages: ['@trigger.dev/sdk', 'pdfjs-dist'],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.resolve = config.resolve ?? {}
+      config.resolve.alias = {
+        ...(config.resolve.alias ?? {}),
+        canvas: false,
+      }
+    }
+
+    return config
   },
   images: {
     remotePatterns: [
@@ -22,7 +33,15 @@ const nextConfig: NextConfig = {
         source: '/api/:path*',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-XSS-Protection', value: '1; mode=block' },
+        ],
+      },
+      {
+        source: '/api/documents/:id/preview',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'X-XSS-Protection', value: '1; mode=block' },
         ],
       },

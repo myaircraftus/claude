@@ -6,6 +6,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint",
+    "deploy:prod": "bash scripts/deploy-prod.sh",
     "db:push": "supabase db push",
     "db:types": "supabase gen types typescript --local > packages/database/types.ts"
   },

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatDate } from '@/lib/utils'
@@ -59,7 +59,7 @@ function formatCurrency(amount: number): string {
 }
 
 export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [invoices, setInvoices] = useState(initialInvoices)
   const [filter, setFilter] = useState('all')
   const [showNewDialog, setShowNewDialog] = useState(false)

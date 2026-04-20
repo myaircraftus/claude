@@ -5,9 +5,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 const VALID_CLASSIFICATIONS = new Set([
-  'logbook_entry','work_order','annual_inspection','100hr_inspection','ad_sheet',
-  'yellow_tag','form_337','form_8130','discrepancy_sheet','invoice',
-  'weight_balance','stc_reference','informational','unknown',
+  'logbook_entry','work_order','estimate','annual_inspection','50hr_inspection','100hr_inspection',
+  'ad_record','service_bulletin','yellow_tag','form_337','form_8130','squawk_discrepancy',
+  'discrepancy_sheet','invoice','weight_balance','poh_afm_supplement','part_trace_conformity',
+  'photo_evidence','stc_reference','informational','unknown',
 ])
 
 export async function PATCH(

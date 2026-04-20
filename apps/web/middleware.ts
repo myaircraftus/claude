@@ -1,8 +1,32 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { extractTenantPathname } from '@/lib/auth/tenant-routing'
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  const originalPathname = request.nextUrl.pathname
+  const tenantMatch = extractTenantPathname(originalPathname)
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-request-pathname', originalPathname)
+  let effectivePathname = originalPathname
+  let effectiveUrl = request.nextUrl.clone()
+
+  if (tenantMatch) {
+    requestHeaders.set('x-organization-slug', tenantMatch.slug)
+    effectivePathname = tenantMatch.rewrittenPathname
+    effectiveUrl.pathname = tenantMatch.rewrittenPathname
+  }
+
+  let supabaseResponse = tenantMatch
+    ? NextResponse.rewrite(effectiveUrl, { request: { headers: requestHeaders } })
+    : NextResponse.next({ request: { headers: requestHeaders } })
+
+  if (tenantMatch) {
+    supabaseResponse.cookies.set('active_organization_slug', tenantMatch.slug, {
+      path: '/',
+      sameSite: 'lax',
+      httpOnly: false,
+    })
+  }
 
   // @supabase/ssr v0.3.x uses get/set/remove (NOT getAll/setAll)
   const supabase = createServerClient(
@@ -31,21 +55,28 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const { pathname } = request.nextUrl
-
   // Protect app routes
-  if (pathname.startsWith('/(app)') || isAppRoute(pathname)) {
+  if (effectivePathname.startsWith('/(app)') || isAppRoute(effectivePathname)) {
     if (!user) {
       const url = request.nextUrl.clone()
       url.pathname = '/login'
-      url.searchParams.set('redirect', pathname)
+      url.searchParams.set('redirect', tenantMatch ? originalPathname : effectivePathname)
       return NextResponse.redirect(url)
     }
   }
 
-  // Redirect authenticated users away from auth pages
-  if (user && isAuthRoute(pathname)) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  // Redirect authenticated users away from auth pages unless explicitly previewing
+  if (user && isAuthRoute(effectivePathname)) {
+    const allowPreview = request.nextUrl.searchParams.get('preview') === '1'
+    if (allowPreview) {
+      return supabaseResponse
+    }
+    const destination = tenantMatch
+      ? `/${tenantMatch.slug}/dashboard`
+      : request.cookies.get('active_organization_slug')?.value
+        ? `/${request.cookies.get('active_organization_slug')!.value}/dashboard`
+        : '/dashboard'
+    return NextResponse.redirect(new URL(destination, request.url))
   }
 
   return supabaseResponse
@@ -53,20 +84,33 @@ export async function middleware(request: NextRequest) {
 
 function isAppRoute(pathname: string): boolean {
   const appRoutes = [
-    '/dashboard',
-    '/aircraft',
-    '/documents',
-    '/ask',
-    '/history',
-    '/settings',
     '/admin',
+    '/aircraft',
+    '/ask',
+    '/customers',
+    '/dashboard',
+    '/documents',
+    '/history',
+    '/integrations',
+    '/invoices',
+    '/library',
+    '/maintenance',
+    '/marketplace',
+    '/mechanic',
+    '/my-aircraft',
+    '/parts',
+    '/reminders',
+    '/scanner',
+    '/settings',
+    '/work-orders',
+    '/workspace',
     '/onboarding',
   ]
   return appRoutes.some(route => pathname.startsWith(route))
 }
 
 function isAuthRoute(pathname: string): boolean {
-  const authRoutes = ['/login', '/signup', '/forgot-password']
+  const authRoutes = ['/login', '/signin', '/signup', '/forgot-password']
   return authRoutes.some(route => pathname === route)
 }
 

@@ -138,7 +138,10 @@ export function PartOrdersTable({ orders, aircraft, initialAircraftId, initialSt
                 </tr>
               </thead>
               <tbody className="divide-y divide-border bg-card">
-                {filtered.map(o => (
+                {filtered.map(o => {
+                  const resolvedAircraft = o.aircraft ?? aircraft.find(ac => ac.id === o.aircraft_id) ?? null
+
+                  return (
                   <tr key={o.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 max-w-xs">
                       <div className="flex items-center gap-2">
@@ -165,10 +168,10 @@ export function PartOrdersTable({ orders, aircraft, initialAircraftId, initialSt
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {o.aircraft ? (
+                      {resolvedAircraft ? (
                         <span className="inline-flex items-center gap-1 text-xs font-mono">
                           <Plane className="h-3 w-3 text-muted-foreground" />
-                          {o.aircraft.tail_number}
+                          {resolvedAircraft.tail_number}
                         </span>
                       ) : (<span className="text-xs text-muted-foreground">—</span>)}
                     </td>
@@ -194,7 +197,8 @@ export function PartOrdersTable({ orders, aircraft, initialAircraftId, initialSt
                       {formatDate(o.created_at)}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

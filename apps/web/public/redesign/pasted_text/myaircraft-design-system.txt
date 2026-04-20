@@ -1,0 +1,726 @@
+Design a full premium UI/UX system for **myaircraft.us**.
+
+This is not a generic AI SaaS. This is a modern **aircraft records, logbook, maintenance intelligence, and compliance platform** for aircraft owners, mechanics, A&Ps, IAs, operators, brokers, buyers, sellers, and fleet teams.
+
+I want you to design both:
+
+1. a **public-facing marketing website**
+2. a **logged-in application dashboard + product screens**
+
+The output must feel like a real, high-end aviation software company with a polished product ecosystem, not a startup template, not a chatbot wrapper, and not a text-heavy dashboard.
+
+The direction should be:
+- modern
+- premium
+- aviation-native
+- calm
+- clean
+- organized
+- visual
+- less text-heavy
+- easier to understand within 5–10 seconds
+- operational
+- trustworthy
+- scalable for engineering handoff
+
+-----------------------------------
+CORE BRAND / VISUAL DIRECTION
+-----------------------------------
+
+Primary color palette:
+- White
+- Blue
+- Grey
+- Red
+
+Use these in a premium way:
+- White / soft off-white for spacious backgrounds
+- Deep aviation blue / navy for structure, premium accents, key CTA areas
+- Grey / metallic slate for neutral surfaces, dividers, panels, table states
+- Red only for critical alerts, overdue items, blocked compliance states, warnings
+
+Avoid making the interface feel dark, heavy, or generic enterprise.
+Avoid default computer-looking UI.
+Avoid obvious template kits.
+Avoid default Figma community kits.
+Create a **custom design language** unique to myaircraft.us.
+
+The aesthetic should feel like:
+- luxury aviation software
+- clean aircraft operations center
+- modern records intelligence platform
+- elegant but practical
+- premium without looking flashy
+
+Think:
+- premium cards
+- rounded containers
+- elegant shadows
+- strong spacing
+- structured information hierarchy
+- custom iconography
+- subtle aviation-inspired linework
+- realistic product framing
+- custom controls, inputs, tabs, pills, sidebars, and cards
+- beautiful but usable tables
+- dashboard components that feel purpose-built for aircraft records
+
+Use stock visuals, realistic aircraft-related visuals, or realistic placeholder imagery where helpful.
+Also design sections where app screenshots/mock screenshots can be placed attractively in the public website.
+
+-----------------------------------
+IMPORTANT PRODUCT POSITIONING
+-----------------------------------
+
+myaircraft.us should feel like:
+
+- “Ask your aircraft anything.”
+- “Source-backed answers from your records.”
+- “Aircraft-by-aircraft intelligence.”
+- “Organized records, not generic storage.”
+- “Built for real logbooks, manuals, inspections, and maintenance history.”
+
+This platform is about:
+- digitized aircraft records
+- searchable maintenance history
+- AI-assisted but source-backed answers
+- OCR / scanning / ingestion workflows
+- aircraft-by-aircraft organization
+- compliance readiness
+- maintenance entry generation
+- reminders
+- AD tracking
+- document intelligence
+- operational collaboration
+
+Do NOT design this like a generic chatbot product.
+Do NOT flatten the whole experience into one giant chat page.
+Do NOT make it look like a toy.
+Do NOT make it feel like consumer productivity software.
+Do NOT make it text-heavy and confusing.
+
+-----------------------------------
+NON-NEGOTIABLE PRODUCT TRUTHS
+-----------------------------------
+
+The UI must visually respect these truths:
+
+- The platform is **chat-first**, but chat is only one part of the system.
+- Answers are **source-backed and citation-based**.
+- Aircraft-by-aircraft organization is core.
+- Different user roles matter.
+- Permissioning and signature authority matter.
+- Signed maintenance actions should feel controlled, professional, and not casually editable.
+- RAG / retrieval remains the source of truth.
+- Behavior/personalization improves defaults and workflow relevance, but does not replace records truth.
+- The product flow is:
+  ingestion -> normalization -> structured storage -> retrieval -> orchestration -> response
+
+The design must make all of this feel obvious and premium.
+
+-----------------------------------
+MAIN REQUEST
+-----------------------------------
+
+Create a complete Figma concept and system covering:
+
+A) PUBLIC WEBSITE
+B) LOGGED-IN APP
+C) CUSTOM UI KIT / DESIGN SYSTEM
+D) EXPORTABLE DEVELOPMENT ASSET LIBRARY
+
+Also create a dedicated area/page in the Figma file for:
+- all reusable UI kits
+- all components and variants
+- design tokens
+- spacing and grids
+- colors
+- typography
+- icons
+- states
+- charts
+- cards
+- tables
+- aviation-specific widgets
+- export-ready assets
+
+I want a place where all UI kits and components are organized so they can later be:
+- exported
+- packaged
+- zipped
+- downloaded in multiple development-friendly formats
+- used for engineering handoff
+
+Set this up like a **real internal design system library**, not just scattered component frames.
+
+-----------------------------------
+PART A — PUBLIC WEBSITE
+-----------------------------------
+
+Design a complete public website for myaircraft.us with a premium SaaS + aviation feel.
+
+Main pages / sections to design:
+- Home
+- Product
+- Solutions
+- Pricing
+- Scanning Service
+- Security
+- Resources
+- Demo / Book a Demo
+- Contact
+- Login
+- Signup
+- Onboarding entry page
+- Privacy
+- Terms
+
+HOME PAGE should include:
+1. Hero section
+2. Social proof / trust strip
+3. How it works
+4. Product feature overview
+5. Who it is for / Solutions
+6. Why this is different from generic document storage
+7. Records intelligence / AI + source-backed answers section
+8. Scanning service section
+9. Security / trust section
+10. Pricing preview
+11. Final CTA
+12. Elegant footer
+
+Hero direction:
+- premium aviation feel
+- strong headline
+- short subheadline
+- visual mockup of product
+- realistic aircraft / records / dashboard composition
+- primary CTA + secondary CTA
+- cleaner and more realistic than text-heavy SaaS heroes
+
+Suggested messaging direction:
+- Ask your aircraft anything
+- Source-backed answers from your records
+- Searchable logbooks, maintenance history, manuals, inspections, and compliance
+- Built for real operators, owners, mechanics, and fleets
+
+How It Works:
+- Upload / scan records
+- AI organizes and classifies documents
+- Ask questions and retrieve source-backed answers
+- Generate workflows, reminders, and maintenance outputs
+
+Solutions page:
+Create elegant segmented sections/cards for:
+- Flight schools
+- Aircraft owners
+- A&P mechanics / IAs
+- Fleet operators
+- Brokers / buyers / sellers
+- Maintenance teams
+
+Pricing page:
+Important pricing to reflect:
+- **$100 per aircraft / month**
+- **$100 per mechanic / month**
+- billed monthly
+- scanning service: **$1,000**
+Make the pricing presentation clean, premium, transparent, and easy to understand.
+Also create space for:
+- custom/enterprise
+- onboarding / migration
+- scanning add-on explanation
+- FAQs
+
+Scanning page:
+This is important. It should feel like a serious premium service, not an afterthought.
+Show:
+- white-glove aircraft logbook scanning
+- records digitization
+- organization of historical books
+- expert review
+- structured archive creation
+- operational readiness
+- price anchor of $1,000 for scanning
+Use a professional, high-trust layout.
+
+Security page:
+Show:
+- source-backed answers
+- permissions / role-based access
+- auditability
+- controlled records handling
+- secure document storage
+- professional trust language
+- compliance-oriented tone
+
+Resources page:
+Design for:
+- articles
+- guides
+- case studies
+- checklists
+- logbook tips
+- aviation maintenance insights
+
+Demo / contact pages:
+Design clean, premium forms with trust-building layout and optional calendar booking style.
+
+Login / Signup:
+Design modern auth screens with:
+- premium branded split layout
+- product preview panel
+- aviation visual support
+- clean forms
+- modern trust cues
+
+-----------------------------------
+PART B — LOGGED-IN APP
+-----------------------------------
+
+Design the full app UX as a clean, modern, premium operational product.
+
+Main app surfaces to design:
+- Main dashboard / ops overview
+- Ask page
+- Review / OCR review queue
+- Aircraft list
+- Aircraft detail
+- Customers
+- Documents
+- Upload flow
+- Community / library
+- Query history
+- Settings
+- Admin
+- Onboarding
+- Maintenance entry generation area
+- Reminders
+- AD status / compliance views
+- Work order / maintenance task concepts
+- Marketplace / records transfer style concepts if helpful
+
+Primary app vibe:
+- less clutter
+- more structured
+- cleaner hierarchy
+- more buttons / actions and less walls of text
+- more visual grouping
+- more realistic app patterns
+- easier scanning
+- clearer data zones
+- premium but operational
+
+Navigation:
+Design a refined app shell with:
+- premium sidebar
+- top utility bar
+- global aircraft selector
+- quick search / ask bar
+- notification area
+- user/org switch area
+- role-aware shortcuts
+- clear main content canvas
+
+-----------------------------------
+DASHBOARD DESIGN
+-----------------------------------
+
+Design a powerful but clean dashboard.
+
+Include:
+- aircraft portfolio summary
+- documents indexed
+- upcoming reminders
+- active squawks / unresolved items
+- airworthiness / status overview
+- recent activity
+- quick actions
+- aircraft status cards
+- operational insights
+- recent generated entries
+- review queue summary
+- ask-your-aircraft shortcut
+
+This should feel far more premium and organized than typical admin dashboards.
+
+-----------------------------------
+AIRCRAFT LIST
+-----------------------------------
+
+Design aircraft list with:
+- searchable table/card hybrid
+- clean filters
+- status chips
+- aircraft cards or rows that feel premium
+- tail number emphasis
+- model / serial / year
+- document counts
+- last activity
+- next due item
+- quick actions
+
+Include “Add Aircraft” flow with FAA registry lookup feel.
+
+-----------------------------------
+AIRCRAFT DETAIL
+-----------------------------------
+
+This is one of the most important screens.
+
+Design aircraft detail with premium information architecture and these tabs/areas:
+- Overview
+- Documents
+- Ask
+- Timeline
+- ADs
+- Reminders
+- Entries
+- Settings
+
+Overview should include:
+- aircraft profile
+- registration / make / model / serial / engine / time
+- operational status cards
+- recent activity
+- compliance summary
+- open issues
+- next due items
+
+Documents tab:
+- premium document cards/table
+- document type badges
+- upload state
+- review state
+- actions
+- page count
+- source quality / extraction state if useful
+
+Ask tab:
+This is very important.
+Design a premium aircraft-specific AI workspace with:
+- aircraft-scoped ask bar
+- citation-backed answer cards
+- source chips
+- expandable citations
+- related document references
+- follow-up suggestions
+- confidence / source coverage cues
+- clean separation between answer and evidence
+Do not make it look like generic ChatGPT.
+It should feel like aviation record intelligence.
+
+Timeline tab:
+- elegant chronological maintenance / document / inspection timeline
+- grouped events
+- filter chips
+- printable feel
+
+ADs tab:
+- airworthiness directives
+- status badges
+- due / complied / needs review
+- evidence links
+- records references
+
+Reminders tab:
+- due items
+- inspection reminders
+- recurring reminders
+- aircraft-specific maintenance attention items
+
+Entries tab:
+- generated maintenance entries
+- draft vs finalized
+- signed / unsigned states
+- export/share actions
+- revision history
+
+Settings tab:
+- aircraft-level permissions
+- metadata
+- archive / transfer options
+- access control concepts
+
+-----------------------------------
+DOCUMENTS / OCR / REVIEW EXPERIENCE
+-----------------------------------
+
+Design a complete document workflow:
+- upload
+- processing
+- needs review
+- OCR confidence
+- extracted metadata
+- page preview
+- human review
+- final approval
+
+Review queue should feel professional and high-utility, not boring.
+Use split-screen or side-by-side concepts if useful:
+- original page preview
+- extracted text / structured fields
+- approve / edit / classify actions
+
+-----------------------------------
+MAINTENANCE ENTRY GENERATION EXPERIENCE
+-----------------------------------
+
+This is a key differentiator and should be designed beautifully.
+
+Design a mechanic / A&P workflow where:
+- a user selects an aircraft
+- types a request in chat or structured prompt
+- system prepares a logbook entry draft
+- entry appears in a clean editor panel on the right
+- if fields are missing, system prompts for missing values
+- if enough detail is present, it drafts immediately
+
+Support fields like:
+- hobbs
+- tach
+- date
+- aircraft details
+- discrepancy
+- corrective action
+- parts / references
+- sign-off related data
+- A&P / IA identity areas
+- certificate number area
+- return to service wording areas when applicable
+
+After finalizing, show action options such as:
+- Save to logbook
+- Share by link
+- Download PNG
+- Download PDF
+- Email
+- Print
+- Sign here / e-sign ready area
+
+Also include a lower guidance area:
+- related FAA form reminders
+- steps to complete after entry
+- where to store physically and digitally
+- recommended next actions
+- compliance notices
+
+This experience should feel like one of the strongest screens in the product.
+
+-----------------------------------
+GLOBAL “ASK” EXPERIENCE
+-----------------------------------
+
+Design a broader cross-aircraft Ask area too.
+
+Allow:
+- aircraft selector
+- global query mode
+- role-aware suggestions
+- evidence-backed answers
+- document references
+- history / saved prompts
+- action cards after answer
+
+Examples of behavior the UI should support:
+- ask about maintenance history
+- find compliance evidence
+- summarize records
+- retrieve document references
+- prepare an entry
+- surface missing information
+- point to next workflow actions
+
+-----------------------------------
+OTHER APP AREAS
+-----------------------------------
+
+Also design concepts for:
+- Query History
+- Customers / organizations
+- Community library / knowledge area
+- Integrations hub
+- Settings
+- Admin panel
+- Onboarding
+- Empty states
+- Error states
+- Success states
+- Permission-restricted views
+- Subscription / billing views
+- Team / mechanic management
+
+-----------------------------------
+ROLE-AWARE UX
+-----------------------------------
+
+Design should support different views or emphasis for:
+- aircraft owner
+- mechanic
+- A&P / IA
+- operator / manager
+- admin
+
+The product should still feel unified, but what matters most should surface differently per role.
+
+-----------------------------------
+DESIGN SYSTEM / CUSTOM UI KIT
+-----------------------------------
+
+Create a full custom UI kit for myaircraft.us.
+
+I want:
+- no default-looking desktop UI
+- no stock generic controls
+- no boring bootstrap-looking tables
+- no plain default SaaS cards
+
+Build custom components for:
+- buttons
+- icon buttons
+- segmented controls
+- tabs
+- pills
+- status badges
+- trust chips
+- aircraft cards
+- document cards
+- citation cards
+- evidence cards
+- stat cards
+- timeline rows
+- alert banners
+- activity feed rows
+- search / ask bars
+- inputs
+- textareas
+- dropdowns
+- checkboxes
+- radio groups
+- tables
+- accordions
+- drawers
+- side panels
+- modals
+- toasts
+- upload zones
+- OCR review panes
+- maintenance entry editor modules
+- signature blocks
+- export menus
+- pricing cards
+- feature grids
+- testimonial cards
+- footer modules
+- navigation elements
+- hero visual containers
+
+Also define:
+- color tokens
+- type scale
+- spacing scale
+- radius system
+- shadow system
+- icon style
+- grid rules
+- responsive behavior
+- hover / active / disabled / selected / warning / danger / success states
+
+Create custom aviation-specific widgets such as:
+- aircraft status card
+- compliance card
+- AD badge stack
+- logbook/source citation chip
+- document ingestion progress card
+- maintenance draft status card
+- airworthiness overview block
+- records completeness widget
+- aircraft intelligence summary panel
+
+-----------------------------------
+EXPORT / HANDOFF REQUIREMENT
+-----------------------------------
+
+Create a clearly labeled area in the Figma system for:
+- Master UI Kit
+- Components
+- Variants
+- Tokens
+- Icons
+- Layout primitives
+- Marketing blocks
+- App blocks
+- Charts / tables
+- Exportable assets
+
+This area should be organized so I can later request:
+- PNG export
+- SVG export
+- PDF export
+- developer handoff assets
+- zipped component packs
+- reusable design kit downloads
+
+Structure this like a clean internal library for future dev use.
+
+-----------------------------------
+COMPETITIVE / MARKET FEEL
+-----------------------------------
+
+Take inspiration from modern premium aviation and enterprise products, but do NOT copy.
+The feel should be cleaner, more modern, more realistic, and more premium than most aviation software.
+It should look significantly better organized than the current myaircraft.us app.
+It should be easier to scan, easier to trust, and easier to act on.
+
+The website and app should visually communicate:
+- intelligence
+- operational seriousness
+- records trust
+- aircraft-specific workflows
+- premium usability
+- aviation depth
+
+-----------------------------------
+DELIVERABLES I WANT IN FIGMA
+-----------------------------------
+
+Please generate:
+1. Public website desktop concepts
+2. Public website mobile-responsive concepts
+3. App dashboard desktop concepts
+4. Key app interior screens
+5. Aircraft detail flows
+6. Ask / evidence-backed answer screens
+7. Document upload / OCR review flows
+8. Maintenance entry generation flows
+9. Pricing page
+10. Scanning service page
+11. Auth screens
+12. Admin / settings concepts
+13. Empty and edge states
+14. Full custom UI kit
+15. Export-ready asset library
+
+-----------------------------------
+FINAL DESIGN GOAL
+-----------------------------------
+
+The final result should make someone say:
+
+“This feels like the premium aircraft records operating system the industry should have had already.”
+
+It must feel:
+- premium
+- modern
+- custom
+- calm
+- operational
+- aviation-native
+- less text-heavy
+- highly organized
+- development-ready
+
+Do not simplify the product into generic SaaS.
+Do not produce default templates.
+Do not use obvious stock UI kits.
+Make it unique to myaircraft.us and custom-built from the ground up.

@@ -1,4 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server'
+import { documentMatchesClassification } from '@/lib/documents/classification'
+import type { DocType, Document } from '@/types'
 
 export interface ComputedStatusInput {
   aircraftId: string
@@ -28,7 +30,7 @@ export async function computeAircraftStatus(
   // 3. Pull documents for required document checks
   const { data: documents } = await supabase
     .from('documents')
-    .select('id, document_type, metadata')
+    .select('id, title, doc_type, document_group_id, document_detail_id')
     .eq('aircraft_id', input.aircraftId)
 
   // 4. Pull aircraft profile for TBO reference
@@ -116,11 +118,29 @@ export async function computeAircraftStatus(
   const nextAd = upcomingAds[0]
 
   // --- REQUIRED DOCUMENTS ---
-  const hasRegistration = documents?.some(d => d.document_type === 'registration') ?? false
-  const hasAirworthinessCert = documents?.some(d => d.document_type === 'airworthiness_cert') ?? false
-  const hasWeightBalance = documents?.some(d => d.document_type === 'weight_balance') ?? false
-  const hasEquipmentList = documents?.some(
-    d => d.document_type === 'weight_balance' && d.metadata?.has_equipment_list === true
+  const hasRegistration = hasRequiredRegistrationDocument(documents ?? [])
+  const hasAirworthinessCert = documents?.some((document) =>
+    documentMatchesIntelligenceClassification(document, {
+      detailIds: [
+        'standard_airworthiness_certificate',
+        'special_airworthiness_certificate',
+        'export_certificate_of_airworthiness',
+      ],
+    })
+  ) ?? false
+  const hasWeightBalance = documents?.some((document) =>
+    documentMatchesIntelligenceClassification(document, {
+      detailIds: [
+        'weight_and_balance_report',
+        'revised_weight_and_balance_amendments',
+        'updated_weight_and_balance_records',
+      ],
+    })
+  ) ?? false
+  const hasEquipmentList = documents?.some((document) =>
+    documentMatchesIntelligenceClassification(document, {
+      detailIds: ['equipment_list'],
+    })
   ) ?? false
 
   // --- HEALTH SCORE ---
@@ -201,6 +221,53 @@ export async function computeAircraftStatus(
 }
 
 // --- Helpers ---
+
+type IntelligenceDocument = Pick<
+  Document,
+  'doc_type' | 'document_group_id' | 'document_detail_id'
+> & {
+  id?: string
+  title?: string
+}
+
+function hasStructuredDocumentClassification(document: Partial<IntelligenceDocument>) {
+  return Boolean(document.document_group_id || document.document_detail_id)
+}
+
+function documentMatchesIntelligenceClassification(
+  document: Partial<IntelligenceDocument>,
+  match: {
+    docTypes?: DocType[]
+    groupIds?: string[]
+    detailIds?: string[]
+  },
+  options?: {
+    allowLegacyDocTypes?: DocType[]
+  }
+) {
+  const docType = document.doc_type ?? 'miscellaneous'
+  const candidate = {
+    doc_type: docType,
+    document_group_id: document.document_group_id ?? null,
+    document_detail_id: document.document_detail_id ?? null,
+  }
+
+  if (hasStructuredDocumentClassification(document)) {
+    return documentMatchesClassification(candidate, match)
+  }
+
+  return Boolean(options?.allowLegacyDocTypes?.includes(docType))
+}
+
+function hasRequiredRegistrationDocument(documents: Partial<IntelligenceDocument>[] | null | undefined) {
+  return (
+    documents?.some((document) =>
+      documentMatchesIntelligenceClassification(document, {
+        detailIds: ['certificate_of_aircraft_registration', 'temporary_registration'],
+      })
+    ) ?? false
+  )
+}
 
 function findLastByType(events: any[], type: string) {
   return [...events]

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +13,7 @@ interface Aircraft {
 }
 
 export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [open, setOpen] = useState(false)
   const [aircraftId, setAircraftId] = useState('')
   const [complaint, setComplaint] = useState('')

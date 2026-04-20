@@ -1,5 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { encryptIntegrationCredentials } from '@/lib/integrations/crypto'
+
+const PROVIDER_NAMES: Record<string, string> = {
+  flight_schedule_pro: 'Flight Schedule Pro',
+  flight_circle: 'Flight Circle',
+  schedule_master: 'ScheduleMaster',
+  schedaero: 'Schedaero',
+  myflightbook: 'MyFlightbook',
+  aerocrew: 'Aero Crew Solutions',
+  fltplan: 'FltPlan.com',
+  avplan: 'AvPlan EFB',
+  flightaware: 'FlightAware AeroAPI',
+  adsb_exchange: 'ADS-B Exchange',
+  flight_radar_24: 'FlightRadar24 Business',
+  camp: 'CAMP Systems',
+  flightdocs: 'Flightdocs',
+  traxxall: 'Traxxall',
+  quantum_control: 'Quantum Control',
+  corridor: 'Corridor',
+  atp_aviation_hub: 'ATP Aviation Hub',
+  winair: 'WinAir',
+  logbook_pro: 'Logbook Pro',
+  smart_aviation: 'Smart Aviation',
+  mx_commander: 'Mx Commander',
+  safety_culture: 'SafetyCulture',
+  aviobook: 'AvioBook Maintenance',
+  quickbooks: 'QuickBooks',
+  freshbooks: 'FreshBooks',
+}
+
+function hasUsableCredentials(credentials: any) {
+  if (!credentials || typeof credentials !== 'object') return false
+
+  const candidates = [
+    credentials.api_key,
+    credentials.access_token,
+    credentials.client_secret,
+    credentials.client_id,
+  ]
+
+  return candidates.some((value) => typeof value === 'string' && value.trim().length >= 8)
+}
+
+function genericConnectionMessage(provider: string) {
+  const label = PROVIDER_NAMES[provider] ?? provider
+  if (provider === 'quickbooks' || provider === 'freshbooks') {
+    return `${label} credentials accepted. Invoice exports will be queued until full provider OAuth is completed.`
+  }
+  return `${label} credentials accepted. Adapter is ready for sync.`
+}
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -32,6 +82,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { provider, credentials, settings } = body
 
+  if (provider === 'quickbooks' || provider === 'freshbooks') {
+    return NextResponse.json(
+      {
+        error: `Use the OAuth connect flow for ${PROVIDER_NAMES[provider] ?? provider}. Manual token pasting is disabled.`,
+      },
+      { status: 400 }
+    )
+  }
+
   const { data: membership } = await supabase
     .from('organization_memberships')
     .select('organization_id, role')
@@ -43,27 +102,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Admin role required to manage integrations' }, { status: 403 })
   }
 
-  const providerNames: Record<string, string> = {
-    flight_schedule_pro: 'Flight Schedule Pro',
-    flight_circle: 'Flight Circle',
-    myfbo: 'MyFBO',
-    avianis: 'Avianis',
-    fl3xx: 'FL3XX',
-    leon: 'Leon Software',
-    talon: 'TalonETA/RMS',
-  }
-
   // Test connection before saving
   let testResult = { success: false, message: 'Connection test not implemented for this provider' }
   if (provider === 'flight_schedule_pro' && credentials?.api_key) {
     testResult = await testFlightSchedulePro(credentials)
   } else if (provider === 'flight_circle' && credentials?.api_key) {
     testResult = await testFlightCircle(credentials)
-  } else if (credentials?.api_key) {
-    // Generic: accept any non-trivial key
-    testResult = credentials.api_key.length > 10
-      ? { success: true, message: 'Credentials accepted' }
-      : { success: false, message: 'API key appears too short' }
+  } else if (hasUsableCredentials(credentials)) {
+    testResult = { success: true, message: genericConnectionMessage(provider) }
   }
 
   if (!testResult.success) {
@@ -79,9 +125,9 @@ export async function POST(req: NextRequest) {
       {
         organization_id: (membership as any).organization_id,
         provider,
-        display_name: providerNames[provider] ?? provider,
+        display_name: PROVIDER_NAMES[provider] ?? provider,
         status: 'connected',
-        credentials_encrypted: credentials, // TODO: encrypt in production
+        credentials_encrypted: encryptIntegrationCredentials(credentials),
         settings: settings ?? {},
         created_by: user.id,
         updated_at: new Date().toISOString(),

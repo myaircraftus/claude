@@ -169,15 +169,97 @@ _AD_SB_TOOL = {
 
 def _get_tool_for_doc_type(doc_type: str) -> dict:
     """Return the appropriate function-calling tool for a given doc_type."""
-    dt = doc_type.lower()
-    if any(kw in dt for kw in ("log", "logbook", "maintenance")):
-        return _LOGBOOK_TOOL
-    if any(kw in dt for kw in ("poh", "afm", "pilot", "flight manual")):
-        return _POH_AFM_TOOL
-    if any(kw in dt for kw in ("ad", "sb", "airworthiness", "service bulletin", "directive")):
+    dt = _normalize_doc_type(doc_type)
+    if _is_ad_sb_doc(dt):
         return _AD_SB_TOOL
-    # Default to logbook extractor for unknown types
-    return _LOGBOOK_TOOL
+    if _is_reference_doc(dt):
+        return _POH_AFM_TOOL
+    if _is_logbook_like_doc(dt):
+        return _LOGBOOK_TOOL
+    # Default conservatively so unknown/reference material does not auto-create
+    # maintenance events.
+    return _POH_AFM_TOOL
+
+
+def _normalize_doc_type(doc_type: str) -> str:
+    return doc_type.lower().replace("_", " ").replace("-", " ")
+
+
+def _is_reference_doc(dt: str) -> bool:
+    return any(
+        kw in dt
+        for kw in (
+            "poh",
+            "afm",
+            "pilot",
+            "flight manual",
+            "manual",
+            "checklist",
+            "catalog",
+            "handbook",
+            "procedures",
+            "charts",
+            "limitations",
+            "reference",
+            "placard",
+            "mel",
+            "cdl",
+            "koel",
+            "equipment list",
+        )
+    )
+
+
+def _is_ad_sb_doc(dt: str) -> bool:
+    return any(
+        kw in dt
+        for kw in (
+            "airworthiness directive",
+            "service bulletin",
+            "directive",
+            "service letter",
+            "service instruction",
+            "vendor bulletin",
+            "saib",
+            "ad compliance",
+            "ad method",
+            "mandatory service bulletin",
+        )
+    )
+
+
+def _is_logbook_like_doc(dt: str) -> bool:
+    if _is_reference_doc(dt) or _is_ad_sb_doc(dt):
+        return False
+
+    return any(
+        kw in dt
+        for kw in (
+            "logbook",
+            "journey log",
+            "tech log",
+            "flight log",
+            "maintenance release",
+            "return to service",
+            "component history",
+            "historical logbook",
+            "reconstructed record",
+            "inspection record",
+            "inspection records",
+            "work order",
+            "squawk",
+            "discrepancy",
+            "corrective action",
+            "repair station",
+            "shop visit",
+            "service center report",
+            "teardown report",
+            "overhaul record",
+            "overhaul records",
+            "repair record",
+            "repair records",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -303,8 +385,8 @@ class MetadataExtractor:
         Merge new_result into accumulated, combining lists and preferring
         non-None scalar values.
         """
-        dt = doc_type.lower()
-        is_logbook = any(kw in dt for kw in ("log", "logbook", "maintenance"))
+        dt = _normalize_doc_type(doc_type)
+        is_logbook = _is_logbook_like_doc(dt)
 
         for key, value in new_result.items():
             if key not in accumulated:
@@ -346,11 +428,11 @@ class MetadataExtractor:
         raw_per_chunk: list[dict],
     ) -> ExtractedMetadata:
         """Convert the merged dict into a typed ExtractedMetadata."""
-        dt = doc_type.lower()
+        dt = _normalize_doc_type(doc_type)
 
         result = ExtractedMetadata(doc_type=doc_type, raw_per_chunk=raw_per_chunk)
 
-        if any(kw in dt for kw in ("log", "logbook", "maintenance")):
+        if _is_logbook_like_doc(dt):
             events = [MaintenanceEvent(**e) for e in merged.get("maintenance_events", [])]
             result.logbook = LogbookMetadata(
                 maintenance_events=events,
@@ -358,14 +440,14 @@ class MetadataExtractor:
                 serial_numbers=merged.get("serial_numbers", []),
                 engine_serial_numbers=merged.get("engine_serial_numbers", []),
             )
-        elif any(kw in dt for kw in ("poh", "afm", "pilot", "flight manual")):
+        elif _is_reference_doc(dt):
             result.poh_afm = PohAfmMetadata(
                 revision=merged.get("revision"),
                 effective_date=merged.get("effective_date"),
                 aircraft_models_applicable=merged.get("aircraft_models_applicable", []),
                 faa_approval_number=merged.get("faa_approval_number"),
             )
-        elif any(kw in dt for kw in ("ad", "sb", "airworthiness", "service bulletin", "directive")):
+        elif _is_ad_sb_doc(dt):
             result.ad_sb = AdSbMetadata(
                 ad_number=merged.get("ad_number"),
                 sb_number=merged.get("sb_number"),
@@ -374,15 +456,6 @@ class MetadataExtractor:
                 compliance_date=merged.get("compliance_date"),
                 affected_models=merged.get("affected_models", []),
                 compliance_method=merged.get("compliance_method"),
-            )
-        else:
-            # Unknown type – store as logbook by default
-            events = [MaintenanceEvent(**e) for e in merged.get("maintenance_events", [])]
-            result.logbook = LogbookMetadata(
-                maintenance_events=events,
-                tail_numbers=merged.get("tail_numbers", []),
-                serial_numbers=merged.get("serial_numbers", []),
-                engine_serial_numbers=merged.get("engine_serial_numbers", []),
             )
 
         return result

@@ -1,6 +1,8 @@
 import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { documentMatchesClassification } from '@/lib/documents/classification'
 import { renderReportToPDF } from './pdfRenderer'
+import type { DocType, Document } from '@/types'
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -28,7 +30,10 @@ export async function generatePrebuyPacket(
     supabase.from('maintenance_events').select('*').eq('aircraft_id', aircraftId).order('entry_date', { ascending: true }),
     supabase.from('record_findings').select('*').eq('aircraft_id', aircraftId).eq('is_resolved', false).order('severity'),
     supabase.from('aircraft_ad_applicability').select('*').eq('aircraft_id', aircraftId),
-    supabase.from('documents').select('id, document_type, title').eq('aircraft_id', aircraftId),
+    supabase
+      .from('documents')
+      .select('id, title, doc_type, document_group_id, document_detail_id')
+      .eq('aircraft_id', aircraftId),
   ])
 
   // Identify major events
@@ -166,12 +171,61 @@ Flag the most important issues in the first paragraph.
       hasRegistration: status?.has_registration,
       hasAirworthinessCert: status?.has_airworthiness_cert,
       hasWeightBalance: status?.has_weight_balance,
-      hasForm337s: documents?.some(d => d.document_type === 'form_337'),
-      hasEngineLogbooks: documents?.some(d => d.document_type === 'engine_log'),
-      hasAirframeLogbooks: documents?.some(d => d.document_type === 'airframe_log'),
-      hasPropLogbooks: documents?.some(d => d.document_type === 'prop_log'),
+      hasForm337s: documents?.some((document) =>
+        documentMatchesIntelligenceClassification(
+          document,
+          { detailIds: ['faa_form_337_records'] },
+          { allowLegacyDocTypes: ['form_337'] }
+        )
+      ),
+      hasEngineLogbooks: documents?.some((document) =>
+        documentMatchesIntelligenceClassification(document, { detailIds: ['engine_logbooks'] })
+      ),
+      hasAirframeLogbooks: documents?.some((document) =>
+        documentMatchesIntelligenceClassification(document, { detailIds: ['airframe_logbooks'] })
+      ),
+      hasPropLogbooks: documents?.some((document) =>
+        documentMatchesIntelligenceClassification(document, { detailIds: ['propeller_logbooks'] })
+      ),
     },
   }
 
   return renderReportToPDF(reportData, 'prebuy_packet')
+}
+
+type IntelligenceDocument = Pick<
+  Document,
+  'doc_type' | 'document_group_id' | 'document_detail_id'
+> & {
+  id?: string
+  title?: string
+}
+
+function hasStructuredDocumentClassification(document: Partial<IntelligenceDocument>) {
+  return Boolean(document.document_group_id || document.document_detail_id)
+}
+
+function documentMatchesIntelligenceClassification(
+  document: Partial<IntelligenceDocument>,
+  match: {
+    docTypes?: DocType[]
+    groupIds?: string[]
+    detailIds?: string[]
+  },
+  options?: {
+    allowLegacyDocTypes?: DocType[]
+  }
+) {
+  const docType = document.doc_type ?? 'miscellaneous'
+  const candidate = {
+    doc_type: docType,
+    document_group_id: document.document_group_id ?? null,
+    document_detail_id: document.document_detail_id ?? null,
+  }
+
+  if (hasStructuredDocumentClassification(document)) {
+    return documentMatchesClassification(candidate, match)
+  }
+
+  return Boolean(options?.allowLegacyDocTypes?.includes(docType))
 }

@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -105,7 +104,7 @@ export function CustomerDetail({
   invoiceTotal: number
   orgAircraft: Aircraft[]
 }) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [saving, setSaving] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignSaving, setAssignSaving] = useState(false)

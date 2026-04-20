@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,14 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  Clock,
   Loader2,
   Eye,
   Info,
+  Trash2,
 } from 'lucide-react'
 import { cn, formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
+import { resolveStoredDocumentClassification } from '@/lib/documents/taxonomy'
+import { getDocumentClassificationProfile } from '@/lib/documents/classification'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import type { Document, ParsingStatus } from '@/types'
 
@@ -32,6 +34,9 @@ import type { Document, ParsingStatus } from '@/types'
 interface DocumentDetailSlideoverProps {
   document: Document | null
   onClose: () => void
+  onDeleted?: (documentId: string) => void
+  onDocumentPatched?: (documentId: string, patch: Partial<Document>) => void
+  canDelete?: boolean
 }
 
 // ─── Parsing status step config ───────────────────────────────────────────────
@@ -96,12 +101,13 @@ function ParseStepsViz({ status, ocr }: { status: ParsingStatus; ocr: boolean })
   const steps = ocr ? OCR_STEPS : PARSING_STEPS
   const activeIdx = stepIndexForStatus(status, ocr)
   const isFailed = status === 'failed'
+  const isCompleted = status === 'completed'
 
   return (
     <div className="flex items-center gap-1">
       {steps.map((step, i) => {
-        const isDone = !isFailed && i < activeIdx
-        const isActive = !isFailed && i === activeIdx
+        const isDone = !isFailed && (i < activeIdx || (isCompleted && i === activeIdx))
+        const isActive = !isFailed && !isCompleted && i === activeIdx
         const isFuture = isFailed ? true : i > activeIdx
 
         return (
@@ -155,15 +161,166 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSlideoverProps) {
+export function DocumentDetailSlideover({
+  document,
+  onClose,
+  onDeleted,
+  onDocumentPatched,
+  canDelete = false,
+}: DocumentDetailSlideoverProps) {
+  const [liveDocument, setLiveDocument] = useState<Document | null>(document)
+  const [statusHydrated, setStatusHydrated] = useState(false)
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [fetchingUrl, setFetchingUrl] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
   const [currentStatus, setCurrentStatus] = useState<ParsingStatus | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const doc = document
+  const doc = liveDocument?.id === document?.id ? liveDocument : document
   const status = currentStatus ?? doc?.parsing_status
+  const processingStartedAt =
+    doc?.parse_started_at ?? doc?.updated_at ?? doc?.uploaded_at ?? null
+  const processingAgeMs = processingStartedAt
+    ? Date.now() - new Date(processingStartedAt).getTime()
+    : 0
+  const isPossiblyStuck =
+    status != null &&
+    ['queued', 'parsing', 'ocr_processing', 'chunking', 'embedding'].includes(status) &&
+    processingAgeMs >= 15 * 60 * 1000
+  const classification = doc ? resolveStoredDocumentClassification(doc) : null
+  let classificationProfile = null
+  if (doc) {
+    try {
+      classificationProfile = getDocumentClassificationProfile(doc)
+    } catch {
+      classificationProfile = null
+    }
+  }
+
+  useEffect(() => {
+    setStatusHydrated(false)
+
+    if (!document) {
+      setLiveDocument(null)
+      setCurrentStatus(null)
+      return
+    }
+
+    setLiveDocument((prev) => {
+      if (!prev || prev.id !== document.id) {
+        return document
+      }
+
+      const prevUpdatedAt = prev.updated_at ? Date.parse(prev.updated_at) : 0
+      const nextUpdatedAt = document.updated_at ? Date.parse(document.updated_at) : 0
+
+      if (
+        nextUpdatedAt >= prevUpdatedAt ||
+        prev.parsing_status !== document.parsing_status ||
+        prev.parse_error !== document.parse_error
+      ) {
+        return {
+          ...prev,
+          ...document,
+        }
+      }
+
+      return prev
+    })
+
+    setCurrentStatus((prev) => {
+      if (!document.parsing_status) return prev ?? null
+      if (!prev) return document.parsing_status
+      return document.parsing_status
+    })
+  }, [document])
+
+  useEffect(() => {
+    setRetryError(null)
+    setDeleteError(null)
+    setSignedUrl(null)
+  }, [doc?.id])
+
+  useEffect(() => {
+    if (!doc?.id) return
+
+    let cancelled = false
+
+    const refresh = async () => {
+      try {
+        const latest = await syncLatestDocumentStatus(doc.id)
+        if (!latest || cancelled) return
+
+        setLiveDocument(latest)
+        setCurrentStatus(latest.parsing_status)
+        setStatusHydrated(true)
+        onDocumentPatched?.(doc.id, {
+          parsing_status: latest.parsing_status,
+          parse_error: latest.parse_error ?? undefined,
+          parse_started_at: latest.parse_started_at ?? undefined,
+          parse_completed_at: latest.parse_completed_at ?? undefined,
+          updated_at: latest.updated_at,
+          page_count: latest.page_count,
+        })
+      } catch {
+        if (!cancelled) setStatusHydrated(true)
+        // Keep current UI if the refresh fails.
+      }
+    }
+
+    void refresh()
+
+    return () => {
+      cancelled = true
+    }
+  }, [doc?.id])
+
+  useEffect(() => {
+    if (!doc?.id || !status) return
+    if (!['queued', 'parsing', 'ocr_processing', 'chunking', 'embedding'].includes(status)) {
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await syncLatestDocumentStatus(doc.id)
+        if (!latest || cancelled) return
+
+        setLiveDocument(latest)
+        setCurrentStatus(latest.parsing_status)
+        setStatusHydrated(true)
+        onDocumentPatched?.(doc.id, {
+          parsing_status: latest.parsing_status,
+          parse_error: latest.parse_error ?? undefined,
+          parse_started_at: latest.parse_started_at ?? undefined,
+          parse_completed_at: latest.parse_completed_at ?? undefined,
+          updated_at: latest.updated_at,
+          page_count: latest.page_count,
+        })
+      } catch {
+        // Polling is best-effort only.
+      }
+    }, 10000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [doc?.id, status, onDocumentPatched])
+
+  async function syncLatestDocumentStatus(documentId: string) {
+    const res = await fetch(`/api/documents/${documentId}?ts=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'cache-control': 'no-cache' },
+    })
+    if (!res.ok) return null
+
+    const json = (await res.json()) as { document?: Document }
+    return json.document ?? null
+  }
 
   async function handleOpenOriginal() {
     if (!doc) return
@@ -186,23 +343,102 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
     }
   }
 
-  async function handleRetry() {
+  async function handleRetry(force = false) {
     if (!doc) return
     setRetrying(true)
     setRetryError(null)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 6000)
     try {
       const res = await fetch(`/api/documents/${doc.id}/retry`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(force ? { force: true } : {}),
+        signal: controller.signal,
       })
       if (!res.ok) {
         const json = (await res.json()) as { error?: string }
         throw new Error(json.error ?? `HTTP ${res.status}`)
       }
       setCurrentStatus('queued')
+      setStatusHydrated(true)
+      setLiveDocument((prev) =>
+        prev && prev.id === doc.id
+          ? {
+              ...prev,
+              parsing_status: 'queued',
+              parse_error: undefined,
+              parse_started_at: undefined,
+              parse_completed_at: undefined,
+              updated_at: new Date().toISOString(),
+            }
+          : prev
+      )
+      onDocumentPatched?.(doc.id, {
+        parsing_status: 'queued',
+        parse_error: undefined,
+        parse_started_at: undefined,
+        parse_completed_at: undefined,
+        updated_at: new Date().toISOString(),
+      })
     } catch (err) {
-      setRetryError(err instanceof Error ? err.message : 'Retry failed')
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        try {
+          const latest = await syncLatestDocumentStatus(doc.id)
+          if (
+            latest &&
+            ['queued', 'parsing', 'ocr_processing', 'chunking', 'embedding', 'completed'].includes(
+              latest.parsing_status
+            )
+          ) {
+            setLiveDocument(latest)
+            setCurrentStatus(latest.parsing_status)
+            setStatusHydrated(true)
+            onDocumentPatched?.(doc.id, {
+              parsing_status: latest.parsing_status,
+              parse_error: latest.parse_error ?? undefined,
+              parse_started_at: latest.parse_started_at ?? undefined,
+              parse_completed_at: latest.parse_completed_at ?? undefined,
+              updated_at: latest.updated_at,
+              page_count: latest.page_count,
+            })
+            setRetryError(null)
+          } else {
+            setRetryError('Re-queue request is still running. Please wait a moment and check the status again.')
+          }
+        } catch {
+          setRetryError('Re-queue request is still running. Please wait a moment and check the status again.')
+        }
+      } else {
+        setRetryError(err instanceof Error ? err.message : 'Retry failed')
+      }
     } finally {
+      window.clearTimeout(timeout)
       setRetrying(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!doc || !canDelete || deleting) return
+    const confirmed = window.confirm(
+      `Delete "${doc.title}"? This removes the file, its processing artifacts, and any duplicate upload record.`
+    )
+    if (!confirmed) return
+
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string }
+        throw new Error(json.error ?? `HTTP ${res.status}`)
+      }
+      onDeleted?.(doc.id)
+      onClose()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -220,9 +456,21 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                   </DialogTitle>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Badge variant="outline" className="text-xs">
-                      {DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
+                      {classification?.detailLabel ?? DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
                     </Badge>
-                    {status && <StatusBadge status={status} />}
+                    {classification && (
+                      <Badge variant="secondary" className="text-xs">
+                        {classification.groupLabel}
+                      </Badge>
+                    )}
+                    {statusHydrated && status ? (
+                      <StatusBadge status={status} />
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Refreshing status
+                      </span>
+                    )}
                     {doc.source_provider === 'google_drive' && (
                       <Badge variant="secondary" className="text-xs">Google Drive</Badge>
                     )}
@@ -256,6 +504,30 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                       )}
                       {doc.document_date && (
                         <InfoRow label="Document date">{doc.document_date}</InfoRow>
+                      )}
+                      {classification && (
+                        <InfoRow label="Vault section">{classification.groupLabel}</InfoRow>
+                      )}
+                      {classification && (
+                        <InfoRow label="Document type">{classification.detailLabel}</InfoRow>
+                      )}
+                      {classificationProfile && (
+                        <InfoRow label="Record family">
+                          {classificationProfile.recordFamily.replace(/_/g, ' ')}
+                        </InfoRow>
+                      )}
+                      {classificationProfile && (
+                        <InfoRow label="Truth role">
+                          {classificationProfile.truthRole.replace(/_/g, ' ')}
+                        </InfoRow>
+                      )}
+                      {doc.document_subtype && (
+                        <InfoRow label="Subtype / volume">{doc.document_subtype}</InfoRow>
+                      )}
+                      {!classification && (
+                        <InfoRow label="Document type">
+                          {DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
+                        </InfoRow>
                       )}
                     </div>
                   </div>
@@ -291,7 +563,14 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                     Processing Status
                   </h3>
-                  <ParseStepsViz status={status ?? 'queued'} ocr={doc.ocr_required} />
+                  {statusHydrated ? (
+                    <ParseStepsViz status={status ?? 'queued'} ocr={doc.ocr_required} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Checking latest processing state…
+                    </div>
+                  )}
                 </section>
 
                 {/* OCR note */}
@@ -303,6 +582,33 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                       recognition, which may affect search accuracy.
                     </p>
                   </div>
+                )}
+
+                {classificationProfile && (
+                  <section>
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                      Intelligence Profile
+                    </h3>
+                    <div className="rounded-lg border border-border divide-y divide-border">
+                      <div className="px-3">
+                        <InfoRow label="Reminder eligible">
+                          {classificationProfile.canActivateReminder ? 'Yes' : 'No'}
+                        </InfoRow>
+                        <InfoRow label="AD evidence">
+                          {classificationProfile.canSatisfyAdRequirement ? 'Eligible' : 'No'}
+                        </InfoRow>
+                        <InfoRow label="Visibility">
+                          {classificationProfile.visibleTo.join(' · ')}
+                        </InfoRow>
+                        <InfoRow label="OCR routing">
+                          {classificationProfile.parserStrategy.replace(/_/g, ' ')}
+                        </InfoRow>
+                        <InfoRow label="Segmentation">
+                          {classificationProfile.needsSegmentation ? 'Needed' : 'Not needed'}
+                        </InfoRow>
+                      </div>
+                    </div>
+                  </section>
                 )}
 
                 {/* Completed: page count call-out */}
@@ -320,17 +626,38 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                   </section>
                 )}
 
-                {/* Failed: error message + retry */}
-                {status === 'failed' && (
+                {/* Failed or stale in-progress: error/recovery */}
+                {(status === 'failed' || isPossiblyStuck) && (
                   <section>
                     <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      Parse Error
+                      {status === 'failed' ? 'Parse Error' : 'Recovery'}
                     </h3>
-                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 space-y-2">
+                    <div
+                      className={cn(
+                        'p-3 rounded-lg space-y-2',
+                        status === 'failed'
+                          ? 'bg-red-50 border border-red-200'
+                          : 'bg-amber-50 border border-amber-200'
+                      )}
+                    >
                       <div className="flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-                        <p className="text-xs text-red-800 font-mono leading-relaxed break-all">
-                          {doc.parse_error ?? 'An unknown error occurred during parsing.'}
+                        <AlertCircle
+                          className={cn(
+                            'h-4 w-4 shrink-0 mt-0.5',
+                            status === 'failed' ? 'text-red-600' : 'text-amber-700'
+                          )}
+                        />
+                        <p
+                          className={cn(
+                            'text-xs leading-relaxed',
+                            status === 'failed'
+                              ? 'text-red-800 font-mono break-all'
+                              : 'text-amber-900'
+                          )}
+                        >
+                          {status === 'failed'
+                            ? doc.parse_error ?? 'An unknown error occurred during parsing.'
+                            : 'This document has been processing longer than expected. You can safely re-queue OCR/indexing.'}
                         </p>
                       </div>
                       {retryError && (
@@ -339,19 +666,23 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={handleRetry}
+                        onClick={() => handleRetry(status !== 'failed')}
                         disabled={retrying}
-                        className="border-red-300 text-red-700 hover:bg-red-100"
+                        className={cn(
+                          status === 'failed'
+                            ? 'border-red-300 text-red-700 hover:bg-red-100'
+                            : 'border-amber-300 text-amber-800 hover:bg-amber-100'
+                        )}
                       >
                         {retrying ? (
                           <>
                             <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                            Re-queueing…
+                            Re-queueing...
                           </>
                         ) : (
                           <>
                             <RefreshCw className="mr-1.5 h-3 w-3" />
-                            Retry Parsing
+                            {status === 'failed' ? 'Retry Parsing' : 'Re-queue OCR'}
                           </>
                         )}
                       </Button>
@@ -382,7 +713,31 @@ export function DocumentDetailSlideover({ document, onClose }: DocumentDetailSli
                       </>
                     )}
                   </Button>
+                  {canDelete && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      className="border-red-200 text-red-700 hover:bg-red-50"
+                    >
+                      {deleting ? (
+                        <>
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          Delete
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
+                {deleteError && (
+                  <p className="text-xs text-red-700 pb-2">{deleteError}</p>
+                )}
               </div>
             </ScrollArea>
           </>

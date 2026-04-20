@@ -102,6 +102,7 @@ export function PartsWorkspace({ aircraft, orders, stats, initialTab, initialAir
       {tab === 'search' ? (
         <PartSearchPanel
           aircraft={aircraft}
+          initialAircraftId={initialAircraftId}
           onOrderCreated={(order) => setLocalOrders(prev => [order as any, ...prev])}
         />
       ) : (
@@ -116,4 +117,3 @@ export function PartsWorkspace({ aircraft, orders, stats, initialTab, initialAir
     </div>
   )
 }
-

@@ -7,6 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Send, MessageSquare } from 'lucide-react-native'
 import { supabase } from '@/lib/supabase'
+import { getApiBaseUrl } from '@/lib/config'
 import { useSession } from '@/hooks/useSession'
 import { useOrg } from '@/hooks/useOrg'
 import { Colors, dark, light } from '@/constants/colors'
@@ -60,7 +61,7 @@ export default function AskScreen() {
 
     try {
       // Call the web API query endpoint
-      const apiBase = process.env.EXPO_PUBLIC_API_URL ?? 'https://myaircraft.us'
+      const apiBase = getApiBaseUrl()
       const { data: { session: currentSession } } = await supabase.auth.getSession()
       const token = currentSession?.access_token
 
@@ -69,6 +70,7 @@ export default function AskScreen() {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          ...(orgId ? { 'x-organization-id': orgId } : {}),
         },
         body: JSON.stringify({ question, aircraft_id: null }),
       })
@@ -85,7 +87,7 @@ export default function AskScreen() {
         content: data.answer,
         confidence: data.confidence,
         confidence_score: data.confidence_score,
-        cited_chunk_ids: data.cited_chunk_ids,
+        cited_chunk_ids: data.cited_chunk_ids ?? data.citedChunkIds,
         warning_flags: data.warning_flags,
         follow_up_questions: data.follow_up_questions,
       }

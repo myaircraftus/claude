@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -62,6 +62,7 @@ export function Sidebar({
     {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { label: 'Ops Console', href: '/dashboard/ops', icon: Shield },
         { label: 'Aircraft', href: '/aircraft', icon: Plane },
         { label: 'Documents', href: '/documents', icon: FileText },
       ],

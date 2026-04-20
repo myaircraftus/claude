@@ -92,6 +92,7 @@ export interface Aircraft {
   avionics_notes?: string
   base_airport?: string
   operator_name?: string
+  operation_types?: string[]
   notes?: string
   total_time_hours?: number
   owner_customer_id?: string
@@ -107,6 +108,20 @@ export interface Document {
   aircraft_id?: string
   title: string
   doc_type: DocType
+  document_group_id?: string
+  document_detail_id?: string
+  document_subtype?: string
+  record_family?: string
+  document_class?: string
+  truth_role?: string
+  parser_strategy?: string
+  review_priority?: string
+  canonical_eligibility?: boolean
+  reminder_relevance?: boolean
+  ad_relevance?: boolean
+  inspection_relevance?: boolean
+  completeness_relevance?: boolean
+  intelligence_tags?: string[]
   description?: string
   file_path: string
   file_name: string
@@ -134,7 +149,14 @@ export interface Document {
   allow_download?: boolean
   community_listing?: boolean
   manual_access?: ManualAccess
+  marketplace_downloadable?: boolean
+  marketplace_injectable?: boolean
+  marketplace_preview_available?: boolean
   book_assignment?: BookAssignment
+  book_id?: string
+  book_number?: string
+  book_type?: string
+  scan_batch_id?: string
   price_cents?: number
   attestation_accepted?: boolean
   listing_status?: ListingStatus
@@ -192,8 +214,16 @@ export interface Citation {
   document_id: string
   chunk_id?: string
   page_number: number
+  page_number_end?: number
   section_title?: string
   quoted_snippet: string
+  quoted_text?: string
+  normalized_quoted_text?: string
+  match_strategy?: string
+  text_anchor_start?: number
+  text_anchor_end?: number
+  bounding_regions?: CitationBoundingRegion[]
+  is_exact_anchor?: boolean
   relevance_score?: number
   citation_index: number
   created_at: string
@@ -251,14 +281,33 @@ export interface RetrievedChunk {
   combined_score: number
 }
 
+export interface CitationBoundingRegion {
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+  source?: string | null
+  kind?: string | null
+  confidence?: number | null
+}
+
 export interface AnswerCitation {
   chunkId: string
   documentId: string
   documentTitle: string
   docType: DocType
   pageNumber: number
+  pageNumberEnd?: number
   sectionTitle?: string
   snippet: string
+  quotedText?: string
+  normalizedQuotedText?: string
+  matchStrategy?: string
+  textAnchorStart?: number | null
+  textAnchorEnd?: number | null
+  boundingRegions?: CitationBoundingRegion[]
+  isExactAnchor?: boolean
   relevanceScore: number
 }
 
@@ -290,6 +339,10 @@ export interface FileUploadItem {
   notes: string
   aircraftId?: string
   docType: DocType
+  documentGroupId?: string
+  documentDetailId?: string
+  documentSubtype?: string
+  documentDate?: string
   bookAssignmentType: BookAssignment
   manualAccess: ManualAccess
   price: string
@@ -322,6 +375,11 @@ export interface Reminder {
   current_hours?: number
   hours_remaining?: number
   days_remaining?: number
+  activation_state?: 'canonical' | 'informational_only' | 'review_required' | 'ignore'
+  activation_block_reason?: string
+  evidence_document_id?: string
+  evidence_segment_id?: string
+  canonical_record_version_id?: string
   auto_generated: boolean
   created_at: string
   updated_at: string

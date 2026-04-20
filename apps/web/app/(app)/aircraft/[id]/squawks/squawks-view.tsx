@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -107,7 +107,7 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanics }: SquawksViewProps) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [squawks, setSquawks] = useState<Squawk[]>(initialSquawks)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)

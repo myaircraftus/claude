@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Plane, Send, Loader2, CheckCircle2, Clock, Trash2, EyeOff, AlertTriangle } from 'lucide-react'
+import { useTenantRouter } from '@/components/shared/tenant-link'
+import { Plane, Send, Loader2, CheckCircle2, Clock, Trash2, EyeOff, AlertTriangle, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CameraCapture } from '../components/camera-capture'
@@ -50,26 +50,34 @@ const CLASSIFICATIONS = [
   { value: 'unknown', label: '— unknown —' },
   { value: 'logbook_entry', label: 'Logbook entry' },
   { value: 'work_order', label: 'Work order' },
+  { value: 'estimate', label: 'Estimate' },
   { value: 'annual_inspection', label: 'Annual inspection' },
+  { value: '50hr_inspection', label: '50-hour inspection' },
   { value: '100hr_inspection', label: '100-hour inspection' },
-  { value: 'ad_sheet', label: 'AD sheet' },
+  { value: 'ad_record', label: 'AD record' },
+  { value: 'service_bulletin', label: 'Service bulletin' },
   { value: 'yellow_tag', label: 'Yellow tag' },
   { value: 'form_337', label: 'Form 337' },
   { value: 'form_8130', label: 'Form 8130-3' },
+  { value: 'squawk_discrepancy', label: 'Squawk / discrepancy' },
   { value: 'discrepancy_sheet', label: 'Discrepancy sheet' },
   { value: 'invoice', label: 'Invoice / receipt' },
   { value: 'weight_balance', label: 'Weight & balance' },
+  { value: 'poh_afm_supplement', label: 'POH / AFM / supplement' },
+  { value: 'part_trace_conformity', label: 'Part trace / 8130 / conformity' },
+  { value: 'photo_evidence', label: 'Photo evidence' },
   { value: 'stc_reference', label: 'STC / reference' },
   { value: 'informational', label: 'Informational' },
 ]
 
 export function BatchCaptureView({ batch, initialPages }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [pages, setPages] = useState<Page[]>(initialPages)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [status, setStatus] = useState(batch.status)
   const [error, setError] = useState<string | null>(null)
   const [pageBusy, setPageBusy] = useState<Record<string, boolean>>({})
+  const [carryForwardClassification, setCarryForwardClassification] = useState(true)
 
   const capturing = status === 'capturing'
 
@@ -123,6 +131,12 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
   }
 
   function handlePageUploaded(p: { id: string; page_number: number; quality_score: number | null; warnings: string[] }) {
+    const previousPage = [...pages].sort((a, b) => a.page_number - b.page_number).at(-1)
+    const inheritedClassification =
+      carryForwardClassification && previousPage?.capture_classification
+        ? previousPage.capture_classification
+        : 'unknown'
+
     setPages(prev => [
       ...prev.filter(x => x.page_number !== p.page_number),
       {
@@ -130,7 +144,7 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
         page_number: p.page_number,
         capture_quality_score: p.quality_score,
         capture_warnings: p.warnings,
-        capture_classification: 'unknown',
+        capture_classification: inheritedClassification,
         user_marked_unreadable: false,
         low_quality_override: false,
         upload_status: 'uploaded',
@@ -138,6 +152,10 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
         original_image_path: null,
       },
     ].sort((a, b) => a.page_number - b.page_number))
+
+    if (inheritedClassification !== 'unknown') {
+      void updatePage(p.id, { capture_classification: inheritedClassification })
+    }
   }
 
   const nextPageNumber = pages.length === 0 ? 1 : Math.max(...pages.map(p => p.page_number)) + 1
@@ -178,6 +196,20 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
       {capturing && (
         <div className="rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold text-foreground mb-3">Capture pages</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={carryForwardClassification}
+                onChange={(e) => setCarryForwardClassification(e.target.checked)}
+                className="rounded border-border"
+              />
+              Same as previous page
+            </label>
+            <span className="text-muted-foreground">
+              New captures inherit the last page class to speed up long logbook or manual batches.
+            </span>
+          </div>
           <CameraCapture batchId={batch.id} initialPageNumber={nextPageNumber} onPageUploaded={handlePageUploaded} />
         </div>
       )}
@@ -187,7 +219,7 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <div className="space-y-0.5">
-            {lowQualityCount > 0 && <p><strong>{lowQualityCount}</strong> page{lowQualityCount !== 1 ? 's' : ''} have low capture quality — consider retaking or tick "override".</p>}
+            {lowQualityCount > 0 && <p><strong>{lowQualityCount}</strong> page{lowQualityCount !== 1 ? 's' : ''} have low capture quality — consider retaking or tick &ldquo;override&rdquo;.</p>}
             {unreadableCount > 0 && <p><strong>{unreadableCount}</strong> page{unreadableCount !== 1 ? 's' : ''} marked unreadable — downstream will route these to review.</p>}
           </div>
         </div>
@@ -206,6 +238,11 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
                 : quality >= 0.4 ? 'text-amber-600'
                 : 'text-red-600'
               const busy = pageBusy[p.id] ?? false
+              const previousPage = pages.find((candidate) => candidate.page_number === p.page_number - 1)
+              const previousClass =
+                previousPage?.capture_classification && previousPage.capture_classification !== 'unknown'
+                  ? previousPage.capture_classification
+                  : null
               return (
                 <div key={p.id} className={cn(
                   'flex flex-wrap items-center gap-2 rounded-md border p-2',
@@ -243,6 +280,16 @@ export function BatchCaptureView({ batch, initialPages }: Props) {
                   )}
                   {capturing && (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => previousClass && updatePage(p.id, { capture_classification: previousClass })}
+                        disabled={busy || !previousClass}
+                        className="h-7 px-2 text-[10px] rounded border border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1 flex-shrink-0"
+                        title={previousClass ? `Copy ${previousClass.replace(/_/g, ' ')} from previous page` : 'No previous page classification'}
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy previous
+                      </button>
                       <button
                         type="button"
                         onClick={() => updatePage(p.id, { user_marked_unreadable: !p.user_marked_unreadable })}

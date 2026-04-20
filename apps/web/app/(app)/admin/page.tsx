@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import {
   Building2,
   Users,
@@ -46,6 +46,8 @@ interface AdminStats {
   queries_last_24h: number
   total_storage_gb: number
   processing_documents: number
+  open_feedback: number
+  open_support: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -186,6 +188,8 @@ export default async function AdminDashboardPage() {
     recentQueriesRes,
     processingCountRes,
     failedDocsRes,
+    feedbackRes,
+    supportRes,
   ] = await Promise.all([
     // Total orgs
     service.from('organizations').select('id', { count: 'exact', head: true }),
@@ -229,6 +233,16 @@ export default async function AdminDashboardPage() {
       .eq('parsing_status', 'failed')
       .order('updated_at', { ascending: false })
       .limit(5),
+
+    service
+      .from('feedback')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open'),
+
+    service
+      .from('support_tickets')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['open', 'triaged', 'in_progress']),
   ])
 
   // 5. Compute stats
@@ -251,6 +265,8 @@ export default async function AdminDashboardPage() {
     storageRows.reduce((sum, r) => sum + (r.file_size_bytes ?? 0), 0) / 1073741824
 
   const processingCount = processingCountRes.count ?? 0
+  const openFeedback = feedbackRes.count ?? 0
+  const openSupport = supportRes.count ?? 0
 
   const recentQueries: RecentQuery[] = ((recentQueriesRes.data ?? []) as any[]).map((q) => ({
     id: q.id,
@@ -276,6 +292,8 @@ export default async function AdminDashboardPage() {
     queries_last_24h: queriesLast24h,
     total_storage_gb: totalStorageGb,
     processing_documents: processingCount,
+    open_feedback: openFeedback,
+    open_support: openSupport,
   }
 
   return (
@@ -296,7 +314,7 @@ export default async function AdminDashboardPage() {
             </p>
           </div>
 
-          {/* Stats grid — 2 rows of 4 */}
+          {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
               icon={<Building2 className="h-5 w-5 text-indigo-600" />}
@@ -346,7 +364,49 @@ export default async function AdminDashboardPage() {
               value={stats.processing_documents}
               color="bg-blue-50"
             />
+            <StatCard
+              icon={<MessageSquare className="h-5 w-5 text-fuchsia-600" />}
+              label="Open Feedback"
+              value={stats.open_feedback}
+              color="bg-fuchsia-50"
+            />
+            <StatCard
+              icon={<AlertTriangle className="h-5 w-5 text-orange-600" />}
+              label="Open Tickets"
+              value={stats.open_support}
+              color="bg-orange-50"
+            />
           </div>
+
+          {/* Ops inbox */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Ops Inbox</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Review feedback, support tickets, and disputes from all tenants.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-3">
+              <Link
+                href="/admin/feedback"
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
+              >
+                <MessageSquare className="h-4 w-4 text-fuchsia-600" />
+                Feedback Inbox
+                <Badge variant="secondary">{stats.open_feedback}</Badge>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+              </Link>
+              <Link
+                href="/admin/support"
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
+              >
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                Support Tickets
+                <Badge variant="secondary">{stats.open_support}</Badge>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+              </Link>
+            </CardContent>
+          </Card>
 
           {/* Recent Activity */}
           <Card>

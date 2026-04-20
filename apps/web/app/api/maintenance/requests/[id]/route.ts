@@ -72,6 +72,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (squawks && squawks.length > 0) {
       complaintText = squawks.map((s: any) => s.title).join('; ')
     }
+  } else if (request.request_source === 'reminder' && request.source_summary) {
+    complaintText = request.source_summary
   }
 
   // 2. Generate work order number

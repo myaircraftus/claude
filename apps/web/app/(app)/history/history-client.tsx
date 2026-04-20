@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
+import { useSearchParams } from 'next/navigation'
 import {
   MessageSquare, BookmarkIcon, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp,
   Clock, Filter, ChevronLeft, ChevronRight
@@ -43,7 +43,7 @@ interface Props {
 }
 
 export function HistoryClient({ queries, aircraft, totalPages, currentPage, selectedQueryId }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const searchParams = useSearchParams()
   const [expandedId, setExpandedId] = useState<string | null>(selectedQueryId ?? null)
   const [bookmarked, setBookmarked] = useState<Set<string>>(
@@ -82,7 +82,9 @@ export function HistoryClient({ queries, aircraft, totalPages, currentPage, sele
       const { data } = await supabase
         .from('citations')
         .select(`
-          id, page_number, section_title, quoted_snippet, relevance_score, citation_index,
+          id, page_number, page_number_end, section_title, quoted_snippet, quoted_text,
+          normalized_quoted_text, match_strategy, text_anchor_start, text_anchor_end,
+          bounding_regions, is_exact_anchor, relevance_score, citation_index,
           document_id,
           chunk_id,
           documents:document_id(title, doc_type)
@@ -96,8 +98,16 @@ export function HistoryClient({ queries, aircraft, totalPages, currentPage, sele
           documentTitle: c.documents?.title ?? 'Unknown document',
           docType: c.documents?.doc_type ?? 'miscellaneous',
           pageNumber: c.page_number,
+          pageNumberEnd: c.page_number_end ?? undefined,
           sectionTitle: c.section_title,
           snippet: c.quoted_snippet,
+          quotedText: c.quoted_text ?? c.quoted_snippet,
+          normalizedQuotedText: c.normalized_quoted_text ?? undefined,
+          matchStrategy: c.match_strategy ?? undefined,
+          textAnchorStart: c.text_anchor_start ?? null,
+          textAnchorEnd: c.text_anchor_end ?? null,
+          boundingRegions: Array.isArray(c.bounding_regions) ? c.bounding_regions : [],
+          isExactAnchor: Boolean(c.is_exact_anchor),
           relevanceScore: c.relevance_score ?? 0,
         }))
         setCitations(prev => ({ ...prev, [queryId]: mapped }))

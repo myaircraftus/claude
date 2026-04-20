@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
 
 async function getOrgId(supabase: ReturnType<typeof import('@/lib/supabase/server').createServerSupabase>, userId: string) {
   const { data } = await supabase
@@ -78,15 +79,38 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const allowedFields = [
     'status', 'customer_complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
     'corrective_action', 'internal_notes', 'customer_notes',
-    'assigned_mechanic_id', 'aircraft_id', 'tax_amount',
+    'assigned_mechanic_id', 'aircraft_id', 'customer_id', 'tax_amount', 'service_type',
+    'linked_invoice_id', 'linked_logbook_entry_id',
     'closed_at',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   // Map frontend field names to DB column names
   if ('complaint' in body) body.customer_complaint = body.complaint
   if ('customer_visible_notes' in body) body.customer_notes = body.customer_visible_notes
+  if ('status' in body) body.status = toDbWorkOrderStatus(body.status)
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
+  }
+
+  if (body.status === 'closed') {
+    const { data: incompleteChecklist, error: checklistError } = await supabase
+      .from('work_order_checklist_items')
+      .select('id')
+      .eq('organization_id', orgId)
+      .eq('work_order_id', params.id)
+      .eq('required', true)
+      .eq('completed', false)
+
+    if (checklistError) {
+      return NextResponse.json({ error: checklistError.message }, { status: 500 })
+    }
+
+    if ((incompleteChecklist?.length ?? 0) > 0) {
+      return NextResponse.json(
+        { error: 'Complete all required checklist items before closing this work order.' },
+        { status: 409 }
+      )
+    }
   }
 
   // Auto-set timestamps based on status

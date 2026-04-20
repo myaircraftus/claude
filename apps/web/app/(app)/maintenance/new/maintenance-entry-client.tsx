@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -150,7 +150,7 @@ interface Props {
 }
 
 export function MaintenanceEntryClient({ aircraftList }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
 
   // Mode
   const [mode, setMode] = useState<Mode>('ai')

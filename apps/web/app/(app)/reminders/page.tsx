@@ -1,31 +1,22 @@
-import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import RemindersClient from './reminders-client'
-import type { UserProfile } from '@/types'
 
 export const metadata = { title: 'Reminders' }
 
-export default async function RemindersPage() {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role, organizations(*)')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  const membership = membershipRes.data
-  if (!membership) redirect('/onboarding')
+export default async function RemindersPage({
+  searchParams,
+}: {
+  searchParams?: {
+    aircraft?: string
+    add?: string
+    request_reminder?: string
+  }
+}) {
+  const { supabase, profile, membership } = await requireAppServerSession()
 
   const orgId = membership.organization_id
+  const role = membership.role
 
   // Fetch aircraft for this org
   const { data: aircraft } = await supabase
@@ -35,8 +26,16 @@ export default async function RemindersPage() {
     .eq('is_archived', false)
     .order('tail_number')
 
+  const { data: mechanics } = await supabase
+    .from('organization_memberships')
+    .select('user_id, user:user_id(id, full_name, email)')
+    .eq('organization_id', orgId)
+    .eq('role', 'mechanic')
+    .not('accepted_at', 'is', null)
+
   // Try to fetch reminders (table may not exist yet — handle gracefully)
   let reminders: any[] = []
+  let requestStates: Record<string, { id: string; status: 'pending' | 'accepted' | 'declined' | 'converted_to_wo'; mechanic_name?: string }> = {}
   try {
     const { data } = await supabase
       .from('reminders')
@@ -52,6 +51,38 @@ export default async function RemindersPage() {
     // Table doesn't exist yet — show empty state
   }
 
+  try {
+    const { data } = await supabase
+      .from('maintenance_requests')
+      .select(`
+        id,
+        source_reminder_id,
+        status,
+        mechanic:target_mechanic_user_id(full_name, email)
+      `)
+      .eq('organization_id', orgId)
+      .eq('request_source', 'reminder')
+      .not('source_reminder_id', 'is', null)
+
+    requestStates = Object.fromEntries(
+      (data ?? [])
+        .map((request: any) => {
+          const sourceReminderId = request.source_reminder_id as string | null
+          if (!sourceReminderId) return null
+          const mechanic = Array.isArray(request.mechanic) ? request.mechanic[0] ?? null : request.mechanic ?? null
+          return [
+            sourceReminderId,
+            {
+              id: request.id,
+              status: request.status,
+              mechanic_name: mechanic?.full_name ?? mechanic?.email ?? undefined,
+            },
+          ]
+        })
+        .filter(Boolean) as Array<[string, { id: string; status: 'pending' | 'accepted' | 'declined' | 'converted_to_wo'; mechanic_name?: string }]>
+    )
+  } catch {}
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar
@@ -62,6 +93,20 @@ export default async function RemindersPage() {
         reminders={reminders}
         aircraft={aircraft ?? []}
         orgId={orgId}
+        mechanics={(mechanics ?? []).map((member: any) => {
+          const profile = Array.isArray(member.user) ? member.user[0] ?? null : member.user ?? null
+          return {
+            id: member.user_id,
+            full_name: profile?.full_name ?? profile?.email ?? 'Unknown mechanic',
+            email: profile?.email ?? '',
+          }
+        })}
+        currentUserRole={role}
+        initialAircraftFilter={searchParams?.aircraft}
+        initialOpenAddModal={searchParams?.add === '1'}
+        initialAddAircraftId={searchParams?.aircraft}
+        initialRequestReminderId={searchParams?.request_reminder}
+        reminderRequestStates={requestStates}
       />
     </div>
   )

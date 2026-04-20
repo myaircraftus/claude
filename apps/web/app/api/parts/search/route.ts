@@ -60,6 +60,33 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (!aircraftContext && body.aircraft_context && typeof body.aircraft_context === 'object') {
+    const context = body.aircraft_context as Partial<AircraftContext>
+    const make = typeof context.make === 'string' ? context.make.trim() : ''
+    const model = typeof context.model === 'string' ? context.model.trim() : ''
+
+    aircraftMakeModel = [make, model].filter(Boolean).join(' ') || null
+    aircraftYear = typeof context.year === 'number' ? context.year : null
+    engineModel = [context.engineMake, context.engineModel]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' ') || null
+
+    if (typeof context.tailNumber === 'string' && context.tailNumber.trim()) {
+      aircraftContext = {
+        tailNumber: context.tailNumber.trim(),
+        make: make || 'Unknown',
+        model: model || 'Unknown',
+        year: typeof context.year === 'number' ? context.year : null,
+        serialNumber: typeof context.serialNumber === 'string' ? context.serialNumber : null,
+        engineMake: typeof context.engineMake === 'string' ? context.engineMake : null,
+        engineModel: typeof context.engineModel === 'string' ? context.engineModel : null,
+        engineSerial: typeof context.engineSerial === 'string' ? context.engineSerial : null,
+        propMake: typeof context.propMake === 'string' ? context.propMake : null,
+        propModel: typeof context.propModel === 'string' ? context.propModel : null,
+      }
+    }
+  }
+
   try {
     const result = await searchParts(supabase, {
       query,

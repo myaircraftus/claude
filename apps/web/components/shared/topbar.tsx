@@ -1,8 +1,7 @@
 'use client'
 
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Bell, LogOut, User, ChevronRight } from 'lucide-react'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
+import { Bell, LogOut, Search, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
@@ -14,21 +13,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
+import { FeedbackDialog } from '@/components/shared/feedback-dialog'
+import { SupportDialog } from '@/components/shared/support-dialog'
 import type { UserProfile } from '@/types'
-
-interface BreadcrumbItem {
-  label: string
-  href?: string
-}
 
 interface TopbarProps {
   profile: UserProfile
-  breadcrumbs?: BreadcrumbItem[]
+  breadcrumbs?: { label: string; href?: string }[]
   actions?: React.ReactNode
 }
 
-export function Topbar({ profile, breadcrumbs = [], actions }: TopbarProps) {
-  const router = useRouter()
+export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: TopbarProps) {
+  const router = useTenantRouter()
 
   async function handleSignOut() {
     const supabase = createBrowserSupabase()
@@ -44,29 +40,32 @@ export function Topbar({ profile, breadcrumbs = [], actions }: TopbarProps) {
     .toUpperCase()
     .slice(0, 2) ?? profile.email[0]?.toUpperCase() ?? '?'
 
-  return (
-    <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-background flex-shrink-0">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1 text-sm">
-        {breadcrumbs.map((item, i) => (
-          <span key={i} className="flex items-center gap-1">
-            {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-            {item.href ? (
-              <Link href={item.href} className="text-muted-foreground hover:text-foreground transition-colors">
-                {item.label}
-              </Link>
-            ) : (
-              <span className={i === breadcrumbs.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}>
-                {item.label}
-              </span>
-            )}
-          </span>
-        ))}
-      </nav>
+  const searchPlaceholder =
+    _breadcrumbs.length > 0
+      ? `Search ${_breadcrumbs[_breadcrumbs.length - 1].label}...`
+      : 'Search or ask your aircraft...'
 
-      {/* Right actions */}
+  return (
+    <header className="h-16 flex items-center justify-between px-6 border-b border-border bg-white flex-shrink-0">
+      <div className="flex items-center gap-3 flex-1 max-w-md">
+        <div className="flex-1 flex items-center gap-2 bg-muted rounded-lg px-3 py-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            className="bg-transparent text-[13px] outline-none flex-1 placeholder:text-muted-foreground/60"
+          />
+          <kbd className="text-[10px] text-muted-foreground bg-white px-1.5 py-0.5 rounded border border-border">
+            /
+          </kbd>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2">
         {actions}
+
+        <FeedbackDialog />
+        <SupportDialog />
 
         <Button variant="ghost" size="icon" className="text-muted-foreground">
           <Bell className="h-4 w-4" />

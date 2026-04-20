@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import CryptoJS from 'crypto-js'
 import { createServerSupabase } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 interface StoredTokens {
   access_token: string
   refresh_token?: string

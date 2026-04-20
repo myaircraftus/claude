@@ -12,9 +12,7 @@ export async function renderReportToPDF(
   let chromium: any
   let puppeteer: any
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     chromium = require('@sparticuz/chromium')
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     puppeteer = require('puppeteer-core')
     if (chromium && chromium.default) chromium = chromium.default
     if (puppeteer && puppeteer.default) puppeteer = puppeteer.default

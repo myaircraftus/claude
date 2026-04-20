@@ -1,5 +1,4 @@
 import { redirect, notFound } from 'next/navigation'
-import Link from 'next/link'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
 import { WorkOrderDetailClient } from './work-order-detail-client'

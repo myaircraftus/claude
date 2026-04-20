@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { selectPreferredCandidate } from '@/lib/ocr/precedence'
 
 // ─── Deterministic Aviation Validators ────────────────────────────────────────
 
@@ -74,6 +75,8 @@ type Candidate = {
   engine: string
   value: string | null
   confidence: number
+  sourceKind?: string
+  validationStatus?: 'valid' | 'invalid' | 'suspicious' | 'unvalidated' | null
 }
 
 function compareFieldCandidates(candidates: Candidate[]): {
@@ -157,10 +160,41 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { page_id } = body as { page_id: string }
-  if (!page_id) return NextResponse.json({ error: 'page_id required' }, { status: 400 })
+  const { page_id: requestedPageId, segment_id } = body as {
+    page_id?: string
+    segment_id?: string
+  }
+  if (!requestedPageId && !segment_id) {
+    return NextResponse.json({ error: 'page_id or segment_id required' }, { status: 400 })
+  }
 
   const service = createServiceSupabase()
+
+  let page_id = requestedPageId ?? null
+  let targetSegmentIds: string[] = []
+  let targetSegmentGroupKey: string | null = null
+  let targetConflictSegmentId: string | null = null
+
+  if (segment_id) {
+    const { data: segment } = await service
+      .from('ocr_entry_segments')
+      .select('id, ocr_page_job_id, segment_group_key')
+      .eq('id', segment_id)
+      .single()
+
+    if (!segment) {
+      return NextResponse.json({ error: 'Segment not found' }, { status: 404 })
+    }
+
+    page_id = segment.ocr_page_job_id
+    targetSegmentIds = [segment.id]
+    targetSegmentGroupKey = segment.segment_group_key ?? null
+    targetConflictSegmentId = segment.id
+  }
+
+  if (!page_id) {
+    return NextResponse.json({ error: 'Could not resolve page scope' }, { status: 400 })
+  }
 
   // Load page + org membership check
   const { data: page } = await supabase
@@ -180,11 +214,49 @@ export async function POST(req: NextRequest) {
     .select('*')
     .eq('page_id', page_id)
 
-  // Load all field candidates
-  const { data: rawCandidates } = await service
-    .from('extracted_field_candidates')
-    .select('*')
-    .eq('page_id', page_id)
+  if (targetSegmentIds.length === 0) {
+    const { data: pageSegments } = await service
+      .from('ocr_entry_segments')
+      .select('id, segment_group_key, evidence_state, canonical_candidate')
+      .eq('ocr_page_job_id', page_id)
+      .order('segment_index', { ascending: true })
+
+    const typedSegments = (pageSegments ?? []) as Array<{
+      id: string
+      segment_group_key?: string | null
+      evidence_state?: string | null
+      canonical_candidate?: boolean | null
+    }>
+
+    if (typedSegments.length > 0) {
+      const preferredSegments = typedSegments.filter(
+        (segment) =>
+          segment.canonical_candidate ||
+          segment.evidence_state === 'review_required' ||
+          segment.evidence_state === 'canonical_candidate'
+      )
+      const chosenSegments = preferredSegments.length > 0 ? preferredSegments : typedSegments
+      targetSegmentIds = chosenSegments.map((segment) => segment.id)
+      targetSegmentGroupKey = chosenSegments[0]?.segment_group_key ?? null
+      targetConflictSegmentId = chosenSegments[0]?.id ?? null
+    }
+  }
+
+  // Load field candidates, preferring segment scope when available
+  let rawCandidates: any[] = []
+  if (targetSegmentIds.length > 0) {
+    const { data } = await service
+      .from('ocr_segment_field_candidates')
+      .select('*')
+      .in('segment_id', targetSegmentIds)
+    rawCandidates = data ?? []
+  } else {
+    const { data } = await service
+      .from('extracted_field_candidates')
+      .select('*')
+      .eq('page_id', page_id)
+    rawCandidates = data ?? []
+  }
 
   // Load aircraft for timeline context
   const aircraftId = (page as any).document?.aircraft_id
@@ -213,6 +285,8 @@ export async function POST(req: NextRequest) {
         engine: c.source_engine,
         value: c.candidate_value,
         confidence: c.raw_confidence ?? 0.5,
+        sourceKind: c.source_kind ?? 'raw_ocr_candidate',
+        validationStatus: c.validation_status ?? 'unvalidated',
       })
     }
   }
@@ -240,7 +314,15 @@ export async function POST(req: NextRequest) {
           : null,
       }
       for (const [field, value] of Object.entries(fieldMap)) {
-        candidatesByField.set(field, [{ engine, value, confidence: conf }])
+        candidatesByField.set(field, [
+          {
+            engine,
+            value,
+            confidence: conf,
+            sourceKind: 'raw_ocr_candidate',
+            validationStatus: 'unvalidated',
+          },
+        ])
       }
     }
   }
@@ -255,6 +337,10 @@ export async function POST(req: NextRequest) {
     severity: 'low' | 'medium' | 'high' | 'critical'
     validationStatus: 'valid' | 'invalid' | 'suspicious'
     validationNotes: string | null
+    precedenceDecision: string
+    precedenceRank: number
+    chosenSourceKind: string | null
+    chosenSourceEngine: string | null
   }> = {}
 
   let totalConfidence = 0
@@ -264,7 +350,17 @@ export async function POST(req: NextRequest) {
 
   for (const [fieldName, candidates] of candidatesByField.entries()) {
     const comparison = compareFieldCandidates(candidates)
-    const proposed = comparison.proposed
+    const precedence = selectPreferredCandidate(
+      fieldName,
+      candidates.map((candidate) => ({
+        value: candidate.value,
+        sourceKind: candidate.sourceKind ?? 'raw_ocr_candidate',
+        sourceEngine: candidate.engine,
+        validationStatus: candidate.validationStatus ?? 'unvalidated',
+        confidence: candidate.confidence,
+      }))
+    )
+    const proposed = precedence.chosen?.value ?? comparison.proposed
 
     // Run validator for the field
     let validation: ValidationResult = { status: 'valid', notes: null }
@@ -300,6 +396,10 @@ export async function POST(req: NextRequest) {
       severity: comparison.severity,
       validationStatus: validation.status,
       validationNotes: validation.notes,
+      precedenceDecision: precedence.precedenceDecision,
+      precedenceRank: precedence.precedenceRank,
+      chosenSourceKind: precedence.chosen?.sourceKind ?? null,
+      chosenSourceEngine: precedence.chosen?.sourceEngine ?? null,
     }
 
     // Queue conflict record
@@ -311,9 +411,14 @@ export async function POST(req: NextRequest) {
           engine: c.engine,
           value: c.value,
           confidence: c.confidence,
+          source_kind: c.sourceKind ?? 'raw_ocr_candidate',
         })),
         conflict_reason: comparison.conflictReason,
         severity: comparison.severity,
+        precedence_decision: precedence.precedenceDecision,
+        chosen_source_kind: precedence.chosen?.sourceKind ?? null,
+        chosen_source_engine: precedence.chosen?.sourceEngine ?? null,
+        human_review_required: comparison.severity === 'high' || comparison.severity === 'critical',
         resolution_status: 'pending',
       })
     }
@@ -385,6 +490,24 @@ export async function POST(req: NextRequest) {
   if (conflictsToInsert.length > 0) {
     await service.from('field_conflicts').delete().eq('page_id', page_id)
     await service.from('field_conflicts').insert(conflictsToInsert)
+
+    if (targetConflictSegmentId) {
+      await service.from('segment_conflicts').delete().eq('segment_id', targetConflictSegmentId)
+      await service.from('segment_conflicts').insert(
+        conflictsToInsert.map((conflict) => ({
+          segment_id: targetConflictSegmentId,
+          field_name: conflict.field_name,
+          candidate_values: conflict.candidate_values,
+          conflict_reason: conflict.conflict_reason,
+          severity: conflict.severity,
+          precedence_decision: conflict.precedence_decision,
+          chosen_source_kind: conflict.chosen_source_kind,
+          chosen_source_engine: conflict.chosen_source_engine,
+          human_review_required: conflict.human_review_required,
+          resolution_status: 'pending',
+        }))
+      )
+    }
   }
 
   // Create/update review queue item if needed
@@ -408,7 +531,11 @@ export async function POST(req: NextRequest) {
           organization_id: orgId,
           aircraft_id: pageJob.aircraft_id,
           ocr_page_job_id: page_id,
+          ocr_entry_segment_id: targetConflictSegmentId,
           queue_type: 'ocr_page',
+          review_scope: targetConflictSegmentId ? 'segment' : 'page',
+          segment_group_key: targetSegmentGroupKey,
+          evidence_state: targetConflictSegmentId ? 'review_required' : null,
           priority: arbitrationStatus === 'reject' ? 'high' : 'normal',
           reason: validatorWarnings.length > 0
             ? validatorWarnings.slice(0, 3).join('; ')
@@ -421,6 +548,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     arbitration_status: arbitrationStatus,
+    scope: targetConflictSegmentId ? 'segment' : 'page',
+    segment_id: targetConflictSegmentId,
+    segment_group_key: targetSegmentGroupKey,
     confidence: overallConfidence,
     conflicts: conflictsToInsert.length,
     validator_warnings: validatorWarnings,

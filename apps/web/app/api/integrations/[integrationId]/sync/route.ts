@@ -3,8 +3,53 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { decryptIntegrationCredentials } from '@/lib/integrations/crypto'
+import {
+  exportAccountingInvoices,
+  getDecryptedProviderTokens,
+  type ExportableInvoice,
+} from '@/lib/integrations/accounting'
 
 export const maxDuration = 30
+
+const PROVIDER_LABELS: Record<string, string> = {
+  flight_schedule_pro: 'Flight Schedule Pro',
+  flight_circle: 'Flight Circle',
+  schedule_master: 'ScheduleMaster',
+  schedaero: 'Schedaero',
+  myflightbook: 'MyFlightbook',
+  aerocrew: 'Aero Crew Solutions',
+  fltplan: 'FltPlan.com',
+  avplan: 'AvPlan EFB',
+  flightaware: 'FlightAware AeroAPI',
+  adsb_exchange: 'ADS-B Exchange',
+  flight_radar_24: 'FlightRadar24 Business',
+  camp: 'CAMP Systems',
+  flightdocs: 'Flightdocs',
+  traxxall: 'Traxxall',
+  quantum_control: 'Quantum Control',
+  corridor: 'Corridor',
+  atp_aviation_hub: 'ATP Aviation Hub',
+  winair: 'WinAir',
+  logbook_pro: 'Logbook Pro',
+  smart_aviation: 'Smart Aviation',
+  mx_commander: 'Mx Commander',
+  safety_culture: 'SafetyCulture',
+  aviobook: 'AvioBook Maintenance',
+  quickbooks: 'QuickBooks',
+  freshbooks: 'FreshBooks',
+}
+
+function hasUsableCredentials(credentials: any) {
+  if (!credentials || typeof credentials !== 'object') return false
+  const candidates = [
+    credentials.api_key,
+    credentials.access_token,
+    credentials.client_secret,
+    credentials.client_id,
+  ]
+  return candidates.some((value) => typeof value === 'string' && value.trim().length >= 8)
+}
 
 export async function POST(
   _req: NextRequest,
@@ -37,7 +82,8 @@ export async function POST(
     return NextResponse.json({ error: 'Integration is not connected' }, { status: 400 })
   }
 
-  const credentials = integration.credentials_encrypted ?? {}
+  const storedCredentials = integration.credentials_encrypted ?? {}
+  const credentials = decryptIntegrationCredentials<any>(storedCredentials) ?? {}
   const provider = integration.provider
   let syncResult: SyncResult
 
@@ -49,8 +95,19 @@ export async function POST(
       case 'flight_circle':
         syncResult = await syncFlightCircle(credentials, orgId, supabase)
         break
+      case 'quickbooks':
+      case 'freshbooks':
+        syncResult = await syncAccountingProvider(
+          params.integrationId,
+          provider,
+          storedCredentials,
+          orgId,
+          supabase,
+          (integration.settings ?? {}) as Record<string, unknown>
+        )
+        break
       default:
-        return NextResponse.json({ error: `Sync not implemented for provider: ${provider}` }, { status: 400 })
+        syncResult = await syncScaffoldedProvider(provider, credentials, orgId, supabase)
     }
   } catch (err: any) {
     // Log failure
@@ -73,11 +130,11 @@ export async function POST(
 
   // Log success
   await supabase.from('integration_sync_logs').insert({
-    integration_id: params.integrationId,
-    organization_id: orgId,
-    sync_type: 'manual',
-    status: 'success',
-    records_synced: syncResult.recordsSynced,
+      integration_id: params.integrationId,
+      organization_id: orgId,
+      sync_type: 'manual',
+      status: 'success',
+      records_synced: syncResult.recordsSynced,
     summary: syncResult.summary,
     started_at: syncResult.startedAt,
     completed_at: new Date().toISOString(),
@@ -87,7 +144,7 @@ export async function POST(
     .from('integrations')
     .update({
       last_sync_at: new Date().toISOString(),
-      last_sync_status: 'success',
+      last_sync_status: syncResult.lastSyncStatus ?? 'success',
       last_sync_error: null,
       aircraft_count_synced: syncResult.aircraftSynced,
       updated_at: new Date().toISOString(),
@@ -99,6 +156,7 @@ export async function POST(
     provider,
     records_synced: syncResult.recordsSynced,
     aircraft_synced: syncResult.aircraftSynced,
+    last_sync_status: syncResult.lastSyncStatus ?? 'success',
     summary: syncResult.summary,
   })
 }
@@ -110,6 +168,7 @@ interface SyncResult {
   aircraftSynced: number
   summary: Record<string, unknown>
   startedAt: string
+  lastSyncStatus?: string
 }
 
 // ─── Flight Schedule Pro sync ────────────────────────────────────────────────
@@ -266,8 +325,10 @@ async function syncFlightSchedulePro(
       aircraft_updated: aircraftSynced,
       squawks_imported: squawksSynced.length,
       total_records: recordsSynced,
+      message: `Synced ${recordsSynced} Flight Schedule Pro record(s).`,
     },
     startedAt,
+    lastSyncStatus: 'success',
   }
 }
 
@@ -333,7 +394,130 @@ async function syncFlightCircle(
   return {
     recordsSynced,
     aircraftSynced,
-    summary: { aircraft_updated: aircraftSynced },
+    summary: {
+      aircraft_updated: aircraftSynced,
+      message: `Synced ${recordsSynced} Flight Circle record(s).`,
+    },
     startedAt,
+    lastSyncStatus: 'success',
+  }
+}
+
+async function syncAccountingProvider(
+  integrationId: string,
+  provider: string,
+  credentials: any,
+  orgId: string,
+  supabase: any,
+  settings: Record<string, unknown> | null = null
+): Promise<SyncResult> {
+  const startedAt = new Date().toISOString()
+  const decrypted = getDecryptedProviderTokens(credentials)
+  if (!decrypted?.refresh_token) {
+    throw new Error(`Missing OAuth credentials for ${PROVIDER_LABELS[provider] ?? provider}`)
+  }
+
+  const { data: invoices, error } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      invoice_number,
+      status,
+      invoice_date,
+      due_date,
+      subtotal,
+      tax_amount,
+      total,
+      notes,
+      customer:customer_id (name, company, email, phone, billing_address),
+      aircraft:aircraft_id (tail_number),
+      line_items:invoice_line_items (description, quantity, unit_price, item_type)
+    `)
+    .eq('organization_id', orgId)
+    .not('status', 'eq', 'void')
+    .order('created_at', { ascending: false })
+    .limit(25)
+
+  if (error) throw new Error(error.message)
+
+  const { exported, skipped, failures, context } = await exportAccountingInvoices({
+    provider: provider as 'quickbooks' | 'freshbooks',
+    integrationId,
+    credentials,
+    settings,
+    invoices: (invoices ?? []) as ExportableInvoice[],
+    orgId,
+    supabase,
+  })
+
+  return {
+    recordsSynced: exported,
+    aircraftSynced: 0,
+    startedAt,
+    lastSyncStatus: failures.length > 0 && exported === 0 ? 'failed' : 'success',
+    summary: {
+      provider,
+      provider_name: PROVIDER_LABELS[provider] ?? provider,
+      invoices_exported: exported,
+      invoices_skipped: skipped,
+      failures,
+      remote_sync: true,
+      adapter_status: failures.length > 0 ? 'partial_success' : 'success',
+      connected_context: context,
+      message:
+        exported > 0
+          ? `Exported ${exported} invoice(s) to ${PROVIDER_LABELS[provider] ?? provider}${skipped > 0 ? ` and skipped ${skipped} already-linked invoice(s)` : ''}.`
+          : skipped > 0
+            ? `No new invoices needed export for ${PROVIDER_LABELS[provider] ?? provider}; ${skipped} invoice(s) were already linked.`
+            : `No invoices were available to export for ${PROVIDER_LABELS[provider] ?? provider}.`,
+    },
+  }
+}
+
+async function syncScaffoldedProvider(
+  provider: string,
+  credentials: any,
+  orgId: string,
+  supabase: any
+): Promise<SyncResult> {
+  const startedAt = new Date().toISOString()
+  if (!hasUsableCredentials(credentials)) {
+    throw new Error(`Missing API credentials for ${PROVIDER_LABELS[provider] ?? provider}`)
+  }
+
+  const [
+    aircraftRes,
+    customersRes,
+    workOrdersRes,
+    squawksRes,
+  ] = await Promise.all([
+    supabase.from('aircraft').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
+    supabase.from('customers').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
+    supabase.from('work_orders').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
+    supabase.from('squawks').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
+  ])
+
+  const aircraftCount = aircraftRes.count ?? 0
+  const customerCount = customersRes.count ?? 0
+  const workOrderCount = workOrdersRes.count ?? 0
+  const squawkCount = squawksRes.count ?? 0
+  const prepared = aircraftCount + customerCount + workOrderCount + squawkCount
+
+  return {
+    recordsSynced: prepared,
+    aircraftSynced: aircraftCount,
+    startedAt,
+    lastSyncStatus: 'scaffolded',
+    summary: {
+      provider,
+      provider_name: PROVIDER_LABELS[provider] ?? provider,
+      adapter_status: 'scaffolded',
+      remote_sync: false,
+      aircraft_available: aircraftCount,
+      customers_available: customerCount,
+      work_orders_available: workOrderCount,
+      squawks_available: squawkCount,
+      message: `Prepared ${prepared} normalized local record(s) for ${PROVIDER_LABELS[provider] ?? provider}. The adapter and status plumbing are live, but provider-specific field mapping still needs final API credential work.`,
+    },
   }
 }

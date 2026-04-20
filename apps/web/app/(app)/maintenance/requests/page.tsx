@@ -1,29 +1,11 @@
-import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
-import type { UserProfile } from '@/types'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { RequestsList } from './requests-list'
 
 export const metadata = { title: 'Maintenance Requests' }
 
 export default async function MaintenanceRequestsPage() {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  const membership = membershipRes.data
-  if (!membership) redirect('/onboarding')
+  const { supabase, user, profile, membership } = await requireAppServerSession()
 
   const orgId = membership.organization_id
   const role = membership.role
@@ -33,11 +15,13 @@ export default async function MaintenanceRequestsPage() {
     .from('maintenance_requests')
     .select(`
       id, aircraft_id, requester_user_id, target_mechanic_user_id,
-      message, squawk_ids, status, created_work_order_id,
+      message, squawk_ids, status, created_work_order_id, request_source,
+      source_reminder_id, source_summary,
       created_at, responded_at,
       requester:requester_user_id (id, full_name, email, avatar_url),
       mechanic:target_mechanic_user_id (id, full_name, email, avatar_url),
-      aircraft:aircraft_id (id, tail_number, make, model)
+      aircraft:aircraft_id (id, tail_number, make, model),
+      source_reminder:source_reminder_id (id, title, reminder_type)
     `)
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
@@ -70,6 +54,7 @@ export default async function MaintenanceRequestsPage() {
               requester: Array.isArray(r.requester) ? r.requester[0] ?? null : r.requester ?? null,
               mechanic: Array.isArray(r.mechanic) ? r.mechanic[0] ?? null : r.mechanic ?? null,
               aircraft: Array.isArray(r.aircraft) ? r.aircraft[0] ?? null : r.aircraft ?? null,
+              source_reminder: Array.isArray(r.source_reminder) ? r.source_reminder[0] ?? null : r.source_reminder ?? null,
             }))}
             currentUserRole={role}
           />

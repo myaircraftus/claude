@@ -2,15 +2,43 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import CryptoJS from 'crypto-js'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import type { DocType, OrgRole } from '@/types'
+import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import {
+  deriveDocTypeFromClassification,
+  isDocumentDetailId,
+  isDocumentGroupId,
+} from '@/lib/documents/taxonomy'
 
 const MECHANIC_ROLES: OrgRole[] = ['owner', 'admin', 'mechanic']
-
 const importSchema = z.object({
   file_ids: z.array(z.string()).min(1).max(20),
   aircraft_id: z.string().uuid().optional(),
-  doc_type: z.string(),
+  doc_type: z.string().optional(),
+  document_group: z.string().optional(),
+  document_detail: z.string().optional(),
+  document_subtype: z.string().optional(),
 })
+const VALID_DOC_TYPES: DocType[] = [
+  'logbook',
+  'poh',
+  'afm',
+  'afm_supplement',
+  'maintenance_manual',
+  'service_manual',
+  'parts_catalog',
+  'service_bulletin',
+  'airworthiness_directive',
+  'work_order',
+  'inspection_report',
+  'form_337',
+  'form_8130',
+  'lease_ownership',
+  'insurance',
+  'compliance',
+  'miscellaneous',
+]
 
 interface StoredTokens {
   access_token: string
@@ -121,7 +149,27 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { file_ids, aircraft_id, doc_type } = parsed.data
+    const { file_ids, aircraft_id, doc_type, document_group, document_detail, document_subtype } = parsed.data
+
+    const documentGroupId = isDocumentGroupId(document_group) ? document_group : null
+    const documentDetailId = isDocumentDetailId(document_detail) ? document_detail : null
+    const documentSubtype =
+      typeof document_subtype === 'string' && document_subtype.trim().length > 0
+        ? document_subtype.trim()
+        : null
+    const resolvedDocType = deriveDocTypeFromClassification(
+      documentDetailId,
+      VALID_DOC_TYPES.includes(doc_type as DocType) ? (doc_type as DocType) : 'miscellaneous'
+    )
+    const classificationFields = buildClassificationStorageFieldsBySelection(
+      documentGroupId,
+      documentDetailId,
+      resolvedDocType
+    )
+
+    if (!VALID_DOC_TYPES.includes(resolvedDocType)) {
+      return NextResponse.json({ error: 'Invalid document category selected' }, { status: 400 })
+    }
 
     // 2. Get + decrypt gdrive connection
     const { data: connection } = await supabase
@@ -185,9 +233,10 @@ export async function POST(req: NextRequest) {
         const fileBytes = await downloadRes.arrayBuffer()
         const fileName = meta.name ?? `drive-${fileId}.pdf`
         const fileSizeBytes = fileBytes.byteLength
+        const docId = crypto.randomUUID()
 
         // c. Upload to Supabase Storage
-        const storagePath = `${orgId}/${aircraft_id ?? 'org'}/${Date.now()}-${fileName}`
+        const storagePath = `${orgId}/${aircraft_id ?? 'general'}/originals/${docId}/${fileName}`
         const { error: storageError } = await supabase.storage
           .from('documents')
           .upload(storagePath, fileBytes, {
@@ -203,10 +252,15 @@ export async function POST(req: NextRequest) {
         const { data: doc, error: docError } = await supabase
           .from('documents')
           .insert({
+            id: docId,
             organization_id: orgId,
             aircraft_id: aircraft_id ?? null,
             title: fileName.replace(/\.pdf$/i, ''),
-            doc_type: doc_type as DocType,
+            doc_type: resolvedDocType,
+            document_group_id: documentGroupId,
+            document_detail_id: documentDetailId,
+            document_subtype: documentSubtype,
+            ...(classificationFields ?? {}),
             file_path: storagePath,
             file_name: fileName,
             file_size_bytes: fileSizeBytes,
@@ -218,7 +272,9 @@ export async function POST(req: NextRequest) {
             gdrive_file_url: meta.webViewLink,
             gdrive_parent_folder: meta.parents?.[0] ?? null,
             uploaded_by: user.id,
+            version_number: 1,
             uploaded_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .select('id')
           .single()
@@ -227,20 +283,40 @@ export async function POST(req: NextRequest) {
           throw new Error(`Failed to create document record: ${docError?.message}`)
         }
 
-        // e. Trigger ingestion job via Supabase edge function or job queue
-        // Signal the worker by updating the status to 'queued' (already set above)
-        // Optionally trigger a webhook/edge function
-        try {
-          await supabase.functions.invoke('process-document', {
-            body: { document_id: doc.id, organization_id: orgId },
-          })
-        } catch (triggerErr) {
-          // Non-fatal: document is queued and will be picked up by worker poll
-          console.warn('[gdrive/import] trigger job warning', triggerErr)
+        // e. Trigger the same ingestion orchestration used by direct uploads
+        const ingestionResult = await queueDocumentIngestion(doc.id, {
+          // Drive imports are user-triggered and should remain inline-first for
+          // predictable ingestion behavior.
+          preferBackground: false,
+          allowInlineFallback: true,
+        })
+
+        if (ingestionResult.status === 'failed') {
+          await (supabase as any)
+            .from('documents')
+            .update({
+              parsing_status: 'failed',
+              parse_error:
+                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+              parse_completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', doc.id)
+            .eq('organization_id', orgId)
         }
 
-        results.push({ file_id: fileId, name: fileName, document_id: doc.id, status: 'imported' })
-        imported++
+        results.push({
+          file_id: fileId,
+          name: fileName,
+          document_id: doc.id,
+          status: ingestionResult.status === 'failed' ? 'failed' : 'imported',
+          error: ingestionResult.status === 'failed' ? ingestionResult.warning : undefined,
+        })
+        if (ingestionResult.status === 'failed') {
+          failed++
+        } else {
+          imported++
+        }
       } catch (fileErr) {
         const errMsg = fileErr instanceof Error ? fileErr.message : 'Unknown error'
         console.error(`[gdrive/import] file ${fileId} failed:`, errMsg)

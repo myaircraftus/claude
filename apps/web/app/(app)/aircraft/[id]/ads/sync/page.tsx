@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 
 export default function SyncADsPage() {
-  const router = useRouter()
+  const router = useTenantRouter()
   const params = useParams<{ id: string }>()
   const [status, setStatus] = useState<'syncing' | 'done' | 'error'>('syncing')
   const [message, setMessage] = useState('')

@@ -1,24 +1,55 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { HardDrive, ExternalLink, CheckCircle2, Loader2, FolderOpen } from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 interface GdriveImportSectionProps {
   connected: boolean
   googleEmail: string | null
+  defaultAircraftId?: string
+  defaultDocumentGroupId?: string
+  defaultDocumentDetailId?: string
+  defaultDocumentSubtype?: string
 }
 
-export function GdriveImportSection({ connected, googleEmail }: GdriveImportSectionProps) {
+function getPersistedOwnerAircraftId() {
+  if (typeof window === 'undefined') return undefined
+  const value = window.localStorage.getItem('owner_selected_aircraft_id')?.trim()
+  return value ? value : undefined
+}
+
+export function GdriveImportSection({
+  connected,
+  googleEmail,
+  defaultAircraftId,
+  defaultDocumentGroupId,
+  defaultDocumentDetailId,
+  defaultDocumentSubtype,
+}: GdriveImportSectionProps) {
   const [connecting, setConnecting] = useState(false)
+  const [resolvedAircraftId, setResolvedAircraftId] = useState<string | undefined>(
+    () => defaultAircraftId ?? getPersistedOwnerAircraftId()
+  )
+
+  useEffect(() => {
+    setResolvedAircraftId(defaultAircraftId ?? getPersistedOwnerAircraftId())
+  }, [defaultAircraftId])
+
+  const pickerParams = new URLSearchParams()
+  if (resolvedAircraftId) pickerParams.set('aircraft', resolvedAircraftId)
+  if (defaultDocumentGroupId) pickerParams.set('document_group', defaultDocumentGroupId)
+  if (defaultDocumentDetailId) pickerParams.set('document_detail', defaultDocumentDetailId)
+  if (defaultDocumentSubtype) pickerParams.set('document_subtype', defaultDocumentSubtype)
+  const pickerHref = `/documents/gdrive-picker${pickerParams.toString() ? `?${pickerParams.toString()}` : ''}`
 
   async function handleConnect() {
     setConnecting(true)
     try {
       // Redirect to OAuth flow
-      window.location.href = '/api/auth/gdrive/connect'
+      window.location.href = '/api/gdrive/auth'
     } catch {
       setConnecting(false)
     }
@@ -74,13 +105,13 @@ export function GdriveImportSection({ connected, googleEmail }: GdriveImportSect
             </Badge>
           )}
         </div>
-        <a
+        <Link
           href="/settings/integrations"
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
         >
           Manage
           <ExternalLink className="h-3 w-3" />
-        </a>
+        </Link>
       </div>
 
       {/* File picker trigger */}
@@ -91,14 +122,12 @@ export function GdriveImportSection({ connected, googleEmail }: GdriveImportSect
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            // Trigger Google Picker — handled client-side via Picker API
-            // The Picker API requires a script load; redirect to a picker page for simplicity
-            window.open('/documents/gdrive-picker', '_blank', 'width=900,height=700')
-          }}
+          asChild
         >
-          <FolderOpen className="mr-2 h-4 w-4" />
-          Browse Google Drive
+          <Link href={pickerHref}>
+            <FolderOpen className="mr-2 h-4 w-4" />
+            Browse Google Drive
+          </Link>
         </Button>
       </div>
     </div>

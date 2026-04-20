@@ -59,3 +59,20 @@ coverage/
 vercel-deploy.js
 vercel-deploy2.js
 .claude/worktrees/
+
+# Secrets - NEVER commit these
+docs/Myaircraft_accessKeys.csv
+docs/Myaircraft_credentials.csv
+docs/documentai-key.json
+docs/*.csv
+docs/*-key.json
+*.pem
+*-credentials.json
+
+# Codex/Playwright tooling
+.codex-bin/
+.playwright-cli/
+
+# Never commit env files with real secrets
+.env.deploy
+.env.*.local

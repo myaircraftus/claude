@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 
 const createOrgSchema = z.object({
   name: z.string().min(2).max(80),
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Auth check
     const supabase = createServerSupabase()
+    const service = createServiceSupabase()
     const {
       data: { user },
       error: authError,
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const { name, slug } = parsed.data
 
     // 3. Check slug uniqueness
-    const { data: existing, error: slugError } = await supabase
+    const { data: existing, error: slugError } = await service
       .from('organizations')
       .select('id')
       .eq('slug', slug)
@@ -61,8 +62,30 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Ensure the auth user has a backing profile row before creating memberships.
+    const fullName =
+      [user.user_metadata?.first_name, user.user_metadata?.last_name]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || user.user_metadata?.full_name || null
+
+    const { error: profileError } = await service.from('user_profiles').upsert(
+      {
+        id: user.id,
+        email: user.email ?? '',
+        full_name: fullName,
+        avatar_url: user.user_metadata?.avatar_url ?? null,
+      },
+      { onConflict: 'id' }
+    )
+
+    if (profileError) {
+      console.error('[organizations POST] profile upsert error', profileError)
+      return NextResponse.json({ error: 'Failed to prepare your account profile' }, { status: 500 })
+    }
+
     // 4. Insert organization
-    const { data: org, error: orgError } = await supabase
+    const { data: org, error: orgError } = await service
       .from('organizations')
       .insert({
         name,
@@ -83,7 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Insert owner membership
-    const { error: membershipError } = await supabase
+    const { error: membershipError } = await service
       .from('organization_memberships')
       .insert({
         organization_id: org.id,
@@ -96,18 +119,18 @@ export async function POST(req: NextRequest) {
     if (membershipError) {
       console.error('[organizations POST] membership insert error', membershipError)
       // Roll back: delete the org we just created
-      await supabase.from('organizations').delete().eq('id', org.id)
+      await service.from('organizations').delete().eq('id', org.id)
       return NextResponse.json({ error: 'Failed to set up organization membership' }, { status: 500 })
     }
 
     // 6. Audit log
-    await supabase.from('audit_logs').insert({
+    await service.from('audit_logs').insert({
       organization_id: org.id,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: 'organization.created',
-      target_type: 'organization',
-      target_id: org.id,
-      metadata: { name, slug },
+      entity_type: 'organization',
+      entity_id: org.id,
+      metadata_json: { name, slug },
     })
 
     // 7. Return created org

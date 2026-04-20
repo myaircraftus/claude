@@ -4,10 +4,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ProviderContext,
   ProviderResult,
-  RankedOffer,
   SearchResponse,
   ProviderId,
   AIResolutionInfo,
+  LibraryMatch,
 } from './types'
 import { classifySearchMode, normalizeQuery, buildProviderQuery, extractPartNumber } from './normalize'
 import { rankOffers } from './ranking'
@@ -110,6 +110,15 @@ export async function searchParts(
     }
   }
 
+  const libraryMatches = await findLibraryMatches(supabase, input.organizationId, {
+    normalizedQuery: normalized,
+    resolvedPartNumbers: [
+      ...(aiResolution?.partNumbers ?? []),
+      ...(aiResolution?.alternates ?? []),
+      ...(extractPartNumber(normalized) ? [extractPartNumber(normalized) as string] : []),
+    ],
+  })
+
   // Persist the search
   const { data: searchRow, error: searchErr } = await (supabase as any)
     .from('parts_searches')
@@ -189,9 +198,162 @@ export async function searchParts(
     providerSummary: providerSummary as Record<ProviderId, { ok: boolean; count: number; error?: string; durationMs: number }>,
     resultCount: ranked.length,
     aiResolution,
+    libraryMatches,
   }
 }
 
 function errorResult(provider: ProviderId, err: any): ProviderResult {
   return { provider, ok: false, offers: [], error: err?.message ?? 'unknown', durationMs: 0 }
+}
+
+function computeSellPrice(part: {
+  base_price: number | null
+  markup_mode: string | null
+  markup_percent: number | null
+  custom_rate: number | null
+}): number | null {
+  const base = part.base_price
+  if (base == null) return null
+
+  switch (part.markup_mode) {
+    case 'percent':
+      return Math.round(base * (1 + (part.markup_percent ?? 0) / 100) * 100) / 100
+    case 'custom_rate':
+      return part.custom_rate != null ? Math.round(part.custom_rate * 100) / 100 : base
+    default:
+      return base
+  }
+}
+
+function sanitizeSearchTerm(term: string): string {
+  return term.replace(/[,%]/g, ' ').trim()
+}
+
+async function findLibraryMatches(
+  supabase: SupabaseClient,
+  organizationId: string,
+  input: {
+    normalizedQuery: string
+    resolvedPartNumbers: string[]
+  }
+): Promise<LibraryMatch[]> {
+  const normalizedPartNumbers = Array.from(
+    new Set(
+      input.resolvedPartNumbers
+        .map(partNumber => normalizeQuery(partNumber).toUpperCase())
+        .filter(Boolean)
+    )
+  )
+
+  const searchTerms = Array.from(
+    new Set([
+      ...normalizedPartNumbers,
+      ...input.normalizedQuery
+        .split(/\s+/)
+        .map(term => sanitizeSearchTerm(term))
+        .filter(term => term.length >= 3)
+        .slice(0, 5),
+    ])
+  ).slice(0, 8)
+
+  const orClauses = searchTerms.flatMap(term => ([
+    `part_number.ilike.%${term}%`,
+    `title.ilike.%${term}%`,
+    `description.ilike.%${term}%`,
+    `preferred_vendor.ilike.%${term}%`,
+  ]))
+
+  let query: any = (supabase as any)
+    .from('parts_library')
+    .select(`
+      id,
+      part_number,
+      title,
+      description,
+      category,
+      preferred_vendor,
+      vendor_url,
+      image_url,
+      condition,
+      base_price,
+      currency,
+      markup_mode,
+      markup_percent,
+      custom_rate,
+      usage_count,
+      last_ordered_at
+    `)
+    .eq('organization_id', organizationId)
+    .order('usage_count', { ascending: false })
+    .order('last_ordered_at', { ascending: false, nullsFirst: false })
+    .limit(24)
+
+  if (orClauses.length > 0) {
+    query = query.or(orClauses.join(','))
+  }
+
+  const { data, error } = await query
+  if (error || !data) {
+    if (error) {
+      console.warn('[parts-search] library match lookup failed:', error.message)
+    }
+    return []
+  }
+
+  const normalizedQueryUpper = input.normalizedQuery.toUpperCase()
+
+  return (data as any[])
+    .map((part) => {
+      const partNumber = String(part.part_number ?? '').toUpperCase()
+      const title = String(part.title ?? '')
+      const description = String(part.description ?? '')
+      const vendor = String(part.preferred_vendor ?? '')
+
+      let score = 0
+      let matchReason: LibraryMatch['matchReason'] = 'recent'
+
+      if (normalizedPartNumbers.some(candidate => candidate === partNumber)) {
+        score += 200
+        matchReason = 'part_number'
+      } else if (normalizedPartNumbers.some(candidate => partNumber.includes(candidate) || candidate.includes(partNumber))) {
+        score += 120
+        matchReason = 'part_number'
+      } else if (title.toUpperCase().includes(normalizedQueryUpper)) {
+        score += 60
+        matchReason = 'title'
+      } else if (description.toUpperCase().includes(normalizedQueryUpper)) {
+        score += 40
+        matchReason = 'description'
+      } else if (vendor.toUpperCase().includes(normalizedQueryUpper)) {
+        score += 20
+        matchReason = 'vendor'
+      }
+
+      score += Math.min(Number(part.usage_count ?? 0) * 4, 32)
+      if (part.last_ordered_at) score += 10
+
+      return {
+        score,
+        match: {
+          id: part.id,
+          partNumber: part.part_number,
+          title: part.title,
+          category: part.category,
+          preferredVendor: part.preferred_vendor,
+          vendorUrl: part.vendor_url,
+          imageUrl: part.image_url,
+          condition: part.condition,
+          basePrice: part.base_price,
+          sellPrice: computeSellPrice(part),
+          currency: part.currency,
+          usageCount: Number(part.usage_count ?? 0),
+          lastOrderedAt: part.last_ordered_at,
+          matchReason,
+        } satisfies LibraryMatch,
+      }
+    })
+    .filter(entry => entry.score > 0 || entry.match.usageCount > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6)
+    .map(entry => entry.match)
 }

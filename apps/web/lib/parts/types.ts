@@ -81,6 +81,23 @@ export interface AIResolutionInfo {
   reasoning: string
 }
 
+export interface LibraryMatch {
+  id: string
+  partNumber: string
+  title: string
+  category?: string | null
+  preferredVendor?: string | null
+  vendorUrl?: string | null
+  imageUrl?: string | null
+  condition?: string | null
+  basePrice?: number | null
+  sellPrice?: number | null
+  currency?: string | null
+  usageCount: number
+  lastOrderedAt?: string | null
+  matchReason: 'part_number' | 'title' | 'description' | 'vendor' | 'recent'
+}
+
 export interface SearchResponse {
   searchId: string
   query: string
@@ -90,6 +107,8 @@ export interface SearchResponse {
   resultCount: number
   /** AI-resolved part info (only present when aircraft context was provided) */
   aiResolution?: AIResolutionInfo | null
+  /** Matching parts already saved to the org library */
+  libraryMatches?: LibraryMatch[]
 }
 
 export type PartOrderStatus =

@@ -1,37 +1,52 @@
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { createServerSupabase } from '@/lib/supabase/server'
+import Link from '@/components/shared/tenant-link'
 import { Topbar } from '@/components/shared/topbar'
 import { UploadDropzone } from '@/components/documents/upload-dropzone'
 import { GdriveImportSection } from '@/components/documents/gdrive-import-section'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Upload, HardDrive } from 'lucide-react'
-import type { UserProfile } from '@/types'
+import type { DocType } from '@/types'
+import { requireAppServerSession } from '@/lib/auth/server-app'
+import {
+  inferLegacyClassification,
+  isDocumentDetailId,
+  isDocumentGroupId,
+} from '@/lib/documents/taxonomy'
 
 export const metadata = { title: 'Upload Documents' }
 
-export default async function DocumentUploadPage() {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+const VALID_DOC_TYPES: DocType[] = [
+  'logbook',
+  'poh',
+  'afm',
+  'afm_supplement',
+  'maintenance_manual',
+  'service_manual',
+  'parts_catalog',
+  'service_bulletin',
+  'airworthiness_directive',
+  'work_order',
+  'inspection_report',
+  'form_337',
+  'form_8130',
+  'lease_ownership',
+  'insurance',
+  'compliance',
+  'miscellaneous',
+]
 
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  if (!profile) redirect('/login')
-
-  const membership = membershipRes.data
-  if (!membership) redirect('/onboarding')
+export default async function DocumentUploadPage({
+  searchParams,
+}: {
+  searchParams?: {
+    aircraft?: string
+    aircraft_tail?: string
+    doc_type?: string
+    document_group?: string
+    document_detail?: string
+    document_subtype?: string
+  }
+}) {
+  const { supabase, user, profile, membership } = await requireAppServerSession()
 
   const orgId = membership.organization_id
 
@@ -46,6 +61,29 @@ export default async function DocumentUploadPage() {
   const aircraftOptions = (
     aircraftRows ?? []
   ) as { id: string; tail_number: string; make: string; model: string }[]
+
+  const requestedAircraft = searchParams?.aircraft?.trim()
+  const requestedAircraftTail = searchParams?.aircraft_tail?.trim().toUpperCase()
+  const matchedAircraft = aircraftOptions.find((aircraft) => {
+    if (requestedAircraft && aircraft.id === requestedAircraft) return true
+    if (requestedAircraftTail && aircraft.tail_number.toUpperCase() === requestedAircraftTail) return true
+    return false
+  })
+
+  const defaultAircraftId = matchedAircraft?.id
+
+  const defaultDocType = VALID_DOC_TYPES.includes(searchParams?.doc_type as DocType)
+    ? (searchParams?.doc_type as DocType)
+    : 'miscellaneous'
+
+  const legacyClassification = inferLegacyClassification(defaultDocType)
+  const defaultDocumentGroupId = isDocumentGroupId(searchParams?.document_group)
+    ? searchParams?.document_group
+    : legacyClassification.groupId
+  const defaultDocumentDetailId = isDocumentDetailId(searchParams?.document_detail)
+    ? searchParams?.document_detail
+    : legacyClassification.detailId
+  const defaultDocumentSubtype = searchParams?.document_subtype?.trim() || undefined
 
   // ── Check Google Drive connection ─────────────────────────────────────────
   const { data: gdriveRow } = await supabase
@@ -98,9 +136,11 @@ export default async function DocumentUploadPage() {
 
             <UploadDropzone
               aircraftOptions={aircraftOptions}
-              onUploadComplete={() => {
-                // Client-side redirect handled inside the component
-              }}
+              defaultAircraftId={defaultAircraftId}
+              defaultDocType={defaultDocType}
+              defaultDocumentGroupId={defaultDocumentGroupId}
+              defaultDocumentDetailId={defaultDocumentDetailId}
+              defaultDocumentSubtype={defaultDocumentSubtype}
             />
           </section>
 
@@ -126,6 +166,10 @@ export default async function DocumentUploadPage() {
             <GdriveImportSection
               connected={gdriveConnected}
               googleEmail={gdriveRow?.google_email ?? null}
+              defaultAircraftId={defaultAircraftId}
+              defaultDocumentGroupId={defaultDocumentGroupId}
+              defaultDocumentDetailId={defaultDocumentDetailId}
+              defaultDocumentSubtype={defaultDocumentSubtype}
             />
           </section>
 

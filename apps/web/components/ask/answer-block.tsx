@@ -78,13 +78,13 @@ export function AnswerBlock({
 
       {/* Answer text */}
       {isInsufficient ? (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <div className="flex items-start gap-3">
-            <BookMarked className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <BookMarked className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-red-800 mb-1">Insufficient Evidence</p>
-              <p className="text-sm text-red-700">{answer}</p>
-              <p className="text-xs text-red-500 mt-2">
+              <p className="font-medium text-amber-900 mb-1">Needs more records</p>
+              <p className="text-sm text-amber-800">{answer}</p>
+              <p className="text-xs text-amber-700 mt-2">
                 Tip: Upload the relevant documents (logbook, POH, maintenance manual) to get accurate answers.
               </p>
             </div>

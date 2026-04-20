@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import {
   Users, ClipboardList, DollarSign, Clock, AlertTriangle, CheckCircle2,
   Wrench, Plane, ArrowRight, TrendingUp

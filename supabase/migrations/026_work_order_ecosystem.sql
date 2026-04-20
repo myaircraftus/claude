@@ -139,14 +139,15 @@ CREATE TABLE IF NOT EXISTS parts_library (
   usage_count INT NOT NULL DEFAULT 0,
   created_by UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, part_number, COALESCE(preferred_vendor, ''))
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_parts_lib_org ON parts_library(organization_id);
 CREATE INDEX IF NOT EXISTS idx_parts_lib_pn ON parts_library(part_number);
 CREATE INDEX IF NOT EXISTS idx_parts_lib_last_ordered ON parts_library(last_ordered_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_parts_lib_usage ON parts_library(usage_count DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_parts_lib_unique_vendor
+  ON parts_library(organization_id, part_number, COALESCE(preferred_vendor, ''));
 
 ALTER TABLE parts_library ENABLE ROW LEVEL SECURITY;
 

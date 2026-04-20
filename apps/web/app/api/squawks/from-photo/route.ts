@@ -8,6 +8,10 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData()
   const imageBlob = formData.get('image')
+  const imageFileName =
+    typeof imageBlob === 'object' && imageBlob && 'name' in imageBlob && typeof imageBlob.name === 'string'
+      ? imageBlob.name
+      : 'uploaded image'
 
   if (!imageBlob || !(imageBlob instanceof Blob)) {
     return NextResponse.json({ error: 'No image file provided' }, { status: 400 })
@@ -61,9 +65,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ squawks })
   } catch (err: any) {
     console.error('Photo extraction error:', err)
-    return NextResponse.json(
-      { error: err.message ?? 'Photo extraction failed' },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      squawks: [
+        {
+          title: 'Photo attached for manual review',
+          description: `Image "${imageFileName}" was attached, but AI extraction is temporarily unavailable. Review the photo manually or add more detail in text before saving.`,
+        },
+      ],
+      fallback: true,
+      error: err.message ?? 'Photo extraction failed',
+    })
   }
 }

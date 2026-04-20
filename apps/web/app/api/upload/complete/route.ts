@@ -1,0 +1,356 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createServiceSupabase } from '@/lib/supabase/server'
+import { getRequestUser } from '@/lib/supabase/request-user'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import type { BookAssignment, DocType, ManualAccess, Visibility } from '@/types'
+import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import { ensureBookRecord } from '@/lib/documents/books'
+import {
+  deriveDocTypeFromClassification,
+  isDocumentDetailId,
+  isDocumentGroupId,
+} from '@/lib/documents/taxonomy'
+
+const VALID_DOC_TYPES: DocType[] = [
+  'logbook',
+  'poh',
+  'afm',
+  'afm_supplement',
+  'maintenance_manual',
+  'service_manual',
+  'parts_catalog',
+  'service_bulletin',
+  'airworthiness_directive',
+  'work_order',
+  'inspection_report',
+  'form_337',
+  'form_8130',
+  'lease_ownership',
+  'insurance',
+  'compliance',
+  'miscellaneous',
+]
+
+async function writeAuditLog(
+  serviceClient: ReturnType<typeof createServiceSupabase>,
+  {
+    orgId,
+    userId,
+    action,
+    resourceType,
+    resourceId,
+    metadata,
+  }: {
+    orgId: string
+    userId: string
+    action: string
+    resourceType: string
+    resourceId: string
+    metadata?: Record<string, unknown>
+  }
+) {
+  await serviceClient.from('audit_logs').insert({
+    organization_id: orgId,
+    user_id: userId,
+    action,
+    resource_type: resourceType,
+    resource_id: resourceId,
+    metadata_json: metadata ?? {},
+  })
+}
+
+function parseVisibility(value: unknown): Visibility {
+  return value === 'private' ? 'private' : 'team'
+}
+
+function parseBookAssignment(value: unknown): BookAssignment | null {
+  return value === 'present' ? 'present' : value === 'historical' ? 'historical' : null
+}
+
+export async function POST(req: NextRequest) {
+  const user = await getRequestUser(req)
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const serviceClient = createServiceSupabase()
+  const requestContext = await resolveRequestOrgContext(req)
+  if (!requestContext) {
+    return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
+  }
+
+  const allowedRoles = ['owner', 'admin', 'mechanic', 'pilot']
+  if (!allowedRoles.includes(requestContext.role)) {
+    return NextResponse.json(
+      { error: 'Insufficient permissions. Pilot, mechanic, or higher required.' },
+      { status: 403 }
+    )
+  }
+
+  let body: {
+    documentId?: string
+    storagePath?: string
+    fileName?: string
+    fileSize?: number
+    mimeType?: string
+    aircraftId?: string | null
+    docType?: string
+    title?: string
+    visibility?: Visibility
+    notes?: string
+    documentGroupId?: string | null
+    documentDetailId?: string | null
+    documentSubtype?: string | null
+    documentDate?: string | null
+    manualAccess?: ManualAccess | null
+    price?: string | null
+    attestation?: boolean
+    bookNumber?: string | null
+    bookType?: string | null
+    bookAssignmentType?: BookAssignment | null
+    marketplaceDownloadable?: boolean
+    marketplaceInjectable?: boolean
+    marketplacePreviewAvailable?: boolean
+    checksumSha256?: string | null
+  }
+
+  try {
+    body = (await req.json()) as typeof body
+  } catch {
+    return NextResponse.json({ error: 'Invalid upload completion request.' }, { status: 400 })
+  }
+
+  const orgId = requestContext.organizationId
+  const documentId = body.documentId?.trim()
+  const storagePath = body.storagePath?.trim()
+  const fileName = body.fileName?.trim()
+  const fileSize = Number(body.fileSize)
+  const mimeType = body.mimeType?.trim() || 'application/pdf'
+  const aircraftId = body.aircraftId?.trim() || null
+  const submittedDocType = body.docType?.trim() || 'miscellaneous'
+  const documentGroupIdRaw = body.documentGroupId?.trim() || null
+  const documentDetailIdRaw = body.documentDetailId?.trim() || null
+  const documentSubtype = body.documentSubtype?.trim() || null
+  const documentDateRaw = body.documentDate?.trim() || null
+  const titleRaw = body.title?.trim()
+  const manualAccessRaw = body.manualAccess?.trim()
+  const priceRaw = body.price?.trim()
+  const attestationRaw = body.attestation === true
+  const bookNumber = body.bookNumber?.trim() || null
+  const bookType = body.bookType?.trim() || null
+  const marketplaceDownloadableRaw = body.marketplaceDownloadable
+  const marketplaceInjectableRaw = body.marketplaceInjectable
+  const marketplacePreviewAvailableRaw = body.marketplacePreviewAvailable
+  const visibility = parseVisibility(body.visibility)
+  const bookAssignment = parseBookAssignment(body.bookAssignmentType)
+  const checksumSha256 = body.checksumSha256?.trim() || null
+
+  if (!documentId || !storagePath || !fileName) {
+    return NextResponse.json(
+      { error: 'documentId, storagePath, and fileName are required.' },
+      { status: 400 }
+    )
+  }
+
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    return NextResponse.json({ error: 'Invalid file size.' }, { status: 400 })
+  }
+
+  const documentGroupId = isDocumentGroupId(documentGroupIdRaw) ? documentGroupIdRaw : null
+  const documentDetailId = isDocumentDetailId(documentDetailIdRaw) ? documentDetailIdRaw : null
+  const docType = deriveDocTypeFromClassification(
+    documentDetailId,
+    submittedDocType as DocType
+  )
+  const classificationFields = buildClassificationStorageFieldsBySelection(
+    documentGroupId,
+    documentDetailId,
+    docType
+  )
+
+  const manualTypes = ['maintenance_manual', 'service_manual', 'parts_catalog']
+  const isManualType = manualTypes.includes(docType)
+
+  if (!VALID_DOC_TYPES.includes(docType as DocType)) {
+    return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
+  }
+
+  if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
+    return NextResponse.json(
+      { error: 'Invalid structured document classification selected.' },
+      { status: 400 }
+    )
+  }
+
+  const manualAccess =
+    isManualType && ['private', 'free', 'paid'].includes(manualAccessRaw ?? '')
+      ? (manualAccessRaw as 'private' | 'free' | 'paid')
+      : null
+
+  const marketplaceDownloadable = marketplaceDownloadableRaw !== false
+  const marketplaceInjectable =
+    manualAccess !== 'private' && marketplaceInjectableRaw !== false
+  const marketplacePreviewAvailable = marketplacePreviewAvailableRaw !== false
+  const communityListing = manualAccess === 'free' || manualAccess === 'paid'
+
+  if (communityListing && !attestationRaw) {
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      { error: 'Attestation required to list in the community marketplace' },
+      { status: 400 }
+    )
+  }
+
+  const priceCapCents = 100_000_000
+  let priceCents: number | null = null
+  if (manualAccess === 'paid') {
+    const parsed = Number(priceRaw)
+    if (!priceRaw || !Number.isFinite(parsed) || parsed <= 0) {
+      await serviceClient.storage.from('documents').remove([storagePath])
+      return NextResponse.json(
+        { error: 'Valid price required for paid listings' },
+        { status: 400 }
+      )
+    }
+    priceCents = Math.min(priceCapCents, Math.round(parsed * 100))
+  }
+
+  const uploaderRoleMap: Record<string, 'owner' | 'admin' | 'mechanic' | 'pilot'> = {
+    owner: 'owner',
+    admin: 'admin',
+    mechanic: 'mechanic',
+    pilot: 'pilot',
+  }
+  const uploaderRole = uploaderRoleMap[requestContext.role] ?? 'mechanic'
+
+  const { data: uploaderProfile } = await serviceClient
+    .from('user_profiles')
+    .select('full_name, email')
+    .eq('id', user.id)
+    .single()
+
+  const uploaderName =
+    (uploaderProfile?.full_name as string | undefined) ||
+    (uploaderProfile?.email as string | undefined) ||
+    null
+
+  const title = titleRaw || fileName.replace(/\.pdf$/i, '')
+
+  const bookId = await ensureBookRecord(serviceClient, {
+    organizationId: orgId,
+    aircraftId,
+    bookType,
+    bookNumber,
+    bookAssignment,
+    title: bookNumber ? `Logbook ${bookNumber}` : null,
+    createdBy: user.id,
+  })
+
+  const { data: docRecord, error: insertError } = await (serviceClient as any)
+    .from('documents')
+    .insert({
+      id: documentId,
+      organization_id: orgId,
+      aircraft_id: aircraftId ?? null,
+      title,
+      doc_type: docType,
+      document_group_id: documentGroupId,
+      document_detail_id: documentDetailId,
+      document_subtype: documentSubtype,
+      ...(classificationFields ?? {}),
+      description: body.notes?.trim() || null,
+      file_path: storagePath,
+      file_name: fileName,
+      file_size_bytes: fileSize,
+      mime_type: mimeType,
+      checksum_sha256: checksumSha256,
+      parsing_status: 'queued',
+      source_provider: 'direct_upload',
+      ocr_required: false,
+      version_number: 1,
+      uploaded_by: user.id,
+      uploader_role: uploaderRole,
+      uploader_name: uploaderName,
+      allow_download: false,
+      community_listing: communityListing,
+      manual_access: manualAccess,
+      marketplace_downloadable: marketplaceDownloadable,
+      marketplace_injectable: marketplaceInjectable,
+      marketplace_preview_available: marketplacePreviewAvailable,
+      document_date: documentDateRaw || null,
+      price_cents: priceCents,
+      attestation_accepted: attestationRaw,
+      listing_status: communityListing ? 'pending_review' : null,
+      visibility,
+      book_assignment: bookAssignment,
+      book_id: bookId,
+      book_number: bookNumber,
+      book_type: bookType,
+      download_count: 0,
+      uploaded_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (insertError || !docRecord) {
+    console.error('[upload/complete] DB insert error:', insertError)
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      { error: 'Failed to create document record. Please try again.' },
+      { status: 500 }
+    )
+  }
+
+  await writeAuditLog(serviceClient, {
+    orgId,
+    userId: user.id,
+    action: 'document.upload',
+    resourceType: 'document',
+    resourceId: documentId,
+    metadata: {
+      file_name: fileName,
+      file_size_bytes: fileSize,
+      doc_type: docType,
+      document_group_id: documentGroupId,
+      document_detail_id: documentDetailId,
+      ...(classificationFields ?? {}),
+      aircraft_id: aircraftId,
+      book_id: bookId,
+      book_number: bookNumber,
+      book_type: bookType,
+    },
+  })
+
+  const ingestionResult = await queueDocumentIngestion(documentId, {
+    // Signed uploads initiated from the UI should behave like direct uploads:
+    // keep them inline-first and only fall back when absolutely necessary.
+    preferBackground: false,
+    allowInlineFallback: true,
+  })
+
+  if (ingestionResult.status === 'failed') {
+    await (serviceClient as any)
+      .from('documents')
+      .update({
+        parsing_status: 'failed',
+        parse_error:
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+        parse_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', documentId)
+      .eq('organization_id', orgId)
+  }
+
+  return NextResponse.json(
+    {
+      document_id: documentId,
+      status: ingestionResult.status,
+      ingestion_mode: ingestionResult.mode,
+      warning: ingestionResult.warning ?? null,
+    },
+    { status: 201 }
+  )
+}

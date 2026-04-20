@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server';
+import { createServiceSupabase } from '@/lib/supabase/server';
+import { getRequestUser } from '@/lib/supabase/request-user';
+import { resolveRequestOrgContext } from '@/lib/auth/context';
 import { generateEmbeddings } from '@/lib/openai/embeddings';
 import { retrieveChunks } from '@/lib/rag/retrieval';
 import { generateAnswer } from '@/lib/rag/generation';
+import { parseStructuredQuery } from '@/lib/rag/query-parser';
+import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
 import type { DocType } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
@@ -45,47 +49,19 @@ const queryRequestSchema = z.object({
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
 
-  // 1. Auth check
-  const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const supabase = createServiceSupabase();
+  const user = await getRequestUser(req)
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 2. Get user's org membership (single org supported)
-  const { data: membership, error: membershipError } = await supabase
-    .from('organization_memberships')
-    .select(
-      `
-      organization_id,
-      role,
-      organizations:organization_id (
-        id,
-        plan,
-        plan_queries_monthly,
-        queries_used_this_month,
-        queries_reset_at
-      )
-    `
-    )
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single();
+  const requestContext = await resolveRequestOrgContext(req, { includeOrganization: true })
 
-  if (membershipError || !membership) {
+  if (!requestContext) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 });
   }
 
-  const org = (membership.organizations as unknown) as {
-    id: string;
-    plan: string;
-    plan_queries_monthly: number;
-    queries_used_this_month: number;
-    queries_reset_at: string;
-  } | null;
+  const { organizationId, organization: org } = requestContext
 
   if (!org) {
     return NextResponse.json({ error: 'Organization not found' }, { status: 403 });
@@ -122,21 +98,30 @@ export async function POST(req: NextRequest) {
   }
 
   const { question, aircraft_id, doc_type_filter, conversation_history } = body;
-  const organizationId = membership.organization_id;
 
   try {
+    const parsedQuery = await parseStructuredQuery({
+      organizationId,
+      aircraftId: aircraft_id,
+      docTypeFilter: doc_type_filter,
+      queryText: question,
+    })
+
+    const embeddingText = parsedQuery.cleanedQuery || question
+
     // 5. Generate query embedding
-    const [embeddingResult] = await generateEmbeddings([{ id: 'query', text: question }]);
+    const [embeddingResult] = await generateEmbeddings([{ id: 'query', text: embeddingText }]);
     const queryEmbedding = embeddingResult.embedding;
 
     // 6. Retrieve chunks via retrieveChunks
     const retrievedChunks = await retrieveChunks({
       organizationId,
-      aircraftId: aircraft_id,
+      aircraftId: parsedQuery.aircraftId ?? aircraft_id,
       queryEmbedding,
-      queryText: question,
-      docTypeFilter: doc_type_filter,
+      queryText: embeddingText,
+      docTypeFilter: parsedQuery.docTypeFilter ?? doc_type_filter,
       limit: 20,
+      parsedQuery,
     });
 
     // 7. Generate answer via generateAnswer
@@ -146,20 +131,24 @@ export async function POST(req: NextRequest) {
       conversation_history
     );
 
+    const enrichedCitations = await enrichAnswerCitationsWithAnchors({
+      citations: answerResult.citations,
+      retrievedChunks,
+      supabase,
+    })
+
     const latencyMs = Date.now() - startTime;
 
     // 8. Store query record in queries table
-    const serviceClient = createServiceSupabase();
-
-    const docTypesSearched: DocType[] = doc_type_filter && doc_type_filter.length > 0
-      ? doc_type_filter
+    const docTypesSearched: DocType[] = parsedQuery.docTypeFilter && parsedQuery.docTypeFilter.length > 0
+      ? parsedQuery.docTypeFilter
       : Array.from(new Set(retrievedChunks.map((c) => c.doc_type)));
 
-    const { data: queryRecord, error: queryInsertError } = await serviceClient
+    const { data: queryRecord, error: queryInsertError } = await supabase
       .from('queries')
       .insert({
         organization_id: organizationId,
-        aircraft_id: aircraft_id ?? null,
+        aircraft_id: parsedQuery.aircraftId ?? aircraft_id ?? null,
         user_id: user.id,
         question,
         answer: answerResult.answer,
@@ -185,20 +174,30 @@ export async function POST(req: NextRequest) {
     }
 
     // 9. Store citations in citations table
-    if (queryRecord && answerResult.citations.length > 0) {
-      const citationRows = answerResult.citations.map((citation, idx) => ({
+    if (queryRecord && enrichedCitations.length > 0) {
+      const citationRows = enrichedCitations.map((citation, idx) => ({
         query_id: queryRecord.id,
         organization_id: organizationId,
         document_id: citation.documentId,
         chunk_id: citation.chunkId,
         page_number: citation.pageNumber,
+        page_number_end: citation.pageNumberEnd ?? null,
         section_title: citation.sectionTitle ?? null,
         quoted_snippet: citation.snippet,
+        quoted_text: citation.quotedText ?? citation.snippet,
+        normalized_quoted_text: citation.normalizedQuotedText ?? null,
+        match_strategy: citation.matchStrategy ?? null,
+        text_anchor_start:
+          typeof citation.textAnchorStart === 'number' ? citation.textAnchorStart : null,
+        text_anchor_end:
+          typeof citation.textAnchorEnd === 'number' ? citation.textAnchorEnd : null,
+        bounding_regions: citation.boundingRegions ?? [],
+        is_exact_anchor: citation.isExactAnchor ?? false,
         relevance_score: citation.relevanceScore,
         citation_index: idx + 1,
       }));
 
-      const { error: citationsError } = await serviceClient
+      const { error: citationsError } = await supabase
         .from('citations')
         .insert(citationRows);
 
@@ -208,8 +207,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 10. Increment query counter via increment_query_count RPC
-    const { error: incrementError } = await serviceClient.rpc('increment_query_count', {
-      p_organization_id: organizationId,
+    const { error: incrementError } = await supabase.rpc('increment_query_count', {
+      p_org_id: organizationId,
     });
 
     if (incrementError) {
@@ -222,7 +221,9 @@ export async function POST(req: NextRequest) {
       answer: answerResult.answer,
       confidence: answerResult.confidence,
       confidence_score: answerResult.confidenceScore,
-      citations: answerResult.citations,
+      citations: enrichedCitations,
+      cited_chunk_ids: answerResult.citedChunkIds,
+      citedChunkIds: answerResult.citedChunkIds,
       warning_flags: answerResult.warningFlags,
       follow_up_questions: answerResult.followUpQuestions,
       chunks_retrieved: retrievedChunks.length,

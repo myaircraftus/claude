@@ -1,6 +1,10 @@
-import { redirect } from 'next/navigation'
+import { WorkOrdersPage } from '@/components/redesign/WorkOrdersPage'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 
-// Work Orders is now a tab inside the Maintenance Hub
-export default function WorkOrdersPage() {
-  redirect('/maintenance?tab=work-orders')
+export const metadata = { title: 'Work Orders' }
+
+export default async function WorkOrdersRoute() {
+  await requireAppServerSession()
+
+  return <WorkOrdersPage />
 }

@@ -1,29 +1,107 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Search, Loader2, ExternalLink, ShieldCheck, Globe,
   AlertTriangle, ShoppingBag, Sparkles, Cpu, Tag,
+  Plane, Users, Wrench, Archive,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { RankedOffer, SearchResponse, AIResolutionInfo } from '@/lib/parts/types'
+import type { RankedOffer, SearchResponse, AIResolutionInfo, LibraryMatch } from '@/lib/parts/types'
 
 interface Aircraft { id: string; tail_number: string; make?: string | null; model?: string | null; year?: number | null }
 
+interface AircraftContextResponse {
+  id: string
+  tail_number: string
+  make?: string | null
+  model?: string | null
+  year?: number | null
+  serial_number?: string | null
+  engine_make?: string | null
+  engine_model?: string | null
+  owner_customer?: {
+    id: string
+    name: string
+    company?: string | null
+    email?: string | null
+    phone?: string | null
+  } | null
+  linked_customers?: Array<{
+    id: string
+    relationship?: string | null
+    is_primary?: boolean | null
+    customer: {
+      id: string
+      name: string
+      company?: string | null
+      email?: string | null
+      phone?: string | null
+    } | null
+  }>
+}
+
 interface Props {
   aircraft: Aircraft[]
+  initialAircraftId?: string
   onOrderCreated?: (order: unknown) => void
 }
 
-export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
+export function PartSearchPanel({ aircraft, initialAircraftId, onOrderCreated }: Props) {
   const [query, setQuery] = useState('')
-  const [aircraftId, setAircraftId] = useState<string>('')
+  const [aircraftId, setAircraftId] = useState<string>(initialAircraftId ?? (aircraft.length === 1 ? aircraft[0].id : ''))
   const [busy, setBusy] = useState(false)
   const [response, setResponse] = useState<SearchResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [clickedBusyId, setClickedBusyId] = useState<string | null>(null)
+  const [aircraftDetails, setAircraftDetails] = useState<AircraftContextResponse | null>(null)
+  const [aircraftLoading, setAircraftLoading] = useState(false)
+
+  useEffect(() => {
+    setAircraftId(prev => prev || initialAircraftId || (aircraft.length === 1 ? aircraft[0].id : ''))
+  }, [aircraft, initialAircraftId])
+
+  useEffect(() => {
+    let active = true
+
+    async function loadAircraftDetails(id: string) {
+      setAircraftLoading(true)
+      try {
+        const resp = await fetch(`/api/aircraft/${id}`)
+        const payload = await resp.json().catch(() => ({}))
+        if (!active) return
+        if (!resp.ok) {
+          throw new Error(payload.error ?? 'Failed to load aircraft details')
+        }
+        setAircraftDetails(payload)
+      } catch {
+        if (active) {
+          setAircraftDetails(null)
+        }
+      } finally {
+        if (active) {
+          setAircraftLoading(false)
+        }
+      }
+    }
+
+    if (!aircraftId) {
+      setAircraftDetails(null)
+      setAircraftLoading(false)
+      return () => {
+        active = false
+      }
+    }
+
+    void loadAircraftDetails(aircraftId)
+    return () => {
+      active = false
+    }
+  }, [aircraftId])
+
+  const selectedAircraft = aircraft.find(item => item.id === aircraftId) ?? null
 
   async function runSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -66,6 +144,12 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
       if (resp.ok && j.productUrl) {
         window.open(j.productUrl, '_blank', 'noopener,noreferrer')
         if (onOrderCreated) {
+          const orderAircraft = aircraftId
+            ? {
+                id: aircraftId,
+                tail_number: aircraftDetails?.tail_number ?? selectedAircraft?.tail_number ?? 'Aircraft',
+              }
+            : null
           const order = {
             id: j.orderId,
             status: 'clicked_out',
@@ -80,6 +164,7 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
             selected_condition: offer.condition ?? null,
             selected_image_url: offer.imageUrl ?? null,
             aircraft_id: aircraftId || null,
+            aircraft: orderAircraft,
             work_order_id: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -95,6 +180,8 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
       setClickedBusyId(null)
     }
   }
+
+  const libraryMatches = response?.libraryMatches ?? []
 
   return (
     <div className="space-y-4">
@@ -126,6 +213,14 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
         </Button>
       </form>
 
+      {(aircraftLoading || aircraftDetails || selectedAircraft) && (
+        <AircraftContextCard
+          aircraft={aircraftDetails}
+          fallbackAircraft={selectedAircraft}
+          loading={aircraftLoading}
+        />
+      )}
+
       {/* Loading state with AI indicator */}
       {busy && aircraftId && (
         <div className="flex items-center gap-3 p-3 rounded-lg border border-brand-200 bg-brand-50/50 text-sm">
@@ -145,6 +240,10 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
         <>
           {/* AI Resolution Card */}
           {response.aiResolution && <AIResolutionCard resolution={response.aiResolution} />}
+
+          {libraryMatches.length > 0 && (
+            <LibraryMatchesCard matches={libraryMatches} />
+          )}
 
           {/* Provider summary */}
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -187,6 +286,78 @@ export function PartSearchPanel({ aircraft, onOrderCreated }: Props) {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+function AircraftContextCard({
+  aircraft,
+  fallbackAircraft,
+  loading,
+}: {
+  aircraft: AircraftContextResponse | null
+  fallbackAircraft: Aircraft | null
+  loading: boolean
+}) {
+  const primaryCustomer =
+    aircraft?.linked_customers?.find(item => item.is_primary)?.customer ??
+    aircraft?.owner_customer ??
+    aircraft?.linked_customers?.find(item => item.customer)?.customer ??
+    null
+
+  const makeModel = [aircraft?.make ?? fallbackAircraft?.make, aircraft?.model ?? fallbackAircraft?.model]
+    .filter(Boolean)
+    .join(' ')
+  const engine = [aircraft?.engine_make, aircraft?.engine_model].filter(Boolean).join(' ')
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-brand-50 p-2">
+          <Plane className="h-4 w-4 text-brand-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">
+              {aircraft?.tail_number ?? fallbackAircraft?.tail_number ?? 'Selected aircraft'}
+            </h3>
+            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            {makeModel && (
+              <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                {[(aircraft?.year ?? fallbackAircraft?.year) || null, makeModel].filter(Boolean).join(' ')}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+            <div className="flex items-start gap-2">
+              <Wrench className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+              <div>
+                <p className="font-medium text-foreground">Engine context</p>
+                <p>{engine || 'No engine details on file yet'}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Users className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+              <div>
+                <p className="font-medium text-foreground">Customer link</p>
+                <p>
+                  {primaryCustomer
+                    ? [primaryCustomer.name, primaryCustomer.company].filter(Boolean).join(' · ')
+                    : 'No owner or primary customer linked'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <Archive className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+              <div>
+                <p className="font-medium text-foreground">Aircraft file</p>
+                <p>{aircraft?.serial_number ? `Serial ${aircraft.serial_number}` : 'Using basic aircraft profile'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -266,6 +437,83 @@ function AIResolutionCard({ resolution }: { resolution: AIResolutionInfo }) {
   )
 }
 
+function LibraryMatchesCard({ matches }: { matches: LibraryMatch[] }) {
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Archive className="h-4 w-4 text-emerald-700" />
+        <div>
+          <h3 className="text-sm font-semibold text-emerald-900">Already in your parts library</h3>
+          <p className="text-xs text-emerald-700">
+            Prior shop usage and saved pricing, surfaced before external vendor clicks.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {matches.map(match => (
+          <div key={match.id} className="rounded-lg border border-emerald-200 bg-white/80 p-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border border-emerald-100 bg-emerald-50">
+                {match.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={match.imageUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <Archive className="h-5 w-5 text-emerald-300" />
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{match.title}</p>
+                    <p className="text-[11px] font-mono text-muted-foreground">P/N {match.partNumber}</p>
+                  </div>
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+                    {match.matchReason.replace('_', ' ')}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  {match.preferredVendor && <span>{match.preferredVendor}</span>}
+                  {match.category && <span>{match.category}</span>}
+                  {match.condition && <span>{match.condition}</span>}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                  <span className="font-semibold text-foreground">
+                    {formatPrice(match.sellPrice ?? match.basePrice ?? null, match.currency)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    used {match.usageCount} time{match.usageCount === 1 ? '' : 's'}
+                  </span>
+                  {match.lastOrderedAt && (
+                    <span className="text-muted-foreground">last ordered {formatRelativeDate(match.lastOrderedAt)}</span>
+                  )}
+                </div>
+
+                {match.vendorUrl && (
+                  <div className="mt-2">
+                    <a
+                      href={match.vendorUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline"
+                    >
+                      Open saved vendor link
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Offer Card ─────────────────────────────────────────────────────────────
 
 function OfferCard({ offer, onClick, loading }: { offer: RankedOffer; onClick: () => void; loading: boolean }) {
@@ -318,4 +566,21 @@ function OfferCard({ offer, onClick, loading }: { offer: RankedOffer; onClick: (
       </div>
     </div>
   )
+}
+
+function formatPrice(value: number | null, currency?: string | null): string {
+  if (value == null) return 'No saved price'
+  return `$${value.toFixed(2)}${currency && currency !== 'USD' ? ` ${currency}` : ''}`
+}
+
+function formatRelativeDate(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  const days = Math.round((Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24))
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days}d ago`
+  if (days < 365) return `${Math.round(days / 30)}mo ago`
+  return `${Math.round(days / 365)}y ago`
 }

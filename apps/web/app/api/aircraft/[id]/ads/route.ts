@@ -155,6 +155,28 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { data: membership } = await supabase
+      .from('organization_memberships')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .not('accepted_at', 'is', null)
+      .single()
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { data: aircraft } = await supabase
+      .from('aircraft')
+      .select('id, organization_id')
+      .eq('id', params.id)
+      .eq('organization_id', membership.organization_id)
+      .single()
+
+    if (!aircraft) {
+      return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
+    }
+
     let body: any
     try {
       body = await req.json()
@@ -162,7 +184,19 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { ad_applicability_id, compliance_status, compliance_notes, last_compliance_date } = body
+    const {
+      ad_applicability_id,
+      compliance_status,
+      compliance_notes,
+      last_compliance_date,
+      canonical_record_version_id,
+      evidence_segment_id,
+      evidence_document_id,
+      evidence_page,
+      evidence_state,
+      precedence_decision,
+      compliance_source,
+    } = body
 
     if (!ad_applicability_id || !compliance_status) {
       return NextResponse.json(
@@ -177,11 +211,19 @@ export async function PATCH(
         compliance_status,
         evidence_notes: compliance_notes ?? null,
         last_compliance_date: last_compliance_date ?? null,
+        canonical_record_version_id: canonical_record_version_id ?? null,
+        evidence_segment_id: evidence_segment_id ?? null,
+        evidence_document_id: evidence_document_id ?? null,
+        evidence_page: evidence_page ?? null,
+        evidence_state: evidence_state ?? 'canonical',
+        precedence_decision: precedence_decision ?? 'human_reviewed_correction',
+        compliance_source: compliance_source ?? 'manual_override',
         manually_overridden: true,
         override_by: user.id,
         updated_at: new Date().toISOString(),
       })
       .eq('id', ad_applicability_id)
+      .eq('aircraft_id', aircraft.id)
       .select()
       .single()
 

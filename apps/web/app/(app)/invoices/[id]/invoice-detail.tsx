@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -63,7 +62,7 @@ interface Props {
 }
 
 export function InvoiceDetail({ initialInvoice }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [invoice, setInvoice] = useState(initialInvoice)
   const [lineItems, setLineItems] = useState<any[]>(initialInvoice.line_items ?? [])
   const [saving, setSaving] = useState(false)

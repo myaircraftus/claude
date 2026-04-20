@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import { ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'

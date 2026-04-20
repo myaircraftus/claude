@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+import { exportAccountingInvoices, type ExportableInvoice } from '@/lib/integrations/accounting'
 const nodemailer = require('nodemailer')
 
 async function getOrgId(supabase: any, userId: string) {
@@ -192,7 +192,47 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .select()
       .single()
 
-    return NextResponse.json({ sent: true, invoice: updated })
+    const { data: connectedAccountingIntegrations } = await supabase
+      .from('integrations')
+      .select('id, provider, credentials_encrypted, settings')
+      .eq('organization_id', orgId)
+      .eq('status', 'connected')
+      .in('provider', ['quickbooks', 'freshbooks'])
+
+    const accountingResults: Array<Record<string, unknown>> = []
+
+    for (const integration of connectedAccountingIntegrations ?? []) {
+      try {
+        const result = await exportAccountingInvoices({
+          provider: integration.provider as 'quickbooks' | 'freshbooks',
+          integrationId: integration.id,
+          credentials: integration.credentials_encrypted,
+          settings: (integration.settings ?? {}) as Record<string, unknown>,
+          invoices: [invoice as ExportableInvoice],
+          orgId,
+          supabase,
+        })
+        accountingResults.push({
+          provider: integration.provider,
+          exported: result.exported,
+          skipped: result.skipped,
+          failures: result.failures,
+        })
+      } catch (accountingError) {
+        accountingResults.push({
+          provider: integration.provider,
+          exported: 0,
+          skipped: 0,
+          failures: [
+            accountingError instanceof Error
+              ? accountingError.message
+              : 'Unknown accounting export error',
+          ],
+        })
+      }
+    }
+
+    return NextResponse.json({ sent: true, invoice: updated, accounting_export: accountingResults })
   } catch (err: any) {
     console.error('Email send error:', err)
     return NextResponse.json({ error: 'Failed to send email: ' + err.message }, { status: 500 })

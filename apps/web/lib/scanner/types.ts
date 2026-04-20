@@ -37,15 +37,22 @@ export type PageProcessingStatus =
 export type PageCaptureClassification =
   | 'logbook_entry'
   | 'work_order'
+  | 'estimate'
   | 'annual_inspection'
+  | '50hr_inspection'
   | '100hr_inspection'
-  | 'ad_sheet'
+  | 'ad_record'
+  | 'service_bulletin'
   | 'yellow_tag'
   | 'form_337'
   | 'form_8130'
+  | 'squawk_discrepancy'
   | 'discrepancy_sheet'
   | 'invoice'
   | 'weight_balance'
+  | 'poh_afm_supplement'
+  | 'part_trace_conformity'
+  | 'photo_evidence'
   | 'stc_reference'
   | 'informational'
   | 'unknown'
@@ -97,6 +104,20 @@ export interface ScanBatch {
   session_id: string | null
   batch_type: BatchType
   source_mode: BatchSourceMode
+  document_group_id: string | null
+  document_detail_id: string | null
+  document_subtype: string | null
+  record_family: string | null
+  document_class: string | null
+  truth_role: string | null
+  parser_strategy: string | null
+  review_priority: string | null
+  canonical_eligibility: boolean | null
+  reminder_relevance: boolean | null
+  ad_relevance: boolean | null
+  inspection_relevance: boolean | null
+  completeness_relevance: boolean | null
+  intelligence_tags: string[] | null
   title: string | null
   notes: string | null
   page_count: number

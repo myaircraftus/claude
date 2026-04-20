@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -72,7 +72,7 @@ interface Props {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) {
-  const router = useRouter()
+  const router = useTenantRouter()
   const [wo, setWo] = useState(workOrder)
   const [lines, setLines] = useState<WorkOrderLine[]>((workOrder.lines as WorkOrderLine[]) ?? [])
   const [saving, setSaving] = useState(false)

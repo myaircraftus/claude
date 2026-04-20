@@ -4,6 +4,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import type { BatchType, BatchSourceMode } from '@/lib/scanner/types'
+import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import { isDocumentDetailId, isDocumentGroupId } from '@/lib/documents/taxonomy'
+import { ensureBookRecord } from '@/lib/documents/books'
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('scan_batches')
     .select(`
-      id, title, batch_type, source_mode, status, page_count, submitted_at,
+      id, title, batch_type, source_mode, document_group_id, document_detail_id, document_subtype, status, page_count, submitted_at,
       created_at, updated_at, aircraft_id,
       aircraft:aircraft_id (id, tail_number)
     `)
@@ -56,6 +59,34 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const batchType: BatchType = (body.batch_type ?? 'unknown') as BatchType
   const sourceMode: BatchSourceMode = (body.source_mode ?? 'batch') as BatchSourceMode
+  const bookNumber = typeof body.book_number === 'string' ? body.book_number.trim() : null
+  const bookType = typeof body.book_type === 'string' ? body.book_type.trim() : null
+  const bookAssignment =
+    body.book_assignment === 'present'
+      ? 'present'
+      : body.book_assignment === 'historical'
+        ? 'historical'
+        : null
+  const documentGroupId = isDocumentGroupId(body.document_group_id) ? body.document_group_id : null
+  const documentDetailId = isDocumentDetailId(body.document_detail_id) ? body.document_detail_id : null
+  const documentSubtype =
+    typeof body.document_subtype === 'string' && body.document_subtype.trim().length > 0
+      ? body.document_subtype.trim()
+      : null
+  const classificationFields = buildClassificationStorageFieldsBySelection(
+    documentGroupId,
+    documentDetailId
+  )
+
+  const bookId = await ensureBookRecord(supabase, {
+    organizationId: membership.organization_id,
+    aircraftId: body.aircraft_id ?? null,
+    bookType,
+    bookNumber,
+    bookAssignment,
+    title: bookNumber ? `Logbook ${bookNumber}` : null,
+    createdBy: user.id,
+  })
 
   const { data: batch, error } = await (supabase as any)
     .from('scan_batches')
@@ -65,6 +96,14 @@ export async function POST(req: NextRequest) {
       scanner_user_id: user.id,
       batch_type: batchType,
       source_mode: sourceMode,
+      document_group_id: documentGroupId,
+      document_detail_id: documentDetailId,
+      document_subtype: documentSubtype,
+      ...(classificationFields ?? {}),
+      book_id: bookId,
+      book_number: bookNumber,
+      book_type: bookType,
+      book_assignment: bookAssignment,
       title: body.title ?? null,
       notes: body.notes ?? null,
       status: 'capturing',

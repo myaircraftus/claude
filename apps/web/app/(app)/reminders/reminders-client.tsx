@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import {
   Wrench,
   Calendar,
@@ -88,10 +88,29 @@ interface AircraftOption {
   total_time_hours?: number
 }
 
+interface MechanicOption {
+  id: string
+  full_name: string
+  email: string
+}
+
+interface ReminderRequestState {
+  id: string
+  status: 'pending' | 'accepted' | 'declined' | 'converted_to_wo'
+  mechanic_name?: string
+}
+
 interface Props {
   reminders: Reminder[]
   aircraft: AircraftOption[]
   orgId: string
+  mechanics: MechanicOption[]
+  currentUserRole: string
+  initialAircraftFilter?: string
+  initialOpenAddModal?: boolean
+  initialAddAircraftId?: string
+  initialRequestReminderId?: string
+  reminderRequestStates?: Record<string, ReminderRequestState>
 }
 
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
@@ -239,9 +258,15 @@ function StatsRow({ reminders }: { reminders: Reminder[] }) {
 function ReminderCard({
   reminder,
   onAction,
+  onRequestMaintenance,
+  requestState,
+  canRequestMaintenance,
 }: {
   reminder: Reminder
   onAction: (id: string, action: 'complete' | 'snooze' | 'dismiss') => void
+  onRequestMaintenance: (reminder: Reminder) => void
+  requestState?: ReminderRequestState | null
+  canRequestMaintenance: boolean
 }) {
   const borderColor = reminderBorderColor(reminder)
   const isComplete = reminder.status === 'completed'
@@ -338,6 +363,22 @@ function ReminderCard({
               <Clock className="h-3 w-3 mr-1" />
               Snooze 7d
             </Button>
+            {requestState ? (
+              <Badge variant="info" className="text-xs">
+                Maintenance request {requestState.status.replaceAll('_', ' ')}
+              </Badge>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7"
+                disabled={!canRequestMaintenance}
+                onClick={() => onRequestMaintenance(reminder)}
+              >
+                <Wrench className="h-3 w-3 mr-1" />
+                Request Maintenance
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -380,18 +421,31 @@ function AddReminderModal({
   open,
   onClose,
   aircraft,
-  orgId,
   onCreated,
+  initialAircraftId,
 }: {
   open: boolean
   onClose: () => void
   aircraft: AircraftOption[]
-  orgId: string
   onCreated: (r: Reminder) => void
+  initialAircraftId?: string
 }) {
   const [form, setForm] = useState<AddReminderFormData>(DEFAULT_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setForm(prev => ({
+      ...DEFAULT_FORM,
+      aircraft_id: initialAircraftId ?? prev.aircraft_id ?? '',
+    }))
+    setError(null)
+    setAiError(null)
+  }, [initialAircraftId, open])
 
   function update(field: keyof AddReminderFormData, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -404,6 +458,42 @@ function AddReminderModal({
       reminder_type: type,
       title: prev.title || REMINDER_TYPE_LABELS[type],
     }))
+  }
+
+  async function handleAiAssist() {
+    if (!aiPrompt.trim()) {
+      setAiError('Describe the reminder first.')
+      return
+    }
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await fetch('/api/reminders/ai-parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: form.aircraft_id || undefined,
+          prompt: aiPrompt,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to parse reminder')
+
+      setForm(prev => ({
+        ...prev,
+        aircraft_id: prev.aircraft_id || json.aircraft_id || '',
+        reminder_type: (json.reminder_type as ReminderType) ?? prev.reminder_type,
+        title: json.title ?? prev.title,
+        description: json.description ?? prev.description,
+        due_date: json.due_date ?? prev.due_date,
+        due_hours: json.due_hours != null ? String(json.due_hours) : prev.due_hours,
+        priority: (json.priority as Priority) ?? prev.priority,
+      }))
+    } catch (err: any) {
+      setAiError(err.message ?? 'Failed to parse reminder')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -432,6 +522,7 @@ function AddReminderModal({
       if (!res.ok) throw new Error(json.error ?? 'Failed to create reminder')
       onCreated(json.reminder)
       setForm(DEFAULT_FORM)
+      setAiPrompt('')
       onClose()
     } catch (err: any) {
       setError(err.message)
@@ -447,6 +538,31 @@ function AddReminderModal({
           <DialogTitle>Add Reminder</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5 rounded-xl border border-border bg-muted/30 p-4">
+            <Label>Describe it in plain English</Label>
+            <Textarea
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="Example: Add a 100-hour reminder for this aircraft due at 2450 hours and make it high priority."
+              rows={3}
+            />
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll turn your note into reminder fields you can confirm before saving.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleAiAssist}
+                disabled={aiLoading}
+              >
+                {aiLoading ? 'Parsing…' : 'Auto-fill with AI'}
+              </Button>
+            </div>
+            {aiError && <p className="text-xs text-destructive">{aiError}</p>}
+          </div>
+
           {/* Aircraft */}
           <div className="space-y-1.5">
             <Label>Aircraft *</Label>
@@ -598,14 +714,47 @@ function EmptyState({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function RemindersClient({ reminders: initialReminders, aircraft, orgId }: Props) {
-  const router = useRouter()
+export default function RemindersClient({
+  reminders: initialReminders,
+  aircraft,
+  orgId,
+  mechanics,
+  currentUserRole,
+  initialAircraftFilter,
+  initialOpenAddModal,
+  initialAddAircraftId,
+  initialRequestReminderId,
+  reminderRequestStates,
+}: Props) {
+  const router = useTenantRouter()
   const [reminders, setReminders] = useState<Reminder[]>(initialReminders)
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
-  const [aircraftFilter, setAircraftFilter] = useState<string>('all')
-  const [showAddModal, setShowAddModal] = useState(false)
+  const [aircraftFilter, setAircraftFilter] = useState<string>(initialAircraftFilter ?? 'all')
+  const [showAddModal, setShowAddModal] = useState(Boolean(initialOpenAddModal))
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+  const [requestReminder, setRequestReminder] = useState<Reminder | null>(null)
+  const [requestMechanicId, setRequestMechanicId] = useState('')
+  const [requestMessage, setRequestMessage] = useState('')
+  const [requestSaving, setRequestSaving] = useState(false)
+  const [requestError, setRequestError] = useState<string | null>(null)
+  const [requestStates, setRequestStates] = useState<Record<string, ReminderRequestState>>(reminderRequestStates ?? {})
+
+  useEffect(() => {
+    if (initialAircraftFilter) setAircraftFilter(initialAircraftFilter)
+  }, [initialAircraftFilter])
+
+  useEffect(() => {
+    if (initialOpenAddModal) setShowAddModal(true)
+  }, [initialOpenAddModal])
+
+  useEffect(() => {
+    if (!initialRequestReminderId) return
+    const target = initialReminders.find(reminder => reminder.id === initialRequestReminderId)
+    if (target) {
+      openRequestMaintenance(target)
+    }
+  }, [initialReminders, initialRequestReminderId])
 
   // Filter logic
   const filtered = useMemo(() => {
@@ -722,7 +871,64 @@ export default function RemindersClient({ reminders: initialReminders, aircraft,
     setReminders(prev => [r, ...prev])
   }
 
+  function openRequestMaintenance(reminder: Reminder) {
+    setRequestReminder(reminder)
+    setRequestMessage(
+      `Please help with "${reminder.title}"${reminder.description ? ` — ${reminder.description}` : ''}`.trim()
+    )
+    setRequestMechanicId('')
+    setRequestError(null)
+  }
+
+  async function submitMaintenanceRequest() {
+    if (!requestReminder) return
+    if (!requestMechanicId) {
+      setRequestError('Choose a mechanic first.')
+      return
+    }
+
+    setRequestSaving(true)
+    setRequestError(null)
+
+    try {
+      const res = await fetch('/api/maintenance/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: requestReminder.aircraft_id,
+          target_mechanic_user_id: requestMechanicId,
+          message: requestMessage || null,
+          request_source: 'reminder',
+          source_reminder_id: requestReminder.id,
+          source_summary: requestReminder.title,
+          squawk_ids: [],
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create maintenance request')
+
+      const assignedMechanic = mechanics.find(mechanic => mechanic.id === requestMechanicId)
+      setRequestStates(prev => ({
+        ...prev,
+        [requestReminder.id]: {
+          id: json.id,
+          status: json.status,
+          mechanic_name: assignedMechanic?.full_name,
+        },
+      }))
+      setRequestReminder(null)
+      setRequestMechanicId('')
+      setRequestMessage('')
+      router.refresh()
+    } catch (err: any) {
+      setRequestError(err.message ?? 'Failed to create maintenance request')
+    } finally {
+      setRequestSaving(false)
+    }
+  }
+
   const activeRemindersCount = reminders.filter(r => r.status !== 'completed' && r.status !== 'dismissed').length
+  const canRequestMaintenance = !['viewer', 'auditor'].includes(currentUserRole)
 
   return (
     <main className="flex-1 overflow-y-auto p-6">
@@ -835,7 +1041,14 @@ export default function RemindersClient({ reminders: initialReminders, aircraft,
         ) : (
           <div className="space-y-3">
             {filtered.map(r => (
-              <ReminderCard key={r.id} reminder={r} onAction={handleAction} />
+              <ReminderCard
+                key={r.id}
+                reminder={r}
+                onAction={handleAction}
+                onRequestMaintenance={openRequestMaintenance}
+                requestState={requestStates[r.id]}
+                canRequestMaintenance={canRequestMaintenance && mechanics.length > 0 && Boolean(r.aircraft_id)}
+              />
             ))}
           </div>
         )}
@@ -845,9 +1058,66 @@ export default function RemindersClient({ reminders: initialReminders, aircraft,
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
         aircraft={aircraft}
-        orgId={orgId}
         onCreated={handleCreated}
+        initialAircraftId={initialAddAircraftId}
       />
+
+      <Dialog open={Boolean(requestReminder)} onOpenChange={open => !open && setRequestReminder(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Request Maintenance</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {requestReminder && (
+              <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-1">
+                <p className="text-sm font-semibold text-foreground">{requestReminder.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {requestReminder.aircraft?.tail_number ?? 'Aircraft reminder'} · {REMINDER_TYPE_LABELS[requestReminder.reminder_type]}
+                </p>
+                {requestReminder.description && (
+                  <p className="text-sm text-muted-foreground mt-2">{requestReminder.description}</p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label>Assign mechanic</Label>
+              <Select value={requestMechanicId} onValueChange={setRequestMechanicId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose mechanic…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mechanics.map(mechanic => (
+                    <SelectItem key={mechanic.id} value={mechanic.id}>
+                      {mechanic.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Message</Label>
+              <Textarea
+                value={requestMessage}
+                onChange={event => setRequestMessage(event.target.value)}
+                rows={4}
+                placeholder="Add context for the mechanic…"
+              />
+            </div>
+
+            {requestError && <p className="text-sm text-destructive">{requestError}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRequestReminder(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitMaintenanceRequest} disabled={requestSaving}>
+              {requestSaving ? 'Sending…' : 'Create Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

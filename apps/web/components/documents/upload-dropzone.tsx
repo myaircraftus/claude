@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Unlock, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,18 @@ import {
 import { cn, formatBytes, DOC_TYPE_LABELS } from '@/lib/utils'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import type { FileUploadItem, DocType, ParsingStatus, ManualAccess, BookAssignment } from '@/types'
+import {
+  COMMON_DOCUMENT_DETAILS,
+  DOCUMENT_TAXONOMY_GROUPS,
+  deriveDocTypeFromClassification,
+  getDocumentItem,
+  getDocumentItemsForGroup,
+  isDocumentGroupId,
+} from '@/lib/documents/taxonomy'
+import {
+  getDocumentClassificationSummary,
+  searchDocumentTaxonomy,
+} from '@/lib/documents/classification'
 
 // Doc types eligible for community listing (manuals)
 const MANUAL_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_catalog']
@@ -39,7 +51,21 @@ interface AircraftOption {
 
 interface UploadDropzoneProps {
   aircraftOptions: AircraftOption[]
-  onUploadComplete: () => void
+  defaultAircraftId?: string
+  defaultDocType?: DocType
+  defaultDocumentGroupId?: string
+  defaultDocumentDetailId?: string
+  defaultDocumentSubtype?: string
+}
+
+function buildFileSignature(file: File) {
+  return [file.name, file.size, file.lastModified].join('::')
+}
+
+function getPersistedOwnerAircraftId() {
+  if (typeof window === 'undefined') return undefined
+  const value = window.localStorage.getItem('owner_selected_aircraft_id')?.trim()
+  return value ? value : undefined
 }
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
@@ -97,18 +123,85 @@ function ProcessingStatusBadge({ status }: { status: ParsingStatus }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const DOC_TYPE_OPTIONS = Object.entries(DOC_TYPE_LABELS) as [DocType, string][]
-
-export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDropzoneProps) {
+export function UploadDropzone({
+  aircraftOptions,
+  defaultAircraftId,
+  defaultDocType = 'miscellaneous',
+  defaultDocumentGroupId,
+  defaultDocumentDetailId,
+  defaultDocumentSubtype,
+}: UploadDropzoneProps) {
   const [files, setFiles] = useState<FileUploadItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [parsingStatuses, setParsingStatuses] = useState<Record<string, ParsingStatus>>({})
+  const [defaultAircraftSelection, setDefaultAircraftSelection] = useState<string>(
+    () => defaultAircraftId ?? getPersistedOwnerAircraftId() ?? '__none__'
+  )
+  const [defaultDocumentGroupSelection, setDefaultDocumentGroupSelection] = useState<string>(
+    defaultDocumentGroupId ?? DOCUMENT_TAXONOMY_GROUPS[0]?.id ?? '__none__'
+  )
+  const [defaultDocumentDetailSelection, setDefaultDocumentDetailSelection] = useState<string>(
+    defaultDocumentDetailId ?? ''
+  )
+  const [defaultDocumentSubtypeSelection, setDefaultDocumentSubtypeSelection] = useState<string>(
+    defaultDocumentSubtype ?? ''
+  )
+  const [dropError, setDropError] = useState<string | null>(null)
+  const [classificationSearch, setClassificationSearch] = useState('')
   const channelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabase>['channel']> | null>(null)
+  const deferredClassificationSearch = useDeferredValue(classificationSearch)
+  const trackedDocumentIds = useMemo(
+    () =>
+      files
+        .map((file) => file.documentId)
+        .filter((documentId): documentId is string => Boolean(documentId)),
+    [files]
+  )
+  const documentIdsSignature = useMemo(
+    () => trackedDocumentIds.join(','),
+    [trackedDocumentIds]
+  )
+  const classificationMatches = useMemo(
+    () => searchDocumentTaxonomy(deferredClassificationSearch),
+    [deferredClassificationSearch]
+  )
+  const selectedClassificationProfile = useMemo(
+    () => getDocumentClassificationSummary(defaultDocumentDetailSelection),
+    [defaultDocumentDetailSelection]
+  )
 
   useEffect(() => {
-    const docIds = files
-      .filter((f) => f.documentId)
-      .map((f) => f.documentId as string)
+    const persistedAircraftId = getPersistedOwnerAircraftId()
+    const candidateAircraftId = defaultAircraftId ?? persistedAircraftId
+
+    setDefaultAircraftSelection((previous) => {
+      const previousIsValid =
+        previous === '__none__' || aircraftOptions.some((aircraft) => aircraft.id === previous)
+      if (defaultAircraftId && defaultAircraftId !== previous) {
+        return defaultAircraftId
+      }
+      if (!previousIsValid) {
+        return candidateAircraftId ?? '__none__'
+      }
+      if (previous === '__none__' && candidateAircraftId) {
+        return candidateAircraftId
+      }
+      return previous
+    })
+  }, [aircraftOptions, defaultAircraftId])
+
+  useEffect(() => {
+    if (!isDocumentGroupId(defaultDocumentGroupSelection)) return
+    const detailOptions = getDocumentItemsForGroup(defaultDocumentGroupSelection)
+    if (detailOptions.length === 0) return
+    const exists = detailOptions.some((item) => item.id === defaultDocumentDetailSelection)
+    if (!exists) {
+      setDefaultDocumentDetailSelection(detailOptions[0].id)
+    }
+  }, [defaultDocumentDetailSelection, defaultDocumentGroupSelection])
+
+  useEffect(() => {
+    const docIds = trackedDocumentIds
 
     if (docIds.length === 0) return
 
@@ -140,32 +233,127 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [files.map((f) => f.documentId).join(',')])
+  }, [documentIdsSignature, trackedDocumentIds])
+
+  useEffect(() => {
+    if (Object.keys(parsingStatuses).length === 0) return
+
+    setFiles((prev) =>
+      prev.map((item) => {
+        if (!item.documentId) return item
+
+        const realtimeStatus = parsingStatuses[item.documentId]
+        if (!realtimeStatus) return item
+
+        if (realtimeStatus === 'completed' && item.status !== 'completed') {
+          return {
+            ...item,
+            status: 'completed',
+            progress: 100,
+            error: undefined,
+          }
+        }
+
+        if (realtimeStatus === 'failed' && item.status !== 'error') {
+          return {
+            ...item,
+            status: 'error',
+            progress: 0,
+            error: item.error ?? 'Document processing failed after upload.',
+          }
+        }
+
+        return item
+      })
+    )
+  }, [parsingStatuses])
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
-      const newItems: FileUploadItem[] = acceptedFiles.map((file) => ({
-        file,
-        id: crypto.randomUUID(),
-        title: file.name.replace(/\.pdf$/i, ''),
-        visibility: 'private' as const,
-        notes: '',
-        aircraftId: undefined,
-        docType: 'miscellaneous' as DocType,
-        bookAssignmentType: 'historical' as BookAssignment,
-        manualAccess: 'private' as ManualAccess,
-        price: '',
-        attestation: false,
-        status: 'pending' as const,
-        progress: 0,
-      }))
-      setFiles((prev) => [...prev, ...newItems])
+      setDropError(null)
+      const selectedAircraftId =
+        defaultAircraftSelection === '__none__' ? undefined : defaultAircraftSelection
+      const selectedDocType = deriveDocTypeFromClassification(defaultDocumentDetailSelection, defaultDocType)
+      let duplicateCount = 0
+
+      setFiles((prev) => {
+        const existingSignatures = new Set(prev.map((item) => buildFileSignature(item.file)))
+        const batchSignatures = new Set<string>()
+        const newItems: FileUploadItem[] = []
+
+        for (const file of acceptedFiles) {
+          const signature = buildFileSignature(file)
+          if (existingSignatures.has(signature) || batchSignatures.has(signature)) {
+            duplicateCount += 1
+            continue
+          }
+
+          batchSignatures.add(signature)
+          newItems.push({
+            file,
+            id: crypto.randomUUID(),
+            title: file.name.replace(/\.pdf$/i, ''),
+            visibility: 'private' as const,
+            notes: '',
+            aircraftId: selectedAircraftId,
+            docType: selectedDocType,
+            documentGroupId: defaultDocumentGroupSelection,
+            documentDetailId: defaultDocumentDetailSelection,
+            documentSubtype: defaultDocumentSubtypeSelection || undefined,
+            documentDate: '',
+            bookAssignmentType: 'historical' as BookAssignment,
+            manualAccess: 'private' as ManualAccess,
+            price: '',
+            attestation: false,
+            status: 'pending' as const,
+            progress: 0,
+          })
+        }
+
+        return [...prev, ...newItems]
+      })
+
+      if (duplicateCount > 0) {
+        setDropError(
+          duplicateCount === acceptedFiles.length
+            ? 'That PDF is already in the upload queue.'
+            : `${duplicateCount} duplicate ${duplicateCount === 1 ? 'file was' : 'files were'} skipped.`
+        )
+      }
     },
-    []
+    [
+      defaultAircraftSelection,
+      defaultDocType,
+      defaultDocumentDetailSelection,
+      defaultDocumentGroupSelection,
+      defaultDocumentSubtypeSelection,
+    ]
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected: (fileRejections) => {
+      const firstRejection = fileRejections[0]
+      if (!firstRejection) {
+        setDropError('Upload failed before the file could be added. Please try again.')
+        return
+      }
+
+      const hasTypeError = firstRejection.errors.some((error) => error.code === 'file-invalid-type')
+      const hasSizeError = firstRejection.errors.some((error) => error.code === 'file-too-large')
+
+      if (hasTypeError) {
+        setDropError('Only PDF files are supported in this upload flow right now.')
+        return
+      }
+
+      if (hasSizeError) {
+        setDropError('This file is larger than the 500 MB upload limit.')
+        return
+      }
+
+      setDropError(firstRejection.errors[0]?.message ?? 'That file could not be uploaded.')
+    },
     accept: { 'application/pdf': ['.pdf'] },
     maxSize: 500 * 1024 * 1024,
     multiple: true,
@@ -180,67 +368,156 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   }
 
+  function applyDefaultClassificationToPendingFiles() {
+    setFiles((prev) =>
+      prev.map((item) => {
+        if (item.status !== 'pending' && item.status !== 'error') return item
+        return {
+          ...item,
+          documentGroupId: defaultDocumentGroupSelection,
+          documentDetailId: defaultDocumentDetailSelection,
+          documentSubtype: defaultDocumentSubtypeSelection || undefined,
+          docType: deriveDocTypeFromClassification(defaultDocumentDetailSelection, item.docType),
+          manualAccess: 'private',
+          attestation: false,
+        }
+      })
+    )
+  }
+
   async function uploadFile(item: FileUploadItem): Promise<void> {
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
-    const formData = new FormData()
-    formData.append('file', item.file)
-    formData.append('doc_type', item.docType)
-    formData.append('title', item.title || item.file.name.replace(/\.pdf$/i, ''))
-    formData.append('visibility', item.visibility)
-    formData.append('notes', item.notes)
-    if (item.aircraftId) {
-      formData.append('aircraft_id', item.aircraftId)
-    }
-    if (!isManualType(item.docType)) {
-      formData.append('book_assignment_type', item.bookAssignmentType)
-    }
-    // Manual-access fields (only for manual doc types)
-    if (isManualType(item.docType)) {
-      formData.append('manual_access', item.manualAccess)
-      if (item.manualAccess === 'paid' && item.price) {
-        formData.append('price', item.price)
-      }
-      formData.append('attestation', String(item.attestation))
-    }
-
     try {
-      const documentId = await new Promise<string>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 90)
-            updateFile(item.id, { progress: pct })
-          }
-        })
-
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const json = JSON.parse(xhr.responseText) as { document_id: string; status: string }
-              resolve(json.document_id)
-            } catch {
-              reject(new Error('Invalid response from server'))
-            }
-          } else {
-            let msg = `Upload failed (${xhr.status})`
-            try {
-              const json = JSON.parse(xhr.responseText) as { error?: string }
-              if (json.error) msg = json.error
-            } catch { /* ignore */ }
-            reject(new Error(msg))
-          }
-        })
-
-        xhr.addEventListener('error', () => reject(new Error('Network error')))
-        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
-
-        xhr.open('POST', '/api/upload')
-        xhr.send(formData)
+      const initResponse = await fetch('/api/upload/init', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: item.file.name,
+          fileSize: item.file.size,
+          mimeType: item.file.type,
+          aircraftId: item.aircraftId ?? null,
+        }),
       })
 
-      updateFile(item.id, { status: 'processing', progress: 100, documentId })
+      const initPayload = (await initResponse.json().catch(() => ({}))) as {
+        error?: string
+        documentId?: string
+        storagePath?: string
+        signedPath?: string
+        signedUrl?: string
+        uploadToken?: string
+      }
+
+      if (!initResponse.ok || !initPayload.documentId || !initPayload.uploadToken || !initPayload.storagePath) {
+        throw new Error(initPayload.error || `Upload failed (${initResponse.status})`)
+      }
+
+      updateFile(item.id, { progress: 15 })
+
+      const uploadPath = initPayload.signedPath ?? initPayload.storagePath
+      const supabase = createBrowserSupabase()
+      const { error: storageError } = await supabase.storage
+        .from('documents')
+        .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
+          contentType: item.file.type || 'application/pdf',
+        })
+
+      if (storageError) {
+        if (!initPayload.signedUrl) {
+          throw new Error(storageError.message || 'Failed to upload file to storage')
+        }
+
+        let fallbackError = storageError.message || 'Failed to upload file to storage'
+
+        try {
+          const formData = new FormData()
+          formData.append('cacheControl', '3600')
+          formData.append('', item.file)
+
+          const signedUploadResponse = await fetch(initPayload.signedUrl, {
+            method: 'PUT',
+            headers: {
+              'x-upsert': 'false',
+            },
+            body: formData,
+          })
+
+          if (!signedUploadResponse.ok) {
+            try {
+              const errorPayload = (await signedUploadResponse.json()) as {
+                error?: string
+                message?: string
+              }
+              fallbackError =
+                errorPayload.error ??
+                errorPayload.message ??
+                fallbackError
+            } catch {
+              const responseText = await signedUploadResponse.text().catch(() => '')
+              if (responseText.trim().length > 0) {
+                fallbackError = responseText.trim()
+              }
+            }
+
+            throw new Error(fallbackError)
+          }
+        } catch (error) {
+          const signedUrlError =
+            error instanceof Error ? error.message : 'Signed upload request failed unexpectedly'
+
+          throw new Error(
+            [storageError.message, signedUrlError].filter(Boolean).join(' · ')
+          )
+        }
+      }
+
+      updateFile(item.id, { progress: 80 })
+
+      const completeResponse = await fetch('/api/upload/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentId: initPayload.documentId,
+          storagePath: initPayload.storagePath,
+          fileName: item.file.name,
+          fileSize: item.file.size,
+          mimeType: item.file.type || 'application/pdf',
+          docType: item.docType,
+          title: item.title || item.file.name.replace(/\.pdf$/i, ''),
+          visibility: item.visibility,
+          notes: item.notes,
+          documentGroupId: item.documentGroupId ?? null,
+          documentDetailId: item.documentDetailId ?? null,
+          documentSubtype: item.documentSubtype ?? null,
+          documentDate: item.documentDate || null,
+          aircraftId: item.aircraftId ?? null,
+          bookAssignmentType: !isManualType(item.docType) ? item.bookAssignmentType : null,
+          manualAccess: isManualType(item.docType) ? item.manualAccess : null,
+          price: isManualType(item.docType) && item.manualAccess === 'paid' ? item.price : null,
+          attestation: isManualType(item.docType) ? item.attestation : false,
+        }),
+      })
+
+      const completePayload = (await completeResponse.json().catch(() => ({}))) as {
+        error?: string
+        document_id?: string
+      }
+
+      if (!completeResponse.ok || !completePayload.document_id) {
+        throw new Error(completePayload.error || `Upload failed (${completeResponse.status})`)
+      }
+
+      updateFile(item.id, {
+        status: 'processing',
+        progress: 100,
+        documentId: completePayload.document_id,
+        error: undefined,
+      })
     } catch (err) {
       updateFile(item.id, {
         status: 'error',
@@ -274,8 +551,6 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
       for (const item of pending) {
         await uploadFile(item)
       }
-      const allDone = files.every((f) => f.status === 'completed' || f.status === 'processing')
-      if (allDone) onUploadComplete()
     } finally {
       setIsUploading(false)
     }
@@ -286,6 +561,172 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold text-foreground">Document categorization</h3>
+          <p className="text-xs text-muted-foreground">
+            Choose the aircraft, major section, and exact document type before uploading. Every file can still be adjusted individually below.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-muted-foreground">Search category or document type</Label>
+          <Input
+            value={classificationSearch}
+            onChange={(e) => setClassificationSearch(e.target.value)}
+            placeholder="Try: 100 hour, engine logbook, 337, weight and balance, service bulletin"
+            className="h-9 text-sm"
+          />
+          {classificationSearch.trim().length > 0 && (
+            <div className="rounded-lg border border-border bg-background p-2 space-y-1">
+              {classificationMatches.length > 0 ? (
+                classificationMatches.slice(0, 6).map((match) => (
+                  <button
+                    key={`${match.groupId}:${match.detailId}`}
+                    type="button"
+                    onClick={() => {
+                      setDefaultDocumentGroupSelection(match.groupId)
+                      setDefaultDocumentDetailSelection(match.detailId)
+                      setClassificationSearch(match.detailLabel)
+                    }}
+                    className="w-full rounded-md border border-transparent px-3 py-2 text-left hover:border-brand-200 hover:bg-brand-50 transition-colors"
+                  >
+                    <p className="text-sm font-medium text-foreground">{match.detailLabel}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {match.groupLabel} · {match.profile.truthRole.replace(/_/g, ' ')}
+                    </p>
+                  </button>
+                ))
+              ) : (
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  No close match yet. Keep typing a document name, form number, or inspection term.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Default aircraft</Label>
+            <Select value={defaultAircraftSelection} onValueChange={setDefaultAircraftSelection}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Aircraft (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No aircraft (general)</SelectItem>
+                {aircraftOptions.map((ac) => (
+                  <SelectItem key={ac.id} value={ac.id}>
+                    {ac.tail_number} — {ac.make} {ac.model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Major document section</Label>
+            <Select value={defaultDocumentGroupSelection} onValueChange={setDefaultDocumentGroupSelection}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Choose major section" />
+              </SelectTrigger>
+              <SelectContent>
+                {DOCUMENT_TAXONOMY_GROUPS.map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Exact document type</Label>
+            <Select value={defaultDocumentDetailSelection} onValueChange={setDefaultDocumentDetailSelection}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Choose exact document type" />
+              </SelectTrigger>
+              <SelectContent>
+                {getDocumentItemsForGroup(defaultDocumentGroupSelection).map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Subtype / volume (optional)</Label>
+            <Input
+              value={defaultDocumentSubtypeSelection}
+              onChange={(e) => setDefaultDocumentSubtypeSelection(e.target.value)}
+              placeholder="e.g. Volume 2, Left engine, Revision C"
+              className="h-9 text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-muted-foreground">Common document types</Label>
+          <div className="flex flex-wrap gap-2">
+            {COMMON_DOCUMENT_DETAILS.map((detailId) => {
+              const detail = getDocumentItem(detailId)
+              if (!detail) return null
+              return (
+                <button
+                  key={detailId}
+                  type="button"
+                  onClick={() => {
+                    setDefaultDocumentGroupSelection(detail.groupId)
+                    setDefaultDocumentDetailSelection(detail.id)
+                  }}
+                  className={cn(
+                    'px-2.5 py-1 rounded-full text-xs border transition-colors',
+                    defaultDocumentDetailSelection === detailId
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground'
+                  )}
+                >
+                  {detail.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {selectedClassificationProfile && (
+          <div className="rounded-xl border border-border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="text-xs">{selectedClassificationProfile.groupLabel}</Badge>
+              <Badge variant="secondary" className="text-xs">{selectedClassificationProfile.detailLabel}</Badge>
+              <Badge variant="secondary" className="text-xs capitalize">
+                {selectedClassificationProfile.truthRole.replace(/_/g, ' ')}
+              </Badge>
+              <Badge variant="secondary" className="text-xs capitalize">
+                {selectedClassificationProfile.parserStrategy.replace(/_/g, ' ')}
+              </Badge>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Record family: {selectedClassificationProfile.recordFamily.replace(/_/g, ' ')} ·
+              Review priority: {selectedClassificationProfile.reviewPriority}
+              {selectedClassificationProfile.canActivateReminder ? ' · reminder relevant' : ''}
+              {selectedClassificationProfile.canSatisfyAdRequirement ? ' · AD evidence' : ''}
+            </p>
+          </div>
+        )}
+
+        {hasFiles && (
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={applyDefaultClassificationToPendingFiles}>
+              Apply current classification to pending files
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* Drop zone */}
       <div
         {...getRootProps()}
@@ -311,6 +752,12 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
         </div>
       </div>
 
+      {dropError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {dropError}
+        </div>
+      )}
+
       {/* File queue */}
       {hasFiles && (
         <div className="space-y-2">
@@ -320,6 +767,8 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
             const isPaid = item.manualAccess === 'paid'
             const needsAttestation = ['free', 'paid'].includes(item.manualAccess) && manual
             const uploaderShare = item.price ? (parseFloat(item.price) * 0.5).toFixed(2) : '0.00'
+            const itemDetailOptions = getDocumentItemsForGroup(item.documentGroupId)
+            const selectedDetail = getDocumentItem(item.documentDetailId)
 
             return (
               <div
@@ -380,143 +829,220 @@ export function UploadDropzone({ aircraftOptions, onUploadComplete }: UploadDrop
                   <div className="pl-11 space-y-2.5">
 
                     {/* 1. Document Title */}
-                    <Input
-                      value={item.title}
-                      onChange={(e) => updateFile(item.id, { title: e.target.value })}
-                      placeholder="Document title (required)"
-                      className="h-8 text-xs"
-                    />
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Document title</Label>
+                      <Input
+                        value={item.title}
+                        onChange={(e) => updateFile(item.id, { title: e.target.value })}
+                        placeholder="Document title (required)"
+                        className="h-8 text-xs"
+                      />
+                    </div>
 
                     {/* 2. Visibility toggle — Private / Shared with team */}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateFile(item.id, { visibility: 'private' })}
-                        className={cn(
-                          'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
-                          item.visibility === 'private'
-                            ? 'bg-gray-900 text-white border-gray-900'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        )}
-                      >
-                        <Lock className="h-3 w-3" /> Private
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateFile(item.id, { visibility: 'team' })}
-                        className={cn(
-                          'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
-                          item.visibility === 'team'
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        )}
-                      >
-                        <Users className="h-3 w-3" /> Shared with team
-                      </button>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Visibility</Label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateFile(item.id, { visibility: 'private' })}
+                          className={cn(
+                            'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
+                            item.visibility === 'private'
+                              ? 'bg-gray-900 text-white border-gray-900'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                          )}
+                        >
+                          <Lock className="h-3 w-3" /> Private
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateFile(item.id, { visibility: 'team' })}
+                          className={cn(
+                            'flex items-center gap-1 px-2.5 py-1 rounded text-xs border transition-colors',
+                            item.visibility === 'team'
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                          )}
+                        >
+                          <Users className="h-3 w-3" /> Shared with team
+                        </button>
+                      </div>
                     </div>
 
                     {/* 3. Aircraft */}
-                    <Select
-                      value={item.aircraftId ?? '__none__'}
-                      onValueChange={(val) =>
-                        updateFile(item.id, {
-                          aircraftId: val === '__none__' ? undefined : val,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Aircraft (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">No aircraft (general)</SelectItem>
-                        {aircraftOptions.map((ac) => (
-                          <SelectItem key={ac.id} value={ac.id}>
-                            {ac.tail_number} — {ac.make} {ac.model}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Aircraft</Label>
+                      <Select
+                        value={item.aircraftId ?? '__none__'}
+                        onValueChange={(val) =>
+                          updateFile(item.id, {
+                            aircraftId: val === '__none__' ? undefined : val,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Aircraft (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No aircraft (general)</SelectItem>
+                          {aircraftOptions.map((ac) => (
+                            <SelectItem key={ac.id} value={ac.id}>
+                              {ac.tail_number} — {ac.make} {ac.model}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                     {/* 4. Notes */}
-                    <Textarea
-                      value={item.notes}
-                      onChange={(e) => updateFile(item.id, { notes: e.target.value })}
-                      placeholder="Notes (optional)"
-                      className="text-xs min-h-[60px] resize-none"
-                    />
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Notes</Label>
+                      <Textarea
+                        value={item.notes}
+                        onChange={(e) => updateFile(item.id, { notes: e.target.value })}
+                        placeholder="Notes (optional)"
+                        className="text-xs min-h-[60px] resize-none"
+                      />
+                    </div>
 
-                    {/* 5. Document Type */}
-                    <Select
-                      value={item.docType}
-                      onValueChange={(val) =>
-                        updateFile(item.id, {
-                          docType: val as DocType,
-                          manualAccess: 'private',
-                          attestation: false,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DOC_TYPE_OPTIONS.map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* 5. Structured classification */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Major document section</Label>
+                      <Select
+                        value={item.documentGroupId ?? ''}
+                        onValueChange={(val) => {
+                          const nextItems = getDocumentItemsForGroup(val)
+                          const nextDetail = nextItems[0]
+                          updateFile(item.id, {
+                            documentGroupId: val,
+                            documentDetailId: nextDetail?.id,
+                            docType: deriveDocTypeFromClassification(nextDetail?.id, item.docType),
+                            manualAccess: 'private',
+                            attestation: false,
+                          })
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Choose major section" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DOCUMENT_TAXONOMY_GROUPS.map((group) => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Exact document type</Label>
+                      <Select
+                        value={item.documentDetailId ?? ''}
+                        onValueChange={(val) =>
+                          updateFile(item.id, {
+                            documentDetailId: val,
+                            docType: deriveDocTypeFromClassification(val, item.docType),
+                            manualAccess: 'private',
+                            attestation: false,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Choose exact document type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {itemDetailOptions.map((detail) => (
+                            <SelectItem key={detail.id} value={detail.id}>
+                              {detail.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedDetail && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Stored as {DOC_TYPE_LABELS[selectedDetail.docType]} for compatibility.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-medium text-muted-foreground">Subtype / volume</Label>
+                        <Input
+                          value={item.documentSubtype ?? ''}
+                          onChange={(e) => updateFile(item.id, { documentSubtype: e.target.value })}
+                          placeholder="e.g. Volume 1, Left engine"
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-medium text-muted-foreground">Document date</Label>
+                        <Input
+                          type="date"
+                          value={item.documentDate ?? ''}
+                          onChange={(e) => updateFile(item.id, { documentDate: e.target.value })}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
 
                     {/* 6. Book Assignment Type — non-manual types only */}
                     {!manual && (
-                      <div className="flex gap-2">
-                        {(['historical', 'present'] as const).map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => updateFile(item.id, { bookAssignmentType: t })}
-                            className={cn(
-                              'px-2.5 py-1 rounded text-xs border transition-colors capitalize',
-                              item.bookAssignmentType === t
-                                ? 'bg-gray-900 text-white border-gray-900'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                            )}
-                          >
-                            {t}
-                          </button>
-                        ))}
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-medium text-muted-foreground">Record timing</Label>
+                        <div className="flex gap-2">
+                          {(['historical', 'present'] as const).map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => updateFile(item.id, { bookAssignmentType: t })}
+                              className={cn(
+                                'px-2.5 py-1 rounded text-xs border transition-colors capitalize',
+                                item.bookAssignmentType === t
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                              )}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
 
                     {/* 7. Manual Access — manual types only */}
                     {manual && (
                       <>
-                        <div className="flex gap-2">
-                          {([
-                            { value: 'private', label: 'Private' },
-                            { value: 'free', label: 'Free Download' },
-                            { value: 'paid', label: 'Paid' },
-                          ] as const).map(({ value, label }) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() =>
-                                updateFile(item.id, {
-                                  manualAccess: value,
-                                  attestation: false,
-                                })
-                              }
-                              className={cn(
-                                'px-2.5 py-1 rounded text-xs border transition-colors',
-                                item.manualAccess === value
-                                  ? 'bg-gray-900 text-white border-gray-900'
-                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                              )}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-medium text-muted-foreground">Manual access</Label>
+                          <div className="flex gap-2">
+                            {([
+                              { value: 'private', label: 'Private' },
+                              { value: 'free', label: 'Free Download' },
+                              { value: 'paid', label: 'Paid' },
+                            ] as const).map(({ value, label }) => (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() =>
+                                  updateFile(item.id, {
+                                    manualAccess: value,
+                                    attestation: false,
+                                  })
+                                }
+                                className={cn(
+                                  'px-2.5 py-1 rounded text-xs border transition-colors',
+                                  item.manualAccess === value
+                                    ? 'bg-gray-900 text-white border-gray-900'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                                )}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
                         {/* 7a. Disclosure text */}

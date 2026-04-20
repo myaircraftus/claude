@@ -22,11 +22,13 @@ export async function GET(req: NextRequest) {
     .from('maintenance_requests')
     .select(`
       id, aircraft_id, requester_user_id, target_mechanic_user_id,
-      message, squawk_ids, status, created_work_order_id,
+      message, squawk_ids, status, created_work_order_id, request_source,
+      source_reminder_id, source_summary,
       created_at, responded_at,
       requester:requester_user_id (id, full_name, email, avatar_url),
       mechanic:target_mechanic_user_id (id, full_name, email, avatar_url),
-      aircraft:aircraft_id (id, tail_number, make, model)
+      aircraft:aircraft_id (id, tail_number, make, model),
+      source_reminder:source_reminder_id (id, title, reminder_type)
     `, { count: 'exact' })
     .eq('organization_id', membership.organization_id)
     .order('created_at', { ascending: false })
@@ -79,12 +81,16 @@ export async function POST(req: NextRequest) {
       target_mechanic_user_id: body.target_mechanic_user_id,
       message: body.message ?? null,
       squawk_ids: body.squawk_ids ?? [],
+      request_source: body.request_source ?? 'general',
+      source_reminder_id: body.source_reminder_id ?? null,
+      source_summary: body.source_summary ?? null,
     })
     .select(`
       *,
       requester:requester_user_id (id, full_name, email, avatar_url),
       mechanic:target_mechanic_user_id (id, full_name, email, avatar_url),
-      aircraft:aircraft_id (id, tail_number, make, model)
+      aircraft:aircraft_id (id, tail_number, make, model),
+      source_reminder:source_reminder_id (id, title, reminder_type)
     `)
     .single()
 

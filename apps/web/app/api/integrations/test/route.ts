@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 
+const PROVIDER_NAMES: Record<string, string> = {
+  flight_schedule_pro: 'Flight Schedule Pro',
+  flight_circle: 'Flight Circle',
+  flightdocs: 'Flightdocs',
+  traxxall: 'Traxxall',
+  quickbooks: 'QuickBooks',
+  freshbooks: 'FreshBooks',
+}
+
+function hasUsableCredentials(credentials: any) {
+  if (!credentials || typeof credentials !== 'object') return false
+  const candidates = [
+    credentials.api_key,
+    credentials.access_token,
+    credentials.client_secret,
+    credentials.client_id,
+  ]
+  return candidates.some((value) => typeof value === 'string' && value.trim().length >= 8)
+}
+
 /**
  * POST /api/integrations/test
  * Test provider credentials without saving them.
@@ -26,12 +46,20 @@ export async function POST(req: NextRequest) {
     case 'flight_circle':
       result = await testFlightCircle(credentials)
       break
+    case 'quickbooks':
+    case 'freshbooks':
+      result = {
+        success: false,
+        message: `${PROVIDER_NAMES[provider] ?? provider} uses OAuth connect. Click Connect instead of pasting a token.`,
+      }
+      break
     default:
-      // Generic: accept any non-trivial key
-      result =
-        credentials.api_key && credentials.api_key.length > 10
-          ? { success: true, message: 'Credentials accepted' }
-          : { success: false, message: 'API key appears invalid' }
+      result = hasUsableCredentials(credentials)
+        ? {
+            success: true,
+            message: `${PROVIDER_NAMES[provider] ?? provider} credentials accepted`,
+          }
+        : { success: false, message: 'Provide a valid API key, token, or client credential pair' }
   }
 
   if (!result.success) {

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { RetrievedChunk, AnswerCitation, AnswerResult, QueryConfidence } from '@/types';
+import { buildAnswerCitationFromChunk } from '@/lib/rag/citation-anchors'
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -141,22 +142,7 @@ export async function generateAnswer(
 
   const citations: AnswerCitation[] = citedChunkIds
     .filter((id) => citationMap.has(id))
-    .map((id, idx) => {
-      const chunk = citationMap.get(id)!;
-      return {
-        chunkId: chunk.chunk_id,
-        documentId: chunk.document_id,
-        documentTitle: chunk.document_title,
-        docType: chunk.doc_type,
-        pageNumber: chunk.page_number,
-        sectionTitle: chunk.section_title,
-        snippet:
-          chunk.chunk_text.length > 300
-            ? chunk.chunk_text.slice(0, 297) + '...'
-            : chunk.chunk_text,
-        relevanceScore: chunk.combined_score,
-      };
-    });
+    .map((id) => buildAnswerCitationFromChunk(citationMap.get(id)!));
 
   // 7. Return complete AnswerResult
   return {

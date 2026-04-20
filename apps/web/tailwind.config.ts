@@ -18,38 +18,48 @@ const config: Config = {
     },
     extend: {
       colors: {
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
+        border: 'rgb(var(--border-rgb) / <alpha-value>)',
+        input: 'var(--input)',
+        ring: 'rgb(var(--ring-rgb) / <alpha-value>)',
+        background: 'rgb(var(--background-rgb) / <alpha-value>)',
+        foreground: 'rgb(var(--foreground-rgb) / <alpha-value>)',
         primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
+          DEFAULT: 'rgb(var(--primary-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--primary-foreground-rgb) / <alpha-value>)',
         },
         secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
+          DEFAULT: 'rgb(var(--secondary-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--secondary-foreground-rgb) / <alpha-value>)',
         },
         destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
+          DEFAULT: 'rgb(var(--destructive-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--destructive-foreground-rgb) / <alpha-value>)',
         },
         muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
+          DEFAULT: 'rgb(var(--muted-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--muted-foreground-rgb) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--accent-foreground-rgb) / <alpha-value>)',
         },
         popover: {
-          DEFAULT: 'hsl(var(--popover))',
-          foreground: 'hsl(var(--popover-foreground))',
+          DEFAULT: 'rgb(var(--popover-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--popover-foreground-rgb) / <alpha-value>)',
         },
         card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
+          DEFAULT: 'rgb(var(--card-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--card-foreground-rgb) / <alpha-value>)',
+        },
+        sidebar: {
+          DEFAULT: 'rgb(var(--sidebar-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--sidebar-foreground-rgb) / <alpha-value>)',
+          primary: 'rgb(var(--sidebar-primary-rgb) / <alpha-value>)',
+          'primary-foreground': 'rgb(var(--sidebar-primary-foreground-rgb) / <alpha-value>)',
+          accent: 'rgb(var(--sidebar-accent-rgb) / <alpha-value>)',
+          'accent-foreground': 'rgb(var(--sidebar-accent-foreground-rgb) / <alpha-value>)',
+          border: 'rgb(var(--sidebar-border-rgb) / <alpha-value>)',
+          ring: 'rgb(var(--sidebar-ring-rgb) / <alpha-value>)',
         },
         // Aviation-inspired palette
         sky: {

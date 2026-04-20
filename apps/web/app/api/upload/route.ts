@@ -1,16 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { createHash } from 'crypto'
+import { createServiceSupabase } from '@/lib/supabase/server'
+import { getRequestUser } from '@/lib/supabase/request-user'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import type { DocType } from '@/types'
+import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import { ensureBookRecord } from '@/lib/documents/books'
+import {
+  deriveDocTypeFromClassification,
+  isDocumentDetailId,
+  isDocumentGroupId,
+} from '@/lib/documents/taxonomy'
 
 const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
+const VALID_DOC_TYPES: DocType[] = [
+  'logbook',
+  'poh',
+  'afm',
+  'afm_supplement',
+  'maintenance_manual',
+  'service_manual',
+  'parts_catalog',
+  'service_bulletin',
+  'airworthiness_directive',
+  'work_order',
+  'inspection_report',
+  'form_337',
+  'form_8130',
+  'lease_ownership',
+  'insurance',
+  'compliance',
+  'miscellaneous',
+]
 
 // ─── Helper: SHA-256 of an ArrayBuffer ────────────────────────────────────────
 
-async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+function sha256Hex(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex')
 }
 
 // ─── Helper: write audit log ──────────────────────────────────────────────────
@@ -47,41 +75,30 @@ async function writeAuditLog(
 
 export async function POST(req: NextRequest) {
   // ── 1. Auth check ──────────────────────────────────────────────────────────
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const user = await getRequestUser(req)
 
-  if (authError || !user) {
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // ── 2. Get user's org + role (must be mechanic+) ───────────────────────────
-  const { data: membership, error: membershipError } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-
-  if (membershipError || !membership) {
+  // ── 2. Get user's org + role (must be pilot+) ──────────────────────────────
+  const serviceClient = createServiceSupabase()
+  const requestContext = await resolveRequestOrgContext(req)
+  if (!requestContext) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
   const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
-  if (!ALLOWED_ROLES.includes(membership.role)) {
+  if (!ALLOWED_ROLES.includes(requestContext.role)) {
     return NextResponse.json(
       { error: 'Insufficient permissions. Pilot, mechanic, or higher required.' },
       { status: 403 }
     )
   }
 
-  const orgId = membership.organization_id
+  const orgId = requestContext.organizationId
 
   // ── 3. Check org storage limit ────────────────────────────────────────────
-  const serviceClient = createServiceSupabase()
-
   const { data: org, error: orgError } = await serviceClient
     .from('organizations')
     .select('plan_storage_gb')
@@ -122,19 +139,65 @@ export async function POST(req: NextRequest) {
 
   const fileEntry = formData.get('file')
   const aircraftId = formData.get('aircraft_id')?.toString().trim() || null
-  const docType = formData.get('doc_type')?.toString().trim() || 'miscellaneous'
+  const submittedDocType = formData.get('doc_type')?.toString().trim() || 'miscellaneous'
+  const documentGroupIdRaw = formData.get('document_group')?.toString().trim() || null
+  const documentDetailIdRaw = formData.get('document_detail')?.toString().trim() || null
+  const documentSubtype = formData.get('document_subtype')?.toString().trim() || null
+  const documentDateRaw = formData.get('document_date')?.toString().trim() || null
   const titleRaw = formData.get('title')?.toString().trim()
+  const visibilityRaw = formData.get('visibility')?.toString().trim()
+  const bookNumberRaw = formData.get('book_number')?.toString().trim()
+  const bookTypeRaw = formData.get('book_type')?.toString().trim()
+  const bookAssignmentRaw = formData.get('book_assignment_type')?.toString().trim()
   const manualAccessRaw = formData.get('manual_access')?.toString().trim()
   const priceRaw = formData.get('price')?.toString().trim()
   const attestationRaw = formData.get('attestation')?.toString().trim()
+  const marketplaceDownloadableRaw = formData.get('marketplace_downloadable')?.toString().trim()
+  const marketplaceInjectableRaw = formData.get('marketplace_injectable')?.toString().trim()
+  const marketplacePreviewAvailableRaw = formData.get('marketplace_preview_available')?.toString().trim()
+
+  const documentGroupId = isDocumentGroupId(documentGroupIdRaw) ? documentGroupIdRaw : null
+  const documentDetailId = isDocumentDetailId(documentDetailIdRaw) ? documentDetailIdRaw : null
+  const docType = deriveDocTypeFromClassification(
+    documentDetailId,
+    submittedDocType as DocType
+  )
+  const classificationFields = buildClassificationStorageFieldsBySelection(
+    documentGroupId,
+    documentDetailId,
+    docType
+  )
 
   // Ownership/listing derived fields
   const MANUAL_TYPES = ['maintenance_manual', 'service_manual', 'parts_catalog']
   const isManualType = MANUAL_TYPES.includes(docType)
+
+  if (!VALID_DOC_TYPES.includes(docType as DocType)) {
+    return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
+  }
+  if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
+    return NextResponse.json(
+      { error: 'Invalid structured document classification selected.' },
+      { status: 400 }
+    )
+  }
   const manualAccess =
     isManualType && ['private', 'free', 'paid'].includes(manualAccessRaw ?? '')
       ? (manualAccessRaw as 'private' | 'free' | 'paid')
       : null
+  const visibility = visibilityRaw === 'private' ? 'private' : 'team'
+  const bookNumber = bookNumberRaw || null
+  const bookType = bookTypeRaw || null
+  const bookAssignment =
+    bookAssignmentRaw === 'present'
+      ? 'present'
+      : bookAssignmentRaw === 'historical'
+        ? 'historical'
+        : null
+  const marketplaceDownloadable = marketplaceDownloadableRaw !== 'false'
+  const marketplaceInjectable =
+    manualAccess !== 'private' && marketplaceInjectableRaw !== 'false'
+  const marketplacePreviewAvailable = marketplacePreviewAvailableRaw !== 'false'
   const communityListing = manualAccess === 'free' || manualAccess === 'paid'
   const attestation = attestationRaw === 'true'
 
@@ -167,7 +230,7 @@ export async function POST(req: NextRequest) {
     mechanic: 'mechanic',
     pilot: 'pilot',
   }
-  const uploaderRole = uploaderRoleMap[membership.role] ?? 'mechanic'
+  const uploaderRole = uploaderRoleMap[requestContext.role] ?? 'mechanic'
 
   // Fetch uploader display name
   const { data: uploaderProfile } = await serviceClient
@@ -212,8 +275,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 6. Calculate SHA-256 checksum ─────────────────────────────────────────
-  const fileBuffer = await file.arrayBuffer()
-  const checksum = await sha256Hex(fileBuffer)
+  const fileBuffer = Buffer.from(await file.arrayBuffer())
+  const checksum = sha256Hex(fileBuffer)
 
   // ── 7. Generate document_id ───────────────────────────────────────────────
   const docId = crypto.randomUUID()
@@ -237,6 +300,16 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 9. Create document record ─────────────────────────────────────────────
+  const bookId = await ensureBookRecord(serviceClient, {
+    organizationId: orgId,
+    aircraftId,
+    bookType,
+    bookNumber,
+    bookAssignment,
+    title: bookNumber ? `Logbook ${bookNumber}` : null,
+    createdBy: user.id,
+  })
+
   const { data: docRecord, error: insertError } = await (serviceClient as any)
     .from('documents')
     .insert({
@@ -245,6 +318,11 @@ export async function POST(req: NextRequest) {
       aircraft_id: aircraftId ?? null,
       title,
       doc_type: docType,
+      document_group_id: documentGroupId,
+      document_detail_id: documentDetailId,
+      document_subtype: documentSubtype,
+      ...(classificationFields ?? {}),
+      description: formData.get('notes')?.toString().trim() || null,
       file_path: storagePath,
       file_name: file.name,
       file_size_bytes: file.size,
@@ -260,10 +338,18 @@ export async function POST(req: NextRequest) {
       allow_download: false,
       community_listing: communityListing,
       manual_access: manualAccess,
+      marketplace_downloadable: marketplaceDownloadable,
+      marketplace_injectable: marketplaceInjectable,
+      marketplace_preview_available: marketplacePreviewAvailable,
+      document_date: documentDateRaw || null,
       price_cents: priceCents,
       attestation_accepted: attestation,
       listing_status: communityListing ? 'pending_review' : null,
-      visibility: 'team',
+      visibility,
+      book_assignment: bookAssignment,
+      book_id: bookId,
+      book_number: bookNumber,
+      book_type: bookType,
       download_count: 0,
       uploaded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -292,21 +378,46 @@ export async function POST(req: NextRequest) {
       file_name: file.name,
       file_size_bytes: file.size,
       doc_type: docType,
+      document_group_id: documentGroupId,
+      document_detail_id: documentDetailId,
+      ...(classificationFields ?? {}),
       aircraft_id: aircraftId,
+      book_id: bookId,
+      book_number: bookNumber,
+      book_type: bookType,
     },
   })
 
-  // ── 11. Trigger Trigger.dev ingest job ────────────────────────────────────
-  try {
-    await tasks.trigger('ingest-document', { documentId: docId })
-  } catch (triggerError) {
-    console.error('[upload] Failed to trigger ingest job:', triggerError)
-    // Non-fatal: document is recorded as queued; a worker sweep can pick it up
+  // ── 11. Trigger or inline-ingest the document ─────────────────────────────
+  const ingestionResult = await queueDocumentIngestion(docId, {
+    // Interactive uploads should stay inline-first so the user does not get
+    // stranded in the flaky background OCR lane for large logbooks.
+    preferBackground: false,
+    allowInlineFallback: true,
+  })
+
+  if (ingestionResult.status === 'failed') {
+    await (serviceClient as any)
+      .from('documents')
+      .update({
+        parsing_status: 'failed',
+        parse_error:
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+        parse_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', docId)
+      .eq('organization_id', orgId)
   }
 
   // ── 12. Return response ───────────────────────────────────────────────────
   return NextResponse.json(
-    { document_id: docId, status: 'queued' },
+    {
+      document_id: docId,
+      status: ingestionResult.status,
+      ingestion_mode: ingestionResult.mode,
+      warning: ingestionResult.warning ?? null,
+    },
     { status: 201 }
   )
 }

@@ -456,7 +456,7 @@ function AttachmentPreview({
         <span className="truncate max-w-[140px] text-muted-foreground">{attachment.name}</span>
         {attachment.transcript && (
           <span className="text-muted-foreground italic truncate max-w-[200px]" title={attachment.transcript}>
-            "{attachment.transcript}"
+            &ldquo;{attachment.transcript}&rdquo;
           </span>
         )}
       </div>

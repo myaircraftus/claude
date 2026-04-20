@@ -262,7 +262,7 @@ function SecuritySection() {
               myaircraft.us never guesses.
             </h2>
             <p className="text-[18px] text-[#4B5563] leading-relaxed">
-              Every answer is grounded in your uploaded documents, or it tells you there's insufficient evidence. No hallucinations. No guesses. Just citations.
+              Every answer is grounded in your uploaded documents, or it tells you there&apos;s insufficient evidence. No hallucinations. No guesses. Just citations.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -360,7 +360,7 @@ function TestimonialsSection() {
               <div className="text-[#2563EB] mb-4">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="#2563EB" opacity="0.15"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
               </div>
-              <p className="text-[15px] text-[#374151] leading-relaxed mb-5 italic">"{t.quote}"</p>
+              <p className="text-[15px] text-[#374151] leading-relaxed mb-5 italic">&ldquo;{t.quote}&rdquo;</p>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-[#2563EB] flex items-center justify-center text-white text-[13px] font-bold flex-shrink-0">{t.initials}</div>
                 <div>

@@ -5,9 +5,9 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as DocumentPicker from 'expo-document-picker'
-import * as FileSystem from 'expo-file-system'
 import { FileText, Upload, CheckCircle, XCircle, Clock, Loader } from 'lucide-react-native'
 import { supabase } from '@/lib/supabase'
+import { getApiBaseUrl } from '@/lib/config'
 import { useSession } from '@/hooks/useSession'
 import { useOrg } from '@/hooks/useOrg'
 import { Colors, dark, light } from '@/constants/colors'
@@ -82,28 +82,38 @@ export default function DocumentsScreen() {
 
     setUploading(true)
     try {
-      // Read as base64 then upload via Supabase Storage
-      const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 })
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
-      const filename = `${orgId}/${Date.now()}_${file.name}`
+      const apiBase = getApiBaseUrl()
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      const token = currentSession?.access_token
 
-      const { error: storageErr } = await supabase.storage
-        .from('aircraft-documents')
-        .upload(filename, bytes, { contentType: 'application/pdf' })
+      if (!token) {
+        throw new Error('You need to sign in again before uploading.')
+      }
 
-      if (storageErr) throw storageErr
+      const formData = new FormData()
+      formData.append('doc_type', 'miscellaneous')
+      formData.append(
+        'file',
+        {
+          uri: file.uri,
+          name: file.name,
+          type: file.mimeType ?? 'application/pdf',
+        } as any
+      )
 
-      const { error: dbErr } = await supabase.from('documents').insert({
-        organization_id: orgId,
-        title: file.name.replace(/\.pdf$/i, ''),
-        original_filename: file.name,
-        storage_path: filename,
-        file_size_bytes: file.size ?? null,
-        source_provider: 'direct_upload',
-        parsing_status: 'queued',
+      const res = await fetch(`${apiBase}/api/upload`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(orgId ? { 'x-organization-id': orgId } : {}),
+        },
+        body: formData,
       })
 
-      if (dbErr) throw dbErr
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? `Upload failed with HTTP ${res.status}`)
+      }
 
       fetchDocuments()
       Alert.alert('Uploaded', 'Document uploaded and queued for processing.')

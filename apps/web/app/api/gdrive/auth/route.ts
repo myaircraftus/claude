@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(_req: NextRequest) {
   try {
     // 1. Auth check

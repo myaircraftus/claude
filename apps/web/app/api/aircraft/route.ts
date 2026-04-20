@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -103,6 +104,8 @@ const createAircraftSchema = z.object({
   engine_make: z.string().max(80).optional(),
   engine_model: z.string().max(80).optional(),
   base_airport: z.string().max(10).optional(),
+  operator_name: z.string().max(120).optional(),
+  operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional(),
   notes: z.string().max(2000).optional(),
 })
 

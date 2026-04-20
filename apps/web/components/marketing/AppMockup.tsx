@@ -59,7 +59,7 @@ export function AppMockup() {
               <span className="text-[10px] font-bold uppercase tracking-wide text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded-full">High Confidence</span>
               <span className="text-[10px] text-[#6B7280] bg-[#232B3E] px-1.5 py-0.5 rounded-full">Page 47</span>
             </div>
-            <p className="text-[12px] text-[#9CA3AF]">2024 Annual Logbook Entry · "Annual inspection completed 03/14/24..."</p>
+            <p className="text-[12px] text-[#9CA3AF]">2024 Annual Logbook Entry · &ldquo;Annual inspection completed 03/14/24...&rdquo;</p>
             <button className="mt-1.5 text-[11px] text-[#3B82F6] font-medium flex items-center gap-1 hover:underline">
               View source page →
             </button>

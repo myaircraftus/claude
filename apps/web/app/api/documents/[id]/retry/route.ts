@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import { hasConfiguredOcrEngine } from '@/lib/ingestion/native-pdf'
+import { reconcileDocumentProcessingStates } from '@/lib/documents/processing-health'
+import type { DocType } from '@/types'
 
 // ─── Route context type ────────────────────────────────────────────────────────
 
@@ -12,6 +15,13 @@ interface RouteContext {
 
 export async function POST(_req: NextRequest, { params }: RouteContext) {
   const { id } = params
+  let force = false
+  try {
+    const body = await _req.json()
+    force = body?.force === true
+  } catch {
+    // no body is fine
+  }
 
   // ── 1. Auth check ──────────────────────────────────────────────────────────
   const supabase = createServerSupabase()
@@ -46,30 +56,51 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
 
   const orgId = membership.organization_id
 
-  // ── 3. Verify document is in 'failed' state ────────────────────────────────
+  // ── 3. Verify document can be reprocessed ──────────────────────────────────
   const serviceClient = createServiceSupabase()
 
-  const { data: doc, error: fetchError } = await serviceClient
+  const { data: rawDoc, error: fetchError } = await serviceClient
     .from('documents')
-    .select('id, parsing_status, title')
+    .select('id, parsing_status, title, parse_started_at, updated_at, file_size_bytes, doc_type, ocr_required')
     .eq('id', id)
     .eq('organization_id', orgId)
     .single()
 
-  if (fetchError || !doc) {
+  if (fetchError || !rawDoc) {
     return NextResponse.json({ error: 'Document not found' }, { status: 404 })
   }
 
-  if (doc.parsing_status !== 'failed') {
+  const [doc] = await reconcileDocumentProcessingStates(serviceClient, [rawDoc])
+
+  const RETRYABLE_STATUSES = ['failed', 'queued', 'needs_ocr']
+  const IN_PROGRESS_STATUSES = ['parsing', 'ocr_processing', 'chunking', 'embedding']
+  const retryableAsStale = IN_PROGRESS_STATUSES.includes(doc.parsing_status)
+  const parseStartedAt = doc.parse_started_at ?? doc.updated_at ?? null
+  const staleThresholdMs = 15 * 60 * 1000
+  const isStale =
+    Boolean(parseStartedAt) &&
+    Date.now() - new Date(parseStartedAt).getTime() >= staleThresholdMs
+
+  if (!RETRYABLE_STATUSES.includes(doc.parsing_status) && !(force && retryableAsStale && isStale)) {
     return NextResponse.json(
       {
-        error: `Cannot retry document with status "${doc.parsing_status}". Only failed documents can be retried.`,
+        error: `Cannot retry document with status "${doc.parsing_status}". Only queued, failed, OCR-required, or stale in-progress documents can be retried.`,
       },
       { status: 409 }
     )
   }
 
-  // ── 4. Update status to 'queued', clear parse_error ───────────────────────
+  if (doc.ocr_required && !hasConfiguredOcrEngine()) {
+    return NextResponse.json(
+      {
+        error:
+          'OCR engine is not configured. Add OPENAI_API_KEY, Document AI credentials, or AWS Textract keys before retrying.',
+      },
+      { status: 409 }
+    )
+  }
+
+  // ── 4. Reset status to 'queued', clear parse state ────────────────────────
   const { error: updateError } = await serviceClient
     .from('documents')
     .update({
@@ -87,12 +118,25 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'Failed to re-queue document' }, { status: 500 })
   }
 
-  // ── 5. Re-trigger Trigger.dev job ─────────────────────────────────────────
-  try {
-    await tasks.trigger('ingest-document', { documentId: id })
-  } catch (triggerError) {
-    console.error('[retry] Failed to trigger ingest job:', triggerError)
-    // Non-fatal: document is now in 'queued' state and will be picked up by workers
+  const ingestionResult = await queueDocumentIngestion(id, {
+    // Manual retries should stay inline-first so the operator gets a reliable
+    // retry instead of being pushed back into the stalled background path.
+    preferBackground: false,
+    allowInlineFallback: true,
+  })
+
+  if (ingestionResult.status === 'failed') {
+    await serviceClient
+      .from('documents')
+      .update({
+        parsing_status: 'failed',
+        parse_error:
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+        parse_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('organization_id', orgId)
   }
 
   // ── Write audit log ────────────────────────────────────────────────────────
@@ -102,8 +146,12 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     action: 'document.retry',
     resource_type: 'document',
     resource_id: id,
-    metadata_json: { title: doc.title },
+    metadata_json: { title: doc.title, force, stale_retry: force && retryableAsStale && isStale },
   })
 
-  return NextResponse.json({ status: 'queued' })
+  return NextResponse.json({
+    status: ingestionResult.status,
+    ingestion_mode: ingestionResult.mode,
+    warning: ingestionResult.warning ?? null,
+  })
 }
