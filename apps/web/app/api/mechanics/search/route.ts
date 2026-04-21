@@ -24,44 +24,50 @@ export async function GET(req: NextRequest) {
   const q = (searchParams.get('q') ?? '').trim()
   if (!q) return NextResponse.json({ mechanics: [] })
 
-  // user_profiles has: id, email, full_name, avatar_url, job_title (no phone column)
-  // Search across name + email only; escape the pattern to prevent LIKE injection.
+  // PostgREST reports "more than one relationship found" because multiple FKs
+  // point at user_profiles from organization_memberships (user_id + maybe
+  // invited_by). Do the two-step join manually to avoid the ambiguity.
   const safe = escapeLike(q)
   const { data: profiles, error } = await supabase
     .from('user_profiles')
-    .select(`
-      id,
-      full_name,
-      email,
-      organization_memberships!inner (
-        organization_id,
-        role,
-        accepted_at
-      )
-    `)
-    .not('organization_memberships.accepted_at', 'is', null)
-    .in('organization_memberships.role', ['mechanic', 'owner', 'admin'])
+    .select('id, full_name, email')
     .or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`)
     .limit(20)
 
   if (error) {
-    console.error('[mechanics/search] query error', error)
+    console.error('[mechanics/search] profile query error', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const mechanics = (profiles ?? []).map((p: any) => {
-    const m = Array.isArray(p.organization_memberships)
-      ? p.organization_memberships[0]
-      : p.organization_memberships
-    return {
-      user_id: p.id,
-      org_id: m?.organization_id ?? null,
-      name: p.full_name ?? '',
-      email: p.email ?? '',
-      phone: '', // user_profiles does not currently store phone — placeholder
-      role: m?.role ?? 'mechanic',
-    }
-  })
+  const userIds = (profiles ?? []).map((p) => p.id)
+  if (userIds.length === 0) return NextResponse.json({ mechanics: [] })
+
+  const { data: memberships, error: mErr } = await supabase
+    .from('organization_memberships')
+    .select('user_id, organization_id, role, accepted_at')
+    .in('user_id', userIds)
+    .not('accepted_at', 'is', null)
+    .in('role', ['mechanic', 'owner', 'admin'])
+
+  if (mErr) {
+    console.error('[mechanics/search] membership query error', mErr)
+    return NextResponse.json({ error: mErr.message }, { status: 500 })
+  }
+
+  const membershipByUser = new Map((memberships ?? []).map((m) => [m.user_id, m]))
+  const mechanics = (profiles ?? [])
+    .filter((p) => membershipByUser.has(p.id))
+    .map((p) => {
+      const m = membershipByUser.get(p.id)!
+      return {
+        user_id: p.id,
+        org_id: m.organization_id,
+        name: p.full_name ?? '',
+        email: p.email ?? '',
+        phone: '',
+        role: m.role,
+      }
+    })
 
   return NextResponse.json({ mechanics })
 }

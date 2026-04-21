@@ -31,13 +31,13 @@ export async function GET(req: NextRequest) {
       `
       id, title, doc_type, document_group_id, document_detail_id, record_family,
       truth_role, parsing_status, parse_error, page_count, file_size_bytes,
-      uploaded_at:created_at, aircraft_id,
+      uploaded_at, updated_at, aircraft_id,
       aircraft:aircraft_id (id, tail_number, make, model)
     `,
       { count: 'exact' }
     )
     .eq('organization_id', membership.organization_id)
-    .order('created_at', { ascending: false })
+    .order('uploaded_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
   if (aircraft_id) query = query.eq('aircraft_id', aircraft_id)

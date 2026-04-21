@@ -64,10 +64,11 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("logbook_entries")
     .select(`
-      id, aircraft_id, work_order_id, entry_type, entry_date, description,
-      total_time, hobbs_in, hobbs_out, tach_time, status, signed_at, signed_by,
+      id, aircraft_id, work_order_id, entry_type, entry_date, entry_text,
+      total_time_after, hobbs_time, tach_time, status,
       logbook_type, mechanic_name, mechanic_cert_number, cert_type,
-      parts_used, references_used, ad_numbers, work_order_ref,
+      parts_used, manual_references, ad_references, sb_references,
+      return_to_service, customer_summary,
       created_at, updated_at,
       aircraft:aircraft_id (id, tail_number, make, model, serial_number, engine_model)
     `)
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
 
   if (aircraft_id) query = query.eq("aircraft_id", aircraft_id);
   if (work_order_id) query = query.eq("work_order_id", work_order_id);
-  if (search) query = (query as any).ilike("description", `%${search}%`);
+  if (search) query = (query as any).ilike("entry_text", `%${search}%`);
   if (entry_type_param && VALID_ENTRY_TYPES.includes(entry_type_param as any)) {
     query = query.eq("entry_type", entry_type_param);
   }
@@ -111,9 +112,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.aircraft_id || !body.entry_date || !body.description) {
+  // Accept either legacy `description` or canonical `entry_text` from the client.
+  const entryText: string | undefined = (body.entry_text ?? body.description)?.toString();
+  if (!body.aircraft_id || !body.entry_date || !entryText) {
     return NextResponse.json(
-      { error: "aircraft_id, entry_date, and description are required" },
+      { error: "aircraft_id, entry_date, and entry_text (or description) are required" },
       { status: 400 }
     );
   }
@@ -153,27 +156,34 @@ export async function POST(req: NextRequest) {
 
   const nowIso = new Date().toISOString();
 
+  // Map client fields → actual logbook_entries schema:
+  //   description      → entry_text
+  //   total_time       → total_time_after
+  //   hobbs_in/out     → hobbs_time (single value; fall through to either)
+  //   references_used  → split into manual_references + sb_references
+  //   ad_numbers       → ad_references
+  //   signed_at        → (no column; preserved implicitly via status='signed')
   const insertPayload: Record<string, any> = {
     organization_id: orgId,
     aircraft_id: body.aircraft_id,
     work_order_id: workOrder?.id ?? null,
     entry_type,
     entry_date: body.entry_date,
-    hobbs_in: body.hobbs_in ?? null,
-    hobbs_out: body.hobbs_out ?? null,
+    hobbs_time: body.hobbs_time ?? body.hobbs_out ?? body.hobbs_in ?? null,
     tach_time: body.tach_time ?? null,
-    total_time: body.total_time ?? 0,
-    description: body.description,
+    total_time_after: body.total_time_after ?? body.total_time ?? 0,
+    entry_text: entryText,
+    customer_summary: body.customer_summary ?? null,
     parts_used: Array.isArray(body.parts_used) ? body.parts_used : [],
-    references_used: Array.isArray(body.references_used) ? body.references_used : [],
-    ad_numbers: Array.isArray(body.ad_numbers) ? body.ad_numbers : null,
+    manual_references: Array.isArray(body.manual_references) ? body.manual_references : (Array.isArray(body.references_used) ? body.references_used : []),
+    sb_references: Array.isArray(body.sb_references) ? body.sb_references : [],
+    ad_references: Array.isArray(body.ad_references) ? body.ad_references : (Array.isArray(body.ad_numbers) ? body.ad_numbers : []),
     logbook_type: body.logbook_type ?? null,
     mechanic_name: body.mechanic_name ?? null,
     mechanic_cert_number: body.mechanic_cert_number ?? null,
-    work_order_ref: workOrder?.work_order_number ?? body.work_order_ref ?? null,
+    cert_type: body.cert_type ?? null,
+    return_to_service: body.return_to_service ?? false,
     status,
-    signed_at: status === "signed" ? body.signed_at ?? nowIso : body.signed_at ?? null,
-    signed_by: status === "signed" ? body.signed_by ?? user.id : body.signed_by ?? null,
     created_by: user.id,
   };
 

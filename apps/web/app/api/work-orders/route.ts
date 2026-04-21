@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       corrective_action, findings, internal_notes, customer_notes, labor_total,
       parts_total, outside_services_total, tax_amount, total, opened_at, closed_at,
       created_at, updated_at, aircraft_id, customer_id, assigned_mechanic_id,
-      linked_invoice_id, linked_logbook_entry_id,
+      thread_id,
       aircraft:aircraft_id (id, tail_number, make, model),
       customer:customer_id (id, name, company, email)
     `, { count: 'exact' })
