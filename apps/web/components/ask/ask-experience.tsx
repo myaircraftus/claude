@@ -9,9 +9,10 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AnswerBlock } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
+import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import { formatDateTime } from '@/lib/utils'
-import type { Aircraft, AnswerCitation, QueryConfidence } from '@/types'
+import type { Aircraft, AnswerCitation, QueryConfidence, OrgRole } from '@/types'
 
 interface Message {
   id: string
@@ -64,6 +65,7 @@ function createMessageId() {
 export function AskExperience() {
   const searchParams = useSearchParams()
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
+  const [userRole, setUserRole] = useState<OrgRole | null>(null)
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
     searchParams.get('aircraft') ?? 'all'
   )
@@ -88,6 +90,11 @@ export function AskExperience() {
       .order('created_at', { ascending: false })
       .limit(20)
       .then(({ data }) => setPreviousQueries(data ?? []))
+
+    fetch('/api/me')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.role) setUserRole(d.role as OrgRole) })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -331,7 +338,7 @@ export function AskExperience() {
         </div>
       </div>
 
-      {/* Right sidebar: history or source preview */}
+      {/* Right sidebar: mechanic tools + history or source preview */}
       <div className="hidden lg:block w-[320px] border-l border-border bg-white">
         {activeCitation ? (
           <div className="h-full flex flex-col">
@@ -357,27 +364,31 @@ export function AskExperience() {
             </div>
           </div>
         ) : (
-          <div className="p-4">
-            <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Query History</h3>
-            <div className="space-y-2">
-              {previousQueries.map(q => (
-                <button
-                  key={q.id}
-                  onClick={() => handleAsk(q.question)}
-                  className="w-full text-left bg-muted/30 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>{q.question}</div>
-                  <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                    <Clock className="w-3 h-3" /> {formatDateTime(q.created_at)}
+          <div className="p-4 space-y-4">
+            <MechanicToolsPanel userRole={userRole} aircraft={aircraft} />
+
+            <div>
+              <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Query History</h3>
+              <div className="space-y-2">
+                {previousQueries.map(q => (
+                  <button
+                    key={q.id}
+                    onClick={() => handleAsk(q.question)}
+                    className="w-full text-left bg-muted/30 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>{q.question}</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3 h-3" /> {formatDateTime(q.created_at)}
+                    </div>
+                  </button>
+                ))}
+                {previousQueries.length === 0 && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    No recent questions yet.
                   </div>
-                </button>
-              ))}
-              {previousQueries.length === 0 && (
-                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  No recent questions yet.
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         )}

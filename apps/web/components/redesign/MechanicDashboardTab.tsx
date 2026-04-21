@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { useMemo } from "react";
 import {
   Wrench, BookOpen, AlertTriangle, ArrowRight, Sparkles, DollarSign, Users,
-  ChevronRight, Timer
+  ChevronRight, Timer,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -295,6 +295,22 @@ export function MechanicDashboardTab() {
             <div className="text-[10px] text-muted-foreground/60 mt-0.5">{s.sub}</div>
           </motion.div>
         ))}
+      </div>
+
+      {/* ── AI Quick Tools ── */}
+      <div className="flex flex-wrap gap-3">
+        <Link href="/ask?mode=mechanic"
+          className="inline-flex items-center gap-2 bg-white border border-border px-4 py-2.5 rounded-xl hover:bg-muted/40 transition-colors text-[13px] text-foreground shadow-sm"
+          style={{ fontWeight: 500 }}>
+          <Sparkles className="w-4 h-4 text-primary" />
+          AI Tools
+        </Link>
+        <Link href="/maintenance/new"
+          className="inline-flex items-center gap-2 bg-white border border-border px-4 py-2.5 rounded-xl hover:bg-muted/40 transition-colors text-[13px] text-foreground shadow-sm"
+          style={{ fontWeight: 500 }}>
+          <BookOpen className="w-4 h-4 text-blue-600" />
+          New Logbook Entry
+        </Link>
       </div>
 
       {/* ── Main Grid ── */}

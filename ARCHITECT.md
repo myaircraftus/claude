@@ -234,15 +234,26 @@ _Agents append completed work here. Keeps context of what's already been done._
 - ✅ Gitignored credentials (docs/*.csv, documentai-key.json, .env.deploy, .codex-bin/, .playwright-cli/)
 - ✅ Created this ARCHITECT.md reference doc
 - ✅ Committed 428-file Codex snapshot + pushed to origin/main (commit 9cc7e10)
-- ✅ Live site audit in Chrome: dashboard OK, aircraft list OK, upload flow pre-selects aircraft via `?aircraft=<id>`, admin shows 1 failed doc / 0 processing queue
-- 🔄 7 parallel fix agents running:
-  - A: Squawks OPENAI guards + stuck-docs admin card + doc retry UI in slideover
-  - B: Logbook entry enum unification + signing API + WO linkage (migration 043)
-  - C: Mechanic AI tools (logbook generator, checklist generator, parts finder)
-  - D: SEO (robots.ts, sitemap.ts) + blog MDX + contact form API (migration 041) + local integration logos
-  - E: Admin Marketing CMS (migration 042, /admin/content UI, content read helper)
-  - F: Persona route protection (server-layout role checks, /api/team security fix)
-  - G: Upload button fix (aircraft header) + button sweep + BUTTON_SWEEP.md
+- ✅ Wave 1 deployed to production (commit a78a64e):
+  - Squawks OPENAI guards + stuck-docs admin card + doc retry UI in slideover
+  - Logbook entry enum unification + signing API + WO linkage (migration 043 applied)
+  - Mechanic AI tools (logbook generator, checklist generator) — `/api/ai/`
+  - SEO: robots.ts + sitemap.ts deployed + blog MDX + contact form API (migration 041 applied)
+  - Admin Marketing CMS: migration 042 applied, /admin/content UI live + working
+  - Persona route protection: server-layout role checks, /api/me endpoint returning correct role
+  - Upload button fix (aircraft header) committed
+- ✅ Migrations 041, 042, 043 applied via psycopg2 (credentials in .env.deploy)
+- ✅ Marketing-assets storage bucket created + 4 RLS policies (public read, admin write/update/delete)
+- ✅ Emoji spacing fix committed (commit 1b774a6) — not yet deployed
+- ✅ Live verification:
+  - Sitemap: https://www.myaircraft.us/sitemap.xml returns valid XML with 9 pages
+  - Robots: https://www.myaircraft.us/robots.txt returns proper rules
+  - Marketing CMS: /admin/content loads with all 9 page tabs + slot editor
+  - Stuck Documents card: /admin shows 1 stuck doc + Retry button. ROOT CAUSE found: "Trigger.dev is not configured in this environment"
+  - /api/me returns user profile + is_platform_admin + membership role
+- 🔄 Wave 2 agents running:
+  - Real integration logos (replacing Clearbit API) + CMS seed defaults + more sidebar polish
+  - Logbook+WO wiring: "Create Logbook Entry" button on completed WOs, mechanic tools panel in Ask
 
 ### Known Follow-ups (not yet assigned)
 - Graphical error: emoji rendering near "AIRCRAFT OWNER" / "A&P MECHANIC" icons on homepage episode sections — icon+text merging oddly

@@ -47,12 +47,12 @@ const AIRCRAFT_BRANDS = [
 ];
 
 const TECH_PARTNERS = [
-  { name: "OpenAI",              role: "ChatGPT Intelligence",   logoUrl: "https://logo.clearbit.com/openai.com",     bg: "from-emerald-50 to-teal-50",  border: "border-emerald-200" },
-  { name: "Anthropic",           role: "Claude AI Reasoning",    logoUrl: "https://logo.clearbit.com/anthropic.com",  bg: "from-orange-50 to-amber-50",  border: "border-orange-200" },
-  { name: "Google Cloud",        role: "Document AI · OCR",      logoUrl: "https://logo.clearbit.com/google.com",     bg: "from-blue-50 to-sky-50",      border: "border-blue-200" },
-  { name: "AWS Textract",        role: "Intelligent Extraction", logoUrl: "https://logo.clearbit.com/aws.amazon.com", bg: "from-yellow-50 to-orange-50", border: "border-amber-200" },
-  { name: "Amazon Web Services", role: "Cloud Infrastructure",   logoUrl: "https://logo.clearbit.com/amazon.com",     bg: "from-amber-50 to-yellow-50",  border: "border-yellow-200" },
-  { name: "Figma",               role: "Design System · UI/UX",  logoUrl: "https://logo.clearbit.com/figma.com",      bg: "from-red-50 to-pink-50",      border: "border-red-200" },
+  { name: "OpenAI",              role: "ChatGPT Intelligence",   logoUrl: "/logos/openai.svg",     bg: "from-emerald-50 to-teal-50",  border: "border-emerald-200" },
+  { name: "Anthropic",           role: "Claude AI Reasoning",    logoUrl: "/logos/anthropic.svg",  bg: "from-orange-50 to-amber-50",  border: "border-orange-200" },
+  { name: "Google Cloud",        role: "Document AI · OCR",      logoUrl: "/logos/google.svg",     bg: "from-blue-50 to-sky-50",      border: "border-blue-200" },
+  { name: "AWS Textract",        role: "Intelligent Extraction", logoUrl: "/logos/aws.svg",        bg: "from-yellow-50 to-orange-50", border: "border-amber-200" },
+  { name: "Amazon Web Services", role: "Cloud Infrastructure",   logoUrl: "/logos/aws.svg",        bg: "from-amber-50 to-yellow-50",  border: "border-yellow-200" },
+  { name: "Figma",               role: "Design System · UI/UX",  logoUrl: "/logos/figma.svg",      bg: "from-red-50 to-pink-50",      border: "border-red-200" },
 ];
 
 /* ─── animation helpers ─────────────────────────────────────────── */

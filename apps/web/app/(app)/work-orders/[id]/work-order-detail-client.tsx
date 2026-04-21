@@ -9,7 +9,7 @@ import { cn, formatDate } from '@/lib/utils'
 import {
   Plus, Trash2, Loader2, Save, Plane,
   Wrench, Package, ExternalLink, ChevronDown, FileText,
-  Receipt, Sparkles, MessageSquare,
+  Receipt, Sparkles, MessageSquare, BookOpen,
 } from 'lucide-react'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
@@ -636,6 +636,16 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
                 Find Parts
               </a>
             </Button>
+            {(['completed', 'closed', 'invoiced', 'paid'].includes(wo.status)) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => router.push(`/maintenance/new?work_order_id=${wo.id}`)}
+              >
+                <BookOpen className="h-3.5 w-3.5 mr-1" />
+                Create Logbook Entry
+              </Button>
+            )}
           </div>
         </div>
 
