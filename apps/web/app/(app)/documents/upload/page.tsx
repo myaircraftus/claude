@@ -53,14 +53,20 @@ export default async function DocumentUploadPage({
   // ── Fetch aircraft list for the dropzone ──────────────────────────────────
   const { data: aircraftRows } = await supabase
     .from('aircraft')
-    .select('id, tail_number, make, model')
+    .select('id, tail_number, make, model, suggested_document_categories')
     .eq('organization_id', orgId)
     .eq('is_archived', false)
     .order('tail_number')
 
   const aircraftOptions = (
     aircraftRows ?? []
-  ) as { id: string; tail_number: string; make: string; model: string }[]
+  ) as {
+    id: string
+    tail_number: string
+    make: string
+    model: string
+    suggested_document_categories?: string[] | null
+  }[]
 
   const requestedAircraft = searchParams?.aircraft?.trim()
   const requestedAircraftTail = searchParams?.aircraft_tail?.trim().toUpperCase()

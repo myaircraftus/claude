@@ -50,6 +50,8 @@ export interface Organization {
   stripe_customer_id?: string
   stripe_subscription_id?: string
   logo_url?: string
+  current_integration?: string
+  integration_flags?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -60,6 +62,11 @@ export interface UserProfile {
   full_name?: string
   avatar_url?: string
   job_title?: string
+  phone?: string
+  cert_number?: string
+  persona?: 'owner' | 'mechanic'
+  onboarding_completed_at?: string
+  onboarding_context?: Record<string, unknown>
   is_platform_admin?: boolean
   created_at: string
   updated_at: string
@@ -92,7 +99,10 @@ export interface Aircraft {
   avionics_notes?: string
   base_airport?: string
   operator_name?: string
+  operation_type?: string
   operation_types?: string[]
+  operation_context?: Record<string, unknown>
+  suggested_document_categories?: string[]
   notes?: string
   total_time_hours?: number
   owner_customer_id?: string

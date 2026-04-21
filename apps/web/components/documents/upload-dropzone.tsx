@@ -76,6 +76,7 @@ interface AircraftOption {
   tail_number: string
   make: string
   model: string
+  suggested_document_categories?: string[] | null
 }
 
 interface UploadDropzoneProps {
@@ -203,6 +204,31 @@ export function UploadDropzone({
     () => searchDocumentTaxonomy(deferredClassificationSearch),
     [deferredClassificationSearch]
   )
+  const selectedAircraftOption = useMemo(
+    () =>
+      defaultAircraftSelection === '__none__'
+        ? null
+        : aircraftOptions.find((aircraft) => aircraft.id === defaultAircraftSelection) ?? null,
+    [aircraftOptions, defaultAircraftSelection]
+  )
+  const suggestedCategoryMatches = useMemo(() => {
+    const labels = selectedAircraftOption?.suggested_document_categories ?? []
+    const seen = new Set<string>()
+
+    return labels
+      .map((label) => label.trim())
+      .filter((label) => {
+        if (!label) return false
+        const key = label.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map((label) => ({
+        label,
+        match: searchDocumentTaxonomy(label)[0] ?? null,
+      }))
+  }, [selectedAircraftOption])
   const selectedClassificationProfile = useMemo(
     () => getDocumentClassificationSummary(defaultDocumentDetailSelection),
     [defaultDocumentDetailSelection]
@@ -404,6 +430,18 @@ export function UploadDropzone({
 
   function updateFile(id: string, patch: Partial<FileUploadItem>) {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  }
+
+  function applySuggestedCategory(label: string, match?: { groupId: string; detailId: string; detailLabel?: string } | null) {
+    if (match) {
+      setDefaultDocumentGroupSelection(match.groupId)
+      setDefaultDocumentDetailSelection(match.detailId)
+      setClassificationSearch(match.detailLabel ?? label)
+      return
+    }
+
+    setClassificationSearch(label)
+    setAdvancedOpen(true)
   }
 
   function applyDefaultClassificationToPendingFiles() {
@@ -618,6 +656,39 @@ export function UploadDropzone({
           </Select>
         </div>
 
+        {suggestedCategoryMatches.length > 0 && selectedAircraftOption && (
+          <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/50 p-3">
+            <div>
+              <Label className="text-xs font-medium text-brand-700">
+                AI suggestions for {selectedAircraftOption.tail_number}
+              </Label>
+              <p className="mt-0.5 text-[11px] text-brand-700/80">
+                Based on this aircraft&apos;s operation profile, these are likely document categories to upload first.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {suggestedCategoryMatches.map(({ label, match }) => {
+                const isActive = match ? defaultDocumentDetailSelection === match.detailId : classificationSearch === label
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => applySuggestedCategory(label, match)}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                      isActive
+                        ? 'border-brand-600 bg-brand-600 text-white'
+                        : 'border-brand-200 bg-white text-brand-700 hover:border-brand-400 hover:text-brand-900'
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Quick-select category chips */}
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
@@ -661,7 +732,7 @@ export function UploadDropzone({
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Skip this and we'll use AI to categorize from the file's contents.
+            Skip this and we&apos;ll use AI to categorize from the file&apos;s contents.
           </p>
         </div>
 

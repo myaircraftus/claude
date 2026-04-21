@@ -185,6 +185,21 @@ export default function NewAircraftPage() {
         return
       }
 
+      if (values.operation_types.length > 0) {
+        try {
+          await fetch(`/api/aircraft/${data.id}/suggest-categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              operation_types: values.operation_types,
+            }),
+          })
+        } catch {
+          // Non-blocking enhancement — the aircraft should still be created even if
+          // category recommendations fail so the user can keep moving.
+        }
+      }
+
       router.push(`/aircraft/${data.id}`)
     } catch {
       setServerError('Network error. Please try again.')

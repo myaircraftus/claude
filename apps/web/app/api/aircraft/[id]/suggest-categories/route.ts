@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+import { getOperationTypeLabels, normalizeOperationTypes } from '@/lib/aircraft/operations'
 
 export const maxDuration = 30
 
@@ -43,22 +44,28 @@ export async function POST(
   // Verify aircraft belongs to user's org
   const { data: aircraft } = await supabase
     .from('aircraft')
-    .select('id, organization_id, make, model, year, operation_type')
+    .select('id, organization_id, make, model, year, operation_type, operation_types')
     .eq('id', params.id)
     .eq('organization_id', membership.organization_id)
     .single()
   if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
 
   // Allow operation_type override from request body
-  let body: { operation_type?: string } = {}
+  let body: { operation_type?: string; operation_types?: string[] } = {}
   try {
     body = await req.json()
   } catch {
     // body is optional
   }
 
+  const normalizedOperationTypes = normalizeOperationTypes(
+    body.operation_types ?? aircraft.operation_types ?? []
+  )
   const operationType = body.operation_type ?? aircraft.operation_type ?? 'unknown'
-  const operationLabel = OPERATION_TYPE_LABELS[operationType] ?? operationType
+  const operationLabel =
+    normalizedOperationTypes.length > 0
+      ? getOperationTypeLabels(normalizedOperationTypes).join(' · ')
+      : OPERATION_TYPE_LABELS[operationType] ?? operationType
 
   const aircraftDesc = [aircraft.year, aircraft.make, aircraft.model].filter(Boolean).join(' ')
 
@@ -91,6 +98,9 @@ export async function POST(
   const updatePayload: Record<string, unknown> = {
     suggested_document_categories: categories,
     updated_at: new Date().toISOString(),
+  }
+  if (normalizedOperationTypes.length > 0) {
+    updatePayload.operation_types = normalizedOperationTypes
   }
   if (operationType && operationType !== 'unknown') {
     updatePayload.operation_type = operationType
