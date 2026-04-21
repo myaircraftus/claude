@@ -74,7 +74,7 @@ async function dispatchTool(
   req: NextRequest,
   name: string,
   args: Record<string, unknown>
-): Promise<{ result: unknown; artifact?: Artifact }> {
+): Promise<{ result: unknown; artifact?: Artifact; citations?: any[]; followUps?: string[]; confidence?: string }> {
   switch (name) {
     case 'create_logbook_entry': {
       const data = await callInternal(req, '/api/ai/generate-logbook', {
@@ -134,14 +134,15 @@ async function dispatchTool(
     }
 
     case 'search_documents': {
-      // Use the existing RAG pipeline via /api/query
+      // Use the existing RAG pipeline via /api/query which enriches citations
+      // with textAnchorStart/End + boundingRegions so the UI can highlight the
+      // exact source span.
       const data = await callInternal(req, '/api/query', {
         question: args.query,
         aircraft_id: args.aircraft_id,
         conversation_history: [],
       })
-      // No artifact card for document search — answer is woven into the final text
-      return { result: data }
+      return { result: data, citations: data?.citations ?? [], followUps: data?.follow_up_questions ?? [], confidence: data?.confidence }
     }
 
     case 'generate_checklist': {
@@ -238,6 +239,11 @@ export async function POST(req: NextRequest) {
 
   const artifacts: Artifact[] = []
   const toolCallsMade: string[] = []
+  // Citations collected from any search_documents tool calls so the UI can
+  // render "click citation → highlight source" for the user's demo flow.
+  const collectedCitations: any[] = []
+  const collectedFollowUps: string[] = []
+  let ragConfidence: string | undefined
 
   try {
     // ── Tool-calling loop (max 3 rounds) ───────────────────────────────────────
@@ -267,11 +273,11 @@ export async function POST(req: NextRequest) {
           answer,
           artifacts: artifacts.length > 0 ? artifacts : undefined,
           tool_calls_made: toolCallsMade.length > 0 ? toolCallsMade : undefined,
-          // RAG-style fields empty when tools were used
-          confidence: artifacts.length > 0 ? 'high' : undefined,
-          citations: [],
+          // Propagate RAG citations + metadata captured from any search_documents calls
+          confidence: ragConfidence ?? (artifacts.length > 0 ? 'high' : undefined),
+          citations: collectedCitations,
           warning_flags: [],
-          follow_up_questions: [],
+          follow_up_questions: collectedFollowUps,
         })
       }
 
@@ -287,8 +293,11 @@ export async function POST(req: NextRequest) {
         }
 
         toolCallsMade.push(tc.function.name)
-        const { result, artifact } = await dispatchTool(req, tc.function.name, args)
+        const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args)
         if (artifact) artifacts.push(artifact)
+        if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
+        if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
+        if (confidence) ragConfidence = confidence
 
         toolResults.push({
           role: 'tool',
@@ -306,9 +315,10 @@ export async function POST(req: NextRequest) {
       answer: 'I gathered some results for you. See the cards below.',
       artifacts: artifacts.length > 0 ? artifacts : undefined,
       tool_calls_made: toolCallsMade,
-      citations: [],
+      citations: collectedCitations,
       warning_flags: [],
-      follow_up_questions: [],
+      follow_up_questions: collectedFollowUps,
+      confidence: ragConfidence,
     })
   } catch (err: any) {
     console.error('[api/ask] Error:', err)

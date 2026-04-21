@@ -296,3 +296,26 @@ User tested and found still broken / changes requested:
 - Duplicate test docs: 2x "Codex Upload Smoke Test" with no aircraft → clean up via admin
 - Storage usage hardcoded to 0 in settings (user-facing)
 - Rotate exposed AWS + GCP credentials (user action required)
+
+### 🔥 CURRENT WORK (resume here if usage wall hit)
+
+**Latest user ask:** Build the real Document AI → LLM verify → chunk → embed → citation pipeline with VISIBLE progress. User's demo flow: upload PDF → see live OCR/parsing/embedding progress → Ask AI "when was the 100-hour?" → answer with CITATION → click citation → highlight exact source entry.
+
+**What's DONE in this round:**
+- ✅ Found + fixed critical config: `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON` was empty in Vercel prod — now set from `/docs/documentai-key.json`
+- ✅ Verified 15-page DocAI batching already implemented in native-pdf.ts
+- ✅ Added Realtime subscription to document-detail-slideover.tsx for live parsing status
+- ✅ Enabled Supabase Realtime publication on `documents` table
+- ✅ Added escapeHtml / escapeLike / formatCurrency helpers (referenced but never existed)
+- ✅ Hardened /api/squawks/transcribe + /api/squawks/from-photo with try/catch on req.formData()
+- ✅ Fixed /api/mechanics/search 500 (was querying non-existent phone column)
+- ✅ Improved ingestion error messaging: when inline fails + Trigger.dev unconfigured, surface the INLINE error not the confusing "Trigger.dev not configured"
+- ✅ Verified: retry on real 17-page PDF now produces 61 chunks, 61 embeddings, 61 canonical chunks, status=completed. Pipeline WORKS end-to-end.
+
+**What's PENDING (continue here):**
+1. Citation anchor viewer: click citation in Ask AI → scroll to + highlight exact span in PDF viewer. The `enrichAnswerCitationsWithAnchors()` function exists in `lib/rag/citation-anchors.ts`. Need to verify it's called in `/api/ask/route.ts` and the frontend renders bounding boxes. For text-native docs, highlight via text-range. For OCR docs, overlay bounding box at normalized coords.
+2. Write TEST_REPORT.md documenting all findings of this test round.
+3. Test remaining flows: squawks dictation/photo (need mic/camera perms in browser), mechanic portal WO inline, maintenance sub-tabs visually.
+
+**Latest commit:** `8b5e841` feat: live Realtime progress updates on document detail slideover
+**Latest deploy:** myaircraft01-1kuy4c8xz-horf.vercel.app (Ready)
