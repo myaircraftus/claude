@@ -316,6 +316,41 @@ export function DocumentDetailSlideover({
     }
   }, [doc?.id, status, onDocumentPatched])
 
+  // Realtime push updates from Supabase — parsing_status changes arrive within
+  // ~1s instead of waiting for the 10s poll above. Polling remains as fallback
+  // in case Realtime is not enabled on the documents table.
+  useEffect(() => {
+    if (!doc?.id) return
+
+    const supabase = createBrowserSupabase()
+    const channel = supabase
+      .channel(`doc-progress:${doc.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'documents', filter: `id=eq.${doc.id}` },
+        (payload) => {
+          const next = (payload.new ?? {}) as Partial<Document>
+          if (next.parsing_status) {
+            setCurrentStatus(next.parsing_status as ParsingStatus)
+          }
+          setLiveDocument((prev) => (prev ? { ...prev, ...next } : prev))
+          onDocumentPatched?.(doc.id, {
+            parsing_status: next.parsing_status,
+            parse_error: next.parse_error ?? undefined,
+            parse_started_at: next.parse_started_at ?? undefined,
+            parse_completed_at: next.parse_completed_at ?? undefined,
+            updated_at: next.updated_at,
+            page_count: next.page_count,
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [doc?.id, onDocumentPatched])
+
   async function syncLatestDocumentStatus(documentId: string) {
     const res = await fetch(`/api/documents/${documentId}?ts=${Date.now()}`, {
       cache: 'no-store',
