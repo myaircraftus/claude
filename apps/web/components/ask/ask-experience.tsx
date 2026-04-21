@@ -2,8 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown } from 'lucide-react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,6 +14,15 @@ import { createBrowserSupabase } from '@/lib/supabase/browser'
 import { formatDateTime } from '@/lib/utils'
 import type { Aircraft, AnswerCitation, QueryConfidence, OrgRole } from '@/types'
 
+// ── Artifact types (mirrors /api/ask Artifact interface) ──────────────────────
+interface Artifact {
+  type: 'logbook_draft' | 'checklist' | 'parts_results' | 'logbook_entries'
+  title: string
+  data: any
+  aircraft_id?: string
+  action_url?: string
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -22,6 +31,7 @@ interface Message {
   citations?: AnswerCitation[]
   warningFlags?: string[]
   followUpQuestions?: string[]
+  artifacts?: Artifact[]
   timestamp: Date
 }
 
@@ -34,10 +44,10 @@ interface AircraftOption {
 
 const SUGGESTED_PROMPTS = [
   'When was the last annual inspection?',
-  'Summarize AD compliance across my fleet',
-  'What maintenance is coming due in 30 days?',
-  'Show oil change history for N12345',
-  'Find all propeller-related maintenance records',
+  'Draft a logbook entry for the oil change I just did',
+  'Find magneto parts for my aircraft',
+  'Generate an annual inspection checklist',
+  'Show oil change history',
   'What does my engine logbook say about the last overhaul?',
 ]
 
@@ -62,8 +72,125 @@ function createMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+// ── Artifact card renderer ────────────────────────────────────────────────────
+
+function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: string) => void }) {
+  const iconMap = {
+    logbook_draft: <Sparkles className="w-4 h-4 text-primary" />,
+    checklist: <ClipboardList className="w-4 h-4 text-primary" />,
+    parts_results: <Package className="w-4 h-4 text-primary" />,
+    logbook_entries: <BookOpen className="w-4 h-4 text-primary" />,
+  }
+
+  const data = artifact.data as any
+
+  return (
+    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/3 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-primary/10 bg-primary/5">
+        <div className="flex items-center gap-2">
+          {iconMap[artifact.type]}
+          <span className="text-[12px] font-semibold text-foreground">{artifact.title}</span>
+        </div>
+        {artifact.action_url && (
+          <button
+            onClick={() => onUse(artifact.action_url!)}
+            className="flex items-center gap-1 text-[11px] text-primary font-semibold hover:underline"
+          >
+            Use This <ExternalLink className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+
+      <div className="p-3 text-[12px] text-foreground space-y-2">
+        {/* Logbook draft */}
+        {artifact.type === 'logbook_draft' && data?.description && (
+          <>
+            <p className="leading-relaxed">{data.description}</p>
+            {data.entry_type && (
+              <span className="inline-block bg-primary/10 text-primary px-2 py-0.5 rounded text-[11px] font-medium">
+                {data.entry_type}
+              </span>
+            )}
+            {Array.isArray(data.parts_used) && data.parts_used.length > 0 && (
+              <div>
+                <p className="font-semibold text-muted-foreground text-[11px] uppercase mb-1">Parts</p>
+                {data.parts_used.map((p: any, i: number) => (
+                  <p key={i} className="text-[11px] text-muted-foreground">{p.part_number} — {p.description} (qty {p.quantity})</p>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Checklist */}
+        {artifact.type === 'checklist' && Array.isArray(data?.items) && (
+          <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {data.items.slice(0, 12).map((item: any, i: number) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${item.required ? 'bg-destructive' : 'bg-muted-foreground/40'}`} />
+                <div>
+                  <span className="font-medium text-foreground">{item.title}</span>
+                  {item.reference && <span className="ml-1.5 text-[10px] text-primary font-mono">{item.reference}</span>}
+                </div>
+              </li>
+            ))}
+            {data.items.length > 12 && (
+              <li className="text-[11px] text-muted-foreground pl-3.5">+{data.items.length - 12} more items</li>
+            )}
+          </ul>
+        )}
+
+        {/* Parts results */}
+        {artifact.type === 'parts_results' && (
+          <>
+            {Array.isArray(data?.results) && data.results.length > 0 ? (
+              <ul className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {data.results.slice(0, 6).map((p: any, i: number) => (
+                  <li key={i} className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-medium text-foreground">{p.part_number ?? p.title ?? 'Part'}</span>
+                      {p.description && <p className="text-[11px] text-muted-foreground">{p.description}</p>}
+                    </div>
+                    {p.price != null && (
+                      <span className="text-[11px] font-semibold text-emerald-600 flex-shrink-0">${p.price}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">No parts found. Try the parts library for a broader search.</p>
+            )}
+          </>
+        )}
+
+        {/* Logbook entries */}
+        {artifact.type === 'logbook_entries' && (
+          <>
+            {Array.isArray(data?.entries) && data.entries.length > 0 ? (
+              <ul className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {data.entries.map((e: any, i: number) => (
+                  <li key={i} className="border-b border-border/50 pb-1.5 last:border-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="font-medium text-foreground">{e.entry_date ?? 'Date unknown'}</span>
+                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{e.entry_type}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">{e.description}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">No matching logbook entries found.</p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function AskExperience() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
   const [userRole, setUserRole] = useState<OrgRole | null>(null)
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
@@ -121,7 +248,7 @@ export function AskExperience() {
         .slice(-10)
         .map(m => ({ role: m.role, content: m.content }))
 
-      const res = await fetch('/api/query', {
+      const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -155,6 +282,7 @@ export function AskExperience() {
         citations: data.citations ?? [],
         warningFlags: data.warning_flags ?? [],
         followUpQuestions: data.follow_up_questions ?? [],
+        artifacts: data.artifacts ?? [],
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, assistantMsg])
@@ -268,7 +396,7 @@ export function AskExperience() {
                       <div className="text-[13px] text-foreground leading-relaxed">
                         <AnswerBlock
                           answer={msg.content}
-                          confidence={msg.confidence!}
+                          confidence={msg.confidence ?? 'high'}
                           citations={msg.citations ?? []}
                           warningFlags={msg.warningFlags ?? []}
                           followUpQuestions={msg.followUpQuestions ?? []}
@@ -276,6 +404,18 @@ export function AskExperience() {
                           onFollowUp={handleAsk}
                         />
                       </div>
+                      {/* Artifact cards */}
+                      {(msg.artifacts?.length ?? 0) > 0 && (
+                        <div className="space-y-2">
+                          {msg.artifacts!.map((artifact, i) => (
+                            <ArtifactCard
+                              key={i}
+                              artifact={artifact}
+                              onUse={(url) => router.push(url)}
+                            />
+                          ))}
+                        </div>
+                      )}
                       {(msg.citations?.length ?? 0) > 0 && (
                         <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-border">
                           <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>Sources:</span>
@@ -305,7 +445,7 @@ export function AskExperience() {
               {isLoading && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Searching your records…</span>
+                  <span className="text-sm">Working on it…</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
