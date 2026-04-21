@@ -85,6 +85,8 @@ const MECHANIC_CHIPS: QuickChip[] = [
 ]
 
 const MAX_UPLOAD_FILE_SIZE_BYTES = 250 * 1024 * 1024
+const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 6 * 1024 * 1024
+const RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 6 * 1024 * 1024
 const COMPACT_STAGE_ORDER = DOCUMENT_PROCESSING_STAGE_ORDER.filter((stage) => stage !== 'ocr_fallback')
 const COMPACT_STAGE_LABELS: Partial<Record<(typeof COMPACT_STAGE_ORDER)[number], string>> = {
   uploaded: 'Uploaded',
@@ -125,6 +127,33 @@ function getPersistedOwnerAircraftId() {
   if (typeof window === 'undefined') return undefined
   const value = window.localStorage.getItem('owner_selected_aircraft_id')?.trim()
   return value ? value : undefined
+}
+
+function getResumableUploadEndpoint() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) {
+    throw new Error('Missing Supabase URL for resumable uploads.')
+  }
+
+  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
+  if (!projectRef) {
+    throw new Error('Invalid Supabase URL for resumable uploads.')
+  }
+
+  return `https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`
+}
+
+function normalizeUploadErrorMessage(message: string) {
+  const lowered = message.toLowerCase()
+  if (
+    lowered.includes('payload too large') ||
+    lowered.includes('maximum allowed size') ||
+    lowered.includes('object exceeded')
+  ) {
+    return 'Upload blocked by the current Supabase Storage limit. This project is currently capped at 50 MB because spend cap is enabled. Raise Storage > Files > Settings and disable spend cap to allow 128 MB and 250 MB PDFs.'
+  }
+
+  return message
 }
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
@@ -651,6 +680,51 @@ export function UploadDropzone({
     )
   }
 
+  async function uploadFileResumable(
+    item: FileUploadItem,
+    initPayload: { storagePath: string; uploadToken: string }
+  ) {
+    const { Upload: TusUpload } = await import('tus-js-client')
+    const endpoint = getResumableUploadEndpoint()
+
+    await new Promise<void>((resolve, reject) => {
+      const upload = new TusUpload(item.file, {
+        endpoint,
+        retryDelays: [0, 3000, 5000, 10000, 20000],
+        headers: {
+          'x-upsert': 'false',
+          'x-signature': initPayload.uploadToken,
+        },
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES,
+        metadata: {
+          bucketName: 'documents',
+          objectName: initPayload.storagePath,
+          contentType: item.file.type || 'application/pdf',
+          cacheControl: '3600',
+        },
+        fingerprint: () =>
+          `${initPayload.storagePath}::${item.file.name}::${item.file.size}::${item.file.lastModified}`,
+        onError: (error) => {
+          reject(error)
+        },
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const ratio = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0
+          updateFile(item.id, { progress: 15 + Math.round(ratio * 60) })
+        },
+        onSuccess: () => resolve(),
+      })
+
+      void upload.findPreviousUploads().then((previousUploads) => {
+        if (previousUploads.length > 0) {
+          upload.resumeFromPreviousUpload(previousUploads[0])
+        }
+        upload.start()
+      }).catch(reject)
+    })
+  }
+
   async function uploadFile(item: FileUploadItem): Promise<void> {
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
@@ -683,49 +757,56 @@ export function UploadDropzone({
 
       updateFile(item.id, { progress: 15 })
 
-      let uploadErrorMessage: string | null = null
-
-      if (initPayload.signedUrl) {
-        const signedUploadResponse = await fetch(initPayload.signedUrl, {
-          method: 'PUT',
-          headers: {
-            'content-type': item.file.type || 'application/pdf',
-            'x-upsert': 'false',
-          },
-          body: item.file,
+      if (item.file.size > RESUMABLE_UPLOAD_THRESHOLD_BYTES) {
+        await uploadFileResumable(item, {
+          storagePath: initPayload.storagePath,
+          uploadToken: initPayload.uploadToken,
         })
+      } else {
+        let uploadErrorMessage: string | null = null
 
-        if (!signedUploadResponse.ok) {
-          try {
-            const errorPayload = (await signedUploadResponse.json()) as {
-              error?: string
-              message?: string
-            }
-            uploadErrorMessage =
-              errorPayload.error ??
-              errorPayload.message ??
-              `Failed to upload file to storage (${signedUploadResponse.status})`
-          } catch {
-            const responseText = await signedUploadResponse.text().catch(() => '')
-            uploadErrorMessage =
-              responseText.trim() || `Failed to upload file to storage (${signedUploadResponse.status})`
-          }
-        }
-      }
-
-      if (uploadErrorMessage) {
-        const uploadPath = initPayload.signedPath ?? initPayload.storagePath
-        const supabase = createBrowserSupabase()
-        const { error: storageError } = await supabase.storage
-          .from('documents')
-          .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
-            contentType: item.file.type || 'application/pdf',
+        if (initPayload.signedUrl) {
+          const signedUploadResponse = await fetch(initPayload.signedUrl, {
+            method: 'PUT',
+            headers: {
+              'content-type': item.file.type || 'application/pdf',
+              'x-upsert': 'false',
+            },
+            body: item.file,
           })
 
-        if (storageError) {
-          throw new Error(
-            [uploadErrorMessage, storageError.message].filter(Boolean).join(' · ')
-          )
+          if (!signedUploadResponse.ok) {
+            try {
+              const errorPayload = (await signedUploadResponse.json()) as {
+                error?: string
+                message?: string
+              }
+              uploadErrorMessage =
+                errorPayload.error ??
+                errorPayload.message ??
+                `Failed to upload file to storage (${signedUploadResponse.status})`
+            } catch {
+              const responseText = await signedUploadResponse.text().catch(() => '')
+              uploadErrorMessage =
+                responseText.trim() || `Failed to upload file to storage (${signedUploadResponse.status})`
+            }
+          }
+        }
+
+        if (uploadErrorMessage) {
+          const uploadPath = initPayload.signedPath ?? initPayload.storagePath
+          const supabase = createBrowserSupabase()
+          const { error: storageError } = await supabase.storage
+            .from('documents')
+            .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
+              contentType: item.file.type || 'application/pdf',
+            })
+
+          if (storageError) {
+            throw new Error(
+              [uploadErrorMessage, storageError.message].filter(Boolean).join(' · ')
+            )
+          }
         }
       }
 
@@ -778,7 +859,7 @@ export function UploadDropzone({
       updateFile(item.id, {
         status: 'error',
         progress: 0,
-        error: err instanceof Error ? err.message : 'Unknown error',
+        error: normalizeUploadErrorMessage(err instanceof Error ? err.message : 'Unknown error'),
       })
     }
   }

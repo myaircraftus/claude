@@ -1,15 +1,31 @@
 #!/usr/bin/env node
-// Run all Supabase migrations against the remote database
-const { Client } = require('pg')
 const fs = require('fs')
 const path = require('path')
+const { Client } = require('pg')
 
+function readEnv(filePath) {
+  const env = {}
+  const text = fs.readFileSync(filePath, 'utf8')
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const idx = trimmed.indexOf('=')
+    if (idx === -1) continue
+    let value = trimmed.slice(idx + 1).trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+    env[trimmed.slice(0, idx).trim()] = value
+  }
+  return env
+}
+
+const env = readEnv(path.join(__dirname, 'apps/web/.env.local'))
 const client = new Client({
-  host: 'db.buhrmuzgyzamowkaybjg.supabase.co',
-  port: 5432,
-  user: 'postgres',
-  password: 'Aryamanpatel@2011',
-  database: 'postgres',
+  connectionString: env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 })
 
@@ -20,8 +36,9 @@ async function run() {
   await client.connect()
   console.log('Connected.\n')
 
-  const files = fs.readdirSync(MIGRATIONS_DIR)
-    .filter(f => f.endsWith('.sql'))
+  const files = fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith('.sql'))
     .sort()
 
   for (const file of files) {
@@ -32,12 +49,10 @@ async function run() {
       await client.query(sql)
       console.log(`  ✓ ${file}`)
     } catch (err) {
-      // If object already exists, treat as idempotent
       if (err.message.includes('already exists') || err.message.includes('duplicate')) {
         console.log(`  ⚠ ${file} (already applied, skipping)`)
       } else {
         console.error(`  ✗ ${file}: ${err.message}`)
-        // Continue with other migrations even if one fails
       }
     }
   }
@@ -46,7 +61,7 @@ async function run() {
   console.log('\nMigrations complete.')
 }
 
-run().catch(err => {
+run().catch((err) => {
   console.error('Fatal:', err.message)
   process.exit(1)
 })
