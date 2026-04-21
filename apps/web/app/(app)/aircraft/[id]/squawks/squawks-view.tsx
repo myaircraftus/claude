@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -192,7 +193,7 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
 
   const startRecording = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert('Voice recording is not supported in this browser.')
+      toast.error('Voice recording is not supported in this browser.')
       return
     }
     try {
@@ -215,7 +216,23 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
             method: 'POST',
             body: formData,
           })
-          if (!res.ok) throw new Error('Transcription failed')
+          if (!res.ok) {
+            let errBody: { error?: string; code?: string } = {}
+            try { errBody = await res.json() } catch {}
+            if (errBody.code === 'SERVICE_NOT_CONFIGURED' || res.status === 503) {
+              toast.error('Dictation is not configured', {
+                description:
+                  'The speech-to-text service is unavailable on this server (missing OPENAI_API_KEY). Ask an admin to configure it, or type the squawk manually.',
+              })
+            } else if (res.status === 401) {
+              toast.error('Please sign in again to use dictation.')
+            } else {
+              toast.error('Failed to transcribe audio', {
+                description: errBody.error ?? `Server returned HTTP ${res.status}.`,
+              })
+            }
+            return
+          }
           const { text } = await res.json()
           // Use the first sentence as title, rest as description
           const sentences = text.split(/[.!?]+/).filter((s: string) => s.trim())
@@ -224,7 +241,9 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
           setAddSource('voice')
         } catch (err) {
           console.error(err)
-          alert('Failed to transcribe audio. Please try again.')
+          toast.error('Failed to transcribe audio', {
+            description: err instanceof Error ? err.message : 'Network error. Please try again.',
+          })
         } finally {
           setIsTranscribing(false)
         }
@@ -235,7 +254,9 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
       setIsRecording(true)
     } catch (err) {
       console.error('Microphone access denied:', err)
-      alert('Microphone access was denied. Please allow microphone access and try again.')
+      toast.error('Microphone access denied', {
+        description: 'Please allow microphone access in your browser and try again.',
+      })
     }
   }, [])
 
@@ -260,8 +281,24 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
         method: 'POST',
         body: formData,
       })
-      if (!res.ok) throw new Error('Extraction failed')
-      const { squawks: extracted } = await res.json()
+      if (!res.ok) {
+        let errBody: { error?: string; code?: string } = {}
+        try { errBody = await res.json() } catch {}
+        if (errBody.code === 'SERVICE_NOT_CONFIGURED' || res.status === 503) {
+          toast.error('Photo extraction is not configured', {
+            description:
+              'The AI vision service is unavailable on this server (missing OPENAI_API_KEY). Ask an admin to configure it, or describe the squawk manually.',
+          })
+        } else if (res.status === 401) {
+          toast.error('Please sign in again to use photo extraction.')
+        } else {
+          toast.error('Failed to extract squawks from image', {
+            description: errBody.error ?? `Server returned HTTP ${res.status}.`,
+          })
+        }
+        return
+      }
+      const { squawks: extracted, fallback, error: bodyError } = await res.json()
       setPhotoSquawks(extracted)
       setAddSource('photo')
       // Auto-fill with first extracted squawk
@@ -269,9 +306,18 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
         setAddTitle(extracted[0].title)
         setAddDesc(extracted[0].description)
       }
+      if (fallback) {
+        toast.warning('AI extraction unavailable', {
+          description: bodyError
+            ? `${bodyError} — a placeholder squawk was added for manual review.`
+            : 'A placeholder squawk was added. Review the photo and fill in details manually.',
+        })
+      }
     } catch (err) {
       console.error(err)
-      alert('Failed to extract squawks from image. Please try again.')
+      toast.error('Failed to extract squawks from image', {
+        description: err instanceof Error ? err.message : 'Network error. Please try again.',
+      })
     } finally {
       setIsExtracting(false)
       if (fileInputRef.current) fileInputRef.current.value = ''

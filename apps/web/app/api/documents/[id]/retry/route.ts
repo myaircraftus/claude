@@ -34,37 +34,48 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // ── 2. Role check (mechanic+) ──────────────────────────────────────────────
+  // ── 2. Role check (mechanic+, or platform admin) ──────────────────────────
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
+    .single()
+  const isPlatformAdmin = profile?.is_platform_admin === true
+
   const { data: membership } = await supabase
     .from('organization_memberships')
     .select('organization_id, role')
     .eq('user_id', user.id)
     .not('accepted_at', 'is', null)
-    .single()
+    .maybeSingle()
 
-  if (!membership) {
+  if (!membership && !isPlatformAdmin) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
   const ALLOWED_ROLES = ['owner', 'admin', 'mechanic']
-  if (!ALLOWED_ROLES.includes(membership.role)) {
+  if (!isPlatformAdmin && membership && !ALLOWED_ROLES.includes(membership.role)) {
     return NextResponse.json(
       { error: 'Insufficient permissions. Mechanic role or higher required.' },
       { status: 403 }
     )
   }
 
-  const orgId = membership.organization_id
+  // Platform admins can retry across any org; regular users are scoped to their own.
+  const orgId = membership?.organization_id ?? null
 
   // ── 3. Verify document can be reprocessed ──────────────────────────────────
   const serviceClient = createServiceSupabase()
 
-  const { data: rawDoc, error: fetchError } = await serviceClient
+  const docQuery = serviceClient
     .from('documents')
-    .select('id, parsing_status, title, parse_started_at, updated_at, file_size_bytes, doc_type, ocr_required')
+    .select('id, parsing_status, title, parse_started_at, updated_at, file_size_bytes, doc_type, ocr_required, organization_id')
     .eq('id', id)
-    .eq('organization_id', orgId)
-    .single()
+
+  // Scope to membership org unless the caller is a platform admin.
+  const { data: rawDoc, error: fetchError } = isPlatformAdmin
+    ? await docQuery.single()
+    : await docQuery.eq('organization_id', orgId!).single()
 
   if (fetchError || !rawDoc) {
     return NextResponse.json({ error: 'Document not found' }, { status: 404 })
@@ -100,6 +111,8 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     )
   }
 
+  const targetOrgId = (doc as any).organization_id ?? orgId
+
   // ── 4. Reset status to 'queued', clear parse state ────────────────────────
   const { error: updateError } = await serviceClient
     .from('documents')
@@ -111,7 +124,6 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .eq('organization_id', orgId)
 
   if (updateError) {
     console.error('[retry] DB update error:', updateError)
@@ -136,17 +148,21 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .eq('organization_id', orgId)
   }
 
   // ── Write audit log ────────────────────────────────────────────────────────
   await serviceClient.from('audit_logs').insert({
-    organization_id: orgId,
+    organization_id: targetOrgId,
     user_id: user.id,
     action: 'document.retry',
     resource_type: 'document',
     resource_id: id,
-    metadata_json: { title: doc.title, force, stale_retry: force && retryableAsStale && isStale },
+    metadata_json: {
+      title: doc.title,
+      force,
+      stale_retry: force && retryableAsStale && isStale,
+      platform_admin_retry: isPlatformAdmin && targetOrgId !== orgId,
+    },
   })
 
   return NextResponse.json({

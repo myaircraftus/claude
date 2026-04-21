@@ -5,6 +5,20 @@ import { motion, useInView } from "motion/react";
 import { BookOpen, Clock, Tag, ArrowRight, Search, ChevronRight, Rss } from "lucide-react";
 import Link from "next/link";
 
+export type BlogPagePost = {
+  id: string;
+  category: string;
+  title: string;
+  excerpt: string;
+  author: string;
+  authorRole: string;
+  date: string;
+  readTime: string;
+  tag: string;
+  tagColor: string;
+  featured: boolean;
+};
+
 function FadeIn({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
   const ref = useRef(null);
   const inView = useInView(ref, { once: true, margin: "-60px" });
@@ -18,7 +32,7 @@ function FadeIn({ children, delay = 0, className = "" }: { children: React.React
 
 const CATEGORIES = ["All", "Compliance", "AI & Technology", "Maintenance", "Regulations", "Platform Updates", "Owner Tips"];
 
-const POSTS = [
+const FALLBACK_POSTS: BlogPagePost[] = [
   {
     id: "understanding-ad-compliance-2025",
     category: "Compliance",
@@ -138,11 +152,12 @@ const POSTS = [
   },
 ];
 
-export function BlogPage() {
+export function BlogPage({ posts }: { posts?: BlogPagePost[] } = {}) {
   const [activeCategory, setActiveCategory] = useState("All");
   const [query, setQuery] = useState("");
+  const sourcePosts = posts && posts.length > 0 ? posts : FALLBACK_POSTS;
 
-  const filtered = POSTS.filter((p) => {
+  const filtered = sourcePosts.filter((p) => {
     const matchesCat = activeCategory === "All" || p.category === activeCategory;
     const matchesQ   = query === "" || p.title.toLowerCase().includes(query.toLowerCase()) || p.excerpt.toLowerCase().includes(query.toLowerCase());
     return matchesCat && matchesQ;
@@ -231,21 +246,23 @@ export function BlogPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
               {featured.map((post, i) => (
                 <FadeIn key={post.id} delay={i * 0.06}>
-                  <article className="bg-gradient-to-br from-[#0d1f3c] to-[#0a1628] border border-white/10 rounded-2xl p-6 flex flex-col h-full hover:border-white/20 transition-colors group cursor-pointer">
-                    <div className="flex items-center gap-2 mb-4 flex-wrap">
-                      <span className={`text-[11px] px-2.5 py-1 rounded-full border ${post.tagColor}`} style={{ fontWeight: 600 }}>{post.tag}</span>
-                      <span className="text-[#60a5fa] text-[11px]" style={{ fontWeight: 600 }}>{post.category}</span>
-                    </div>
-                    <h2 className="text-white text-[19px] mb-3 leading-snug group-hover:text-[#60a5fa] transition-colors" style={{ fontWeight: 700 }}>{post.title}</h2>
-                    <p className="text-white/45 text-[13px] leading-relaxed flex-1 mb-5">{post.excerpt}</p>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-white/70 text-[12px]" style={{ fontWeight: 600 }}>{post.author}</div>
-                        <div className="text-white/30 text-[11px]">{post.date} · {post.readTime}</div>
+                  <Link href={`/blog/${post.id}`} className="block">
+                    <article className="bg-gradient-to-br from-[#0d1f3c] to-[#0a1628] border border-white/10 rounded-2xl p-6 flex flex-col h-full hover:border-white/20 transition-colors group cursor-pointer">
+                      <div className="flex items-center gap-2 mb-4 flex-wrap">
+                        <span className={`text-[11px] px-2.5 py-1 rounded-full border ${post.tagColor}`} style={{ fontWeight: 600 }}>{post.tag}</span>
+                        <span className="text-[#60a5fa] text-[11px]" style={{ fontWeight: 600 }}>{post.category}</span>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-[#60a5fa] group-hover:translate-x-0.5 transition-all" />
-                    </div>
-                  </article>
+                      <h2 className="text-white text-[19px] mb-3 leading-snug group-hover:text-[#60a5fa] transition-colors" style={{ fontWeight: 700 }}>{post.title}</h2>
+                      <p className="text-white/45 text-[13px] leading-relaxed flex-1 mb-5">{post.excerpt}</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white/70 text-[12px]" style={{ fontWeight: 600 }}>{post.author}</div>
+                          <div className="text-white/30 text-[11px]">{post.date} · {post.readTime}</div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-[#60a5fa] group-hover:translate-x-0.5 transition-all" />
+                      </div>
+                    </article>
+                  </Link>
                 </FadeIn>
               ))}
             </div>
@@ -256,23 +273,25 @@ export function BlogPage() {
             <div className="space-y-3">
               {rest.map((post, i) => (
                 <FadeIn key={post.id} delay={i * 0.04}>
-                  <article className="bg-[#0d1f3c] border border-white/8 rounded-2xl px-6 py-5 flex items-center gap-5 hover:border-white/20 transition-colors group cursor-pointer">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full border ${post.tagColor}`} style={{ fontWeight: 600 }}>{post.tag}</span>
-                        <span className="text-white/30 text-[11px]">{post.category}</span>
+                  <Link href={`/blog/${post.id}`} className="block">
+                    <article className="bg-[#0d1f3c] border border-white/8 rounded-2xl px-6 py-5 flex items-center gap-5 hover:border-white/20 transition-colors group cursor-pointer">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${post.tagColor}`} style={{ fontWeight: 600 }}>{post.tag}</span>
+                          <span className="text-white/30 text-[11px]">{post.category}</span>
+                        </div>
+                        <h3 className="text-white text-[15px] mb-1 leading-snug group-hover:text-[#60a5fa] transition-colors truncate" style={{ fontWeight: 600 }}>{post.title}</h3>
+                        <div className="flex items-center gap-3 text-white/30 text-[12px]">
+                          <span style={{ fontWeight: 500 }}>{post.author}</span>
+                          <span>·</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{post.readTime}</span>
+                          <span>·</span>
+                          <span>{post.date}</span>
+                        </div>
                       </div>
-                      <h3 className="text-white text-[15px] mb-1 leading-snug group-hover:text-[#60a5fa] transition-colors truncate" style={{ fontWeight: 600 }}>{post.title}</h3>
-                      <div className="flex items-center gap-3 text-white/30 text-[12px]">
-                        <span style={{ fontWeight: 500 }}>{post.author}</span>
-                        <span>·</span>
-                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{post.readTime}</span>
-                        <span>·</span>
-                        <span>{post.date}</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-white/25 group-hover:text-[#60a5fa] group-hover:translate-x-0.5 transition-all shrink-0" />
-                  </article>
+                      <ChevronRight className="w-4 h-4 text-white/25 group-hover:text-[#60a5fa] group-hover:translate-x-0.5 transition-all shrink-0" />
+                    </article>
+                  </Link>
                 </FadeIn>
               ))}
             </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -189,6 +190,10 @@ export function DocumentDetailSlideover({
     status != null &&
     ['queued', 'parsing', 'ocr_processing', 'chunking', 'embedding'].includes(status) &&
     processingAgeMs >= 15 * 60 * 1000
+  // Statuses where manual retry should always be offered (vs. only when stale).
+  const isRetryableStatus =
+    status != null && ['failed', 'queued', 'needs_ocr'].includes(status)
+  const showRetrySection = isRetryableStatus || isPossiblyStuck
   const classification = doc ? resolveStoredDocumentClassification(doc) : null
   let classificationProfile = null
   if (doc) {
@@ -381,6 +386,7 @@ export function DocumentDetailSlideover({
         parse_completed_at: undefined,
         updated_at: new Date().toISOString(),
       })
+      toast.success('Document re-queued for processing')
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         try {
@@ -410,7 +416,9 @@ export function DocumentDetailSlideover({
           setRetryError('Re-queue request is still running. Please wait a moment and check the status again.')
         }
       } else {
-        setRetryError(err instanceof Error ? err.message : 'Retry failed')
+        const message = err instanceof Error ? err.message : 'Retry failed'
+        setRetryError(message)
+        toast.error('Failed to retry document', { description: message })
       }
     } finally {
       window.clearTimeout(timeout)
@@ -626,11 +634,17 @@ export function DocumentDetailSlideover({
                   </section>
                 )}
 
-                {/* Failed or stale in-progress: error/recovery */}
-                {(status === 'failed' || isPossiblyStuck) && (
+                {/* Failed, queued, needs_ocr, or stale in-progress: error/recovery */}
+                {showRetrySection && (
                   <section>
                     <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      {status === 'failed' ? 'Parse Error' : 'Recovery'}
+                      {status === 'failed'
+                        ? 'Parse Error'
+                        : status === 'queued'
+                          ? 'Waiting in Queue'
+                          : status === 'needs_ocr'
+                            ? 'Needs OCR'
+                            : 'Recovery'}
                     </h3>
                     <div
                       className={cn(
@@ -657,7 +671,11 @@ export function DocumentDetailSlideover({
                         >
                           {status === 'failed'
                             ? doc.parse_error ?? 'An unknown error occurred during parsing.'
-                            : 'This document has been processing longer than expected. You can safely re-queue OCR/indexing.'}
+                            : status === 'queued'
+                              ? 'This document is waiting to be processed. You can force it to re-enter the queue now.'
+                              : status === 'needs_ocr'
+                                ? 'This document is flagged as requiring OCR but has not started yet. Re-queue it to kick off OCR processing.'
+                                : 'This document has been processing longer than expected. You can safely re-queue OCR/indexing.'}
                         </p>
                       </div>
                       {retryError && (
@@ -666,7 +684,7 @@ export function DocumentDetailSlideover({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleRetry(status !== 'failed')}
+                        onClick={() => handleRetry(isPossiblyStuck && status !== 'failed')}
                         disabled={retrying}
                         className={cn(
                           status === 'failed'
@@ -682,7 +700,11 @@ export function DocumentDetailSlideover({
                         ) : (
                           <>
                             <RefreshCw className="mr-1.5 h-3 w-3" />
-                            {status === 'failed' ? 'Retry Parsing' : 'Re-queue OCR'}
+                            {status === 'failed'
+                              ? 'Retry Parsing'
+                              : status === 'needs_ocr'
+                                ? 'Run OCR Now'
+                                : 'Retry Processing'}
                           </>
                         )}
                       </Button>

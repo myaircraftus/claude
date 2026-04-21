@@ -225,7 +225,11 @@ function AppLayoutInner({
     : "Aircraft";
 
   const ownerNav = isPlatformAdmin
-    ? [...ownerNavItems, { icon: ShieldCheck, label: "Admin", href: "/admin" }]
+    ? [
+        ...ownerNavItems,
+        { icon: ShieldCheck, label: "Admin", href: "/admin" },
+        { icon: FileText, label: "Marketing CMS", href: "/admin/content" },
+      ]
     : ownerNavItems;
 
   const navItems: NavItem[] = persona === "owner"

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -59,16 +60,33 @@ interface GenerateResult {
 
 type Mode = 'ai' | 'manual'
 
+// Entry types match the logbook_entries CHECK constraint (migration 016).
+// 'custom' intentionally removed — any legacy 'custom' is normalised to 'maintenance'.
 const ENTRY_TYPES = [
   { value: '100hr', label: '100-Hour Inspection' },
   { value: 'annual', label: 'Annual Inspection' },
   { value: 'oil_change', label: 'Oil Change' },
-  { value: 'repair', label: 'Repair' },
-  { value: 'overhaul', label: 'Overhaul' },
+  { value: 'major_repair', label: 'Major Repair' },
+  { value: 'major_alteration', label: 'Major Alteration' },
+  { value: 'component_replacement', label: 'Component Replacement' },
   { value: 'ad_compliance', label: 'AD Compliance' },
+  { value: 'sb_compliance', label: 'SB Compliance' },
+  { value: 'discrepancy', label: 'Discrepancy' },
+  { value: 'return_to_service', label: 'Return to Service' },
+  { value: 'owner_preventive', label: 'Owner Preventive' },
   { value: 'maintenance', label: 'Routine Maintenance' },
-  { value: 'custom', label: 'Custom' },
 ]
+
+function normalizeEntryType(v: string | null | undefined): string {
+  if (!v) return ''
+  if (v === 'custom' || v === 'repair' || v === 'overhaul') {
+    // legacy draft enum → supported logbook enum
+    if (v === 'repair') return 'major_repair'
+    if (v === 'overhaul') return 'component_replacement'
+    return 'maintenance'
+  }
+  return v
+}
 
 const LOGBOOK_TYPES = [
   { value: 'airframe', label: 'Airframe' },
@@ -151,9 +169,18 @@ interface Props {
 
 export function MaintenanceEntryClient({ aircraftList }: Props) {
   const router = useTenantRouter()
+  const searchParams = useSearchParams()
+  const workOrderIdParam = searchParams?.get('work_order_id') ?? null
 
   // Mode
   const [mode, setMode] = useState<Mode>('ai')
+
+  // Work order context (pre-filled from ?work_order_id=<id>)
+  const [workOrderContext, setWorkOrderContext] = useState<{
+    id: string
+    work_order_number: string | null
+    aircraft_id: string | null
+  } | null>(null)
 
   // AI form state
   const [prompt, setPrompt] = useState('')
@@ -194,6 +221,70 @@ export function MaintenanceEntryClient({ aircraftList }: Props) {
 
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
+  // ─── Pre-fill from work order (if ?work_order_id=<id>) ──────────────────────
+  useEffect(() => {
+    if (!workOrderIdParam) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/work-orders/${workOrderIdParam}`)
+        if (!res.ok) return
+        const wo = await res.json()
+        if (cancelled || !wo || !wo.id) return
+
+        setWorkOrderContext({
+          id: wo.id,
+          work_order_number: wo.work_order_number ?? null,
+          aircraft_id: wo.aircraft_id ?? null,
+        })
+
+        // Pre-fill aircraft (verify it's in this user's fleet)
+        if (wo.aircraft_id && aircraftList.some((ac) => ac.id === wo.aircraft_id)) {
+          setAircraftId(wo.aircraft_id)
+          setManualAircraftId(wo.aircraft_id)
+        }
+
+        // Build a seed prompt from WO data
+        const partsLines = Array.isArray(wo.lines)
+          ? (wo.lines as any[])
+              .filter((l) => l.line_type === 'part')
+              .map((l) =>
+                `  - ${l.description ?? 'Part'}${l.part_number ? ` (P/N ${l.part_number})` : ''}${l.quantity ? ` × ${l.quantity}` : ''}`
+              )
+          : []
+
+        const laborLines = Array.isArray(wo.lines)
+          ? (wo.lines as any[]).filter((l) => l.line_type === 'labor')
+          : []
+        const laborHours = laborLines.reduce(
+          (sum, l) => sum + (Number(l.hours ?? 0) || 0),
+          0
+        )
+
+        const sections: string[] = []
+        if (wo.work_order_number) sections.push(`Work Order: ${wo.work_order_number}`)
+        if (wo.customer_complaint) sections.push(`Customer complaint: ${wo.customer_complaint}`)
+        if (wo.discrepancy) sections.push(`Discrepancy: ${wo.discrepancy}`)
+        if (wo.findings) sections.push(`Findings: ${wo.findings}`)
+        if (wo.corrective_action) sections.push(`Corrective action: ${wo.corrective_action}`)
+        if (partsLines.length > 0) sections.push(`Parts used:\n${partsLines.join('\n')}`)
+        if (laborHours > 0) sections.push(`Labor: ${laborHours.toFixed(1)} hours`)
+
+        const seed = sections.join('\n\n')
+        if (seed) {
+          setPrompt(seed)
+          setManualText(seed)
+        }
+      } catch {
+        // best-effort pre-fill — never block the page on failure
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrderIdParam])
+
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
   async function handleGenerate() {
@@ -212,8 +303,9 @@ export function MaintenanceEntryClient({ aircraftList }: Props) {
         body: JSON.stringify({
           prompt: prompt.trim(),
           aircraft_id: aircraftId || undefined,
-          entry_type: entryType || undefined,
+          entry_type: normalizeEntryType(entryType) || undefined,
           logbook_type: logbookType || undefined,
+          work_order_id: workOrderContext?.id ?? undefined,
         }),
       })
 
@@ -268,6 +360,20 @@ export function MaintenanceEntryClient({ aircraftList }: Props) {
           const data = await res.json()
           throw new Error(data.error ?? 'Save failed')
         }
+
+        // Convert the draft into a real logbook_entries row
+        const convertRes = await fetch('/api/logbook-entries/from-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            draft_id: draftId,
+            work_order_id: workOrderContext?.id ?? undefined,
+          }),
+        })
+        if (!convertRes.ok) {
+          const data = await convertRes.json().catch(() => ({}))
+          throw new Error(data.error ?? 'Could not create logbook entry from draft')
+        }
       }
       router.push('/maintenance')
     } catch (err: unknown) {
@@ -282,36 +388,28 @@ export function MaintenanceEntryClient({ aircraftList }: Props) {
     setSaveError(null)
 
     try {
-      const res = await fetch('/api/maintenance/generate', {
+      // Manual mode: write straight to logbook_entries — no AI round-trip.
+      const normalizedType = normalizeEntryType(manualEntryType) || 'maintenance'
+      const res = await fetch('/api/logbook-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: manualText,
-          aircraft_id: manualAircraftId || undefined,
-          entry_type: manualEntryType || undefined,
+          aircraft_id: manualAircraftId,
+          entry_date: manualDate,
+          description: manualText,
+          entry_type: normalizedType,
           logbook_type: manualLogbookType || undefined,
+          tach_time: manualTach ? parseFloat(manualTach) : undefined,
+          total_time: manualAirframeTT ? parseFloat(manualAirframeTT) : undefined,
+          mechanic_name: manualMechanic || undefined,
+          mechanic_cert_number: manualCertNumber || undefined,
+          work_order_id: workOrderContext?.id ?? undefined,
+          status: 'draft',
         }),
       })
-      // Even if generate fails, save the draft via the drafts PATCH
-      const data = await res.json()
-      if (data.draft_id) {
-        await fetch('/api/maintenance/drafts', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: data.draft_id,
-            edited_text: manualText,
-            structured_fields: {
-              date: manualDate,
-              tach_reference: manualTach || null,
-              airframe_tt: manualAirframeTT || null,
-              mechanic_name: manualMechanic || null,
-              cert_number: manualCertNumber || null,
-              return_to_service: manualReturnToService,
-            },
-            status: 'draft',
-          }),
-        })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Could not save logbook entry')
       }
       router.push('/maintenance')
     } catch (err: unknown) {
@@ -353,6 +451,19 @@ export function MaintenanceEntryClient({ aircraftList }: Props) {
   return (
     <main className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto space-y-6">
+
+        {/* Work order context banner */}
+        {workOrderContext && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-3 py-2 flex items-center gap-2 text-xs">
+            <Wrench className="h-3.5 w-3.5 text-blue-700 dark:text-blue-300" />
+            <span className="text-blue-900 dark:text-blue-100">
+              Creating logbook entry for{' '}
+              <span className="font-mono font-semibold">
+                {workOrderContext.work_order_number ?? workOrderContext.id.slice(0, 8)}
+              </span>
+            </span>
+          </div>
+        )}
 
         {/* Mode toggle */}
         <div className="flex items-center gap-1 p-1 bg-muted rounded-lg w-fit">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import Link from "@/components/shared/tenant-link";
+import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { useParams } from "next/navigation";
 import {
   Plane, FileText, Clock, Shield, CheckCircle, ChevronRight,
@@ -397,6 +397,7 @@ interface AircraftDetailProps {
 
 export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftDetailProps = {}) {
   const { id } = useParams();
+  const router = useTenantRouter();
   const tailParam = Array.isArray(id) ? id[0] : id;
   const liveTail = aircraft?.tail_number?.trim().toUpperCase();
   const resolvedTail =
@@ -1047,9 +1048,14 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
             <Link href="/ask" className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
               <MessageSquare className="w-3.5 h-3.5" /> Ask
             </Link>
-            <Link href={uploadHref} className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
+            <button
+              type="button"
+              onClick={() => router.push(uploadHref)}
+              className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors"
+              style={{ fontWeight: 500 }}
+            >
               <Upload className="w-3.5 h-3.5" /> Upload
-            </Link>
+            </button>
             <div className="relative">
               <button
                 onClick={() => setShowMoreMenu(v => !v)}

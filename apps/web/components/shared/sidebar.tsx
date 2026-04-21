@@ -222,18 +222,32 @@ export function Sidebar({
           Settings
         </Link>
         {isPlatformAdmin && (
-          <Link
-            href="/admin"
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
-              pathname.startsWith('/admin')
-                ? 'bg-brand-50 text-brand-700 font-medium'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            )}
-          >
-            <Shield className="h-4 w-4" />
-            Admin
-          </Link>
+          <>
+            <Link
+              href="/admin"
+              className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                pathname === '/admin' || (pathname.startsWith('/admin') && !pathname.startsWith('/admin/content'))
+                  ? 'bg-brand-50 text-brand-700 font-medium'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              )}
+            >
+              <Shield className="h-4 w-4" />
+              Admin
+            </Link>
+            <Link
+              href="/admin/content"
+              className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                pathname.startsWith('/admin/content')
+                  ? 'bg-brand-50 text-brand-700 font-medium'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              )}
+            >
+              <FileText className="h-4 w-4" />
+              Marketing CMS
+            </Link>
+          </>
         )}
       </div>
     </aside>

@@ -13,6 +13,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No audio file provided' }, { status: 400 })
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      {
+        error: 'Speech-to-text not configured',
+        code: 'SERVICE_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    )
+  }
+
   try {
     // Convert Blob to File for OpenAI SDK
     const arrayBuffer = await audioBlob.arrayBuffer()

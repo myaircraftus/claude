@@ -233,4 +233,20 @@ _Agents append completed work here. Keeps context of what's already been done._
 ### 2026-04-20 (Claude, autonomous night run)
 - ✅ Gitignored credentials (docs/*.csv, documentai-key.json, .env.deploy, .codex-bin/, .playwright-cli/)
 - ✅ Created this ARCHITECT.md reference doc
-- 🔄 Committing Codex work to main
+- ✅ Committed 428-file Codex snapshot + pushed to origin/main (commit 9cc7e10)
+- ✅ Live site audit in Chrome: dashboard OK, aircraft list OK, upload flow pre-selects aircraft via `?aircraft=<id>`, admin shows 1 failed doc / 0 processing queue
+- 🔄 7 parallel fix agents running:
+  - A: Squawks OPENAI guards + stuck-docs admin card + doc retry UI in slideover
+  - B: Logbook entry enum unification + signing API + WO linkage (migration 043)
+  - C: Mechanic AI tools (logbook generator, checklist generator, parts finder)
+  - D: SEO (robots.ts, sitemap.ts) + blog MDX + contact form API (migration 041) + local integration logos
+  - E: Admin Marketing CMS (migration 042, /admin/content UI, content read helper)
+  - F: Persona route protection (server-layout role checks, /api/team security fix)
+  - G: Upload button fix (aircraft header) + button sweep + BUTTON_SWEEP.md
+
+### Known Follow-ups (not yet assigned)
+- Graphical error: emoji rendering near "AIRCRAFT OWNER" / "A&P MECHANIC" icons on homepage episode sections — icon+text merging oddly
+- Duplicate test docs: 2x "Codex Upload Smoke Test" with no aircraft → clean up
+- Document detail modal shows raw aircraft UUID instead of tail number (from user screenshot)
+- Storage usage hardcoded to 0 in settings (user-facing)
+- Rotate exposed AWS + GCP credentials (user action required)

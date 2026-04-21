@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import type { OrgRole } from "@/types";
+import { MINIMAL_MECHANIC_PERMISSIONS } from "@/lib/roles";
 
 /* ─────────────────────────────────────────
    Types
@@ -151,6 +152,8 @@ function colorForName(name: string) {
 interface AppContextValue {
   persona              : Persona;
   setPersona           : (p: Persona) => void;
+  /** The authenticated user's actual org role from the DB. Never trust client overrides. */
+  currentUserRole      : OrgRole | null;
   team                 : TeamMember[];
   setTeam              : (t: TeamMember[]) => void;
   activeMechanic       : TeamMember;
@@ -183,20 +186,24 @@ export function AppProvider({
   const [persona, setPersona]           = useState<Persona>(initialPersona ?? "owner");
   const [team, setTeam]                 = useState<TeamMember[]>(DEFAULT_TEAM);
   const [activeMechanicId, setAMId]     = useState<string | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<OrgRole | null>(null);
   const [aircraftAssignments, setAircraftAssignments] = useState<AircraftMechanicAssignment[]>(DEFAULT_AIRCRAFT_ASSIGNMENTS);
   const [customerAccessList, setCustomerAccessList]   = useState<CustomerAccessEntry[]>(DEFAULT_CUSTOMER_ACCESS);
 
+  // Fallback active mechanic — READ-ONLY permissions by default.
+  // If the team fetch fails we must NOT grant full access; that is a security
+  // issue. Users with no loaded team effectively see no mechanic tools.
   const activeMechanic = team.find((m) => m.id === activeMechanicId) ?? team[0] ?? {
     id: "current-user",
     name: "Current User",
-    role: "Lead Mechanic / IA",
+    role: "Read Only",
     cert: "",
     email: "",
     color: TEAM_COLORS[0],
     initials: "CU",
     status: "Active",
-    permissions: { ...ROLE_DEFAULTS["Lead Mechanic / IA"] },
-    licenseType: "A&P/IA",
+    permissions: { ...MINIMAL_MECHANIC_PERMISSIONS },
+    licenseType: "None",
     licenseNumber: "",
     rate: 0,
     specialty: "",
@@ -215,13 +222,23 @@ export function AppProvider({
     async function loadTeam() {
       try {
         const res = await fetch("/api/team");
-        if (!res.ok) return;
+        if (!res.ok) {
+          // On error, leave team empty — the fallback in activeMechanic is
+          // intentionally read-only so missing team data = no access.
+          if (!cancelled) {
+            setTeam([]);
+            setCurrentUserRole(null);
+          }
+          return;
+        }
         const payload = await res.json();
         const members = (payload?.members ?? []) as Array<{
           user_id: string;
           role: OrgRole;
           profile?: { id: string; full_name?: string | null; email?: string | null };
+          is_current_user?: boolean;
         }>;
+        const currentUser = payload?.current_user as { id: string; role: OrgRole } | undefined;
 
         if (cancelled) return;
 
@@ -249,11 +266,25 @@ export function AppProvider({
         });
 
         setTeam(mapped);
-        if (mapped.length > 0 && !activeMechanicId) {
-          setAMId(mapped[0].id);
+        if (currentUser?.role) {
+          setCurrentUserRole(currentUser.role);
+        }
+
+        // Default the active mechanic to the authenticated user so the UI
+        // reflects their actual role/permissions — not a hardcoded default.
+        if (!activeMechanicId && mapped.length > 0) {
+          const selfId = currentUser?.id;
+          const selfMember = selfId
+            ? mapped.find((m) => m.id === selfId)
+            : undefined;
+          setAMId((selfMember ?? mapped[0]).id);
         }
       } catch (err) {
         console.error("Failed to load team", err);
+        if (!cancelled) {
+          setTeam([]);
+          setCurrentUserRole(null);
+        }
       }
     }
 
@@ -319,7 +350,7 @@ export function AppProvider({
 
   return (
     <AppContext.Provider value={{
-      persona, setPersona, team, setTeam, activeMechanic,
+      persona, setPersona, currentUserRole, team, setTeam, activeMechanic,
       setActiveMechanic, updateMemberPermissions, updateMemberRole,
       updateMember, addTeamMember, removeTeamMember,
       aircraftAssignments, addAircraftAssignment, updateAircraftAssignment,

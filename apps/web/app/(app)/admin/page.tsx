@@ -16,6 +16,10 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { Topbar } from '@/components/shared/topbar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  StuckDocumentsCard,
+  type StuckDocument,
+} from '@/components/admin/stuck-documents-card'
 import type { UserProfile, QueryConfidence } from '@/types'
 
 export const metadata = { title: 'Admin Dashboard' }
@@ -178,6 +182,9 @@ export default async function AdminDashboardPage() {
   // 3. Service client for all admin queries
   const service = createServiceSupabase()
 
+  // Thresholds for "stuck" (applied in app code after fetch).
+  const now = Date.now()
+
   // 4. Parallel data fetches
   const [
     orgsRes,
@@ -190,6 +197,7 @@ export default async function AdminDashboardPage() {
     failedDocsRes,
     feedbackRes,
     supportRes,
+    stuckDocsRes,
   ] = await Promise.all([
     // Total orgs
     service.from('organizations').select('id', { count: 'exact', head: true }),
@@ -243,6 +251,26 @@ export default async function AdminDashboardPage() {
       .from('support_tickets')
       .select('id', { count: 'exact', head: true })
       .in('status', ['open', 'triaged', 'in_progress']),
+
+    // Stuck documents: failed + needs_ocr + queued-over-5min + stalled-parsing.
+    // We fetch a superset (all statuses that can be stuck) and filter the
+    // time-window conditions in app code to avoid complex PostgREST .or() parsing.
+    service
+      .from('documents')
+      .select(
+        'id, title, parsing_status, parse_error, parse_started_at, updated_at, organization_id, organizations(name)'
+      )
+      .in('parsing_status', [
+        'failed',
+        'needs_ocr',
+        'queued',
+        'parsing',
+        'ocr_processing',
+        'chunking',
+        'embedding',
+      ])
+      .order('updated_at', { ascending: false })
+      .limit(200),
   ])
 
   // 5. Compute stats
@@ -282,6 +310,28 @@ export default async function AdminDashboardPage() {
     parse_error: d.parse_error,
     org_name: d.organizations?.name ?? d.organization_id ?? '—',
   }))
+
+  const IN_PROGRESS = new Set(['parsing', 'ocr_processing', 'chunking', 'embedding'])
+  const stuckDocuments: StuckDocument[] = ((stuckDocsRes.data ?? []) as any[])
+    .filter((d) => {
+      const status = d.parsing_status as string
+      if (status === 'failed' || status === 'needs_ocr') return true
+      const ageMs =
+        now - new Date(d.parse_started_at ?? d.updated_at ?? new Date().toISOString()).getTime()
+      if (status === 'queued') return ageMs >= 5 * 60 * 1000
+      if (IN_PROGRESS.has(status)) return ageMs >= 15 * 60 * 1000
+      return false
+    })
+    .slice(0, 50)
+    .map((d) => ({
+      id: d.id,
+      title: d.title,
+      parsing_status: d.parsing_status,
+      parse_error: d.parse_error ?? null,
+      parse_started_at: d.parse_started_at ?? null,
+      updated_at: d.updated_at,
+      org_name: d.organizations?.name ?? d.organization_id ?? '—',
+    }))
 
   const stats: AdminStats = {
     total_orgs: totalOrgs,
@@ -475,6 +525,9 @@ export default async function AdminDashboardPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Stuck documents with bulk retry */}
+          <StuckDocumentsCard documents={stuckDocuments} />
 
           {/* Pipeline Status */}
           <Card>

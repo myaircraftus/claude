@@ -17,6 +17,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No image file provided' }, { status: 400 })
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      {
+        error: 'Photo extraction not configured',
+        code: 'SERVICE_NOT_CONFIGURED',
+      },
+      { status: 503 }
+    )
+  }
+
   try {
     const arrayBuffer = await imageBlob.arrayBuffer()
     const base64 = Buffer.from(arrayBuffer).toString('base64')

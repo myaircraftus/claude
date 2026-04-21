@@ -1,0 +1,27 @@
+{
+  "sarah-okonkwo": {
+    "name": "Sarah Okonkwo",
+    "role": "CTO, A&P/IA",
+    "bio": "Chief Technology Officer at myaircraft.us. A&P with Inspection Authorization and 15 years in general aviation maintenance."
+  },
+  "daniel-reyes": {
+    "name": "Daniel Reyes",
+    "role": "Head of AI",
+    "bio": "Leads AI and ML at myaircraft.us. Previously built document-understanding systems in regulated industries."
+  },
+  "marcus-webb": {
+    "name": "Marcus Webb",
+    "role": "CEO, PPL/IR",
+    "bio": "Founder and CEO of myaircraft.us. Private pilot with instrument rating and an aircraft owner for over a decade."
+  },
+  "lisa-chen": {
+    "name": "Lisa Chen",
+    "role": "General Counsel",
+    "bio": "General counsel at myaircraft.us. Former FAA regulatory attorney."
+  },
+  "tom-brandt": {
+    "name": "Tom Brandt",
+    "role": "VP Sales, CFI",
+    "bio": "VP of Sales at myaircraft.us. CFI and former aircraft broker with 2,500+ hours."
+  }
+}

@@ -65,17 +65,50 @@ const FAQS = [
   },
 ];
 
-type FormState = "idle" | "sending" | "sent";
+type FormState = "idle" | "sending" | "sent" | "error";
+
+// Map the UI's role selector to the API's submission type.
+const roleToType: Record<string, "sales" | "support" | "general"> = {
+  owner: "general",
+  mechanic: "support",
+  shop: "sales",
+  fleet: "sales",
+  other: "general",
+};
 
 export function ContactPage() {
   const [formState, setFormState] = useState<FormState>("idle");
   const [form, setForm] = useState({ name: "", email: "", role: "owner", subject: "", message: "" });
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormState("sending");
-    setTimeout(() => setFormState("sent"), 1800);
+    setErrorMsg("");
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          company: form.subject || undefined,
+          message: form.message,
+          type: roleToType[form.role] ?? "general",
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setErrorMsg(data.error || "Something went wrong. Please try again.");
+        setFormState("error");
+        return;
+      }
+      setFormState("sent");
+    } catch {
+      setErrorMsg("Network error. Please try again.");
+      setFormState("error");
+    }
   };
 
   return (
@@ -225,6 +258,9 @@ export function ContactPage() {
                       <><Send className="w-4 h-4" /> Send Message</>
                     )}
                   </button>
+                  {formState === "error" && errorMsg && (
+                    <p className="text-red-400 text-[13px] text-center" role="alert">{errorMsg}</p>
+                  )}
                 </form>
               )}
             </div>

@@ -1,0 +1,37 @@
+---
+title: "How AI Actually Reads Your Logbooks — And What It Can and Can't Do"
+slug: "ai-aviation-records-how-it-works"
+excerpt: "Large language models can answer questions from unstructured documents. But aviation records have unique challenges: handwritten entries, abbreviations, dates in margin — here's how we handle all of it."
+author: "daniel-reyes"
+publishedAt: "2026-03-28"
+category: "AI & Technology"
+readTime: "11 min read"
+coverImage: "/blog/cover-images/ai-reads-logbooks.svg"
+tag: "Deep Dive"
+tagColor: "bg-violet-500/15 text-violet-400 border-violet-500/20"
+featured: true
+---
+
+# How AI Actually Reads Your Logbooks
+
+The average aircraft logbook contains decades of handwritten entries, cryptic shorthand, and annotations in the margins. Generic OCR solutions fall over on the first "c/w AD 2018-11-07" abbreviation. Here is how we built a pipeline that handles it.
+
+## Step 1: High-resolution capture
+
+We either scan your physical books on-site or ingest PDFs you upload. Either way, every page is stored at a resolution high enough that individual ink strokes remain legible.
+
+## Step 2: Multi-engine OCR
+
+We route each page through Google Document AI and AWS Textract simultaneously, then arbitrate disagreements with a purpose-built aviation vocabulary model. This catches the handwritten edge cases that a single OCR engine misses.
+
+## Step 3: Aviation-specific extraction
+
+A fine-tuned LLM reads the OCR output with context about FAA record structure — tach times vs. Hobbs, hours since overhaul, AD references, signature blocks. It produces structured events, not just text.
+
+## Step 4: Citation-backed retrieval
+
+When you ask a question, we retrieve the relevant extracted events and anchor every answer back to the original page and line. You can always verify the AI against the source.
+
+## What it can't do
+
+AI cannot replace a signed logbook entry. It cannot make a maintenance decision for you. And it cannot read pages that are physically illegible — if the ink is too faded to see, we'll tell you, not guess.
