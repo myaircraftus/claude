@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   Plane, FileText, Clock, Shield, CheckCircle, ChevronRight,
   Download, ArrowLeft, Search, Send, Sparkles, BookOpen,
@@ -385,7 +385,8 @@ const roleColor = (role: string) => {
   return "bg-slate-100 text-slate-600";
 };
 
-const TABS = ["Overview", "Squawks", "Reminders", "Maintenance", "Documents", "Intelligence", "Assignments", "Activity"];
+const TABS = ["Overview", "Maintenance", "Documents", "Intelligence", "Assignments"];
+const MAINT_SUBTABS = ["Work Orders", "Squawks", "Reminders", "Activity", "Mechanics"];
 const REACTIONS = ['👍', '👎', '❤️', '✈️', '🔧', '😮'];
 
 /* ─── Main Component ──────────────────────────────────────────── */
@@ -478,7 +479,25 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const integrations = useIntegrationStore();
   const liveTrackEnabled = integrations.isConnected("flightaware") || integrations.isConnected("adsbexchange");
 
-  const [activeTab, setActiveTab] = useState("Overview");
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const t = searchParams.get("tab");
+    if (t === "maintenance") return "Maintenance";
+    if (t === "documents") return "Documents";
+    if (t === "intelligence") return "Intelligence";
+    if (t === "assignments") return "Assignments";
+    return "Overview";
+  })();
+  const initialSubTab = (() => {
+    const s = searchParams.get("sub");
+    if (s === "squawks") return "Squawks";
+    if (s === "reminders") return "Reminders";
+    if (s === "activity") return "Activity";
+    if (s === "mechanics") return "Mechanics";
+    return "Work Orders";
+  })();
+
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [squawkFilter, setSquawkFilter] = useState<"All" | "Open" | "In Progress" | "Resolved">("All");
   const [selectedSquawks, setSelectedSquawks] = useState<string[]>([]);
   const [showAddSquawk, setShowAddSquawk] = useState(false);
@@ -524,7 +543,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [sentWOMessages, setSentWOMessages] = useState<Record<string, string[]>>({});
   const [approvedItems, setApprovedItems] = useState<string[]>([]);
   const [deniedItems, setDeniedItems] = useState<string[]>([]);
-  const [maintTab, setMaintTab] = useState<"workorders" | "mechanics">("workorders");
+  const [maintTab, setMaintTab] = useState<"Work Orders" | "Squawks" | "Reminders" | "Activity" | "Mechanics">(initialSubTab);
   const [selectedWOItem, setSelectedWOItem] = useState<string | null>(null);
   const [expandMechanicId, setExpandMechanicId] = useState<string | null>(null);
 
@@ -552,6 +571,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [longPressTarget, setLongPressTarget] = useState<string | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, string>>({});
+  const [generatingPacket, setGeneratingPacket] = useState(false);
+  const [packetError, setPacketError] = useState<string | null>(null);
+  const [packetSuccess, setPacketSuccess] = useState<string | null>(null);
 
   const startLongPress = (id: string) => {
     longPressTimerRef.current = setTimeout(() => setLongPressTarget(id), 450);
@@ -563,6 +585,58 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     setMessageReactions(p => ({ ...p, [msgId]: p[msgId] === emoji ? "" : emoji }));
     setLongPressTarget(null);
   };
+
+  async function generateIntelligencePacket() {
+    const id = aircraftId;
+    if (!id) {
+      setPacketError("Aircraft ID not available. Please navigate to a real aircraft.");
+      return;
+    }
+    setGeneratingPacket(true);
+    setPacketError(null);
+    setPacketSuccess(null);
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aircraft_id: id, report_type: "aircraft_overview" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Failed to start report (${res.status})`);
+      const jobId = data.job_id as string | undefined;
+      if (!jobId) throw new Error("No job ID returned from server");
+
+      // Poll until done
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 40) {
+          clearInterval(poll);
+          setGeneratingPacket(false);
+          setPacketError("Report generation timed out. Please try again.");
+          return;
+        }
+        try {
+          const r = await fetch(`/api/reports/${jobId}`);
+          const d = await r.json().catch(() => ({}));
+          if (d.job?.status === "completed") {
+            clearInterval(poll);
+            setGeneratingPacket(false);
+            setPacketSuccess(d.job.signed_url || "completed");
+          } else if (d.job?.status === "failed") {
+            clearInterval(poll);
+            setGeneratingPacket(false);
+            setPacketError("Report generation failed. Please try again.");
+          }
+        } catch {
+          // keep polling
+        }
+      }, 3000);
+    } catch (err) {
+      setGeneratingPacket(false);
+      setPacketError(err instanceof Error ? err.message : "Failed to generate intelligence packet");
+    }
+  }
   /** Floating emoji picker — appears above bubble on long-press */
   const reactionPicker = (id: string, align: 'left' | 'right' = 'left') => (
     <AnimatePresence>
@@ -1119,14 +1193,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               style={{ fontWeight: activeTab === tab ? 600 : 400 }}
             >
               {tab}
-              {tab === "Squawks" && openSquawks.length > 0 && (
+              {tab === "Maintenance" && (openSquawks.length > 0 || criticalReminders.length > 0) && (
                 <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 text-amber-700 text-[10px]" style={{ fontWeight: 700 }}>
-                  {openSquawks.length}
-                </span>
-              )}
-              {tab === "Reminders" && criticalReminders.length > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-100 text-red-700 text-[10px]" style={{ fontWeight: 700 }}>
-                  {criticalReminders.length}
+                  {openSquawks.length + criticalReminders.length}
                 </span>
               )}
             </button>
@@ -1164,7 +1233,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                           <div className="text-[12px] text-orange-700">{criticalReminders[0].title}{criticalReminders.length > 1 ? ` + ${criticalReminders.length - 1} more` : ""}</div>
                         </div>
                       </div>
-                      <button onClick={() => setActiveTab("Reminders")} className="text-[12px] text-orange-700 hover:text-orange-900 flex items-center gap-1 shrink-0" style={{ fontWeight: 600 }}>
+                      <button onClick={() => { setActiveTab("Maintenance"); setMaintTab("Reminders"); }} className="text-[12px] text-orange-700 hover:text-orange-900 flex items-center gap-1 shrink-0" style={{ fontWeight: 600 }}>
                         Review <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1178,7 +1247,11 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       { label: documentSummaryLabel, value: documentSummaryValue, icon: FileText, color: documentSummaryColor, action: "Documents" },
                       { label: "Assignments", value: assignments.length, icon: Users, color: "text-primary bg-primary/8", action: "Assignments" },
                     ].map((card) => (
-                      <button key={card.label} onClick={() => setActiveTab(card.action)} className="bg-white rounded-xl border border-border p-4 text-left hover:shadow-sm hover:border-primary/20 transition-all group">
+                      <button key={card.label} onClick={() => {
+                        if (card.action === "Squawks") { setActiveTab("Maintenance"); setMaintTab("Squawks"); }
+                        else if (card.action === "Reminders") { setActiveTab("Maintenance"); setMaintTab("Reminders"); }
+                        else setActiveTab(card.action);
+                      }} className="bg-white rounded-xl border border-border p-4 text-left hover:shadow-sm hover:border-primary/20 transition-all group">
                         <div className={`w-8 h-8 rounded-lg ${card.color} flex items-center justify-center mb-3`}>
                           <card.icon className="w-4 h-4" />
                         </div>
@@ -1193,7 +1266,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <div className="bg-white rounded-xl border border-border">
                       <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                         <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Open Squawks</h3>
-                        <button onClick={() => setActiveTab("Squawks")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                        <button onClick={() => { setActiveTab("Maintenance"); setMaintTab("Squawks"); }} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                           View all <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1218,7 +1291,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   <div className="bg-white rounded-xl border border-border">
                     <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                       <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Upcoming Reminders</h3>
-                      <button onClick={() => setActiveTab("Reminders")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                      <button onClick={() => { setActiveTab("Maintenance"); setMaintTab("Reminders"); }} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                         View all <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1247,7 +1320,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   <div className="bg-white rounded-xl border border-border">
                     <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                       <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Recent Activity</h3>
-                      <button onClick={() => setActiveTab("Activity")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                      <button onClick={() => { setActiveTab("Maintenance"); setMaintTab("Activity"); }} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                         View all <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1346,8 +1419,8 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Quick Actions</h3>
                     <div className="space-y-2">
                       {[
-                        { label: "Add Squawk", icon: AlertTriangle, action: () => { setActiveTab("Squawks"); setShowAddSquawk(true); } },
-                        { label: "Request Maintenance", icon: Wrench, action: () => setActiveTab("Maintenance") },
+                        { label: "Add Squawk", icon: AlertTriangle, action: () => { setActiveTab("Maintenance"); setMaintTab("Squawks"); setShowAddSquawk(true); } },
+                        { label: "Request Maintenance", icon: Wrench, action: () => { setActiveTab("Maintenance"); setMaintTab("Work Orders"); } },
                         { label: "Upload Document", icon: Upload, href: uploadHref },
                         { label: "View Intelligence", icon: BarChart3, action: () => setActiveTab("Intelligence") },
                       ].map((qa) => (
@@ -1837,6 +1910,33 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     })()}
                   </AnimatePresence>
 
+                  {/* ── Sub-tab navigation ── */}
+                  <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-1 shrink-0">
+                    {MAINT_SUBTABS.map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setMaintTab(st as typeof maintTab)}
+                        className={`relative px-3 py-1.5 text-[12px] rounded-lg whitespace-nowrap transition-colors ${
+                          maintTab === st
+                            ? "bg-white text-primary shadow-sm border border-border"
+                            : "text-slate-500 hover:text-foreground hover:bg-white/60"
+                        }`}
+                        style={{ fontWeight: maintTab === st ? 600 : 400 }}
+                      >
+                        {st}
+                        {st === "Squawks" && openSquawks.length > 0 && (
+                          <span className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-amber-100 text-amber-700 text-[9px]" style={{ fontWeight: 700 }}>{openSquawks.length}</span>
+                        )}
+                        {st === "Reminders" && criticalReminders.length > 0 && (
+                          <span className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-100 text-red-700 text-[9px]" style={{ fontWeight: 700 }}>{criticalReminders.length}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* ── Work Orders sub-tab ── */}
+                  {maintTab === "Work Orders" && <>
+
                   {/* ── Squawk quick-submit strip ── */}
                   {openSquawks.length > 0 && (
                     <div className="px-5 py-2.5 border-b border-slate-100 bg-red-50/40 flex items-center gap-2.5 shrink-0">
@@ -1847,7 +1947,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       <span className="text-[11px] text-red-700 flex-1" style={{ fontWeight: 600 }}>
                         {openSquawks.length} open squawk{openSquawks.length > 1 ? "s" : ""} ready for maintenance
                       </span>
-                      <button onClick={() => setActiveTab("Squawks")} className="text-[11px] text-[#2563EB] hover:underline shrink-0 transition-colors" style={{ fontWeight: 600 }}>
+                      <button onClick={() => setMaintTab("Squawks")} className="text-[11px] text-[#2563EB] hover:underline shrink-0 transition-colors" style={{ fontWeight: 600 }}>
                         View →
                       </button>
                     </div>
@@ -3057,9 +3157,29 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                         </div>
                       ))}
                     </div>
-                    <button className="w-full bg-primary text-white py-2.5 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                      Generate Intelligence Packet
-                    </button>
+                    {packetSuccess && packetSuccess !== "completed" ? (
+                      <a
+                        href={packetSuccess}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 w-full bg-emerald-600 text-white py-2.5 rounded-lg text-[13px] hover:bg-emerald-700 transition-colors"
+                        style={{ fontWeight: 600 }}
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download Intelligence Packet
+                      </a>
+                    ) : (
+                      <button
+                        className="w-full bg-primary text-white py-2.5 rounded-lg text-[13px] hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{ fontWeight: 600 }}
+                        onClick={generateIntelligencePacket}
+                        disabled={generatingPacket}
+                      >
+                        {generatingPacket ? "Generating…" : packetSuccess === "completed" ? "Report Ready" : "Generate Intelligence Packet"}
+                      </button>
+                    )}
+                    {packetError && (
+                      <p className="text-[11px] text-red-600 mt-1">{packetError}</p>
+                    )}
                   </div>
 
                   {/* Ask AI */}

@@ -181,8 +181,8 @@ export function PartsLibraryView({ initialParts }: Props) {
   function openEditDialog(part: LibraryPart) {
     setEditingPart(part)
     setForm({
-      part_number: part.part_number,
-      title: part.title,
+      part_number: part.part_number ?? '',
+      title: part.title ?? '',
       category: part.category ?? 'General',
       base_price: part.base_price != null ? String(part.base_price) : '',
       markup_mode: part.markup_mode ?? 'none',
@@ -428,7 +428,7 @@ export function PartsLibraryView({ initialParts }: Props) {
 
       {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent key={editingPart?.id ?? 'new'} className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingPart ? 'Edit Library Part' : 'Add Part to Library'}</DialogTitle>
             <DialogDescription>
