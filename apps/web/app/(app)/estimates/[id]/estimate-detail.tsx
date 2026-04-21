@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn, formatDate } from '@/lib/utils'
 import {
   Sparkles, Send, FileText, Loader2, AlertTriangle,
-  CheckCircle2, Clock, XCircle, Plane, User, RefreshCw,
+  Plane, User, RefreshCw,
 } from 'lucide-react'
 
 type EstimateStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'converted'
@@ -48,7 +47,6 @@ interface Props {
 }
 
 export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
-  const router = useTenantRouter()
   const [estimate, setEstimate] = useState(initialEstimate)
   const [squawks] = useState<any[]>(initialSquawks)
   const [summary, setSummary] = useState<string>(initialEstimate.ai_summary ?? '')
