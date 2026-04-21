@@ -150,49 +150,81 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check for duplicate tail number in same org
-    const { data: dupCheck } = await supabase
+    // Check for duplicate tail number in same org, including archived aircraft.
+    // If the aircraft exists but was archived, revive and update it instead of
+    // failing on the unique (organization_id, tail_number) index.
+    const { data: existingAircraft } = await supabase
       .from('aircraft')
-      .select('id')
+      .select('id, is_archived')
       .eq('organization_id', organization_id)
       .eq('tail_number', fields.tail_number)
-      .eq('is_archived', false)
       .maybeSingle()
 
-    if (dupCheck) {
+    if (existingAircraft && !existingAircraft.is_archived) {
       return NextResponse.json(
         { error: `Aircraft ${fields.tail_number} already exists in your organization` },
         { status: 409 }
       )
     }
 
-    const { data: aircraft, error: insertError } = await supabase
-      .from('aircraft')
-      .insert({
-        organization_id,
-        ...fields,
-        is_archived: false,
-        created_by: user.id,
-      })
-      .select()
-      .single()
+    let aircraft: any = null
 
-    if (insertError || !aircraft) {
-      console.error('[POST /api/aircraft] insert error', insertError)
-      return NextResponse.json({ error: 'Failed to create aircraft' }, { status: 500 })
+    if (existingAircraft?.is_archived) {
+      const { data: revivedAircraft, error: reviveError } = await supabase
+        .from('aircraft')
+        .update({
+          ...fields,
+          is_archived: false,
+          created_by: user.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingAircraft.id)
+        .eq('organization_id', organization_id)
+        .select()
+        .single()
+
+      if (reviveError || !revivedAircraft) {
+        console.error('[POST /api/aircraft] revive error', reviveError)
+        return NextResponse.json({ error: 'Failed to restore archived aircraft' }, { status: 500 })
+      }
+
+      aircraft = revivedAircraft
+    } else {
+      const { data: insertedAircraft, error: insertError } = await supabase
+        .from('aircraft')
+        .insert({
+          organization_id,
+          ...fields,
+          is_archived: false,
+          created_by: user.id,
+        })
+        .select()
+        .single()
+
+      if (insertError || !insertedAircraft) {
+        console.error('[POST /api/aircraft] insert error', insertError)
+        return NextResponse.json({ error: 'Failed to create aircraft' }, { status: 500 })
+      }
+
+      aircraft = insertedAircraft
     }
 
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id,
       actor_user_id: user.id,
-      action: 'aircraft.created',
+      action: existingAircraft?.is_archived ? 'aircraft.restored' : 'aircraft.created',
       target_type: 'aircraft',
       target_id: aircraft.id,
-      metadata: { tail_number: fields.tail_number, make: fields.make, model: fields.model },
+      metadata: {
+        tail_number: fields.tail_number,
+        make: fields.make,
+        model: fields.model,
+        restored_from_archive: Boolean(existingAircraft?.is_archived),
+      },
     })
 
-    return NextResponse.json(aircraft, { status: 201 })
+    return NextResponse.json(aircraft, { status: existingAircraft?.is_archived ? 200 : 201 })
   } catch (err) {
     console.error('[POST /api/aircraft] unexpected error', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
