@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -191,18 +191,20 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 export function AskExperience() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
   const [userRole, setUserRole] = useState<OrgRole | null>(null)
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
     searchParams.get('aircraft') ?? 'all'
   )
   const [messages, setMessages] = useState<Message[]>([])
-  const [question, setQuestion] = useState('')
+  const [question, setQuestion] = useState(initialQuestionFromQuery)
   const [isLoading, setIsLoading] = useState(false)
   const [activeCitation, setActiveCitation] = useState<AnswerCitation | null>(null)
   const [previousQueries, setPreviousQueries] = useState<Array<{ id: string; question: string; created_at: string }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const autoAskedQueryRef = useRef<string | null>(null)
 
   useEffect(() => {
     const supabase = createBrowserSupabase()
@@ -228,7 +230,7 @@ export function AskExperience() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function handleAsk(questionText?: string) {
+  const handleAsk = useCallback(async (questionText?: string) => {
     const q = questionText ?? question.trim()
     if (!q || isLoading) return
 
@@ -313,7 +315,18 @@ export function AskExperience() {
       setIsLoading(false)
       inputRef.current?.focus()
     }
-  }
+  }, [isLoading, messages, question, selectedAircraftId])
+
+  useEffect(() => {
+    const queryQuestion = searchParams.get('q')?.trim() ?? ''
+    if (!queryQuestion) return
+    if (autoAskedQueryRef.current === queryQuestion) return
+    if (messages.length > 0 || isLoading) return
+
+    autoAskedQueryRef.current = queryQuestion
+    setQuestion(queryQuestion)
+    void handleAsk(queryQuestion)
+  }, [handleAsk, isLoading, messages.length, searchParams])
 
   function handleCitationSelect(citation: AnswerCitation) {
     setActiveCitation(citation)

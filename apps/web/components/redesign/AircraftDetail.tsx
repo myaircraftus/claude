@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { useParams } from "next/navigation";
 import {
@@ -465,10 +465,13 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     status: aircraft && !AIRCRAFT_DB[resolvedTail] ? "Tracked" : baseAircraft.status,
   };
   const tail = ac.tail;
+  const askHref = aircraftId
+    ? `/ask?aircraft=${encodeURIComponent(aircraftId)}`
+    : '/ask';
   const uploadHref = aircraftId
     ? `/documents/upload?aircraft=${encodeURIComponent(aircraftId)}`
     : `/documents/upload?aircraft_tail=${encodeURIComponent(tail)}`;
-  const fallbackSquawks = SQUAWKS_DB[tail] || [];
+  const fallbackSquawks = useMemo(() => SQUAWKS_DB[tail] || [], [tail]);
   const reminders = REMINDERS_DB[tail] || [];
   const assignments = ASSIGNMENTS_DB[tail] || [];
   const activity = ACTIVITY_DB[tail] || [];
@@ -563,6 +566,19 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [longPressTarget, setLongPressTarget] = useState<string | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, string>>({});
+
+  const handleOpenAsk = useCallback(() => {
+    const trimmed = askInput.trim();
+    if (trimmed) {
+      const params = new URLSearchParams();
+      if (aircraftId) params.set("aircraft", aircraftId);
+      params.set("q", trimmed);
+      router.push(`/ask?${params.toString()}`);
+      return;
+    }
+
+    router.push(askHref);
+  }, [aircraftId, askHref, askInput, router]);
 
   const startLongPress = (id: string) => {
     longPressTimerRef.current = setTimeout(() => setLongPressTarget(id), 450);
@@ -1105,17 +1121,16 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <Link href="/ask" className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
+            <Link href={askHref} className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
               <MessageSquare className="w-3.5 h-3.5" /> Ask
             </Link>
-            <button
-              type="button"
-              onClick={() => router.push(uploadHref)}
+            <Link
+              href={uploadHref}
               className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors"
               style={{ fontWeight: 500 }}
             >
               <Upload className="w-3.5 h-3.5" /> Upload
-            </button>
+            </Link>
             <div className="relative">
               <button
                 onClick={() => setShowMoreMenu(v => !v)}
@@ -2074,7 +2089,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                   {isDenied && (<motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex items-end gap-2 flex-row-reverse">
                                     <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0 text-white text-[9px]" style={{ fontWeight: 700 }}>You</div>
                                     <div className="flex flex-col items-end max-w-[70%]">
-                                      <div className="rounded-2xl rounded-br-sm px-4 py-3 text-[13px] leading-relaxed bg-[#2563EB] text-white">Declined for now. Let's discuss scope first.</div>
+                                      <div className="rounded-2xl rounded-br-sm px-4 py-3 text-[13px] leading-relaxed bg-[#2563EB] text-white">Declined for now. Let&apos;s discuss scope first.</div>
                                       <span className="text-[10px] text-slate-400 mt-1 px-1">just now</span>
                                     </div>
                                   </motion.div>)}
@@ -2293,7 +2308,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       <div className="p-8 text-center">
                         <div className="w-12 h-12 rounded-full bg-muted/40 flex items-center justify-center mx-auto mb-3"><HardHat className="w-5 h-5 text-muted-foreground/40" /></div>
                         <div className="text-[13px] text-foreground mb-1" style={{ fontWeight: 600 }}>No mechanics assigned</div>
-                        <p className="text-[12px] text-muted-foreground mb-4">Invite a mechanic to give them access to this aircraft's maintenance records.</p>
+                        <p className="text-[12px] text-muted-foreground mb-4">Invite a mechanic to give them access to this aircraft&apos;s maintenance records.</p>
                         <button onClick={() => setShowInviteMechanic(true)} className="inline-flex items-center gap-1.5 bg-primary text-white px-4 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}><UserPlus className="w-3.5 h-3.5" /> Invite Your First Mechanic</button>
                       </div>
                     ) : (
@@ -2355,7 +2370,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <div className="p-8 text-center">
                       <div className="w-12 h-12 rounded-full bg-muted/40 flex items-center justify-center mx-auto mb-3"><HardHat className="w-5 h-5 text-muted-foreground/40" /></div>
                       <div className="text-[13px] text-foreground mb-1" style={{ fontWeight: 600 }}>No mechanics assigned</div>
-                      <p className="text-[12px] text-muted-foreground mb-4">Invite a mechanic to give them access to this aircraft's maintenance records.</p>
+                      <p className="text-[12px] text-muted-foreground mb-4">Invite a mechanic to give them access to this aircraft&apos;s maintenance records.</p>
                       <button onClick={() => setShowInviteMechanic(true)} className="inline-flex items-center gap-1.5 bg-primary text-white px-4 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
                         <UserPlus className="w-3.5 h-3.5" /> Invite Your First Mechanic
                       </button>
@@ -2636,7 +2651,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="flex items-end gap-2 flex-row-reverse">
                                 <div className="w-7 h-7 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0 text-white text-[9px]" style={{ fontWeight: 700 }}>You</div>
                                 <div className="flex flex-col items-end max-w-[70%]">
-                                  <div className="rounded-2xl rounded-br-sm px-4 py-3 text-[13px] leading-relaxed bg-[#2563EB] text-white">Declined for now. Let's discuss the scope first.</div>
+                                  <div className="rounded-2xl rounded-br-sm px-4 py-3 text-[13px] leading-relaxed bg-[#2563EB] text-white">Declined for now. Let&apos;s discuss the scope first.</div>
                                   <span className="text-[10px] text-slate-400 mt-1 px-1">just now</span>
                                 </div>
                               </motion.div>
@@ -3199,7 +3214,12 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                           className="bg-transparent text-[13px] outline-none flex-1"
                         />
                       </div>
-                      <button className="bg-primary text-white px-3 rounded-xl hover:bg-primary/90 transition-colors">
+                      <button
+                        type="button"
+                        onClick={handleOpenAsk}
+                        disabled={!askInput.trim()}
+                        className="bg-primary text-white px-3 rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
                         <Send className="w-4 h-4" />
                       </button>
                     </div>
