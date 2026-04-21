@@ -22,25 +22,25 @@ interface AddAircraftModalProps {
 type FoundFaaResult = Extract<FaaLookupResult, { found: true }>;
 
 const OPERATION_TYPES = [
-  { id: "part91",      label: "Part 91",          desc: "Private / non-commercial" },
-  { id: "part135",     label: "Part 135",          desc: "On-demand charter / air taxi" },
-  { id: "part141",     label: "Part 141",          desc: "Certificated flight school" },
-  { id: "part61",      label: "Part 61",           desc: "Non-certificated training" },
-  { id: "flightschool",label: "Flight School",     desc: "Aviation training operation" },
-  { id: "charter",     label: "Charter",           desc: "Commercial charter service" },
-  { id: "private",     label: "Private Owner",     desc: "Personal / family use" },
-  { id: "lease",       label: "Lease / Managed",   desc: "Aircraft management or lease" },
-  { id: "corporate",   label: "Corporate",         desc: "Business / executive transport" },
-  { id: "maintenance", label: "Maintenance Shop",  desc: "Shop-managed / in-service" },
+  { id: "private_owner", label: "Part 91 / Private Owner", desc: "Personal, managed, or privately operated aircraft." },
+  { id: "flight_school", label: "Part 141 / Flight School", desc: "Training aircraft with higher-frequency instructional use." },
+  { id: "flying_club", label: "Flying Club", desc: "Shared member aircraft with club-style dispatch and squawks." },
+  { id: "leaseback_rental", label: "Leaseback / Rental", desc: "Leaseback or rental aircraft with commercial-use cadence." },
+  { id: "part_135_charter", label: "Part 135 / Charter", desc: "On-demand charter or air taxi operation." },
+  { id: "corporate_flight_department", label: "Corporate Flight Department", desc: "Business or executive transport operation." },
+  { id: "government_public_use", label: "Government / Public Use", desc: "Agency or public-use aircraft with audit-heavy records." },
+  { id: "special_mission", label: "Special Mission / Utility", desc: "Survey, patrol, utility, or other mission-driven operation." },
 ];
 
 const OP_IMPACTS: Record<string, string> = {
-  part135:     "Adds 100-hr mandatory checks, Part 135 certificate tracking, and charter compliance reminders.",
-  part141:     "Adds training-specific reminders, student/instructor role assignments, and curriculum categories.",
-  charter:     "Adds charter compliance, manifest tracking, and operations certificate document categories.",
-  corporate:   "Adds corporate flight department documents and executive operations compliance.",
-  maintenance: "Enables MRO document set, shop-priority work order queues, and maintenance compliance tracking.",
-  flightschool:"Adds hobbs-tracked training reminders, student flight records, and instructor assignment roles.",
+  private_owner: "Adds owner-focused reminders, permanent-record categories, and standard Part 91 compliance tracking.",
+  flight_school: "Adds 100-hour/training reminders, student-use document categories, and instructor-oriented workflows.",
+  flying_club: "Adds shared-use squawk cadence, club dispatch reminders, and member-facing record organization.",
+  leaseback_rental: "Adds rental-readiness reminders, high-utilization tracking, and leaseback document categories.",
+  part_135_charter: "Adds 100-hour mandatory checks, Part 135 certificate tracking, and charter compliance reminders.",
+  corporate_flight_department: "Adds executive-flight-department packets, polished owner visibility, and corporate compliance modules.",
+  government_public_use: "Adds authority/audit tracking, equipment compliance reminders, and public-use record categories.",
+  special_mission: "Adds mission-equipment records, component tracking, and special-inspection reminder sets.",
 };
 
 const STEP_LABELS = ["Tail Number", "Confirm Aircraft", "Operation Type", "Aircraft Times", "Review & Add"];
@@ -222,7 +222,7 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
             {step === 1 && (
               <motion.div key="s1" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col min-h-[360px]">
                 <h2 className="text-[20px] text-foreground mb-1" style={{ fontWeight: 700 }}>Enter Tail Number</h2>
-                <p className="text-[13px] text-muted-foreground mb-7">We'll look up your aircraft in the FAA civil aircraft registry automatically.</p>
+                <p className="text-[13px] text-muted-foreground mb-7">We&apos;ll look up your aircraft in the FAA civil aircraft registry automatically.</p>
                 <div className="flex gap-3 mb-4">
                   <input
                     type="text"
@@ -289,7 +289,7 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
                 <div className="mt-auto pt-4">
                   <button onClick={() => { setManualMode(true); setLookupState("notfound"); }}
                     className="text-[12px] text-primary underline decoration-dotted">
-                    Can't find your aircraft? Enter details manually
+                    Can&apos;t find your aircraft? Enter details manually
                   </button>
                 </div>
 
@@ -537,7 +537,7 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
                     {customerName && (
                       <div className="mt-3 text-[12px] text-emerald-600">
                         <CheckCircle className="w-3.5 h-3.5 inline mr-1.5" />
-                        Customer "{customerName}" saved to system
+                        Customer &quot;{customerName}&quot; saved to system
                       </div>
                     )}
                     <div className="mt-4 flex items-center gap-2 text-[12px] text-primary/80">

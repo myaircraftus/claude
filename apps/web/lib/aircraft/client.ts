@@ -59,7 +59,12 @@ export async function createAircraftRecord(payload: CreateAircraftPayload) {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data?.error ?? `Failed to create aircraft (HTTP ${res.status})`);
+    const fieldErrors = data?.details?.fieldErrors as Record<string, string[] | undefined> | undefined;
+    const firstFieldMessage = fieldErrors
+      ? Object.values(fieldErrors).flat().find(Boolean)
+      : undefined;
+
+    throw new Error(firstFieldMessage ?? data?.error ?? `Failed to create aircraft (HTTP ${res.status})`);
   }
 
   return data;
