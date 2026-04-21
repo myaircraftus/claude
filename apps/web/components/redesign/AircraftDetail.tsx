@@ -505,6 +505,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
+  const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "reminders" | "activity">("workorders");
   const [selectedReportType, setSelectedReportType] = useState<string>("aircraft_overview");
   const [squawkPhotoMeta, setSquawkPhotoMeta] = useState<{
     name: string;
@@ -1428,7 +1429,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
             )}
 
             {/* ══════════════════════ SQUAWKS TAB ══════════════════════ */}
-            {activeTab === "Squawks" && (
+            {(activeTab === "Squawks" || (activeTab === "Maintenance" && maintSubTab === "squawks")) && (
               <div className="space-y-4 px-6 py-5">
                 {/* Command bar */}
                 <div className="flex items-center justify-between gap-3">
@@ -1676,7 +1677,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
             )}
 
             {/* ══════════════════════ REMINDERS TAB ══════════════════════ */}
-            {activeTab === "Reminders" && (
+            {(activeTab === "Reminders" || (activeTab === "Maintenance" && maintSubTab === "reminders")) && (
               <div className="space-y-4 px-6 py-5">
                 {/* Summary pills */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1775,8 +1776,29 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               </div>
             )}
 
-            {/* ══════════════════════ MAINTENANCE TAB ══════════════════════ */}
+            {/* ══════════════════════ MAINTENANCE SUB-TAB BAR ══════════════════════ */}
             {activeTab === "Maintenance" && (
+              <div className="flex items-center gap-1 px-6 py-2.5 border-b border-slate-100 bg-slate-50/50">
+                {([
+                  { id: "workorders", label: "Work Orders" },
+                  { id: "squawks", label: "Squawks" },
+                  { id: "reminders", label: "Reminders" },
+                  { id: "activity", label: "Activity" },
+                ] as const).map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setMaintSubTab(t.id)}
+                    className={`px-3 py-1.5 rounded-md text-[12px] transition-colors ${maintSubTab === t.id ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:bg-white/60"}`}
+                    style={{ fontWeight: maintSubTab === t.id ? 600 : 400 }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ══════════════════════ MAINTENANCE TAB ══════════════════════ */}
+            {activeTab === "Maintenance" && maintSubTab === "workorders" && (
               <div className="flex flex-col flex-1 px-6 py-5">
 
                 {/* ── Single panel: header + mechanic strip + WO split ── */}
@@ -3300,7 +3322,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
             )}
 
             {/* ══════════════════════ ACTIVITY TAB ══════════════════════ */}
-            {activeTab === "Activity" && (
+            {(activeTab === "Activity" || (activeTab === "Maintenance" && maintSubTab === "activity")) && (
               <div className="max-w-3xl space-y-4 px-6 py-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>Aircraft Activity</h2>
