@@ -339,6 +339,29 @@ export function MechanicPortal() {
   const [woNoteText, setWoNoteText] = useState("");
   const [woThreadNotes, setWoThreadNotes] = useState<Record<string, { id: string; content: string; ts: string }[]>>({});
 
+  // ─── Inline New Work Order form ──────────────────────────────
+  const [showNewWOForm, setShowNewWOForm] = useState(false);
+  const [newWOAircraftId, setNewWOAircraftId] = useState("");
+  const [newWOTitle, setNewWOTitle] = useState("");
+  const [newWOSquawks, setNewWOSquawks] = useState<string[]>([]);
+  const [newWOLabor, setNewWOLabor] = useState("");
+  const [newWOSaving, setNewWOSaving] = useState(false);
+  const [liveWOs, setLiveWOs] = useState<Array<{ id: string; wo: string; tail: string; model: string; customer: string; desc: string; status: string; progress: number; mechanic: string; due: string }>>([]);
+
+  // ─── Logbook search ──────────────────────────────────────────
+  const [lbSearchQuery, setLbSearchQuery] = useState("");
+  const [lbSearchAircraftId, setLbSearchAircraftId] = useState("");
+  const [lbSearchEntryType, setLbSearchEntryType] = useState("all");
+  const [lbSearchDateFrom, setLbSearchDateFrom] = useState("");
+  const [lbSearchDateTo, setLbSearchDateTo] = useState("");
+  const [lbSearchResults, setLbSearchResults] = useState<Array<Record<string, any>> | null>(null);
+  const [lbSearchLoading, setLbSearchLoading] = useState(false);
+  const [lbSearchError, setLbSearchError] = useState<string | null>(null);
+  const [lbAIQuery, setLbAIQuery] = useState("");
+  const [lbAIAnswer, setLbAIAnswer] = useState<string | null>(null);
+  const [lbAILoading, setLbAILoading] = useState(false);
+  const [showLbSearch, setShowLbSearch] = useState(false);
+
   // ─── Enhanced invoice: custom path FAA + line items ─────────
   const [invFaaTail, setInvFaaTail] = useState("");
   const [invFaaData, setInvFaaData] = useState<FoundFaaResult | null>(null);
@@ -816,6 +839,106 @@ export function MechanicPortal() {
 
   const allWOs = workOrders.length > 0 ? workOrders : [];
   const allEstimates = estimates.length > 0 ? estimates : [];
+
+  // ─── Create Work Order handler ───────────────────────────────
+  const handleCreateWO = async () => {
+    if (!newWOAircraftId || !newWOTitle.trim()) {
+      toast.error("Aircraft and title are required");
+      return;
+    }
+    setNewWOSaving(true);
+    try {
+      const acObj = aircraft.find(a => a.id === newWOAircraftId);
+      const squawkNotes = newWOSquawks.length > 0
+        ? "Squawks: " + newWOSquawks.map(id => savedSquawks.find(s => s.id === id)?.title || id).join("; ")
+        : undefined;
+      const res = await fetch("/api/work-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aircraft_id: newWOAircraftId,
+          complaint: newWOTitle.trim(),
+          discrepancy: squawkNotes ?? newWOTitle.trim(),
+          status: "open",
+          service_type: null,
+          internal_notes: newWOSquawks.length > 0 ? squawkNotes : null,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const created = await res.json();
+      const woEntry = {
+        id: created.id,
+        wo: created.work_order_number,
+        tail: acObj?.tail_number ?? "",
+        model: [acObj?.make, acObj?.model].filter(Boolean).join(" "),
+        customer: "",
+        desc: newWOTitle.trim(),
+        status: "Open",
+        progress: 0,
+        mechanic: activeMechanic.name,
+        due: "",
+      };
+      setLiveWOs(prev => [woEntry, ...prev]);
+      setSelectedWOId(created.work_order_number);
+      setShowNewWOForm(false);
+      setNewWOTitle(""); setNewWOAircraftId(""); setNewWOSquawks([]); setNewWOLabor("");
+      toast.success(`${created.work_order_number} created`, { description: `${acObj?.tail_number ?? ""} — ${newWOTitle.trim()}` });
+    } catch (err) {
+      toast.error("Failed to create work order", { description: err instanceof Error ? err.message : "Unknown error" });
+    } finally {
+      setNewWOSaving(false);
+    }
+  };
+
+  // ─── Logbook search handler ──────────────────────────────────
+  const handleLogbookSearch = async () => {
+    if (!lbSearchQuery.trim() && !lbSearchAircraftId && lbSearchEntryType === "all") return;
+    setLbSearchLoading(true);
+    setLbSearchError(null);
+    try {
+      const params = new URLSearchParams();
+      if (lbSearchQuery.trim()) params.set("search", lbSearchQuery.trim());
+      if (lbSearchAircraftId) params.set("aircraft_id", lbSearchAircraftId);
+      if (lbSearchEntryType !== "all") params.set("entry_type", lbSearchEntryType);
+      if (lbSearchDateFrom) params.set("date_from", lbSearchDateFrom);
+      if (lbSearchDateTo) params.set("date_to", lbSearchDateTo);
+      const res = await fetch(`/api/logbook-entries?${params.toString()}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setLbSearchResults(data.entries ?? []);
+    } catch (err) {
+      setLbSearchError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setLbSearchLoading(false);
+    }
+  };
+
+  const handleLogbookAIQuery = async () => {
+    if (!lbAIQuery.trim()) return;
+    setLbAILoading(true);
+    setLbAIAnswer(null);
+    try {
+      const acTail = aircraft.find(a => a.id === lbSearchAircraftId)?.tail_number;
+      const systemPrompt = `You are an aviation logbook assistant. Answer questions about aircraft maintenance history and logbook entries. ${acTail ? `Focus on aircraft ${acTail}.` : ""} Be concise and use proper aviation terminology.`;
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: lbAIQuery.trim(),
+          system_prompt_override: systemPrompt,
+          aircraft_id: lbSearchAircraftId || undefined,
+          context_type: "logbook",
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setLbAIAnswer(data.answer ?? data.response ?? data.text ?? "No answer returned.");
+    } catch (err) {
+      setLbAIAnswer("Unable to query the logbook at this time. Try the standard search above.");
+    } finally {
+      setLbAILoading(false);
+    }
+  };
 
   const displayEstimates = allEstimates;
   const filteredEstimates = displayEstimates.filter((e) => {
@@ -2599,7 +2722,6 @@ export function MechanicPortal() {
       "Ready for Signoff": "bg-white",
     }[s] || "bg-slate-300");
 
-    const selectedWO = WOS.find(w => w.wo === selectedWOId) || null;
     const woParts = selectedWOId ? (woPartsById[selectedWOId] || []) : [];
 
     const handleWOPartSearch = (q: string) => {
@@ -2638,6 +2760,14 @@ export function MechanicPortal() {
       setWoPartsById(prev => ({ ...prev, [woId]: (prev[woId] || []).filter(l => l.id !== lineId) }));
     };
 
+    const ALL_WOS_COMBINED = [...liveWOs, ...WOS.filter(w => !liveWOs.find(l => l.wo === w.wo))];
+    const selectedWO = ALL_WOS_COMBINED.find(w => w.wo === selectedWOId) || null;
+    const aircraftOptions = aircraft.map(a => ({ id: a.id, tail: a.tail_number ?? "", model: [a.make, a.model].filter(Boolean).join(" ") }));
+    const openSquawksForAircraft = newWOAircraftId ? savedSquawks.filter(s => {
+      const ac = aircraft.find(a => a.id === newWOAircraftId);
+      return ac && s.tail === ac.tail_number;
+    }) : [];
+
     return (
       <div className="flex-1 flex min-h-0">
         {/* ── Left: WO list ── */}
@@ -2646,21 +2776,133 @@ export function MechanicPortal() {
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>Work Orders</h2>
-                <p className="text-[12px] text-muted-foreground">{WOS.length} active{isRestrictedMechanic ? " · assigned to you" : ""}</p>
+                <p className="text-[12px] text-muted-foreground">{ALL_WOS_COMBINED.length} active{isRestrictedMechanic ? " · assigned to you" : ""}</p>
               </div>
-              <Link href="/maintenance" className="flex items-center gap-1.5 text-[12px] text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
-                <ExternalLink className="w-3.5 h-3.5" /> Maintenance Hub
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowNewWOForm(v => !v)}
+                  className="flex items-center gap-1.5 text-[12px] bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
+                  style={{ fontWeight: 500 }}
+                >
+                  <Plus className="w-3.5 h-3.5" /> New Work Order
+                </button>
+                <Link href="/maintenance" className="flex items-center gap-1.5 text-[12px] text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              </div>
             </div>
           )}
+
+          {/* ── Inline New WO form ── */}
+          {!selectedWO && showNewWOForm && (
+            <AnimatePresence>
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mb-5 bg-[#F7F8FA] border border-border rounded-xl overflow-hidden"
+              >
+                <div className="bg-[#0A1628] px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-white text-[13px]" style={{ fontWeight: 600 }}>
+                    <Wrench className="w-4 h-4" /> New Work Order
+                  </div>
+                  <button onClick={() => setShowNewWOForm(false)} className="p-1 hover:bg-white/10 rounded transition-colors">
+                    <X className="w-3.5 h-3.5 text-white/60" />
+                  </button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Aircraft *</label>
+                    <select
+                      value={newWOAircraftId}
+                      onChange={e => { setNewWOAircraftId(e.target.value); setNewWOSquawks([]); }}
+                      className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none focus:ring-2 focus:ring-primary/20 bg-white"
+                    >
+                      <option value="">Select aircraft…</option>
+                      {aircraftOptions.map(a => (
+                        <option key={a.id} value={a.id}>{a.tail}{a.model ? ` — ${a.model}` : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Title / Summary *</label>
+                    <input
+                      value={newWOTitle}
+                      onChange={e => setNewWOTitle(e.target.value)}
+                      placeholder="e.g. Annual inspection, brake caliper R&R…"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  {openSquawksForAircraft.length > 0 && (
+                    <div>
+                      <label className="block text-[11px] text-foreground mb-1.5" style={{ fontWeight: 600 }}>Attach Squawks (optional)</label>
+                      <div className="space-y-1 max-h-28 overflow-y-auto">
+                        {openSquawksForAircraft.map(sq => (
+                          <label key={sq.id} className="flex items-center gap-2 text-[11px] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={newWOSquawks.includes(sq.id)}
+                              onChange={e => setNewWOSquawks(prev => e.target.checked ? [...prev, sq.id] : prev.filter(x => x !== sq.id))}
+                              className="rounded"
+                            />
+                            <span className="text-foreground flex-1 truncate">{sq.title}</span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${sevColor(sq.severity)}`} style={{ fontWeight: 600 }}>{sq.severity}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Labor Estimate (hrs, optional)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={newWOLabor}
+                      onChange={e => setNewWOLabor(e.target.value)}
+                      placeholder="e.g. 3.5"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setShowNewWOForm(false)}
+                      className="flex-1 py-2 border border-border rounded-lg text-[12px] text-muted-foreground hover:bg-muted/30 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateWO}
+                      disabled={newWOSaving || !newWOAircraftId || !newWOTitle.trim()}
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-primary text-white py-2 rounded-lg text-[12px] hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {newWOSaving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</> : <><Plus className="w-3.5 h-3.5" /> Save &amp; Open</>}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          )}
+
           {selectedWO && (
-            <div className="px-4 py-3 border-b border-border">
-              <h2 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Work Orders</h2>
-              <p className="text-[11px] text-muted-foreground">{WOS.length} active</p>
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div>
+                <h2 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Work Orders</h2>
+                <p className="text-[11px] text-muted-foreground">{ALL_WOS_COMBINED.length} active</p>
+              </div>
+              <button
+                onClick={() => { setSelectedWOId(null); setShowNewWOForm(true); }}
+                className="flex items-center gap-1 text-[11px] bg-primary text-white px-2.5 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
+                style={{ fontWeight: 500 }}
+              >
+                <Plus className="w-3 h-3" /> New
+              </button>
             </div>
           )}
           <div className={`${selectedWO ? "flex-1 overflow-auto divide-y divide-border" : "space-y-3"}`}>
-            {WOS.map((w) => (
+            {ALL_WOS_COMBINED.map((w) => (
               <button key={w.wo} onClick={() => setSelectedWOId(w.wo === selectedWOId ? null : w.wo)}
                 className={`w-full text-left transition-colors ${
                   selectedWO
@@ -3470,12 +3712,192 @@ export function MechanicPortal() {
             >
               <Sparkles className="w-3.5 h-3.5" /> Generate Logbook Entry with AI
             </button>
-            
+            <button
+              onClick={() => { setShowLbSearch(v => !v); setSelectedLBId(null); }}
+              className="w-full flex items-center justify-center gap-2 border border-primary/30 text-primary py-2.5 rounded-lg text-[12px] hover:bg-primary/5 transition-colors"
+              style={{ fontWeight: 600 }}
+            >
+              <Search className="w-3.5 h-3.5" /> Search Logbook
+            </button>
           </div>
         </div>
 
         {/* Detail panel */}
-        {lb ? (
+        {showLbSearch ? (
+          <div className="flex-1 overflow-auto bg-[#F7F8FA] p-5">
+            <div className="max-w-2xl space-y-4">
+              {/* Search form */}
+              <div className="bg-white rounded-xl border border-border p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-[15px] text-foreground" style={{ fontWeight: 700 }}>Search Logbook</h3>
+                    <p className="text-[12px] text-muted-foreground">Search across all aircraft logbook entries</p>
+                  </div>
+                  <button onClick={() => setShowLbSearch(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+                    <X className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Search text</label>
+                    <div className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20">
+                      <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <input
+                        value={lbSearchQuery}
+                        onChange={e => setLbSearchQuery(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && handleLogbookSearch()}
+                        placeholder="e.g. annual inspection, brake, oil change…"
+                        className="flex-1 text-[12px] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Aircraft</label>
+                      <select
+                        value={lbSearchAircraftId}
+                        onChange={e => setLbSearchAircraftId(e.target.value)}
+                        className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none bg-white"
+                      >
+                        <option value="">All aircraft</option>
+                        {aircraft.map(a => (
+                          <option key={a.id} value={a.id}>{a.tail_number}{a.make ? ` — ${a.make} ${a.model ?? ""}` : ""}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Entry Type</label>
+                      <select
+                        value={lbSearchEntryType}
+                        onChange={e => setLbSearchEntryType(e.target.value)}
+                        className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none bg-white"
+                      >
+                        <option value="all">All types</option>
+                        <option value="annual">Annual</option>
+                        <option value="100hr">100-Hour</option>
+                        <option value="ad_compliance">AD Compliance</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="oil_change">Oil Change</option>
+                        <option value="component_replacement">Component Replacement</option>
+                        <option value="major_repair">Major Repair</option>
+                        <option value="major_alteration">Major Alteration</option>
+                        <option value="return_to_service">Return to Service</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Date from</label>
+                      <input type="date" value={lbSearchDateFrom} onChange={e => setLbSearchDateFrom(e.target.value)}
+                        className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-foreground mb-1" style={{ fontWeight: 600 }}>Date to</label>
+                      <input type="date" value={lbSearchDateTo} onChange={e => setLbSearchDateTo(e.target.value)}
+                        className="w-full border border-border rounded-lg px-3 py-2 text-[12px] outline-none" />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleLogbookSearch}
+                    disabled={lbSearchLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-primary text-white py-2.5 rounded-lg text-[12px] hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    style={{ fontWeight: 600 }}
+                  >
+                    {lbSearchLoading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching…</> : <><Search className="w-3.5 h-3.5" /> Search Entries</>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Search results */}
+              {lbSearchError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-[12px] text-red-700">{lbSearchError}</div>
+              )}
+              {lbSearchResults !== null && (
+                <div className="bg-white rounded-xl border border-border overflow-hidden">
+                  <div className="px-4 py-3 border-b border-border">
+                    <span className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{lbSearchResults.length} result{lbSearchResults.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  {lbSearchResults.length === 0 ? (
+                    <div className="p-6 text-center text-muted-foreground">
+                      <BookOpen className="w-7 h-7 mx-auto mb-2 opacity-30" />
+                      <div className="text-[13px]">No entries found</div>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {lbSearchResults.map(e => (
+                        <div key={e.id} className="px-4 py-3 hover:bg-muted/10 transition-colors">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <span className="text-[12px] text-foreground" style={{ fontWeight: 600 }}>
+                              {e.entry_type?.replace(/_/g, " ")} — {e.entry_date}
+                            </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${e.status === "signed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`} style={{ fontWeight: 600 }}>
+                              {e.status}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 mb-1">
+                            <Plane className="w-2.5 h-2.5" />
+                            {(e.aircraft as any)?.tail_number ?? e.aircraft_id}
+                            {e.mechanic_name && <> · {e.mechanic_name}</>}
+                          </div>
+                          {e.description && (
+                            <div className="text-[11px] text-muted-foreground line-clamp-2">{e.description}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Ask the Logbook (AI) */}
+              <div className="bg-white rounded-xl border border-border p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0A1628] to-[#2563EB] flex items-center justify-center">
+                    <Sparkles className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-[13px] text-foreground" style={{ fontWeight: 700 }}>Ask the Logbook</div>
+                    <div className="text-[11px] text-muted-foreground">AI searches all logbook entries to answer your question</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-primary/20">
+                    <Bot className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      value={lbAIQuery}
+                      onChange={e => setLbAIQuery(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleLogbookAIQuery()}
+                      placeholder="e.g. When was the last annual inspection? Any AD compliance items?"
+                      className="flex-1 text-[12px] outline-none"
+                    />
+                  </div>
+                  {lbSearchAircraftId && (
+                    <div className="text-[11px] text-primary/70">
+                      Scoped to: {aircraft.find(a => a.id === lbSearchAircraftId)?.tail_number}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleLogbookAIQuery}
+                    disabled={lbAILoading || !lbAIQuery.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#0A1628] to-[#2563EB] text-white py-2.5 rounded-lg text-[12px] hover:opacity-90 disabled:opacity-50 transition-opacity"
+                    style={{ fontWeight: 600 }}
+                  >
+                    {lbAILoading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching…</> : <><Sparkles className="w-3.5 h-3.5" /> Ask AI</>}
+                  </button>
+                </div>
+                {lbAIAnswer && (
+                  <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-[11px] text-primary" style={{ fontWeight: 600 }}>AI Answer</span>
+                    </div>
+                    <div className="text-[12px] text-slate-700 leading-relaxed">{lbAIAnswer}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : lb ? (
           <div className="flex-1 overflow-auto bg-[#F7F8FA] p-5">
             <div className="max-w-2xl space-y-4">
               <div className="bg-white rounded-xl border border-border p-5">

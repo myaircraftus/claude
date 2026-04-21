@@ -56,6 +56,10 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const aircraft_id = searchParams.get("aircraft_id");
   const work_order_id = searchParams.get("work_order_id");
+  const search = searchParams.get("search");
+  const entry_type_param = searchParams.get("entry_type");
+  const date_from = searchParams.get("date_from");
+  const date_to = searchParams.get("date_to");
 
   let query = supabase
     .from("logbook_entries")
@@ -72,6 +76,12 @@ export async function GET(req: NextRequest) {
 
   if (aircraft_id) query = query.eq("aircraft_id", aircraft_id);
   if (work_order_id) query = query.eq("work_order_id", work_order_id);
+  if (search) query = (query as any).ilike("description", `%${search}%`);
+  if (entry_type_param && VALID_ENTRY_TYPES.includes(entry_type_param as any)) {
+    query = query.eq("entry_type", entry_type_param);
+  }
+  if (date_from) query = query.gte("entry_date", date_from);
+  if (date_to) query = query.lte("entry_date", date_to);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
