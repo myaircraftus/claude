@@ -502,6 +502,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [squawkExtractingPhoto, setSquawkExtractingPhoto] = useState(false);
   const [squawkStructuring, setSquawkStructuring] = useState(false);
   const [savingSquawk, setSavingSquawk] = useState(false);
+  const [generatingPacket, setGeneratingPacket] = useState(false);
+  const [packetError, setPacketError] = useState<string | null>(null);
+  const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
   const [squawkPhotoMeta, setSquawkPhotoMeta] = useState<{
     name: string;
     type: string;
@@ -962,6 +965,55 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   ] : tail === "N67890" ? [
     { entry: "100-Hour Inspection", date: "Jan 15, 2026" },
   ] : [{ entry: "Propeller Overhaul Certificate", date: "Dec 5, 2025" }];
+
+  async function handleGenerateIntelligencePacket() {
+    if (!aircraftId) {
+      setPacketError("Aircraft ID not available. Please open a real aircraft record.");
+      return;
+    }
+    setGeneratingPacket(true);
+    setPacketError(null);
+    setPacketSignedUrl(null);
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aircraft_id: aircraftId, report_type: "aircraft_overview" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error || `Failed to start report (${res.status})`);
+      const jobId = (data as any).job_id as string | undefined;
+      if (!jobId) throw new Error("No job ID returned from server");
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 40) {
+          clearInterval(poll);
+          setGeneratingPacket(false);
+          setPacketError("Report generation timed out. Please try again.");
+          return;
+        }
+        try {
+          const r = await fetch(`/api/reports/${jobId}`);
+          const d = await r.json().catch(() => ({} as any));
+          if ((d as any).job?.status === "completed") {
+            clearInterval(poll);
+            setGeneratingPacket(false);
+            setPacketSignedUrl((d as any).job.signed_url ?? null);
+          } else if ((d as any).job?.status === "failed") {
+            clearInterval(poll);
+            setGeneratingPacket(false);
+            setPacketError("Report generation failed. Please try again.");
+          }
+        } catch {
+          // keep polling
+        }
+      }, 3000);
+    } catch (err) {
+      setGeneratingPacket(false);
+      setPacketError(err instanceof Error ? err.message : "Failed to generate intelligence packet");
+    }
+  }
 
   const handleSendWOMessage = (woId: string) => {
     if (!askWOMessage.trim()) return;
@@ -3057,9 +3109,27 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                         </div>
                       ))}
                     </div>
-                    <button className="w-full bg-primary text-white py-2.5 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                      Generate Intelligence Packet
+                    <button
+                      onClick={handleGenerateIntelligencePacket}
+                      disabled={generatingPacket}
+                      className="w-full bg-primary text-white py-2.5 rounded-lg text-[13px] hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {generatingPacket ? "Generating…" : "Generate Intelligence Packet"}
                     </button>
+                    {packetError && (
+                      <p className="mt-2 text-[11px] text-red-600">{packetError}</p>
+                    )}
+                    {packetSignedUrl && (
+                      <a
+                        href={packetSignedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-[12px] text-primary hover:underline"
+                      >
+                        Download report →
+                      </a>
+                    )}
                   </div>
 
                   {/* Ask AI */}
