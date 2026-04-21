@@ -1465,6 +1465,19 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           })
         },
       })
+      if (!processingState.stages?.ocr_fallback) {
+        processingState = markDocumentProcessingStage(processingState, 'ocr_fallback', 'skipped', {
+          pageCount: ingestData.page_count,
+        })
+      }
+    } else {
+      processingState = markDocumentProcessingStage(processingState, 'document_ai_ocr', 'skipped', {
+        engine: 'google_document_ai',
+        pageCount: nativeData.page_count,
+      })
+      processingState = markDocumentProcessingStage(processingState, 'ocr_fallback', 'skipped', {
+        pageCount: nativeData.page_count,
+      })
     }
 
     processingState = markDocumentProcessingStage(processingState, 'field_extraction', 'running', {

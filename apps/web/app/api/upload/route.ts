@@ -4,6 +4,7 @@ import { createServiceSupabase } from '@/lib/supabase/server'
 import { getRequestUser } from '@/lib/supabase/request-user'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import { shouldPreferBackgroundIngestion } from '@/lib/ingestion/background-policy'
 import type { DocType } from '@/types'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import { ensureBookRecord } from '@/lib/documents/books'
@@ -17,7 +18,7 @@ import {
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
 
-const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
+const MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024 // 250 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -264,7 +265,7 @@ export async function POST(req: NextRequest) {
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json(
-      { error: `File exceeds maximum size of 500 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
+      { error: `File exceeds maximum size of 250 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
       { status: 400 }
     )
   }
@@ -395,9 +396,10 @@ export async function POST(req: NextRequest) {
 
   // ── 11. Trigger or inline-ingest the document ─────────────────────────────
   const ingestionResult = await queueDocumentIngestion(docId, {
-    // Interactive uploads should stay inline-first so the user does not get
-    // stranded in the flaky background OCR lane for large logbooks.
-    preferBackground: false,
+    preferBackground: shouldPreferBackgroundIngestion({
+      fileSizeBytes: file.size,
+      docType,
+    }),
     allowInlineFallback: true,
   })
 

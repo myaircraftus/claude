@@ -3,6 +3,7 @@ import { createServiceSupabase } from '@/lib/supabase/server'
 import { getRequestUser } from '@/lib/supabase/request-user'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import { shouldPreferBackgroundIngestion } from '@/lib/ingestion/background-policy'
 import type { BookAssignment, DocType, ManualAccess, Visibility } from '@/types'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import { ensureBookRecord } from '@/lib/documents/books'
@@ -329,9 +330,10 @@ export async function POST(req: NextRequest) {
   })
 
   const ingestionResult = await queueDocumentIngestion(documentId, {
-    // Signed uploads initiated from the UI should behave like direct uploads:
-    // keep them inline-first and only fall back when absolutely necessary.
-    preferBackground: false,
+    preferBackground: shouldPreferBackgroundIngestion({
+      fileSizeBytes: fileSize,
+      docType,
+    }),
     allowInlineFallback: true,
   })
 

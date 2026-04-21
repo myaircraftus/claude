@@ -28,7 +28,9 @@ import type {
   DocumentProcessingState,
 } from '@/types'
 import {
+  buildInitialDocumentProcessingState,
   coerceDocumentProcessingState,
+  DOCUMENT_PROCESSING_STAGE_ORDER,
   DOCUMENT_PROCESSING_STAGE_LABELS,
   getDocumentProcessingEngineLabel,
   getDocumentProcessingProgress,
@@ -81,6 +83,18 @@ const MECHANIC_CHIPS: QuickChip[] = [
   { label: 'FAA Form 337', groupId: 'airworthiness_and_certification', detailId: 'faa_form_337_records' },
   { label: 'TCDS', groupId: 'airworthiness_and_certification', detailId: 'type_certificate_data_sheet_tcds' },
 ]
+
+const MAX_UPLOAD_FILE_SIZE_BYTES = 250 * 1024 * 1024
+const COMPACT_STAGE_ORDER = DOCUMENT_PROCESSING_STAGE_ORDER.filter((stage) => stage !== 'ocr_fallback')
+const COMPACT_STAGE_LABELS: Partial<Record<(typeof COMPACT_STAGE_ORDER)[number], string>> = {
+  uploaded: 'Uploaded',
+  native_text_probe: 'PDF Probe',
+  document_ai_ocr: 'OCR',
+  field_extraction: 'Parse',
+  chunking: 'Chunk',
+  embedding: 'Embed',
+  completed: 'Done',
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,6 +177,88 @@ function ProcessingStatusBadge({ status }: { status: ParsingStatus }) {
       {status === 'failed' && <AlertCircle className="w-3 h-3" />}
       {labelMap[status]}
     </span>
+  )
+}
+
+function CompactProcessingTimeline({
+  state,
+  fallbackStatus,
+}: {
+  state: DocumentProcessingState | null | undefined
+  fallbackStatus?: ParsingStatus
+}) {
+  const normalizedState = state
+    ? state
+    : coerceDocumentProcessingState(null, undefined, {
+        status: fallbackStatus ?? 'queued',
+      })
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max items-start gap-1.5">
+        {COMPACT_STAGE_ORDER.map((stage, index) => {
+          const snapshot = normalizedState.stages?.[stage]
+          const inferredStatus =
+            snapshot?.status ??
+            (stage === normalizedState.current_stage ? 'running' : stage === 'uploaded' ? 'completed' : 'pending')
+          const label = COMPACT_STAGE_LABELS[stage] ?? DOCUMENT_PROCESSING_STAGE_LABELS[stage]
+
+          const circleClass =
+            inferredStatus === 'completed'
+              ? 'border-green-600 bg-green-600 text-white'
+              : inferredStatus === 'running'
+                ? 'border-blue-600 bg-blue-600 text-white'
+                : inferredStatus === 'failed'
+                  ? 'border-red-600 bg-red-600 text-white'
+                  : inferredStatus === 'skipped'
+                    ? 'border-slate-300 bg-slate-100 text-slate-500'
+                    : 'border-slate-300 bg-white text-slate-400'
+
+          const textClass =
+            inferredStatus === 'completed'
+              ? 'text-green-700'
+              : inferredStatus === 'running'
+                ? 'text-blue-700'
+                : inferredStatus === 'failed'
+                  ? 'text-red-700'
+                  : inferredStatus === 'skipped'
+                    ? 'text-slate-500'
+                    : 'text-slate-500'
+
+          return (
+            <div key={stage} className="flex items-center gap-1.5">
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  className={cn(
+                    'flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-semibold',
+                    circleClass
+                  )}
+                >
+                  {inferredStatus === 'completed' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : inferredStatus === 'running' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : inferredStatus === 'failed' ? (
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+                <span className={cn('text-[10px] font-medium whitespace-nowrap', textClass)}>{label}</span>
+              </div>
+              {index < COMPACT_STAGE_ORDER.length - 1 && (
+                <div
+                  className={cn(
+                    'mb-4 h-0.5 w-6 rounded-full',
+                    inferredStatus === 'completed' ? 'bg-green-400' : 'bg-slate-200'
+                  )}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -319,6 +415,64 @@ export function UploadDropzone({
   }, [documentIdsSignature, trackedDocumentIds])
 
   useEffect(() => {
+    const docIds = trackedDocumentIds
+    if (docIds.length === 0) return
+
+    let cancelled = false
+    const supabase = createBrowserSupabase()
+
+    const poll = async () => {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('id, parsing_status, processing_state, parse_error')
+        .in('id', docIds)
+
+      if (cancelled || error || !data) return
+
+      const rows = data as Array<{
+        id: string
+        parsing_status: ParsingStatus
+        processing_state?: DocumentProcessingState | null
+        parse_error?: string | null
+      }>
+
+      setParsingStatuses((prev) => {
+        const next = { ...prev }
+        for (const row of rows) next[row.id] = row.parsing_status
+        return next
+      })
+
+      setProcessingStates((prev) => {
+        const next = { ...prev }
+        for (const row of rows) next[row.id] = row.processing_state ?? null
+        return next
+      })
+
+      setFiles((prev) =>
+        prev.map((item) => {
+          if (!item.documentId) return item
+          const row = rows.find((candidate) => candidate.id === item.documentId)
+          if (!row || !row.parse_error) return item
+          return {
+            ...item,
+            error: row.parse_error,
+          }
+        })
+      )
+    }
+
+    void poll()
+    const interval = window.setInterval(() => {
+      void poll()
+    }, 2500)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [trackedDocumentIds])
+
+  useEffect(() => {
     if (Object.keys(parsingStatuses).length === 0) return
 
     setFiles((prev) =>
@@ -448,14 +602,14 @@ export function UploadDropzone({
       }
 
       if (hasSizeError) {
-        setDropError('This file is larger than the 500 MB upload limit.')
+        setDropError('This file is larger than the 250 MB upload limit.')
         return
       }
 
       setDropError(firstRejection.errors[0]?.message ?? 'That file could not be uploaded.')
     },
     accept: { 'application/pdf': ['.pdf'] },
-    maxSize: 500 * 1024 * 1024,
+    maxSize: MAX_UPLOAD_FILE_SIZE_BYTES,
     multiple: true,
     disabled: isUploading,
   })
@@ -529,59 +683,48 @@ export function UploadDropzone({
 
       updateFile(item.id, { progress: 15 })
 
-      const uploadPath = initPayload.signedPath ?? initPayload.storagePath
-      const supabase = createBrowserSupabase()
-      const { error: storageError } = await supabase.storage
-        .from('documents')
-        .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
-          contentType: item.file.type || 'application/pdf',
+      let uploadErrorMessage: string | null = null
+
+      if (initPayload.signedUrl) {
+        const signedUploadResponse = await fetch(initPayload.signedUrl, {
+          method: 'PUT',
+          headers: {
+            'content-type': item.file.type || 'application/pdf',
+            'x-upsert': 'false',
+          },
+          body: item.file,
         })
 
-      if (storageError) {
-        if (!initPayload.signedUrl) {
-          throw new Error(storageError.message || 'Failed to upload file to storage')
+        if (!signedUploadResponse.ok) {
+          try {
+            const errorPayload = (await signedUploadResponse.json()) as {
+              error?: string
+              message?: string
+            }
+            uploadErrorMessage =
+              errorPayload.error ??
+              errorPayload.message ??
+              `Failed to upload file to storage (${signedUploadResponse.status})`
+          } catch {
+            const responseText = await signedUploadResponse.text().catch(() => '')
+            uploadErrorMessage =
+              responseText.trim() || `Failed to upload file to storage (${signedUploadResponse.status})`
+          }
         }
+      }
 
-        let fallbackError = storageError.message || 'Failed to upload file to storage'
-
-        try {
-          const formData = new FormData()
-          formData.append('cacheControl', '3600')
-          formData.append('', item.file)
-
-          const signedUploadResponse = await fetch(initPayload.signedUrl, {
-            method: 'PUT',
-            headers: {
-              'x-upsert': 'false',
-            },
-            body: formData,
+      if (uploadErrorMessage) {
+        const uploadPath = initPayload.signedPath ?? initPayload.storagePath
+        const supabase = createBrowserSupabase()
+        const { error: storageError } = await supabase.storage
+          .from('documents')
+          .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
+            contentType: item.file.type || 'application/pdf',
           })
 
-          if (!signedUploadResponse.ok) {
-            try {
-              const errorPayload = (await signedUploadResponse.json()) as {
-                error?: string
-                message?: string
-              }
-              fallbackError =
-                errorPayload.error ??
-                errorPayload.message ??
-                fallbackError
-            } catch {
-              const responseText = await signedUploadResponse.text().catch(() => '')
-              if (responseText.trim().length > 0) {
-                fallbackError = responseText.trim()
-              }
-            }
-
-            throw new Error(fallbackError)
-          }
-        } catch (error) {
-          const signedUrlError =
-            error instanceof Error ? error.message : 'Signed upload request failed unexpectedly'
-
+        if (storageError) {
           throw new Error(
-            [storageError.message, signedUrlError].filter(Boolean).join(' · ')
+            [uploadErrorMessage, storageError.message].filter(Boolean).join(' · ')
           )
         }
       }
@@ -626,9 +769,10 @@ export function UploadDropzone({
 
       updateFile(item.id, {
         status: 'processing',
-        progress: 100,
+        progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
         documentId: completePayload.document_id,
         error: undefined,
+        processingState: buildInitialDocumentProcessingState(),
       })
     } catch (err) {
       updateFile(item.id, {
@@ -920,7 +1064,7 @@ export function UploadDropzone({
             <p className="text-sm font-medium text-foreground">
               {isDragActive ? 'Drop PDFs here' : 'Drag & drop PDFs, or click to browse'}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 500 MB per file</p>
+            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 250 MB per file</p>
           </div>
         </div>
       </div>
@@ -1295,10 +1439,15 @@ export function UploadDropzone({
                 )}
 
                 {item.status === 'processing' && (
-                  <div className="pl-11 space-y-1">
+                  <div className="pl-11 space-y-2">
                     <Progress value={item.progress} className="h-1.5" />
+                    <CompactProcessingTimeline
+                      state={item.processingState}
+                      fallbackStatus={realtimeStatus ?? 'queued'}
+                    />
                     <p className="text-[11px] text-muted-foreground">
                       {currentStageLabel ?? 'Processing'}
+                      {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
                       {batchLabel ? ` · ${batchLabel}` : ''}
                     </p>
                   </div>

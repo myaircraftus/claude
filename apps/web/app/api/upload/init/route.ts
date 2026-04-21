@@ -3,7 +3,7 @@ import { createServiceSupabase } from '@/lib/supabase/server'
 import { getRequestUser } from '@/lib/supabase/request-user'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 
-const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
+const MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024 // 250 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
 
 function sanitizeFileName(fileName: string) {
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 
   if (fileSize > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json(
-      { error: `File exceeds maximum size of 500 MB (received ${Math.round(fileSize / 1024 / 1024)} MB).` },
+      { error: `File exceeds maximum size of 250 MB (received ${Math.round(fileSize / 1024 / 1024)} MB).` },
       { status: 400 }
     )
   }
