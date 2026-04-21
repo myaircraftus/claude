@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -351,7 +352,7 @@ function WorkOrderDetail({
     if (data.id) {
       window.open(`/invoices/${data.id}`, '_blank')
     } else {
-      alert(data.error ?? 'Failed to generate invoice')
+      toast.error(data.error ?? 'Failed to generate invoice')
     }
   }
 

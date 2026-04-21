@@ -23,10 +23,31 @@ export const metadata: Metadata = {
   },
 }
 
+const aboutJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'myaircraft.us',
+  url: 'https://www.myaircraft.us',
+  logo: 'https://www.myaircraft.us/redesign/MY_AIRCRAFT_LOGO.svg',
+  description: 'AI-powered aircraft records management for owners and A&P mechanics.',
+  contactPoint: {
+    '@type': 'ContactPoint',
+    contactType: 'customer support',
+    email: 'support@myaircraft.us',
+  },
+}
+
 export default function Page() {
   return (
-    <PublicLayout>
-      <AboutPage />
-    </PublicLayout>
+    <>
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger -- trusted static JSON from this module
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(aboutJsonLd) }}
+      />
+      <PublicLayout>
+        <AboutPage />
+      </PublicLayout>
+    </>
   )
 }

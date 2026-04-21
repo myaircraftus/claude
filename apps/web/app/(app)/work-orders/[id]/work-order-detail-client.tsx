@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -612,7 +613,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
                 if (data.id) {
                   window.location.href = `/invoices/${data.id}`
                 } else {
-                  alert(data.error ?? 'Failed to generate invoice')
+                  toast.error(data.error ?? 'Failed to generate invoice')
                 }
               }}
             >

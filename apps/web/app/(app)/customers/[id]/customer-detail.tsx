@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -174,7 +175,7 @@ export function CustomerDetail({
         router.refresh()
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to assign aircraft')
+        toast.error(data.error || 'Failed to assign aircraft')
       }
     } finally {
       setAssignSaving(false)

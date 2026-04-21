@@ -550,8 +550,15 @@ export function DocumentDetailSlideover({
                     <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/30">
                       <Plane className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm text-foreground font-mono">
-                        {doc.aircraft_id}
+                        {doc.aircraft?.tail_number ?? doc.aircraft_id}
                       </span>
+                      {doc.aircraft?.make && (
+                        <span className="text-xs text-muted-foreground">
+                          {[doc.aircraft.year, doc.aircraft.make, doc.aircraft.model]
+                            .filter(Boolean)
+                            .join(' ')}
+                        </span>
+                      )}
                     </div>
                   </section>
                 )}

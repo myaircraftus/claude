@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useRef } from 'react'
+import { toast } from 'sonner'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -151,7 +152,7 @@ export function CustomersList({
       router.refresh()
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to delete customer')
+      toast.error(data.error || 'Failed to delete customer')
     }
   }
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import Link, { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -220,7 +221,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
         router.refresh()
       } else {
         const err = await res.json()
-        alert(err.error ?? 'Failed to send email')
+        toast.error(err.error ?? 'Failed to send email')
       }
     } finally {
       setSendingEmail(false)

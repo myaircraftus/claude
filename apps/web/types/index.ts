@@ -164,6 +164,7 @@ export interface Document {
   download_count?: number
   uploaded_at: string
   updated_at: string
+  aircraft?: { id: string; tail_number: string; make?: string; model?: string; year?: number } | null
 }
 
 export interface DocumentChunk {

@@ -14,9 +14,10 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'myaircraft.us',
     description: 'Ask your aircraft anything. Get answers from your own records.',
-    url: 'https://myaircraft.us',
+    url: 'https://www.myaircraft.us',
     siteName: 'myaircraft.us',
     type: 'website',
+    images: [{ url: '/opengraph-image' }],
   },
   icons: {
     icon: '/redesign/MY_AIRCRAFT_LOGO.svg',
@@ -30,9 +31,30 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const orgSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'myaircraft.us',
+    url: 'https://www.myaircraft.us',
+    logo: 'https://www.myaircraft.us/redesign/MY_AIRCRAFT_LOGO.svg',
+    sameAs: [],
+    description: 'AI-powered aircraft records management for owners and A&P mechanics.',
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: 'support@myaircraft.us',
+    },
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
+        />
+        {children}
+      </body>
     </html>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import {
   Search, Plus, Pencil, Trash2, Loader2, Package, DollarSign,
   Percent, Hash, Tag,
@@ -233,7 +234,7 @@ export function PartsLibraryView({ initialParts }: Props) {
       }
       setDialogOpen(false)
     } catch (err: any) {
-      alert(err?.message ?? 'Save failed')
+      toast.error(err?.message ?? 'Save failed')
     } finally {
       setSaving(false)
     }
@@ -250,7 +251,7 @@ export function PartsLibraryView({ initialParts }: Props) {
       }
       setParts(prev => prev.filter(p => p.id !== id))
     } catch (err: any) {
-      alert(err?.message ?? 'Delete failed')
+      toast.error(err?.message ?? 'Delete failed')
     } finally {
       setDeleting(null)
     }
