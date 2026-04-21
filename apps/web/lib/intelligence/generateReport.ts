@@ -5,6 +5,8 @@ import { generateInspectionReport } from './reports/inspectionReport'
 import { generateTimelineReport } from './reports/timelineReport'
 import { generateMissingRecordsReport } from './reports/missingRecordsReport'
 import { generatePrebuyPacket } from './reports/prebuyPacket'
+import { generateAnnualInspectionSummary } from './reports/annualInspectionSummary'
+import { generateComplianceAdReport } from './reports/complianceAdReport'
 
 export type ReportType =
   | 'aircraft_overview'
@@ -15,6 +17,11 @@ export type ReportType =
   | 'prebuy_packet'
   | 'lender_packet'
   | 'insurer_packet'
+  // new types matching REPORT_TYPES in prompts.ts
+  | 'insurance_packet'
+  | 'pre_buy_inspection'
+  | 'annual_inspection_summary'
+  | 'compliance_ad_report'
 
 export async function generateReport(jobId: string): Promise<void> {
   const supabase = createServerSupabase()
@@ -55,6 +62,19 @@ export async function generateReport(jobId: string): Promise<void> {
       case 'lender_packet':
       case 'insurer_packet':
         pdfBuffer = await generatePrebuyPacket(job.aircraft_id, job.report_type, job.options)
+        break
+      // New unified report types
+      case 'insurance_packet':
+        pdfBuffer = await generatePrebuyPacket(job.aircraft_id, 'insurer_packet', job.options)
+        break
+      case 'pre_buy_inspection':
+        pdfBuffer = await generatePrebuyPacket(job.aircraft_id, 'prebuy_packet', job.options)
+        break
+      case 'annual_inspection_summary':
+        pdfBuffer = await generateAnnualInspectionSummary(job.aircraft_id, job.options)
+        break
+      case 'compliance_ad_report':
+        pdfBuffer = await generateComplianceAdReport(job.aircraft_id, job.options)
         break
       default:
         throw new Error(`Unknown report type: ${job.report_type}`)

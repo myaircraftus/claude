@@ -52,6 +52,13 @@ Make sure these are set in Vercel production:
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — for Document AI (if used)
 - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION` — for Textract (if used)
 
+## 🟡 Live Reference Docs in Repo
+
+- `ARCHITECT.md` — codebase map (for future AI agents)
+- `NEXT_STEPS.md` — this file, your action items
+- `AUTONOMOUS_NIGHT_RUN_REPORT.md` — Wave 1-3 summary
+- `WAVE_4_5_REPORT.md` — Wave 4-5 post-feedback work with honest test list
+
 ## ✅ Summary of What's Live
 
 ### Infrastructure

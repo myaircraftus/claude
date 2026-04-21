@@ -10,10 +10,34 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { aircraft_id, report_type, options } = body
+  const { aircraft_id, options } = body
+  const report_type = body.report_type ?? 'aircraft_overview'
 
-  if (!aircraft_id || !report_type) {
-    return NextResponse.json({ error: 'aircraft_id and report_type required' }, { status: 400 })
+  const VALID_REPORT_TYPES = [
+    'aircraft_overview',
+    'insurance_packet',
+    'pre_buy_inspection',
+    'annual_inspection_summary',
+    'compliance_ad_report',
+    // legacy types
+    'engine_prop_summary',
+    'inspection_status',
+    'maintenance_timeline',
+    'missing_records',
+    'prebuy_packet',
+    'lender_packet',
+    'insurer_packet',
+  ] as const
+
+  if (!aircraft_id) {
+    return NextResponse.json({ error: 'aircraft_id required' }, { status: 400 })
+  }
+
+  if (!VALID_REPORT_TYPES.includes(report_type)) {
+    return NextResponse.json(
+      { error: `Invalid report_type. Must be one of: ${VALID_REPORT_TYPES.join(', ')}` },
+      { status: 400 }
+    )
   }
 
   // Verify access

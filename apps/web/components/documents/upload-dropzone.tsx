@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Unlock, Users } from 'lucide-react'
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,7 +21,6 @@ import { cn, formatBytes, DOC_TYPE_LABELS } from '@/lib/utils'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import type { FileUploadItem, DocType, ParsingStatus, ManualAccess, BookAssignment } from '@/types'
 import {
-  COMMON_DOCUMENT_DETAILS,
   DOCUMENT_TAXONOMY_GROUPS,
   deriveDocTypeFromClassification,
   getDocumentItem,
@@ -39,6 +38,18 @@ const MANUAL_TYPES: DocType[] = ['maintenance_manual', 'service_manual', 'parts_
 function isManualType(docType: DocType): boolean {
   return MANUAL_TYPES.includes(docType)
 }
+
+// Quick-select chips for the simplified upload UI
+const QUICK_CHIPS: Array<{ label: string; groupId: string; detailId: string }> = [
+  { label: 'Engine Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'engine_logbooks' },
+  { label: 'Airframe Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'airframe_logbooks' },
+  { label: 'Propeller Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'propeller_logbooks' },
+  { label: 'POH', groupId: 'flight_crew_and_operating_documents', detailId: 'pilot_s_operating_handbook_poh' },
+  { label: 'Annual Inspection', groupId: 'maintenance_program_and_inspection_records', detailId: 'annual_inspection_records' },
+  { label: '100-Hour Inspection', groupId: 'maintenance_program_and_inspection_records', detailId: '100_hour_inspection_records' },
+  { label: 'Work Order', groupId: 'work_orders_and_shop_records', detailId: 'maintenance_work_orders' },
+  { label: 'Weight & Balance', groupId: 'airworthiness_and_certification', detailId: 'weight_and_balance_report' },
+]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,6 +159,7 @@ export function UploadDropzone({
   )
   const [dropError, setDropError] = useState<string | null>(null)
   const [classificationSearch, setClassificationSearch] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const channelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabase>['channel']> | null>(null)
   const deferredClassificationSearch = useDeferredValue(classificationSearch)
   const trackedDocumentIds = useMemo(
@@ -562,169 +574,194 @@ export function UploadDropzone({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-card p-4 space-y-4">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold text-foreground">Document categorization</h3>
-          <p className="text-xs text-muted-foreground">
-            Choose the aircraft, major section, and exact document type before uploading. Every file can still be adjusted individually below.
+        {/* Aircraft — always visible, most important */}
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">Aircraft</Label>
+          <Select value={defaultAircraftSelection} onValueChange={setDefaultAircraftSelection}>
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue placeholder="Aircraft (optional)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No aircraft (general)</SelectItem>
+              {aircraftOptions.map((ac) => (
+                <SelectItem key={ac.id} value={ac.id}>
+                  {ac.tail_number} — {ac.make} {ac.model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Quick-select category chips */}
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <Label className="text-xs font-medium text-muted-foreground">Category</Label>
+            {defaultDocumentDetailSelection && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDefaultDocumentDetailSelection('')
+                  setDefaultDocumentGroupSelection(DOCUMENT_TAXONOMY_GROUPS[0]?.id ?? '__none__')
+                  setClassificationSearch('')
+                }}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_CHIPS.map((chip) => (
+              <button
+                key={chip.detailId}
+                type="button"
+                onClick={() => {
+                  setDefaultDocumentGroupSelection(chip.groupId)
+                  setDefaultDocumentDetailSelection(chip.detailId)
+                  setClassificationSearch('')
+                }}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-xs border transition-colors',
+                  defaultDocumentDetailSelection === chip.detailId
+                    ? 'bg-brand-600 text-white border-brand-600'
+                    : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground'
+                )}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Skip this and we'll use AI to categorize from the file's contents.
           </p>
         </div>
 
-        <div className="space-y-2">
-          <Label className="text-xs font-medium text-muted-foreground">Search category or document type</Label>
-          <Input
-            value={classificationSearch}
-            onChange={(e) => setClassificationSearch(e.target.value)}
-            placeholder="Try: 100 hour, engine logbook, 337, weight and balance, service bulletin"
-            className="h-9 text-sm"
-          />
-          {classificationSearch.trim().length > 0 && (
-            <div className="rounded-lg border border-border bg-background p-2 space-y-1">
-              {classificationMatches.length > 0 ? (
-                classificationMatches.slice(0, 6).map((match) => (
-                  <button
-                    key={`${match.groupId}:${match.detailId}`}
-                    type="button"
-                    onClick={() => {
-                      setDefaultDocumentGroupSelection(match.groupId)
-                      setDefaultDocumentDetailSelection(match.detailId)
-                      setClassificationSearch(match.detailLabel)
-                    }}
-                    className="w-full rounded-md border border-transparent px-3 py-2 text-left hover:border-brand-200 hover:bg-brand-50 transition-colors"
-                  >
-                    <p className="text-sm font-medium text-foreground">{match.detailLabel}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {match.groupLabel} · {match.profile.truthRole.replace(/_/g, ' ')}
-                    </p>
-                  </button>
-                ))
-              ) : (
-                <p className="px-2 py-1 text-xs text-muted-foreground">
-                  No close match yet. Keep typing a document name, form number, or inspection term.
-                </p>
+        {/* Advanced options — collapsed by default */}
+        <div className="border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {advancedOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            Advanced options
+          </button>
+
+          {advancedOpen && (
+            <div className="mt-3 space-y-3">
+              {/* Search */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Search document type</Label>
+                <Input
+                  value={classificationSearch}
+                  onChange={(e) => setClassificationSearch(e.target.value)}
+                  placeholder="Try: 100 hour, 337, weight and balance, service bulletin"
+                  className="h-9 text-sm"
+                />
+                {classificationSearch.trim().length > 0 && (
+                  <div className="rounded-lg border border-border bg-background p-2 space-y-1">
+                    {classificationMatches.length > 0 ? (
+                      classificationMatches.slice(0, 6).map((match) => (
+                        <button
+                          key={`${match.groupId}:${match.detailId}`}
+                          type="button"
+                          onClick={() => {
+                            setDefaultDocumentGroupSelection(match.groupId)
+                            setDefaultDocumentDetailSelection(match.detailId)
+                            setClassificationSearch(match.detailLabel)
+                          }}
+                          className="w-full rounded-md border border-transparent px-3 py-2 text-left hover:border-brand-200 hover:bg-brand-50 transition-colors"
+                        >
+                          <p className="text-sm font-medium text-foreground">{match.detailLabel}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {match.groupLabel} · {match.profile.truthRole.replace(/_/g, ' ')}
+                          </p>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">
+                        No close match yet. Keep typing a document name, form number, or inspection term.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Major document section</Label>
+                  <Select value={defaultDocumentGroupSelection} onValueChange={setDefaultDocumentGroupSelection}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Choose major section" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DOCUMENT_TAXONOMY_GROUPS.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Exact document type</Label>
+                  <Select value={defaultDocumentDetailSelection} onValueChange={setDefaultDocumentDetailSelection}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Choose exact document type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getDocumentItemsForGroup(defaultDocumentGroupSelection).map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">Subtype / volume (optional)</Label>
+                <Input
+                  value={defaultDocumentSubtypeSelection}
+                  onChange={(e) => setDefaultDocumentSubtypeSelection(e.target.value)}
+                  placeholder="e.g. Volume 2, Left engine, Revision C"
+                  className="h-9 text-sm"
+                />
+              </div>
+
+              {selectedClassificationProfile && (
+                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="text-xs">{selectedClassificationProfile.groupLabel}</Badge>
+                    <Badge variant="secondary" className="text-xs">{selectedClassificationProfile.detailLabel}</Badge>
+                    <Badge variant="secondary" className="text-xs capitalize">
+                      {selectedClassificationProfile.truthRole.replace(/_/g, ' ')}
+                    </Badge>
+                    <Badge variant="secondary" className="text-xs capitalize">
+                      {selectedClassificationProfile.parserStrategy.replace(/_/g, ' ')}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Record family: {selectedClassificationProfile.recordFamily.replace(/_/g, ' ')} ·
+                    Review priority: {selectedClassificationProfile.reviewPriority}
+                    {selectedClassificationProfile.canActivateReminder ? ' · reminder relevant' : ''}
+                    {selectedClassificationProfile.canSatisfyAdRequirement ? ' · AD evidence' : ''}
+                  </p>
+                </div>
+              )}
+
+              {hasFiles && (
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={applyDefaultClassificationToPendingFiles}>
+                    Apply current classification to pending files
+                  </Button>
+                </div>
               )}
             </div>
           )}
         </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Default aircraft</Label>
-            <Select value={defaultAircraftSelection} onValueChange={setDefaultAircraftSelection}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Aircraft (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">No aircraft (general)</SelectItem>
-                {aircraftOptions.map((ac) => (
-                  <SelectItem key={ac.id} value={ac.id}>
-                    {ac.tail_number} — {ac.make} {ac.model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Major document section</Label>
-            <Select value={defaultDocumentGroupSelection} onValueChange={setDefaultDocumentGroupSelection}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Choose major section" />
-              </SelectTrigger>
-              <SelectContent>
-                {DOCUMENT_TAXONOMY_GROUPS.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Exact document type</Label>
-            <Select value={defaultDocumentDetailSelection} onValueChange={setDefaultDocumentDetailSelection}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Choose exact document type" />
-              </SelectTrigger>
-              <SelectContent>
-                {getDocumentItemsForGroup(defaultDocumentGroupSelection).map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Subtype / volume (optional)</Label>
-            <Input
-              value={defaultDocumentSubtypeSelection}
-              onChange={(e) => setDefaultDocumentSubtypeSelection(e.target.value)}
-              placeholder="e.g. Volume 2, Left engine, Revision C"
-              className="h-9 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs font-medium text-muted-foreground">Common document types</Label>
-          <div className="flex flex-wrap gap-2">
-            {COMMON_DOCUMENT_DETAILS.map((detailId) => {
-              const detail = getDocumentItem(detailId)
-              if (!detail) return null
-              return (
-                <button
-                  key={detailId}
-                  type="button"
-                  onClick={() => {
-                    setDefaultDocumentGroupSelection(detail.groupId)
-                    setDefaultDocumentDetailSelection(detail.id)
-                  }}
-                  className={cn(
-                    'px-2.5 py-1 rounded-full text-xs border transition-colors',
-                    defaultDocumentDetailSelection === detailId
-                      ? 'bg-brand-600 text-white border-brand-600'
-                      : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground'
-                  )}
-                >
-                  {detail.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {selectedClassificationProfile && (
-          <div className="rounded-xl border border-border bg-muted/30 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="text-xs">{selectedClassificationProfile.groupLabel}</Badge>
-              <Badge variant="secondary" className="text-xs">{selectedClassificationProfile.detailLabel}</Badge>
-              <Badge variant="secondary" className="text-xs capitalize">
-                {selectedClassificationProfile.truthRole.replace(/_/g, ' ')}
-              </Badge>
-              <Badge variant="secondary" className="text-xs capitalize">
-                {selectedClassificationProfile.parserStrategy.replace(/_/g, ' ')}
-              </Badge>
-            </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Record family: {selectedClassificationProfile.recordFamily.replace(/_/g, ' ')} ·
-              Review priority: {selectedClassificationProfile.reviewPriority}
-              {selectedClassificationProfile.canActivateReminder ? ' · reminder relevant' : ''}
-              {selectedClassificationProfile.canSatisfyAdRequirement ? ' · AD evidence' : ''}
-            </p>
-          </div>
-        )}
-
-        {hasFiles && (
-          <div className="flex justify-end">
-            <Button type="button" variant="outline" size="sm" onClick={applyDefaultClassificationToPendingFiles}>
-              Apply current classification to pending files
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Drop zone */}

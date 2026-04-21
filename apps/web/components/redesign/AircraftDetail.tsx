@@ -505,6 +505,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
+  const [selectedReportType, setSelectedReportType] = useState<string>("aircraft_overview");
   const [squawkPhotoMeta, setSquawkPhotoMeta] = useState<{
     name: string;
     type: string;
@@ -978,7 +979,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aircraft_id: aircraftId, report_type: "aircraft_overview" }),
+        body: JSON.stringify({ aircraft_id: aircraftId, report_type: selectedReportType }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any).error || `Failed to start report (${res.status})`);
@@ -3092,21 +3093,37 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     )}
                   </div>
 
-                  {/* Lender / Insurer Packet */}
+                  {/* Generate Report */}
                   <div className="bg-white rounded-xl border border-border p-5">
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Lender / Insurance Summary</h3>
-                        <p className="text-[11px] text-muted-foreground">AI-generated packet for external review</p>
+                        <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Generate Intelligence Report</h3>
+                        <p className="text-[11px] text-muted-foreground">AI-generated PDF from indexed documents</p>
                       </div>
-                      <span className="text-[10px] bg-primary/8 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Premium</span>
+                      <span className="text-[10px] bg-primary/8 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>AI</span>
                     </div>
-                    <div className="space-y-2 mb-4">
-                      {["Aircraft overview summary", "Inspection status PDF", "Maintenance history report", "AD compliance attestation", "Engine & prop summary"].map((item) => (
-                        <div key={item} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                          {item}
-                        </div>
+                    <div className="space-y-3 mb-4">
+                      {([
+                        { value: "aircraft_overview", label: "Aircraft Overview", desc: "General summary of aircraft records" },
+                        { value: "insurance_packet", label: "Insurance Packet", desc: "Maintenance status + safety records for underwriting" },
+                        { value: "pre_buy_inspection", label: "Pre-Buy Inspection Summary", desc: "ADs, repairs, damage history for buyer due diligence" },
+                        { value: "annual_inspection_summary", label: "Annual Inspection Summary", desc: "Last 2 annual inspections + trends" },
+                        { value: "compliance_ad_report", label: "Compliance / AD Report", desc: "AD status + overdue items" },
+                      ] as const).map((rt) => (
+                        <label key={rt.value} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedReportType === rt.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/30"}`}>
+                          <input
+                            type="radio"
+                            name="report_type"
+                            value={rt.value}
+                            checked={selectedReportType === rt.value}
+                            onChange={() => { setSelectedReportType(rt.value); setPacketSignedUrl(null); setPacketError(null); }}
+                            className="mt-0.5 accent-primary"
+                          />
+                          <div>
+                            <div className="text-[12px] text-foreground" style={{ fontWeight: 600 }}>{rt.label}</div>
+                            <div className="text-[11px] text-muted-foreground">{rt.desc}</div>
+                          </div>
+                        </label>
                       ))}
                     </div>
                     <button
@@ -3115,7 +3132,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       className="w-full bg-primary text-white py-2.5 rounded-lg text-[13px] hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                       style={{ fontWeight: 600 }}
                     >
-                      {generatingPacket ? "Generating…" : "Generate Intelligence Packet"}
+                      {generatingPacket ? "Generating…" : "Generate Report"}
                     </button>
                     {packetError && (
                       <p className="mt-2 text-[11px] text-red-600">{packetError}</p>

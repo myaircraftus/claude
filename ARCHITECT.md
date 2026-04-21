@@ -279,9 +279,20 @@ User tested and found still broken / changes requested:
 
 ✅ Migrations 044 (mechanic_invites) and 045 (estimates_squawks_link) applied
 
-### Known Follow-ups (not yet assigned)
-- Graphical error: emoji rendering near "AIRCRAFT OWNER" / "A&P MECHANIC" icons on homepage episode sections — icon+text merging oddly
-- Duplicate test docs: 2x "Codex Upload Smoke Test" with no aircraft → clean up
-- Document detail modal shows raw aircraft UUID instead of tail number (from user screenshot)
+### Wave 6 (post-feedback round 2) agents running:
+- Intelligence packet types: ✅ DONE - 5 types (aircraft_overview, insurance_packet, pre_buy_inspection, annual_inspection_summary, compliance_ad_report) with report type selector
+- Document upload UI cleanup: ✅ DONE - aircraft dropdown first, 8 quick-select chips, advanced options collapsed, help text
+- Mechanic portal WO list+create inline + logbook search: 🔄 running
+- AI Command Center tool-calling wiring: 🔄 running (lib/ai/tools.ts done, /api/ask route TBD)
+- Aircraft detail: Squawks/Reminders → Maintenance sub-tabs: DEFERRED (first attempt broke build; need careful manual retry)
+
+### Reference docs
+- `/AUTONOMOUS_NIGHT_RUN_REPORT.md` - wave 1-3 summary
+- `/WAVE_4_5_REPORT.md` - wave 4-5 post-feedback with honest test list
+- `/NEXT_STEPS.md` - user action items (rotate creds, set TRIGGER_SECRET_KEY)
+- `/ARCHITECT.md` - this file, codebase map
+
+### Remaining follow-ups
+- Duplicate test docs: 2x "Codex Upload Smoke Test" with no aircraft → clean up via admin
 - Storage usage hardcoded to 0 in settings (user-facing)
 - Rotate exposed AWS + GCP credentials (user action required)
