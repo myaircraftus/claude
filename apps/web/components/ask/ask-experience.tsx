@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink } from 'lucide-react'
+import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -328,8 +328,35 @@ export function AskExperience() {
 
   return (
     <div className="h-full flex">
+      {/* ── Mobile citation modal (full-screen on small screens) ─────────────── */}
+      {activeCitation && (
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-background">
+          <div className="flex items-center justify-between p-3 border-b border-border">
+            <span className="text-sm font-semibold">Source Preview</span>
+            <button
+              onClick={() => setActiveCitation(null)}
+              className="p-1 rounded hover:bg-muted transition-colors"
+              aria-label="Close citation viewer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <DocumentViewerBoundary
+              resetKey={`${activeCitation.documentId}:${activeCitation.chunkId}:${activeCitation.pageNumber}`}
+            >
+              <DocumentViewer
+                citation={activeCitation}
+                documentId={activeCitation.documentId}
+                onClose={() => setActiveCitation(null)}
+              />
+            </DocumentViewerBoundary>
+          </div>
+        </div>
+      )}
+
       {/* Main area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <div className="p-6 border-b border-border bg-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -479,7 +506,7 @@ export function AskExperience() {
       </div>
 
       {/* Right sidebar: mechanic tools + history or source preview */}
-      <div className="hidden lg:block w-[320px] border-l border-border bg-white">
+      <div className={`hidden lg:block border-l border-border bg-white transition-all duration-200 ${activeCitation ? 'w-[40%]' : 'w-[320px]'}`}>
         {activeCitation ? (
           <div className="h-full flex flex-col">
             <div className="p-4 border-b border-border flex items-center justify-between">
