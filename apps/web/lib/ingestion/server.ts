@@ -800,7 +800,9 @@ async function persistOcrArtifacts(args: {
     (page) => page.text.trim().length > 0 || page.page_classification === 'blank'
   )
 
-  if (relevantPages.length === 0) return
+  if (relevantPages.length === 0) {
+    return { requiresHumanReview: false }
+  }
 
   const now = new Date().toISOString()
   const scanPageMap = new Map<number, {
@@ -1212,6 +1214,15 @@ async function persistOcrArtifacts(args: {
       const bestSegment = bestSegmentByPage.get(page.page_number)
       if (!pageJob || !page.extracted_event) return null
 
+      const normalizedEventDate =
+        validateOcrField('entry_date', page.extracted_event.event_date ?? null).normalized ?? null
+      const normalizedTach =
+        validateOcrField('tach_time', page.extracted_event.tach_time ?? null).normalized ?? null
+      const normalizedAirframeTt =
+        validateOcrField('airframe_tt', page.extracted_event.airframe_tt ?? null).normalized ?? null
+      const normalizedTsmoh =
+        validateOcrField('tsmoh', page.extracted_event.tsmoh ?? null).normalized ?? null
+
       return {
         ocr_page_job_id: pageJob.id,
         ocr_entry_segment_id: bestSegment?.id ?? null,
@@ -1223,12 +1234,10 @@ async function persistOcrArtifacts(args: {
         evidence_state: bestSegment?.evidence_state ?? null,
         event_type: page.extracted_event.event_type ?? null,
         logbook_type: page.extracted_event.logbook_type ?? null,
-        event_date: page.extracted_event.event_date ?? null,
-        tach_time: page.extracted_event.tach_time ? Number(page.extracted_event.tach_time) : null,
-        airframe_tt: page.extracted_event.airframe_tt
-          ? Number(page.extracted_event.airframe_tt)
-          : null,
-        tsmoh: page.extracted_event.tsmoh ? Number(page.extracted_event.tsmoh) : null,
+        event_date: normalizedEventDate,
+        tach_time: normalizedTach ? Number(normalizedTach) : null,
+        airframe_tt: normalizedAirframeTt ? Number(normalizedAirframeTt) : null,
+        tsmoh: normalizedTsmoh ? Number(normalizedTsmoh) : null,
         work_description: page.extracted_event.work_description ?? null,
         work_description_normalized: page.extracted_event.work_description ?? null,
         ata_chapter: null,
@@ -1252,11 +1261,11 @@ async function persistOcrArtifacts(args: {
         confidence_overall:
           page.extracted_event.confidence_overall ?? page.ocr_confidence ?? null,
         confidence_date:
-          page.extracted_event.event_date && page.extracted_event.confidence_overall != null
+          normalizedEventDate && page.extracted_event.confidence_overall != null
             ? page.extracted_event.confidence_overall
             : null,
         confidence_tach:
-          page.extracted_event.tach_time && page.extracted_event.confidence_overall != null
+          normalizedTach && page.extracted_event.confidence_overall != null
             ? page.extracted_event.confidence_overall
             : null,
         confidence_mechanic:
@@ -1364,6 +1373,8 @@ async function persistOcrArtifacts(args: {
     })),
     conflictCount: conflictCount ?? 0,
   })
+
+  return { requiresHumanReview: queueRows.length > 0 }
 }
 
 export async function ingestDocumentInline(documentId: string): Promise<DocumentIngestionResult> {
@@ -1567,12 +1578,15 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       await batchInsert(supabase, 'document_pages', pageRows, 50)
     }
 
+    let requiresHumanReview = false
+
     if (!ingestData.is_text_native && ingestData.pages.length > 0) {
-      await persistOcrArtifacts({
+      const ocrArtifacts = await persistOcrArtifacts({
         supabase,
         document,
         pages: ingestData.pages,
       })
+      requiresHumanReview = ocrArtifacts.requiresHumanReview
     }
 
     const chunkRows = ingestData.chunks.map((chunk) => ({
@@ -1669,11 +1683,21 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       pageCount: ingestData.page_count,
       now: completedAt,
     })
-    processingState = markDocumentProcessingCompleted(processingState, {
-      engine: processingState.current_engine,
-      pageCount: ingestData.page_count,
-      now: completedAt,
-    })
+    processingState = requiresHumanReview
+      ? markDocumentProcessingNeedsReview(
+          processingState,
+          'Low-confidence or handwritten OCR content requires human review.',
+          {
+            engine: 'google_document_ai',
+            pageCount: ingestData.page_count,
+            now: completedAt,
+          }
+        )
+      : markDocumentProcessingCompleted(processingState, {
+          engine: processingState.current_engine,
+          pageCount: ingestData.page_count,
+          now: completedAt,
+        })
 
     await persistDocumentProcessingState({
       supabase,

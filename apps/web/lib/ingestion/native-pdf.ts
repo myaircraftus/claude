@@ -255,9 +255,15 @@ function getOpenAI() {
 }
 
 function getDocumentAiConfig(): DocumentAiConfig | null {
-  const projectId = process.env.GOOGLE_CLOUD_PROJECT?.trim()
-  const location = process.env.DOCUMENT_AI_LOCATION?.trim()
-  const processorId = process.env.DOCUMENT_AI_PROCESSOR_ID?.trim()
+  const projectId =
+    process.env.GOOGLE_CLOUD_PROJECT?.trim() ||
+    process.env.GOOGLE_DOCUMENT_AI_PROJECT_ID?.trim()
+  const location =
+    process.env.DOCUMENT_AI_LOCATION?.trim() ||
+    process.env.GOOGLE_DOCUMENT_AI_LOCATION?.trim()
+  const processorId =
+    process.env.DOCUMENT_AI_PROCESSOR_ID?.trim() ||
+    process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID?.trim()
   const credentialsJson =
     process.env.GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON?.trim() ||
     process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
@@ -280,32 +286,17 @@ function getDocumentAiConfig(): DocumentAiConfig | null {
   }
 }
 
-function getDocumentAiSchemaOverride(): DocumentAiSchemaOverride {
+function getDocumentAiSchemaOverride(): DocumentAiSchemaOverride | null {
   const raw = process.env.DOCUMENT_AI_SCHEMA_JSON?.trim()
-  if (raw) {
-    try {
-      return JSON.parse(raw) as DocumentAiSchemaOverride
-    } catch (error) {
-      console.warn('[ingestion] invalid DOCUMENT_AI_SCHEMA_JSON, using default schema override', error)
-    }
+  if (!raw) {
+    return null
   }
 
-  return {
-    displayName: 'CDE Schema',
-    description: 'Document Schema for the CDE Processor',
-    entityTypes: [
-      {
-        name: 'custom_extraction_document_type',
-        baseTypes: ['document'],
-        properties: [
-          {
-            name: 'description',
-            valueType: 'string',
-            occurrenceType: 'OPTIONAL_MULTIPLE',
-          },
-        ],
-      },
-    ],
+  try {
+    return JSON.parse(raw) as DocumentAiSchemaOverride
+  } catch (error) {
+    console.warn('[ingestion] invalid DOCUMENT_AI_SCHEMA_JSON, omitting schema override', error)
+    return null
   }
 }
 
@@ -1262,6 +1253,7 @@ async function parseScannedPdfWithDocumentAi(args: {
       )
     }
 
+    const schemaOverride = getDocumentAiSchemaOverride()
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -1271,9 +1263,13 @@ async function parseScannedPdfWithDocumentAi(args: {
       signal: AbortSignal.timeout(DOCUMENT_AI_TIMEOUT_MS),
       body: JSON.stringify({
         skipHumanReview: true,
-        processOptions: {
-          schemaOverride: getDocumentAiSchemaOverride(),
-        },
+        ...(schemaOverride
+          ? {
+              processOptions: {
+                schemaOverride,
+              },
+            }
+          : {}),
         rawDocument: {
           mimeType: 'application/pdf',
           content: Buffer.from(pdfChunkBytes).toString('base64'),

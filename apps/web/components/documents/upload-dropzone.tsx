@@ -85,10 +85,8 @@ const MECHANIC_CHIPS: QuickChip[] = [
 ]
 
 const MAX_UPLOAD_FILE_SIZE_BYTES = 250 * 1024 * 1024
-const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 6 * 1024 * 1024
-const RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES = 6 * 1024 * 1024
 const COMPACT_STAGE_ORDER = DOCUMENT_PROCESSING_STAGE_ORDER.filter((stage) => stage !== 'ocr_fallback')
-const COMPACT_STAGE_LABELS: Partial<Record<(typeof COMPACT_STAGE_ORDER)[number], string>> = {
+const COMPACT_STAGE_LABELS: Partial<Record<DocumentProcessingState['current_stage'], string>> = {
   uploaded: 'Uploaded',
   native_text_probe: 'PDF Probe',
   document_ai_ocr: 'OCR',
@@ -129,20 +127,6 @@ function getPersistedOwnerAircraftId() {
   return value ? value : undefined
 }
 
-function getResumableUploadEndpoint() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!supabaseUrl) {
-    throw new Error('Missing Supabase URL for resumable uploads.')
-  }
-
-  const projectRef = new URL(supabaseUrl).hostname.split('.')[0]
-  if (!projectRef) {
-    throw new Error('Invalid Supabase URL for resumable uploads.')
-  }
-
-  return `https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`
-}
-
 function normalizeUploadErrorMessage(message: string) {
   const lowered = message.toLowerCase()
   if (
@@ -150,7 +134,7 @@ function normalizeUploadErrorMessage(message: string) {
     lowered.includes('maximum allowed size') ||
     lowered.includes('object exceeded')
   ) {
-    return 'Upload blocked by the current Supabase Storage limit. This project is currently capped at 50 MB because spend cap is enabled. Raise Storage > Files > Settings and disable spend cap to allow 128 MB and 250 MB PDFs.'
+    return 'Storage rejected this upload as too large. The app is configured for files up to 250 MB, so if you still see this it is coming from the active storage provider limit or transport path.'
   }
 
   return message
@@ -158,7 +142,22 @@ function normalizeUploadErrorMessage(message: string) {
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
 
-function ProcessingStatusBadge({ status }: { status: ParsingStatus }) {
+function ProcessingStatusBadge({
+  status,
+  currentStage,
+}: {
+  status: ParsingStatus
+  currentStage?: DocumentProcessingState['current_stage'] | null
+}) {
+  if (currentStage === 'needs_review') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700">
+        <AlertCircle className="w-3 h-3" />
+        Needs Review
+      </span>
+    )
+  }
+
   const inProgress: ParsingStatus[] = ['queued', 'parsing', 'chunking', 'embedding', 'ocr_processing']
   const isInProgress = inProgress.includes(status)
 
@@ -221,11 +220,18 @@ function CompactProcessingTimeline({
     : coerceDocumentProcessingState(null, undefined, {
         status: fallbackStatus ?? 'queued',
       })
+  const displayStages = [...COMPACT_STAGE_ORDER]
+  if (
+    normalizedState.current_stage === 'needs_review' ||
+    normalizedState.current_stage === 'failed'
+  ) {
+    displayStages.push(normalizedState.current_stage)
+  }
 
   return (
     <div className="overflow-x-auto">
       <div className="flex min-w-max items-start gap-1.5">
-        {COMPACT_STAGE_ORDER.map((stage, index) => {
+        {displayStages.map((stage, index) => {
           const snapshot = normalizedState.stages?.[stage]
           const inferredStatus =
             snapshot?.status ??
@@ -680,49 +686,83 @@ export function UploadDropzone({
     )
   }
 
-  async function uploadFileResumable(
+  async function uploadViaSignedUrl(
     item: FileUploadItem,
-    initPayload: { storagePath: string; uploadToken: string }
+    signedUrl: string
   ) {
-    const { Upload: TusUpload } = await import('tus-js-client')
-    const endpoint = getResumableUploadEndpoint()
-
     await new Promise<void>((resolve, reject) => {
-      const upload = new TusUpload(item.file, {
-        endpoint,
-        retryDelays: [0, 3000, 5000, 10000, 20000],
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', signedUrl)
+      xhr.setRequestHeader('content-type', item.file.type || 'application/pdf')
+      xhr.setRequestHeader('x-upsert', 'false')
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        const ratio = event.total > 0 ? event.loaded / event.total : 0
+        updateFile(item.id, { progress: 15 + Math.round(ratio * 65) })
+      }
+
+      xhr.onerror = () => {
+        reject(new Error('Network error while uploading file to storage.'))
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve()
+          return
+        }
+
+        let message = `Failed to upload file to storage (${xhr.status}).`
+        try {
+          const parsed = JSON.parse(xhr.responseText) as { error?: string; message?: string }
+          message = parsed.error ?? parsed.message ?? message
+        } catch {
+          if (xhr.responseText?.trim()) {
+            message = xhr.responseText.trim()
+          }
+        }
+        reject(new Error(message))
+      }
+
+      xhr.send(item.file)
+    })
+  }
+
+  async function kickOffDocumentProcessing(documentId: string, fileId: string) {
+    try {
+      const response = await fetch(`/api/documents/${documentId}/retry`, {
+        method: 'POST',
+        keepalive: true,
         headers: {
-          'x-upsert': 'false',
-          'x-signature': initPayload.uploadToken,
+          'Content-Type': 'application/json',
         },
-        uploadDataDuringCreation: true,
-        removeFingerprintOnSuccess: true,
-        chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE_BYTES,
-        metadata: {
-          bucketName: 'documents',
-          objectName: initPayload.storagePath,
-          contentType: item.file.type || 'application/pdf',
-          cacheControl: '3600',
-        },
-        fingerprint: () =>
-          `${initPayload.storagePath}::${item.file.name}::${item.file.size}::${item.file.lastModified}`,
-        onError: (error) => {
-          reject(error)
-        },
-        onProgress: (bytesUploaded, bytesTotal) => {
-          const ratio = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0
-          updateFile(item.id, { progress: 15 + Math.round(ratio * 60) })
-        },
-        onSuccess: () => resolve(),
+        body: JSON.stringify({}),
       })
 
-      void upload.findPreviousUploads().then((previousUploads) => {
-        if (previousUploads.length > 0) {
-          upload.resumeFromPreviousUpload(previousUploads[0])
-        }
-        upload.start()
-      }).catch(reject)
-    })
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string
+        status?: string
+        warning?: string | null
+      }
+
+      if (!response.ok || payload.status === 'failed') {
+        updateFile(fileId, {
+          status: 'error',
+          progress: 0,
+          error: normalizeUploadErrorMessage(
+            payload.error ?? payload.warning ?? `Document processing failed (${response.status})`
+          ),
+        })
+      }
+    } catch (error) {
+      updateFile(fileId, {
+        status: 'error',
+        progress: 0,
+        error: normalizeUploadErrorMessage(
+          error instanceof Error ? error.message : 'Failed to start document processing.'
+        ),
+      })
+    }
   }
 
   async function uploadFile(item: FileUploadItem): Promise<void> {
@@ -757,56 +797,30 @@ export function UploadDropzone({
 
       updateFile(item.id, { progress: 15 })
 
-      if (item.file.size > RESUMABLE_UPLOAD_THRESHOLD_BYTES) {
-        await uploadFileResumable(item, {
-          storagePath: initPayload.storagePath,
-          uploadToken: initPayload.uploadToken,
-        })
-      } else {
-        let uploadErrorMessage: string | null = null
+      let uploadErrorMessage: string | null = null
 
-        if (initPayload.signedUrl) {
-          const signedUploadResponse = await fetch(initPayload.signedUrl, {
-            method: 'PUT',
-            headers: {
-              'content-type': item.file.type || 'application/pdf',
-              'x-upsert': 'false',
-            },
-            body: item.file,
+      if (initPayload.signedUrl) {
+        try {
+          await uploadViaSignedUrl(item, initPayload.signedUrl)
+        } catch (error) {
+          uploadErrorMessage =
+            error instanceof Error ? error.message : 'Failed to upload file to storage.'
+        }
+      }
+
+      if (uploadErrorMessage) {
+        const uploadPath = initPayload.signedPath ?? initPayload.storagePath
+        const supabase = createBrowserSupabase()
+        const { error: storageError } = await supabase.storage
+          .from('documents')
+          .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
+            contentType: item.file.type || 'application/pdf',
           })
 
-          if (!signedUploadResponse.ok) {
-            try {
-              const errorPayload = (await signedUploadResponse.json()) as {
-                error?: string
-                message?: string
-              }
-              uploadErrorMessage =
-                errorPayload.error ??
-                errorPayload.message ??
-                `Failed to upload file to storage (${signedUploadResponse.status})`
-            } catch {
-              const responseText = await signedUploadResponse.text().catch(() => '')
-              uploadErrorMessage =
-                responseText.trim() || `Failed to upload file to storage (${signedUploadResponse.status})`
-            }
-          }
-        }
-
-        if (uploadErrorMessage) {
-          const uploadPath = initPayload.signedPath ?? initPayload.storagePath
-          const supabase = createBrowserSupabase()
-          const { error: storageError } = await supabase.storage
-            .from('documents')
-            .uploadToSignedUrl(uploadPath, initPayload.uploadToken, item.file, {
-              contentType: item.file.type || 'application/pdf',
-            })
-
-          if (storageError) {
-            throw new Error(
-              [uploadErrorMessage, storageError.message].filter(Boolean).join(' · ')
-            )
-          }
+        if (storageError) {
+          throw new Error(
+            [uploadErrorMessage, storageError.message].filter(Boolean).join(' · ')
+          )
         }
       }
 
@@ -855,6 +869,8 @@ export function UploadDropzone({
         error: undefined,
         processingState: buildInitialDocumentProcessingState(),
       })
+
+      void kickOffDocumentProcessing(completePayload.document_id, item.id)
     } catch (err) {
       updateFile(item.id, {
         status: 'error',
@@ -1210,13 +1226,22 @@ export function UploadDropzone({
                       </span>
                     )}
                     {item.status === 'processing' && realtimeStatus && (
-                      <ProcessingStatusBadge status={realtimeStatus} />
+                      <ProcessingStatusBadge
+                        status={realtimeStatus}
+                        currentStage={item.processingState?.current_stage ?? null}
+                      />
                     )}
                     {item.status === 'processing' && !realtimeStatus && (
-                      <ProcessingStatusBadge status="queued" />
+                      <ProcessingStatusBadge
+                        status="queued"
+                        currentStage={item.processingState?.current_stage ?? null}
+                      />
                     )}
                     {item.status === 'completed' && (
-                      <ProcessingStatusBadge status="completed" />
+                      <ProcessingStatusBadge
+                        status="completed"
+                        currentStage={item.processingState?.current_stage ?? null}
+                      />
                     )}
                     {item.status === 'error' && (
                       <span className="flex items-center gap-1 text-xs text-destructive">

@@ -2,15 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { getRequestUser } from '@/lib/supabase/request-user'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
-import { queueDocumentIngestion } from '@/lib/ingestion/server'
-import { shouldPreferBackgroundIngestion } from '@/lib/ingestion/background-policy'
 import type { BookAssignment, DocType, ManualAccess, Visibility } from '@/types'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import { ensureBookRecord } from '@/lib/documents/books'
-import {
-  buildInitialDocumentProcessingState,
-  markDocumentProcessingFailed,
-} from '@/lib/documents/processing-state'
+import { buildInitialDocumentProcessingState } from '@/lib/documents/processing-state'
 import {
   deriveDocTypeFromClassification,
   isDocumentDetailId,
@@ -329,39 +324,12 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  const ingestionResult = await queueDocumentIngestion(documentId, {
-    preferBackground: shouldPreferBackgroundIngestion({
-      fileSizeBytes: fileSize,
-      docType,
-    }),
-    allowInlineFallback: true,
-  })
-
-  if (ingestionResult.status === 'failed') {
-    await (serviceClient as any)
-      .from('documents')
-      .update({
-        parsing_status: 'failed',
-        processing_state: markDocumentProcessingFailed(
-          buildInitialDocumentProcessingState(),
-          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-          'uploaded'
-        ),
-        parse_error:
-          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-        parse_completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', documentId)
-      .eq('organization_id', orgId)
-  }
-
   return NextResponse.json(
     {
       document_id: documentId,
-      status: ingestionResult.status,
-      ingestion_mode: ingestionResult.mode,
-      warning: ingestionResult.warning ?? null,
+      status: 'queued',
+      ingestion_mode: 'deferred',
+      warning: null,
     },
     { status: 201 }
   )
