@@ -46,7 +46,7 @@ function getTrimmedEnvValue(name: string) {
 }
 
 function extractJsonValueCandidate(raw: string) {
-  const normalized = raw.replace(/\\n/g, '\n').trim()
+  const normalized = raw.trim()
   if (!normalized) return normalized
 
   if (
@@ -69,6 +69,11 @@ function extractJsonValueCandidate(raw: string) {
 
 function parseJsonEnvValue<T>(raw: string): T {
   return JSON.parse(extractJsonValueCandidate(raw)) as T
+}
+
+function getTrimmedRawEnvValue(name: string) {
+  const value = process.env[name]?.trim()
+  return value ? value : undefined
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
@@ -291,8 +296,8 @@ function getDocumentAiConfig(): DocumentAiConfig | null {
     getTrimmedEnvValue('DOCUMENT_AI_PROCESSOR_ID') ||
     getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_PROCESSOR_ID')
   const credentialsJson =
-    getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON') ||
-    getTrimmedEnvValue('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    getTrimmedRawEnvValue('GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON') ||
+    getTrimmedRawEnvValue('GOOGLE_APPLICATION_CREDENTIALS_JSON')
   const credentialsPath = getTrimmedEnvValue('GOOGLE_APPLICATION_CREDENTIALS')
 
   if (!projectId || !location || !processorId) {
@@ -313,7 +318,7 @@ function getDocumentAiConfig(): DocumentAiConfig | null {
 }
 
 function getDocumentAiSchemaOverride(): DocumentAiSchemaOverride | null {
-  const raw = getTrimmedEnvValue('DOCUMENT_AI_SCHEMA_JSON')
+  const raw = getTrimmedRawEnvValue('DOCUMENT_AI_SCHEMA_JSON')
   if (!raw) {
     return null
   }
@@ -1182,6 +1187,10 @@ async function getDocumentAiAuthHeader(config: DocumentAiConfig) {
   const credentials = config.credentialsJson
     ? parseJsonEnvValue<Record<string, unknown>>(config.credentialsJson)
     : undefined
+
+  if (typeof credentials?.private_key === 'string') {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n')
+  }
 
   const auth = new GoogleAuth({
     credentials,
