@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireMarketplaceContext } from '../../../_shared'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import { shouldPreferBackgroundIngestion } from '@/lib/ingestion/background-policy'
+import {
+  buildInitialDocumentProcessingState,
+  markDocumentProcessingFailed,
+} from '@/lib/documents/processing-state'
 import type { DocType } from '@/types'
 
 type AccessAction = 'view' | 'download' | 'inject' | 'download_and_inject'
@@ -110,6 +114,7 @@ async function cloneDocumentIntoWorkspace({
     parse_error: null,
     parse_started_at: null,
     parse_completed_at: null,
+    processing_state: buildInitialDocumentProcessingState(),
     is_text_native: null,
     ocr_required: false,
     source_provider: 'direct_upload',
@@ -151,6 +156,11 @@ async function cloneDocumentIntoWorkspace({
       .from('documents')
       .update({
         parsing_status: 'failed',
+        processing_state: markDocumentProcessingFailed(
+          buildInitialDocumentProcessingState(),
+          ingestion.warning ?? 'Failed to hand document off for OCR/indexing.',
+          'uploaded'
+        ),
         parse_error:
           ingestion.warning ?? 'Failed to hand document off for OCR/indexing.',
         parse_completed_at: new Date().toISOString(),

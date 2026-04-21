@@ -15,6 +15,8 @@ const OCR_TEXT_ENRICH_BATCH_SIZE = 8
 const OCR_TEXT_ENRICH_MAX_CHARS = 12000
 const DOCUMENT_AI_TIMEOUT_MS = 90_000
 const DOCUMENT_AI_MAX_PAGES_PER_REQUEST = 15
+const DOCUMENT_AI_MAX_ONLINE_FILE_BYTES = 40 * 1024 * 1024
+const DOCUMENT_AI_TARGET_BATCH_BYTES = 38 * 1024 * 1024
 const OCR_TEXT_ENRICH_TIMEOUT_MS = 45_000
 const OPENAI_OCR_BATCH_TIMEOUT_MS = 75_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
@@ -236,6 +238,16 @@ interface DocumentAiSchemaOverride {
       occurrenceType?: string
     }>
   }>
+}
+
+export interface OcrProgressUpdate {
+  stage: 'document_ai_ocr' | 'ocr_fallback'
+  status: 'running' | 'completed' | 'failed'
+  engine: string
+  pageCount?: number
+  currentBatch?: number
+  totalBatches?: number
+  message?: string
 }
 
 function getOpenAI() {
@@ -919,7 +931,7 @@ function normalizeExtractedEvent(
   return event
 }
 
-async function annotateOcrPagesWithOpenAI(args: {
+export async function annotateOcrPagesWithOpenAI(args: {
   pages: NativeParsedPage[]
   docType: string
   title: string
@@ -1100,6 +1112,27 @@ async function annotateOcrPagesWithOpenAI(args: {
   })
 }
 
+async function maybeAnnotateOcrPages(args: {
+  annotateWithOpenAI?: boolean
+  pages: NativeParsedPage[]
+  docType: string
+  title: string
+  make?: string | null
+  model?: string | null
+}) {
+  if (args.annotateWithOpenAI === false) {
+    return args.pages
+  }
+
+  return annotateOcrPagesWithOpenAI({
+    pages: args.pages,
+    docType: args.docType,
+    title: args.title,
+    make: args.make,
+    model: args.model,
+  })
+}
+
 function buildScannedIngestResponse(args: {
   pageCount: number
   pages: NativeParsedPage[]
@@ -1204,6 +1237,8 @@ async function parseScannedPdfWithDocumentAi(args: {
   pageCount: number
   make?: string | null
   model?: string | null
+  annotateWithOpenAI?: boolean
+  onProgressUpdate?: (update: OcrProgressUpdate) => Promise<void> | void
 }): Promise<NativeIngestResponse> {
   const config = getDocumentAiConfig()
   if (!config) {
@@ -1216,7 +1251,17 @@ async function parseScannedPdfWithDocumentAi(args: {
     `https://${config.location}-documentai.googleapis.com/v1/` +
     `projects/${config.projectId}/locations/${config.location}/processors/${config.processorId}:process`
 
-  const requestPayload = async (pdfChunkBytes: Uint8Array) => {
+  const requestPayload = async (
+    pdfChunkBytes: Uint8Array,
+    chunkContext: { currentBatch: number; totalBatches: number; pageOffset: number; pageCount: number }
+  ) => {
+    if (pdfChunkBytes.byteLength > DOCUMENT_AI_MAX_ONLINE_FILE_BYTES) {
+      throw new Error(
+        `Document AI batch ${chunkContext.currentBatch} of ${chunkContext.totalBatches} exceeds the ` +
+          `${Math.round(DOCUMENT_AI_MAX_ONLINE_FILE_BYTES / (1024 * 1024))} MB online processing limit`
+      )
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -1237,7 +1282,10 @@ async function parseScannedPdfWithDocumentAi(args: {
     })
 
     if (!response.ok) {
-      throw new Error(`Document AI returned ${response.status}: ${await response.text()}`)
+      throw new Error(
+        `Document AI batch ${chunkContext.currentBatch} of ${chunkContext.totalBatches} ` +
+          `returned ${response.status}: ${await response.text()}`
+      )
     }
 
     return (await response.json()) as DocumentAiProcessResponse
@@ -1273,26 +1321,56 @@ async function parseScannedPdfWithDocumentAi(args: {
   }
 
   const buildChunkedPdfRequests = async () => {
-    if (args.pageCount <= DOCUMENT_AI_MAX_PAGES_PER_REQUEST) {
+    if (
+      args.pageCount <= DOCUMENT_AI_MAX_PAGES_PER_REQUEST &&
+      pdfBytes.byteLength <= DOCUMENT_AI_TARGET_BATCH_BYTES
+    ) {
       return [{ bytes: pdfBytes, pageOffset: 0, pageCount: args.pageCount }]
     }
 
     const sourcePdf = await PDFDocument.load(pdfBytes)
     const requests: Array<{ bytes: Uint8Array; pageOffset: number; pageCount: number }> = []
 
-    for (let pageOffset = 0; pageOffset < args.pageCount; pageOffset += DOCUMENT_AI_MAX_PAGES_PER_REQUEST) {
-      const chunkPageIndexes = Array.from(
-        { length: Math.min(DOCUMENT_AI_MAX_PAGES_PER_REQUEST, args.pageCount - pageOffset) },
-        (_, index) => pageOffset + index
-      )
-      const chunkPdf = await PDFDocument.create()
-      const copiedPages = await chunkPdf.copyPages(sourcePdf, chunkPageIndexes)
-      copiedPages.forEach((page) => chunkPdf.addPage(page))
+    let pageOffset = 0
+    while (pageOffset < args.pageCount) {
+      const maxChunkPages = Math.min(DOCUMENT_AI_MAX_PAGES_PER_REQUEST, args.pageCount - pageOffset)
+      let pageCount = maxChunkPages
+      let bytes: Uint8Array | null = null
+
+      while (pageCount > 0) {
+        const chunkPageIndexes = Array.from({ length: pageCount }, (_, index) => pageOffset + index)
+        const chunkPdf = await PDFDocument.create()
+        const copiedPages = await chunkPdf.copyPages(sourcePdf, chunkPageIndexes)
+        copiedPages.forEach((page) => chunkPdf.addPage(page))
+        const nextBytes = await chunkPdf.save()
+
+        if (
+          nextBytes.byteLength <= DOCUMENT_AI_TARGET_BATCH_BYTES ||
+          pageCount === 1
+        ) {
+          bytes = nextBytes
+          break
+        }
+
+        pageCount -= 1
+      }
+
+      if (!bytes) {
+        throw new Error(`Unable to build a Document AI batch starting at page ${pageOffset + 1}`)
+      }
+
+      if (pageCount === 1 && bytes.byteLength > DOCUMENT_AI_MAX_ONLINE_FILE_BYTES) {
+        throw new Error(
+          `Page ${pageOffset + 1} exceeds the maximum Document AI online object size even as a single-page batch`
+        )
+      }
+
       requests.push({
-        bytes: await chunkPdf.save(),
+        bytes,
         pageOffset,
-        pageCount: chunkPageIndexes.length,
+        pageCount,
       })
+      pageOffset += pageCount
     }
 
     return requests
@@ -1301,12 +1379,39 @@ async function parseScannedPdfWithDocumentAi(args: {
   const requestChunks = await buildChunkedPdfRequests()
   const basePages: NativeParsedPage[] = []
 
-  for (const chunk of requestChunks) {
-    const payload = await requestPayload(chunk.bytes)
+  for (const [index, chunk] of requestChunks.entries()) {
+    const currentBatch = index + 1
+    const totalBatches = requestChunks.length
+
+    await args.onProgressUpdate?.({
+      stage: 'document_ai_ocr',
+      status: 'running',
+      engine: 'google_document_ai',
+      pageCount: args.pageCount,
+      currentBatch,
+      totalBatches,
+    })
+
+    const payload = await requestPayload(chunk.bytes, {
+      currentBatch,
+      totalBatches,
+      pageOffset: chunk.pageOffset,
+      pageCount: chunk.pageCount,
+    })
     basePages.push(...buildPagesFromPayload(payload, chunk.pageCount, chunk.pageOffset))
   }
 
-  const enrichedPages = await annotateOcrPagesWithOpenAI({
+  await args.onProgressUpdate?.({
+    stage: 'document_ai_ocr',
+    status: 'completed',
+    engine: 'google_document_ai',
+    pageCount: args.pageCount,
+    currentBatch: requestChunks.length,
+    totalBatches: requestChunks.length,
+  })
+
+  const enrichedPages = await maybeAnnotateOcrPages({
+    annotateWithOpenAI: args.annotateWithOpenAI,
     pages: basePages,
     docType: args.docType,
     title: args.title,
@@ -1331,6 +1436,7 @@ async function parseScannedPdfWithLocalOcr(args: {
   pageCount: number
   make?: string | null
   model?: string | null
+  annotateWithOpenAI?: boolean
 }): Promise<NativeIngestResponse> {
   const scriptPath = getLocalOcrScriptPath()
   if (!scriptPath) {
@@ -1391,7 +1497,8 @@ async function parseScannedPdfWithLocalOcr(args: {
       })
     })
 
-    const enrichedPages = await annotateOcrPagesWithOpenAI({
+    const enrichedPages = await maybeAnnotateOcrPages({
+      annotateWithOpenAI: args.annotateWithOpenAI,
       pages: basePages,
       docType: args.docType,
       title: args.title,
@@ -1419,6 +1526,7 @@ async function parseScannedPdfWithTextract(args: {
   pageCount: number
   make?: string | null
   model?: string | null
+  annotateWithOpenAI?: boolean
 }): Promise<NativeIngestResponse> {
   if (!hasTextractConfig()) {
     throw new Error('Textract is not configured')
@@ -1484,7 +1592,8 @@ async function parseScannedPdfWithTextract(args: {
     })
   })
 
-  const enrichedPages = await annotateOcrPagesWithOpenAI({
+  const enrichedPages = await maybeAnnotateOcrPages({
+    annotateWithOpenAI: args.annotateWithOpenAI,
     pages: basePages,
     docType: args.docType,
     title: args.title,
@@ -1748,6 +1857,7 @@ export async function parseScannedPdfWithOpenAI(args: {
   pageCount: number
   make?: string | null
   model?: string | null
+  annotateWithOpenAI?: boolean
 }): Promise<NativeIngestResponse> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is required for scanned PDF OCR')
@@ -1784,10 +1894,17 @@ export async function parseScannedPdfWithOpenAI(args: {
 
     return buildScannedIngestResponse({
       pageCount: args.pageCount,
-      pages: pages.map((page) => ({
-        ...page,
-        ocr_engine: 'openai_pdf_ocr',
-      })),
+      pages: await maybeAnnotateOcrPages({
+        annotateWithOpenAI: args.annotateWithOpenAI,
+        pages: pages.map((page) => ({
+          ...page,
+          ocr_engine: 'openai_pdf_ocr',
+        })),
+        docType: args.docType,
+        title: args.title,
+        make: args.make,
+        model: args.model,
+      }),
       docType: args.docType,
       title: args.title,
       make: args.make,
@@ -1809,6 +1926,8 @@ export async function parseScannedPdfWithFallbacks(args: {
   pageCount: number
   make?: string | null
   model?: string | null
+  annotateWithOpenAI?: boolean
+  onProgressUpdate?: (update: OcrProgressUpdate) => Promise<void> | void
 }): Promise<NativeIngestResponse> {
   const attempts: Array<{
     name: string
@@ -1847,7 +1966,28 @@ export async function parseScannedPdfWithFallbacks(args: {
     if (!attempt.enabled) continue
 
     try {
+      if (attempt.name !== 'google_document_ai') {
+        await args.onProgressUpdate?.({
+          stage: 'ocr_fallback',
+          status: 'running',
+          engine: attempt.name,
+          pageCount: args.pageCount,
+          currentBatch: 1,
+          totalBatches: 1,
+        })
+      }
+
       const result = await attempt.run()
+      if (attempt.name !== 'google_document_ai') {
+        await args.onProgressUpdate?.({
+          stage: 'ocr_fallback',
+          status: 'completed',
+          engine: attempt.name,
+          pageCount: args.pageCount,
+          currentBatch: 1,
+          totalBatches: 1,
+        })
+      }
       if (result.chunks.length > 0 || result.pages.some((page) => page.text.trim().length > 0)) {
         return result
       }
@@ -1855,6 +1995,15 @@ export async function parseScannedPdfWithFallbacks(args: {
       errors.push(`${attempt.name}: returned no usable OCR text`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      await args.onProgressUpdate?.({
+        stage: attempt.name === 'google_document_ai' ? 'document_ai_ocr' : 'ocr_fallback',
+        status: 'failed',
+        engine: attempt.name,
+        pageCount: args.pageCount,
+        currentBatch: attempt.name === 'google_document_ai' ? undefined : 1,
+        totalBatches: attempt.name === 'google_document_ai' ? undefined : 1,
+        message,
+      })
       errors.push(`${attempt.name}: ${message}`)
     }
   }

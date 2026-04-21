@@ -7,6 +7,10 @@ import type { BookAssignment, DocType, ManualAccess, Visibility } from '@/types'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import { ensureBookRecord } from '@/lib/documents/books'
 import {
+  buildInitialDocumentProcessingState,
+  markDocumentProcessingFailed,
+} from '@/lib/documents/processing-state'
+import {
   deriveDocTypeFromClassification,
   isDocumentDetailId,
   isDocumentGroupId,
@@ -266,6 +270,7 @@ export async function POST(req: NextRequest) {
       mime_type: mimeType,
       checksum_sha256: checksumSha256,
       parsing_status: 'queued',
+      processing_state: buildInitialDocumentProcessingState(),
       source_provider: 'direct_upload',
       ocr_required: false,
       version_number: 1,
@@ -335,6 +340,11 @@ export async function POST(req: NextRequest) {
       .from('documents')
       .update({
         parsing_status: 'failed',
+        processing_state: markDocumentProcessingFailed(
+          buildInitialDocumentProcessingState(),
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+          'uploaded'
+        ),
         parse_error:
           ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
         parse_completed_at: new Date().toISOString(),

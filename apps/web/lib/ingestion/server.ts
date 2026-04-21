@@ -2,19 +2,29 @@ import { tasks } from '@trigger.dev/sdk/v3'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { generateEmbeddings } from '@/lib/openai/embeddings'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import {
+  buildInitialDocumentProcessingState,
+  coerceDocumentProcessingState,
+  markDocumentProcessingCompleted,
+  markDocumentProcessingFailed,
+  markDocumentProcessingNeedsReview,
+  markDocumentProcessingStage,
+} from '@/lib/documents/processing-state'
 import { buildOcrEntrySegments } from '@/lib/ocr/segments'
 import { validateOcrField } from '@/lib/ocr/validation'
 import { recordDocumentDriftSnapshot } from '@/lib/intelligence/quality'
 import { ensureTriggerSecretKey, isTriggerConfigured } from '@/lib/ingestion/trigger-env'
 import {
+  annotateOcrPagesWithOpenAI,
   extractMetadataInline,
-  getUsableParserServiceUrl,
   type NativeExtractedEvent,
   type NativePageGeometryRegion,
+  type OcrProgressUpdate,
   OcrNotConfiguredError,
   parseScannedPdfWithFallbacks,
   parseTextNativePdf,
 } from '@/lib/ingestion/native-pdf'
+import type { DocumentProcessingState } from '@/types'
 
 interface DocumentRecord {
   id: string
@@ -45,6 +55,8 @@ interface DocumentRecord {
   file_name: string
   mime_type: string
   page_count?: number | null
+  uploaded_at?: string | null
+  processing_state?: DocumentProcessingState | null
 }
 
 interface AircraftRecord {
@@ -227,7 +239,9 @@ async function fetchDocumentRecord(supabase: ServiceClient, documentId: string) 
       intelligence_tags,
       title,
       file_name,
-      mime_type
+      mime_type,
+      uploaded_at,
+      processing_state
     `)
     .eq('id', documentId)
     .single()
@@ -250,6 +264,29 @@ async function fetchDocumentRecord(supabase: ServiceClient, documentId: string) 
   }
 
   return { document, aircraft }
+}
+
+async function persistDocumentProcessingState(args: {
+  supabase: ServiceClient
+  documentId: string
+  state: DocumentProcessingState
+  patch?: Record<string, unknown>
+}) {
+  const updatedAt = args.state.updated_at ?? new Date().toISOString()
+  const payload = {
+    processing_state: args.state,
+    updated_at: updatedAt,
+    ...(args.patch ?? {}),
+  }
+
+  const { error } = await args.supabase
+    .from('documents')
+    .update(payload)
+    .eq('id', args.documentId)
+
+  if (error) {
+    throw new Error(`Failed to persist document processing state: ${error.message}`)
+  }
 }
 
 async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string) {
@@ -630,36 +667,55 @@ async function persistMetadata(args: {
 async function markDocumentFailed(
   supabase: ServiceClient,
   documentId: string,
-  errorMessage: string
+  errorMessage: string,
+  processingState: DocumentProcessingState | null | undefined
 ) {
-  await supabase
-    .from('documents')
-    .update({
+  const now = new Date().toISOString()
+  const nextState = markDocumentProcessingFailed(processingState, errorMessage, { now })
+
+  await persistDocumentProcessingState({
+    supabase,
+    documentId,
+    state: nextState,
+    patch: {
       parsing_status: 'failed',
       parse_error: errorMessage,
-      parse_completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', documentId)
+      parse_completed_at: now,
+      updated_at: now,
+    },
+  })
 }
 
 async function markDocumentNeedsOcr(
   supabase: ServiceClient,
   documentId: string,
   pageCount: number,
-  warning?: string
+  warning: string | undefined,
+  processingState: DocumentProcessingState | null | undefined
 ) {
-  await supabase
-    .from('documents')
-    .update({
+  const now = new Date().toISOString()
+  const nextState = markDocumentProcessingNeedsReview(
+    processingState,
+    warning ?? 'OCR review required before indexing can continue.',
+    {
+      now,
+      pageCount,
+    }
+  )
+
+  await persistDocumentProcessingState({
+    supabase,
+    documentId,
+    state: nextState,
+    patch: {
       page_count: pageCount,
       ocr_required: true,
       parsing_status: 'needs_ocr',
       parse_error: warning ?? null,
-      parse_completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', documentId)
+      parse_completed_at: now,
+      updated_at: now,
+    },
+  })
 }
 
 function hasMeaningfulExtractedEvent(event?: NativeExtractedEvent | null) {
@@ -1314,122 +1370,174 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
   const supabase = createServiceSupabase()
   const { document, aircraft } = await fetchDocumentRecord(supabase, documentId)
   let fallbackPageCount = document.page_count ?? 0
+  let processingState = coerceDocumentProcessingState(document.processing_state, document.uploaded_at)
 
   try {
-    await supabase
-      .from('documents')
-      .update({
+    const startedAt = new Date().toISOString()
+    processingState = markDocumentProcessingStage(processingState, 'native_text_probe', 'running', {
+      engine: 'pdfjs',
+      now: startedAt,
+    })
+
+    await persistDocumentProcessingState({
+      supabase,
+      documentId,
+      state: processingState,
+      patch: {
         parsing_status: 'parsing',
-        parse_started_at: new Date().toISOString(),
+        parse_started_at: startedAt,
         parse_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', documentId)
+        updated_at: startedAt,
+      },
+    })
 
     await clearDerivedArtifacts(supabase, documentId)
 
     const fileUrl = await createSignedDocumentUrl(supabase, document.file_path)
-    const parserServiceUrl = getUsableParserServiceUrl()
-    const runInlinePdfParser = async () => {
-      const nativeData = await parseTextNativePdf({
-        fileUrl,
-        docType: document.doc_type,
-        title: document.title,
-        make: aircraft?.make ?? null,
-        model: aircraft?.model ?? null,
+    const nativeData = await parseTextNativePdf({
+      fileUrl,
+      docType: document.doc_type,
+      title: document.title,
+      make: aircraft?.make ?? null,
+      model: aircraft?.model ?? null,
+    })
+    fallbackPageCount = nativeData.page_count
+
+    processingState = markDocumentProcessingStage(processingState, 'native_text_probe', 'completed', {
+      engine: 'pdfjs',
+      pageCount: nativeData.page_count,
+    })
+
+    let ingestData: IngestResponse = nativeData
+
+    if (!nativeData.is_text_native) {
+      processingState = markDocumentProcessingStage(processingState, 'document_ai_ocr', 'running', {
+        engine: 'google_document_ai',
+        pageCount: nativeData.page_count,
+        currentBatch: 0,
+        totalBatches: null,
       })
-      fallbackPageCount = nativeData.page_count
 
-      if (nativeData.is_text_native) {
-        return nativeData
-      }
-
-      await supabase
-        .from('documents')
-        .update({
+      await persistDocumentProcessingState({
+        supabase,
+        documentId,
+        state: processingState,
+        patch: {
           is_text_native: false,
           page_count: nativeData.page_count,
           parsing_status: 'ocr_processing',
           ocr_required: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', documentId)
+          parse_error: null,
+        },
+      })
 
-      return parseScannedPdfWithFallbacks({
+      ingestData = await parseScannedPdfWithFallbacks({
         fileUrl,
         docType: document.doc_type,
         title: document.title,
         pageCount: nativeData.page_count,
         make: aircraft?.make ?? null,
         model: aircraft?.model ?? null,
-      })
-    }
+        annotateWithOpenAI: false,
+        onProgressUpdate: async (update: OcrProgressUpdate) => {
+          processingState = markDocumentProcessingStage(
+            processingState,
+            update.stage,
+            update.status,
+            {
+              engine: update.engine,
+              pageCount: update.pageCount ?? nativeData.page_count,
+              currentBatch: update.currentBatch ?? null,
+              totalBatches: update.totalBatches ?? null,
+              message: update.message ?? null,
+            }
+          )
 
-    let ingestData: IngestResponse
-    let metadata: MetadataResponse | null = null
-
-    if (parserServiceUrl) {
-      try {
-        ingestData = await callParserIngest({ document, aircraft, fileUrl })
-        metadata = await callParserMetadata({
-          document,
-          aircraft,
-          chunks: ingestData.chunks,
-        })
-
-        if (!ingestData.is_text_native && ingestData.chunks.length === 0) {
-          ingestData = await runInlinePdfParser()
-          metadata = await extractMetadataInline({
-            docType: document.doc_type,
-            make: aircraft?.make ?? null,
-            model: aircraft?.model ?? null,
-            chunks: ingestData.chunks,
+          await persistDocumentProcessingState({
+            supabase,
+            documentId,
+            state: processingState,
+            patch: {
+              page_count: update.pageCount ?? nativeData.page_count,
+              parsing_status: 'ocr_processing',
+              ocr_required: true,
+            },
           })
-        }
-      } catch (parserError) {
-        console.warn('[ingestion] external parser unavailable, falling back to inline parser', {
-          documentId,
-          error: parserError instanceof Error ? parserError.message : parserError,
-        })
-
-        ingestData = await runInlinePdfParser()
-        metadata = await extractMetadataInline({
-          docType: document.doc_type,
-          make: aircraft?.make ?? null,
-          model: aircraft?.model ?? null,
-          chunks: ingestData.chunks,
-        })
-      }
-    } else {
-      ingestData = await runInlinePdfParser()
-      metadata = await extractMetadataInline({
-        docType: document.doc_type,
-        make: aircraft?.make ?? null,
-        model: aircraft?.model ?? null,
-        chunks: ingestData.chunks,
+        },
       })
     }
 
-    await supabase
-      .from('documents')
-      .update({
+    processingState = markDocumentProcessingStage(processingState, 'field_extraction', 'running', {
+      engine: ingestData.is_text_native ? 'pdfjs' : processingState.current_engine,
+      pageCount: ingestData.page_count,
+    })
+
+    await persistDocumentProcessingState({
+      supabase,
+      documentId,
+      state: processingState,
+      patch: {
         is_text_native: ingestData.is_text_native,
         page_count: ingestData.page_count,
-        parsing_status: 'chunking',
+        parsing_status: ingestData.is_text_native ? 'parsing' : 'ocr_processing',
         ocr_required: !ingestData.is_text_native,
-        updated_at: new Date().toISOString(),
+      },
+    })
+
+    if (!ingestData.is_text_native && ingestData.pages.length > 0) {
+      const enrichedPages = await annotateOcrPagesWithOpenAI({
+        pages: ingestData.pages,
+        docType: document.doc_type,
+        title: document.title,
+        make: aircraft?.make ?? null,
+        model: aircraft?.model ?? null,
       })
-      .eq('id', documentId)
+
+      ingestData = {
+        ...ingestData,
+        pages: enrichedPages,
+      }
+    }
+
+    const metadata = await extractMetadataInline({
+      docType: document.doc_type,
+      make: aircraft?.make ?? null,
+      model: aircraft?.model ?? null,
+      chunks: ingestData.chunks,
+    })
+
+    processingState = markDocumentProcessingStage(processingState, 'field_extraction', 'completed', {
+      engine: processingState.current_engine,
+      pageCount: ingestData.page_count,
+    })
 
     if (ingestData.chunks.length === 0) {
       await markDocumentNeedsOcr(
         supabase,
         documentId,
         ingestData.page_count,
-        'Parser returned no extractable text; OCR review required.'
+        'OCR finished, but no extractable text could be chunked. Human review is required.',
+        processingState
       )
       return { mode: 'inline', status: 'needs_ocr' }
     }
+
+    processingState = markDocumentProcessingStage(processingState, 'chunking', 'running', {
+      engine: processingState.current_engine,
+      pageCount: ingestData.page_count,
+    })
+
+    await persistDocumentProcessingState({
+      supabase,
+      documentId,
+      state: processingState,
+      patch: {
+        is_text_native: ingestData.is_text_native,
+        page_count: ingestData.page_count,
+        parsing_status: 'chunking',
+        ocr_required: !ingestData.is_text_native,
+      },
+    })
 
     if (ingestData.pages.length > 0) {
       const pageRows = ingestData.pages.map((page) => ({
@@ -1485,13 +1593,23 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       throw new Error(`Failed to fetch inserted chunks: ${chunksError?.message ?? 'unknown error'}`)
     }
 
-    await supabase
-      .from('documents')
-      .update({
+    processingState = markDocumentProcessingStage(processingState, 'chunking', 'completed', {
+      engine: processingState.current_engine,
+      pageCount: ingestData.page_count,
+    })
+    processingState = markDocumentProcessingStage(processingState, 'embedding', 'running', {
+      engine: 'openai_embeddings',
+      pageCount: ingestData.page_count,
+    })
+
+    await persistDocumentProcessingState({
+      supabase,
+      documentId,
+      state: processingState,
+      patch: {
         parsing_status: 'embedding',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', documentId)
+      },
+    })
 
     await insertEmbeddingsCompat({
       supabase,
@@ -1532,25 +1650,44 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         ingestData.is_text_native || !document.doc_type.toLowerCase().includes('logbook'),
     })
 
-    await supabase
-      .from('documents')
-      .update({
+    const completedAt = new Date().toISOString()
+    processingState = markDocumentProcessingStage(processingState, 'embedding', 'completed', {
+      engine: 'openai_embeddings',
+      pageCount: ingestData.page_count,
+      now: completedAt,
+    })
+    processingState = markDocumentProcessingCompleted(processingState, {
+      engine: processingState.current_engine,
+      pageCount: ingestData.page_count,
+      now: completedAt,
+    })
+
+    await persistDocumentProcessingState({
+      supabase,
+      documentId,
+      state: processingState,
+      patch: {
         parsing_status: 'completed',
-        parse_completed_at: new Date().toISOString(),
+        parse_completed_at: completedAt,
         parse_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', documentId)
+      },
+    })
 
     return { mode: 'inline', status: 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'
     if (error instanceof OcrNotConfiguredError || (error as { name?: string })?.name === 'OcrNotConfiguredError') {
-      await markDocumentNeedsOcr(supabase, documentId, fallbackPageCount, errorMessage)
+      await markDocumentNeedsOcr(
+        supabase,
+        documentId,
+        fallbackPageCount,
+        errorMessage,
+        processingState
+      )
       return { mode: 'inline', status: 'needs_ocr', warning: errorMessage }
     }
 
-    await markDocumentFailed(supabase, documentId, errorMessage)
+    await markDocumentFailed(supabase, documentId, errorMessage, processingState)
     throw error
   }
 }

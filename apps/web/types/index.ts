@@ -11,6 +11,23 @@ export type ParsingStatus =
   | 'failed'
   | 'needs_ocr'
   | 'ocr_processing'
+export type DocumentProcessingStage =
+  | 'uploaded'
+  | 'native_text_probe'
+  | 'document_ai_ocr'
+  | 'ocr_fallback'
+  | 'field_extraction'
+  | 'chunking'
+  | 'embedding'
+  | 'completed'
+  | 'needs_review'
+  | 'failed'
+export type DocumentProcessingStageStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
 export type DocType =
   | 'logbook'
   | 'poh'
@@ -36,6 +53,29 @@ export type ManualAccess = 'private' | 'free' | 'paid'
 export type BookAssignment = 'historical' | 'present'
 export type ListingStatus = 'draft' | 'pending_review' | 'published' | 'rejected'
 export type Visibility = 'private' | 'team'
+
+export interface DocumentProcessingStageSnapshot {
+  status: DocumentProcessingStageStatus
+  engine?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  message?: string | null
+  current_batch?: number | null
+  total_batches?: number | null
+  page_count?: number | null
+}
+
+export interface DocumentProcessingState {
+  current_stage: DocumentProcessingStage
+  current_engine?: string | null
+  page_count?: number | null
+  current_batch?: number | null
+  total_batches?: number | null
+  last_error?: string | null
+  started_at?: string | null
+  updated_at?: string | null
+  stages?: Partial<Record<DocumentProcessingStage, DocumentProcessingStageSnapshot>>
+}
 
 export interface Organization {
   id: string
@@ -143,6 +183,7 @@ export interface Document {
   parse_error?: string
   parse_started_at?: string
   parse_completed_at?: string
+  processing_state?: DocumentProcessingState | null
   is_text_native?: boolean
   ocr_required: boolean
   source_provider: SourceProvider
@@ -362,6 +403,7 @@ export interface FileUploadItem {
   progress: number
   error?: string
   documentId?: string
+  processingState?: DocumentProcessingState | null
 }
 
 export type ReminderType = 'annual' | '100hr' | 'transponder' | 'elt' | 'static_pitot' | 'vor' | 'ad_compliance' | 'ad_due' | 'ad_overdue' | 'custom'

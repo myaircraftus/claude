@@ -9,6 +9,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import { shouldPreferBackgroundIngestion } from '@/lib/ingestion/background-policy'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
+import { buildInitialDocumentProcessingState } from '@/lib/documents/processing-state'
 import { deriveDocTypeFromClassification, isDocumentDetailId, isDocumentGroupId } from '@/lib/documents/taxonomy'
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -107,6 +108,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       mime_type: 'application/pdf',
       checksum_sha256: checksum,
       parsing_status: 'queued',
+      processing_state: buildInitialDocumentProcessingState(),
       source_provider: 'direct_upload',
       ocr_required: true,
       version_number: 1,

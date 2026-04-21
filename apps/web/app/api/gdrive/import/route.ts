@@ -6,6 +6,10 @@ import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import type { DocType, OrgRole } from '@/types'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import {
+  buildInitialDocumentProcessingState,
+  markDocumentProcessingFailed,
+} from '@/lib/documents/processing-state'
+import {
   deriveDocTypeFromClassification,
   isDocumentDetailId,
   isDocumentGroupId,
@@ -266,6 +270,7 @@ export async function POST(req: NextRequest) {
             file_size_bytes: fileSizeBytes,
             mime_type: meta.mimeType ?? 'application/pdf',
             parsing_status: 'queued',
+            processing_state: buildInitialDocumentProcessingState(),
             ocr_required: false,
             source_provider: 'google_drive',
             gdrive_file_id: meta.id,
@@ -296,6 +301,11 @@ export async function POST(req: NextRequest) {
             .from('documents')
             .update({
               parsing_status: 'failed',
+              processing_state: markDocumentProcessingFailed(
+                buildInitialDocumentProcessingState(),
+                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+                'uploaded'
+              ),
               parse_error:
                 ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
               parse_completed_at: new Date().toISOString(),

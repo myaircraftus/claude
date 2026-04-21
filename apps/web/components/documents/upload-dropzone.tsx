@@ -19,7 +19,20 @@ import {
 } from '@/components/ui/select'
 import { cn, formatBytes, DOC_TYPE_LABELS } from '@/lib/utils'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import type { FileUploadItem, DocType, ParsingStatus, ManualAccess, BookAssignment } from '@/types'
+import type {
+  FileUploadItem,
+  DocType,
+  ParsingStatus,
+  ManualAccess,
+  BookAssignment,
+  DocumentProcessingState,
+} from '@/types'
+import {
+  coerceDocumentProcessingState,
+  DOCUMENT_PROCESSING_STAGE_LABELS,
+  getDocumentProcessingEngineLabel,
+  getDocumentProcessingProgress,
+} from '@/lib/documents/processing-state'
 import {
   DOCUMENT_TAXONOMY_GROUPS,
   deriveDocTypeFromClassification,
@@ -172,6 +185,7 @@ export function UploadDropzone({
   const [files, setFiles] = useState<FileUploadItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [parsingStatuses, setParsingStatuses] = useState<Record<string, ParsingStatus>>({})
+  const [processingStates, setProcessingStates] = useState<Record<string, DocumentProcessingState | null>>({})
   const [defaultAircraftSelection, setDefaultAircraftSelection] = useState<string>(
     () => defaultAircraftId ?? getPersistedOwnerAircraftId() ?? '__none__'
   )
@@ -286,8 +300,13 @@ export function UploadDropzone({
           filter: `id=in.(${docIds.join(',')})`,
         },
         (payload) => {
-          const doc = payload.new as { id: string; parsing_status: ParsingStatus }
+          const doc = payload.new as {
+            id: string
+            parsing_status: ParsingStatus
+            processing_state?: DocumentProcessingState | null
+          }
           setParsingStatuses((prev) => ({ ...prev, [doc.id]: doc.parsing_status }))
+          setProcessingStates((prev) => ({ ...prev, [doc.id]: doc.processing_state ?? null }))
         }
       )
       .subscribe()
@@ -307,7 +326,14 @@ export function UploadDropzone({
         if (!item.documentId) return item
 
         const realtimeStatus = parsingStatuses[item.documentId]
+        const realtimeProcessingState = processingStates[item.documentId]
         if (!realtimeStatus) return item
+        const normalizedProcessingState = realtimeProcessingState
+          ? coerceDocumentProcessingState(realtimeProcessingState, undefined, {
+              status: realtimeStatus,
+              parseError: item.error ?? null,
+            })
+          : null
 
         if (realtimeStatus === 'completed' && item.status !== 'completed') {
           return {
@@ -315,6 +341,7 @@ export function UploadDropzone({
             status: 'completed',
             progress: 100,
             error: undefined,
+            processingState: normalizedProcessingState,
           }
         }
 
@@ -323,14 +350,23 @@ export function UploadDropzone({
             ...item,
             status: 'error',
             progress: 0,
-            error: item.error ?? 'Document processing failed after upload.',
+            error:
+              realtimeProcessingState?.last_error ??
+              item.error ??
+              'Document processing failed after upload.',
+            processingState: normalizedProcessingState,
           }
         }
 
-        return item
+        return {
+          ...item,
+          status: item.status === 'completed' ? item.status : 'processing',
+          progress: getDocumentProcessingProgress(normalizedProcessingState, realtimeStatus),
+          processingState: normalizedProcessingState,
+        }
       })
     )
-  }, [parsingStatuses])
+  }, [parsingStatuses, processingStates])
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -906,6 +942,14 @@ export function UploadDropzone({
             const uploaderShare = item.price ? (parseFloat(item.price) * 0.5).toFixed(2) : '0.00'
             const itemDetailOptions = getDocumentItemsForGroup(item.documentGroupId)
             const selectedDetail = getDocumentItem(item.documentDetailId)
+            const currentStageLabel = item.processingState
+              ? DOCUMENT_PROCESSING_STAGE_LABELS[item.processingState.current_stage]
+              : null
+            const currentEngineLabel = getDocumentProcessingEngineLabel(item.processingState?.current_engine)
+            const batchLabel =
+              item.processingState?.current_batch && item.processingState?.total_batches
+                ? `Batch ${item.processingState.current_batch} of ${item.processingState.total_batches}`
+                : null
 
             return (
               <div
@@ -921,6 +965,13 @@ export function UploadDropzone({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{item.file.name}</p>
                     <p className="text-xs text-muted-foreground">{formatBytes(item.file.size)}</p>
+                    {item.status === 'processing' && currentStageLabel && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {currentStageLabel}
+                        {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
+                        {batchLabel ? ` · ${batchLabel}` : ''}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex-shrink-0">
@@ -1240,6 +1291,16 @@ export function UploadDropzone({
                 {item.status === 'uploading' && (
                   <div className="pl-11">
                     <Progress value={item.progress} className="h-1.5" />
+                  </div>
+                )}
+
+                {item.status === 'processing' && (
+                  <div className="pl-11 space-y-1">
+                    <Progress value={item.progress} className="h-1.5" />
+                    <p className="text-[11px] text-muted-foreground">
+                      {currentStageLabel ?? 'Processing'}
+                      {batchLabel ? ` · ${batchLabel}` : ''}
+                    </p>
                   </div>
                 )}
               </div>

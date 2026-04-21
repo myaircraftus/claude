@@ -1,10 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ParsingStatus } from '@/types'
+import type { DocumentProcessingState, ParsingStatus } from '@/types'
+import {
+  markDocumentProcessingFailed,
+} from '@/lib/documents/processing-state'
 
 export interface DocumentProcessingHealthRow {
   id: string
   title?: string | null
   parsing_status: ParsingStatus
+  processing_state?: DocumentProcessingState | null
   parse_started_at?: string | null
   parse_completed_at?: string | null
   parse_error?: string | null
@@ -97,11 +101,16 @@ export async function reconcileDocumentProcessingStates<T extends DocumentProces
   }
 
   await Promise.all(
-    staleRows.map(async ({ diagnosis }) => {
+    staleRows.map(async ({ row, diagnosis }) => {
       await serviceClient
         .from('documents')
         .update({
           parsing_status: diagnosis.nextStatus,
+          processing_state: markDocumentProcessingFailed(
+            row.processing_state,
+            diagnosis.parseError,
+            { now: diagnosis.updatedAt }
+          ),
           parse_error: diagnosis.parseError,
           parse_completed_at: diagnosis.parseCompletedAt,
           updated_at: diagnosis.updatedAt,
@@ -120,6 +129,11 @@ export async function reconcileDocumentProcessingStates<T extends DocumentProces
     return {
       ...row,
       parsing_status: diagnosis.nextStatus,
+      processing_state: markDocumentProcessingFailed(
+        row.processing_state,
+        diagnosis.parseError,
+        { now: diagnosis.updatedAt }
+      ),
       parse_error: diagnosis.parseError,
       parse_completed_at: diagnosis.parseCompletedAt,
       updated_at: diagnosis.updatedAt,
@@ -133,7 +147,7 @@ export async function reconcileOrganizationStaleDocuments(
 ): Promise<void> {
   const { data, error } = await serviceClient
     .from('documents')
-    .select('id, title, parsing_status, parse_started_at, parse_completed_at, parse_error, updated_at, uploaded_at')
+    .select('id, title, parsing_status, processing_state, parse_started_at, parse_completed_at, parse_error, updated_at, uploaded_at')
     .eq('organization_id', organizationId)
     .in('parsing_status', RECONCILABLE_STATUSES)
 

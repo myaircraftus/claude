@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import { hasConfiguredOcrEngine } from '@/lib/ingestion/native-pdf'
+import {
+  buildInitialDocumentProcessingState,
+  markDocumentProcessingFailed,
+} from '@/lib/documents/processing-state'
 import { reconcileDocumentProcessingStates } from '@/lib/documents/processing-health'
 import type { DocType } from '@/types'
 
@@ -118,6 +122,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     .from('documents')
     .update({
       parsing_status: 'queued',
+      processing_state: buildInitialDocumentProcessingState(),
       parse_error: null,
       parse_started_at: null,
       parse_completed_at: null,
@@ -142,6 +147,11 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
       .from('documents')
       .update({
         parsing_status: 'failed',
+        processing_state: markDocumentProcessingFailed(
+          buildInitialDocumentProcessingState(),
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
+          'uploaded'
+        ),
         parse_error:
           ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
         parse_completed_at: new Date().toISOString(),

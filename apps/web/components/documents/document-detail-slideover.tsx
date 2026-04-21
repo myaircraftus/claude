@@ -25,10 +25,16 @@ import {
   Trash2,
 } from 'lucide-react'
 import { cn, formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
+import {
+  coerceDocumentProcessingState,
+  DOCUMENT_PROCESSING_STAGE_LABELS,
+  DOCUMENT_PROCESSING_STAGE_ORDER,
+  getDocumentProcessingEngineLabel,
+} from '@/lib/documents/processing-state'
 import { resolveStoredDocumentClassification } from '@/lib/documents/taxonomy'
 import { getDocumentClassificationProfile } from '@/lib/documents/classification'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
-import type { Document, ParsingStatus } from '@/types'
+import type { Document, DocumentProcessingState, ParsingStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,6 +157,84 @@ function ParseStepsViz({ status, ocr }: { status: ParsingStatus; ocr: boolean })
   )
 }
 
+function DetailedProcessingTimeline({ state }: { state: DocumentProcessingState }) {
+  const currentEngineLabel = getDocumentProcessingEngineLabel(state.current_engine)
+  const batchLabel =
+    state.current_batch && state.total_batches
+      ? `Batch ${state.current_batch} of ${state.total_batches}`
+      : null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">
+          {DOCUMENT_PROCESSING_STAGE_LABELS[state.current_stage]}
+        </span>
+        {currentEngineLabel && <span>· {currentEngineLabel}</span>}
+        {batchLabel && <span>· {batchLabel}</span>}
+        {state.page_count != null && <span>· {state.page_count} pages</span>}
+      </div>
+
+      <div className="space-y-2">
+        {DOCUMENT_PROCESSING_STAGE_ORDER.map((stage) => {
+          const snapshot = state.stages?.[stage]
+          const label = DOCUMENT_PROCESSING_STAGE_LABELS[stage]
+
+          let tone = 'border-border bg-background text-muted-foreground'
+          if (snapshot?.status === 'completed') {
+            tone = 'border-green-200 bg-green-50 text-green-700'
+          } else if (snapshot?.status === 'running') {
+            tone = 'border-blue-200 bg-blue-50 text-blue-700'
+          } else if (snapshot?.status === 'failed') {
+            tone = 'border-red-200 bg-red-50 text-red-700'
+          } else if (snapshot?.status === 'skipped') {
+            tone = 'border-slate-200 bg-slate-50 text-slate-500'
+          }
+
+          return (
+            <div
+              key={stage}
+              className={cn('rounded-lg border px-3 py-2 text-xs', tone)}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {snapshot?.status === 'completed' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : snapshot?.status === 'running' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : snapshot?.status === 'failed' ? (
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  ) : (
+                    <span className="h-3.5 w-3.5 rounded-full border border-current/40" />
+                  )}
+                  <span className="font-medium">{label}</span>
+                </div>
+                <span className="capitalize">
+                  {snapshot?.status ?? (stage === state.current_stage ? 'running' : 'pending')}
+                </span>
+              </div>
+
+              {(snapshot?.engine || snapshot?.message || snapshot?.current_batch) && (
+                <div className="mt-1.5 text-[11px] leading-relaxed opacity-90">
+                  {snapshot?.engine && (
+                    <div>{getDocumentProcessingEngineLabel(snapshot.engine)}</div>
+                  )}
+                  {snapshot?.current_batch && snapshot?.total_batches && (
+                    <div>
+                      Batch {snapshot.current_batch} of {snapshot.total_batches}
+                    </div>
+                  )}
+                  {snapshot?.message && <div>{snapshot.message}</div>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2">
@@ -181,6 +265,15 @@ export function DocumentDetailSlideover({
 
   const doc = liveDocument?.id === document?.id ? liveDocument : document
   const status = currentStatus ?? doc?.parsing_status
+  const detailedProcessingState = doc?.processing_state
+    ? coerceDocumentProcessingState(doc.processing_state, doc.uploaded_at, {
+        status: doc.parsing_status,
+        pageCount: doc.page_count,
+        parseError: doc.parse_error,
+        ocrRequired: doc.ocr_required,
+        isTextNative: doc.is_text_native,
+      })
+    : null
   const processingStartedAt =
     doc?.parse_started_at ?? doc?.updated_at ?? doc?.uploaded_at ?? null
   const processingAgeMs = processingStartedAt
@@ -614,7 +707,11 @@ export function DocumentDetailSlideover({
                     Processing Status
                   </h3>
                   {statusHydrated ? (
-                    <ParseStepsViz status={status ?? 'queued'} ocr={doc.ocr_required} />
+                    detailedProcessingState ? (
+                      <DetailedProcessingTimeline state={detailedProcessingState} />
+                    ) : (
+                      <ParseStepsViz status={status ?? 'queued'} ocr={doc.ocr_required} />
+                    )
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
