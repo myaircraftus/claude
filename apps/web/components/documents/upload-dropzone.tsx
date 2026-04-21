@@ -397,7 +397,7 @@ export function UploadDropzone({
         body: JSON.stringify({
           fileName: item.file.name,
           fileSize: item.file.size,
-          mimeType: item.file.type || 'application/pdf',
+          mimeType: item.file.type,
           aircraftId: item.aircraftId ?? null,
         }),
       })

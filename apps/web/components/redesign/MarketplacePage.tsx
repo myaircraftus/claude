@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import {
   Search, Filter, Grid3X3, List, Star, Phone, Mail, MessageSquare,
   Plus, ChevronRight, X, Check, Upload, Camera,
@@ -2056,14 +2056,6 @@ function IngestModal({
   const [selectedAircraft, setSelectedAircraft] = useState(AIRCRAFT_OPTIONS[0].tail);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Clean up interval on unmount to prevent stuck state
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
 
   function startInject() {
     setPhase("injecting");
@@ -2076,14 +2068,13 @@ function IngestModal({
       { pct: 100, label: "Injection complete." },
     ];
     let i = 0;
-    intervalRef.current = setInterval(() => {
+    const iv = setInterval(() => {
       if (i < steps.length) {
         setProgress(steps[i].pct);
         setProgressLabel(steps[i].label);
         i++;
       } else {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        intervalRef.current = null;
+        clearInterval(iv);
         setTimeout(() => setPhase("done"), 400);
       }
     }, 600);
