@@ -385,7 +385,7 @@ const roleColor = (role: string) => {
   return "bg-slate-100 text-slate-600";
 };
 
-const TABS = ["Overview", "Squawks", "Reminders", "Maintenance", "Documents", "Intelligence", "Assignments", "Activity"];
+const TABS = ["Overview", "Maintenance", "Documents", "Intelligence", "Assignments"];
 const REACTIONS = ['👍', '👎', '❤️', '✈️', '🔧', '😮'];
 
 /* ─── Main Component ──────────────────────────────────────────── */
@@ -506,6 +506,12 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
   const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "reminders" | "activity">("workorders");
+
+  // Helpers for opening Maintenance sub-tabs (replaces direct setActiveTab for the
+  // moved Squawks / Reminders / Activity top-level tabs).
+  const openSquawksTab = () => { setActiveTab("Maintenance"); setMaintSubTab("squawks"); };
+  const openRemindersTab = () => { setActiveTab("Maintenance"); setMaintSubTab("reminders"); };
+  const openActivityTab = () => { setActiveTab("Maintenance"); setMaintSubTab("activity"); };
   const [selectedReportType, setSelectedReportType] = useState<string>("aircraft_overview");
   const [squawkPhotoMeta, setSquawkPhotoMeta] = useState<{
     name: string;
@@ -1218,7 +1224,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                           <div className="text-[12px] text-orange-700">{criticalReminders[0].title}{criticalReminders.length > 1 ? ` + ${criticalReminders.length - 1} more` : ""}</div>
                         </div>
                       </div>
-                      <button onClick={() => setActiveTab("Reminders")} className="text-[12px] text-orange-700 hover:text-orange-900 flex items-center gap-1 shrink-0" style={{ fontWeight: 600 }}>
+                      <button onClick={() => openRemindersTab()} className="text-[12px] text-orange-700 hover:text-orange-900 flex items-center gap-1 shrink-0" style={{ fontWeight: 600 }}>
                         Review <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1247,7 +1253,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <div className="bg-white rounded-xl border border-border">
                       <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                         <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Open Squawks</h3>
-                        <button onClick={() => setActiveTab("Squawks")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                        <button onClick={() => openSquawksTab()} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                           View all <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1272,7 +1278,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   <div className="bg-white rounded-xl border border-border">
                     <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                       <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Upcoming Reminders</h3>
-                      <button onClick={() => setActiveTab("Reminders")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                      <button onClick={() => openRemindersTab()} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                         View all <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1301,7 +1307,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   <div className="bg-white rounded-xl border border-border">
                     <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                       <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Recent Activity</h3>
-                      <button onClick={() => setActiveTab("Activity")} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                      <button onClick={() => openActivityTab()} className="text-[12px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
                         View all <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1400,7 +1406,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Quick Actions</h3>
                     <div className="space-y-2">
                       {[
-                        { label: "Add Squawk", icon: AlertTriangle, action: () => { setActiveTab("Squawks"); setShowAddSquawk(true); } },
+                        { label: "Add Squawk", icon: AlertTriangle, action: () => { openSquawksTab(); setShowAddSquawk(true); } },
                         { label: "Request Maintenance", icon: Wrench, action: () => setActiveTab("Maintenance") },
                         { label: "Upload Document", icon: Upload, href: uploadHref },
                         { label: "View Intelligence", icon: BarChart3, action: () => setActiveTab("Intelligence") },
@@ -1922,7 +1928,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       <span className="text-[11px] text-red-700 flex-1" style={{ fontWeight: 600 }}>
                         {openSquawks.length} open squawk{openSquawks.length > 1 ? "s" : ""} ready for maintenance
                       </span>
-                      <button onClick={() => setActiveTab("Squawks")} className="text-[11px] text-[#2563EB] hover:underline shrink-0 transition-colors" style={{ fontWeight: 600 }}>
+                      <button onClick={() => openSquawksTab()} className="text-[11px] text-[#2563EB] hover:underline shrink-0 transition-colors" style={{ fontWeight: 600 }}>
                         View →
                       </button>
                     </div>
