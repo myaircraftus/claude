@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="50" fill="#1E40AF"/>
-  <text x="50" y="68" text-anchor="middle" font-size="52" font-weight="700" fill="white" font-family="system-ui, -apple-system, sans-serif">A</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60">
+  <rect width="200" height="60" rx="8" fill="#1e40af"/>
+  <text x="100" y="28" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="800" fill="white" letter-spacing="2">AVIO</text>
+  <text x="100" y="48" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="600" fill="#93c5fd" letter-spacing="2">BOOK</text>
 </svg>

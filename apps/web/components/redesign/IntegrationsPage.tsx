@@ -6,6 +6,7 @@ import {
   CheckCircle,
   ExternalLink,
   RefreshCw,
+  Search,
   ShieldCheck,
   Unplug,
   X,
@@ -901,15 +902,20 @@ export function IntegrationsPage() {
   const [activeCategory, setActiveCategory] = useState<"All" | Category>("All");
   const [connectTarget, setConnectTarget] = useState<Integration | null>(null);
   const [infoTarget, setInfoTarget] = useState<Integration | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const categories = ["All", "Flight Scheduling", "Live Tracking", "Maintenance & Data", "Accounting"] as const;
 
   const connectedItems = INTEGRATIONS.filter((integration) => store.isConnected(integration.id));
 
   const filteredItems = useMemo(() => {
-    if (activeCategory === "All") return INTEGRATIONS;
-    return INTEGRATIONS.filter((integration) => integration.category === activeCategory);
-  }, [activeCategory]);
+    let items = activeCategory === "All" ? INTEGRATIONS : INTEGRATIONS.filter((i) => i.category === activeCategory);
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      items = items.filter((i) => i.name.toLowerCase().includes(q) || i.tagline.toLowerCase().includes(q));
+    }
+    return items;
+  }, [activeCategory, searchTerm]);
 
   const connectedCount = connectedItems.length;
   const syncingCount = connectedItems.filter((integration) => {
@@ -1001,6 +1007,17 @@ export function IntegrationsPage() {
         </div>
       )}
 
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search integrations…"
+          className="w-full rounded-xl border border-border bg-white pl-9 pr-4 py-2.5 text-[13px] outline-none focus:border-primary/40 placeholder:text-muted-foreground"
+        />
+      </div>
+
       <div className="flex gap-2 flex-wrap">
         {categories.map((category) => {
           const count =
@@ -1031,16 +1048,22 @@ export function IntegrationsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {filteredItems.map((integration) => (
-          <IntegrationTile
-            key={integration.id}
-            integration={integration}
-            onOpenInfo={() => setInfoTarget(integration)}
-            onOpenConnect={() => setConnectTarget(integration)}
-          />
-        ))}
-      </div>
+      {filteredItems.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-white px-6 py-10 text-center text-[13px] text-muted-foreground">
+          No integrations match &ldquo;{searchTerm}&rdquo;
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {filteredItems.map((integration) => (
+            <IntegrationTile
+              key={integration.id}
+              integration={integration}
+              onOpenInfo={() => setInfoTarget(integration)}
+              onOpenConnect={() => setConnectTarget(integration)}
+            />
+          ))}
+        </div>
+      )}
 
       <AnimatePresence>
         {connectTarget && (

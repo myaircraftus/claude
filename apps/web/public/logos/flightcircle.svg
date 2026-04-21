@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="50" fill="#2563EB"/>
-  <text x="50" y="68" text-anchor="middle" font-size="52" font-weight="700" fill="white" font-family="system-ui, -apple-system, sans-serif">F</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60">
+  <rect width="200" height="60" rx="8" fill="#2563eb"/>
+  <circle cx="28" cy="30" r="14" fill="none" stroke="white" stroke-width="2.5"/>
+  <path d="M24 30 L33 30 M29 25 L33 30 L29 35" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="116" y="38" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="17" font-weight="700" fill="white">Flight Circle</text>
 </svg>

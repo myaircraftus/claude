@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="50" fill="#1D4ED8"/>
-  <text x="50" y="68" text-anchor="middle" font-size="52" font-weight="700" fill="white" font-family="system-ui, -apple-system, sans-serif">C</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60">
+  <rect width="200" height="60" rx="8" fill="#1a4d8c"/>
+  <text x="100" y="35" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="22" font-weight="700" fill="white" letter-spacing="2">CAMP</text>
+  <text x="100" y="52" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="#a0c3e6" letter-spacing="1">SYSTEMS</text>
 </svg>

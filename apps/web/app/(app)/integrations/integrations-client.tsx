@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import {
   Plug,
   Plane,
@@ -22,6 +22,7 @@ import {
   Database,
   Activity,
   Wrench,
+  Search,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -750,6 +751,7 @@ export default function IntegrationsClient({
   const [integrations, setIntegrations] = useState<any[]>(initialIntegrations)
   const [connectingProvider, setConnectingProvider] = useState<ProviderDef | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const getIntegration = useCallback(
     (providerId: string) => integrations.find(i => i.provider === providerId),
@@ -804,8 +806,14 @@ export default function IntegrationsClient({
 
   const connectedCount = connectedProviders.length
 
-  // Group providers by category
-  const byCategory = PROVIDERS.reduce<Record<ProviderCategory, ProviderDef[]>>((acc, p) => {
+  // Filter + group providers by category
+  const filteredProviders = useMemo(() => {
+    if (!searchTerm.trim()) return PROVIDERS
+    const q = searchTerm.toLowerCase()
+    return PROVIDERS.filter(p => p.name.toLowerCase().includes(q) || p.tagline.toLowerCase().includes(q))
+  }, [searchTerm])
+
+  const byCategory = filteredProviders.reduce<Record<ProviderCategory, ProviderDef[]>>((acc, p) => {
     if (!acc[p.category]) acc[p.category] = []
     acc[p.category].push(p)
     return acc
@@ -858,6 +866,24 @@ export default function IntegrationsClient({
             ))}
           </div>
         </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Search integrations…"
+            className="pl-9"
+          />
+        </div>
+
+        {filteredProviders.length === 0 && (
+          <div className="rounded-xl border border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+            No integrations match &ldquo;{searchTerm}&rdquo;
+          </div>
+        )}
 
         {/* Integration cards by category */}
         {(Object.entries(byCategory) as [ProviderCategory, ProviderDef[]][]).map(([category, providers]) => (
