@@ -300,6 +300,10 @@ function getDocumentAiSchemaOverride(): DocumentAiSchemaOverride | null {
   }
 }
 
+function isUnsupportedDocumentAiSchemaOverrideMessage(message: string) {
+  return /schema override is not supported/i.test(message)
+}
+
 function hasTextractConfig() {
   return Boolean(
     getTrimmedEnvValue('AWS_REGION') &&
@@ -1253,38 +1257,60 @@ async function parseScannedPdfWithDocumentAi(args: {
       )
     }
 
+    const rawDocument = {
+      mimeType: 'application/pdf',
+      content: Buffer.from(pdfChunkBytes).toString('base64'),
+    }
     const schemaOverride = getDocumentAiSchemaOverride()
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(DOCUMENT_AI_TIMEOUT_MS),
-      body: JSON.stringify({
-        skipHumanReview: true,
-        ...(schemaOverride
-          ? {
-              processOptions: {
-                schemaOverride,
-              },
-            }
-          : {}),
-        rawDocument: {
-          mimeType: 'application/pdf',
-          content: Buffer.from(pdfChunkBytes).toString('base64'),
-        },
-      }),
-    })
 
-    if (!response.ok) {
-      throw new Error(
-        `Document AI batch ${chunkContext.currentBatch} of ${chunkContext.totalBatches} ` +
-          `returned ${response.status}: ${await response.text()}`
-      )
+    const runProcessRequest = async (includeSchemaOverride: boolean) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(DOCUMENT_AI_TIMEOUT_MS),
+        body: JSON.stringify({
+          skipHumanReview: true,
+          ...(includeSchemaOverride && schemaOverride
+            ? {
+                processOptions: {
+                  schemaOverride,
+                },
+              }
+            : {}),
+          rawDocument,
+        }),
+      })
+
+      if (!response.ok) {
+        const body = await response.text()
+        throw new Error(
+          `Document AI batch ${chunkContext.currentBatch} of ${chunkContext.totalBatches} ` +
+            `returned ${response.status}: ${body}`
+        )
+      }
+
+      return (await response.json()) as DocumentAiProcessResponse
     }
 
-    return (await response.json()) as DocumentAiProcessResponse
+    try {
+      return await runProcessRequest(Boolean(schemaOverride))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (schemaOverride && isUnsupportedDocumentAiSchemaOverrideMessage(message)) {
+        console.warn(
+          '[ingestion] Document AI processor rejected schema override; retrying without override',
+          {
+            batch: chunkContext.currentBatch,
+            totalBatches: chunkContext.totalBatches,
+          }
+        )
+        return runProcessRequest(false)
+      }
+      throw error
+    }
   }
 
   const buildPagesFromPayload = (

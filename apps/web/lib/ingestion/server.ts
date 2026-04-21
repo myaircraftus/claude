@@ -171,6 +171,11 @@ function omitKeys<T extends Record<string, unknown>>(row: T, keys: Set<string>) 
   ) as T
 }
 
+function normalizeValidatedDate(value: string | null | undefined) {
+  const normalized = validateOcrField('entry_date', value ?? null).normalized ?? null
+  return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+}
+
 async function insertOcrPageJobsCompat(
   supabase: ServiceClient,
   rows: Array<Record<string, unknown>>,
@@ -650,7 +655,7 @@ async function persistMetadata(args: {
     aircraft_id: args.document.aircraft_id,
     document_id: args.document.id,
     source_page: null,
-    event_date: event.date ?? null,
+    event_date: normalizeValidatedDate(event.date ?? null),
     event_type: event.type ?? null,
     description: event.description ?? null,
     mechanic_name: event.mechanic ?? null,
@@ -1214,8 +1219,7 @@ async function persistOcrArtifacts(args: {
       const bestSegment = bestSegmentByPage.get(page.page_number)
       if (!pageJob || !page.extracted_event) return null
 
-      const normalizedEventDate =
-        validateOcrField('entry_date', page.extracted_event.event_date ?? null).normalized ?? null
+      const normalizedEventDate = normalizeValidatedDate(page.extracted_event.event_date ?? null)
       const normalizedTach =
         validateOcrField('tach_time', page.extracted_event.tach_time ?? null).normalized ?? null
       const normalizedAirframeTt =
