@@ -917,7 +917,7 @@ export function HomePage() {
                             <div className={`w-8 h-8 rounded-xl ${step.color} flex items-center justify-center shrink-0`}>
                               <step.icon className="w-4 h-4" />
                             </div>
-                            <div className="text-[11px] text-gray-400 uppercase tracking-wide" style={{ fontWeight: 600 }}>{step.side === "owner" ? "✈️ Aircraft Owner" : "🔧 A&P Mechanic"}</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-wide" style={{ fontWeight: 600 }}>{step.side === "owner" ? "Aircraft Owner" : "A&P Mechanic"}</div>
                           </div>
                           <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{step.title}</div>
                           <div className="text-[12px] text-gray-500 leading-relaxed">{step.desc}</div>
