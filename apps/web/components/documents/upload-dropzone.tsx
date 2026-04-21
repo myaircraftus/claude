@@ -39,16 +39,34 @@ function isManualType(docType: DocType): boolean {
   return MANUAL_TYPES.includes(docType)
 }
 
-// Quick-select chips for the simplified upload UI
-const QUICK_CHIPS: Array<{ label: string; groupId: string; detailId: string }> = [
+// Quick-select chips — two persona-specific sets
+type QuickChip = { label: string; groupId: string; detailId: string }
+
+const OWNER_CHIPS: QuickChip[] = [
   { label: 'Engine Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'engine_logbooks' },
   { label: 'Airframe Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'airframe_logbooks' },
   { label: 'Propeller Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'propeller_logbooks' },
+  { label: 'Avionics Logbook', groupId: 'aircraft_logbooks_and_permanent_records', detailId: 'avionics_logbooks' },
   { label: 'POH', groupId: 'flight_crew_and_operating_documents', detailId: 'pilot_s_operating_handbook_poh' },
-  { label: 'Annual Inspection', groupId: 'maintenance_program_and_inspection_records', detailId: 'annual_inspection_records' },
-  { label: '100-Hour Inspection', groupId: 'maintenance_program_and_inspection_records', detailId: '100_hour_inspection_records' },
-  { label: 'Work Order', groupId: 'work_orders_and_shop_records', detailId: 'maintenance_work_orders' },
+  { label: 'Registration', groupId: 'legal_and_ownership', detailId: 'certificate_of_aircraft_registration' },
+  { label: 'Airworthiness Cert', groupId: 'airworthiness_and_certification', detailId: 'standard_airworthiness_certificate' },
   { label: 'Weight & Balance', groupId: 'airworthiness_and_certification', detailId: 'weight_and_balance_report' },
+  { label: 'Bill of Sale', groupId: 'legal_and_ownership', detailId: 'bill_of_sale' },
+  { label: 'Insurance', groupId: 'insurance_finance_and_commercial_records', detailId: 'insurance_policies' },
+  { label: 'AFM', groupId: 'flight_crew_and_operating_documents', detailId: 'airplane_flight_manual_afm' },
+]
+
+const MECHANIC_CHIPS: QuickChip[] = [
+  { label: 'Maintenance Manual', groupId: 'maintenance_program_and_inspection_records', detailId: 'maintenance_manual' },
+  { label: 'Parts Catalog / IPC', groupId: 'maintenance_program_and_inspection_records', detailId: 'illustrated_parts_catalog_ipc' },
+  { label: 'Overhaul Manual', groupId: 'maintenance_program_and_inspection_records', detailId: 'overhaul_manual' },
+  { label: 'Avionics Manual', groupId: 'avionics_and_electrical', detailId: 'avionics_manuals' },
+  { label: 'Structural Repair Manual', groupId: 'maintenance_program_and_inspection_records', detailId: 'structural_repair_manual_srm' },
+  { label: 'Service Bulletin', groupId: 'ad_sb_and_service_information', detailId: 'service_bulletins' },
+  { label: 'AD Compliance', groupId: 'ad_sb_and_service_information', detailId: 'ad_compliance_records' },
+  { label: 'Work Order Doc', groupId: 'work_orders_and_shop_records', detailId: 'maintenance_work_orders' },
+  { label: 'FAA Form 337', groupId: 'airworthiness_and_certification', detailId: 'faa_form_337_records' },
+  { label: 'TCDS', groupId: 'airworthiness_and_certification', detailId: 'type_certificate_data_sheet_tcds' },
 ]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,6 +85,8 @@ interface UploadDropzoneProps {
   defaultDocumentGroupId?: string
   defaultDocumentDetailId?: string
   defaultDocumentSubtype?: string
+  /** Controls which quick-select chip set is shown. Defaults to 'owner'. */
+  persona?: 'owner' | 'mechanic'
 }
 
 function buildFileSignature(file: File) {
@@ -141,7 +161,13 @@ export function UploadDropzone({
   defaultDocumentGroupId,
   defaultDocumentDetailId,
   defaultDocumentSubtype,
+  persona = 'owner',
 }: UploadDropzoneProps) {
+  const quickChips = persona === 'mechanic' ? MECHANIC_CHIPS : OWNER_CHIPS
+  const chipSectionLabel =
+    persona === 'mechanic'
+      ? 'Manuals, catalogs, and compliance records'
+      : 'Aircraft records & certificates'
   const [files, setFiles] = useState<FileUploadItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [parsingStatuses, setParsingStatuses] = useState<Record<string, ParsingStatus>>({})
@@ -595,7 +621,10 @@ export function UploadDropzone({
         {/* Quick-select category chips */}
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
-            <Label className="text-xs font-medium text-muted-foreground">Category</Label>
+            <div>
+              <Label className="text-xs font-medium text-muted-foreground">Category</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{chipSectionLabel}</p>
+            </div>
             {defaultDocumentDetailSelection && (
               <button
                 type="button"
@@ -611,7 +640,7 @@ export function UploadDropzone({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {QUICK_CHIPS.map((chip) => (
+            {quickChips.map((chip) => (
               <button
                 key={chip.detailId}
                 type="button"

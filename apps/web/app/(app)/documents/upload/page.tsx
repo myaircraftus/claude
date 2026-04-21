@@ -85,6 +85,9 @@ export default async function DocumentUploadPage({
     : legacyClassification.detailId
   const defaultDocumentSubtype = searchParams?.document_subtype?.trim() || undefined
 
+  // ── Resolve persona from membership role ─────────────────────────────────
+  const persona: 'owner' | 'mechanic' = membership.role === 'mechanic' ? 'mechanic' : 'owner'
+
   // ── Check Google Drive connection ─────────────────────────────────────────
   const { data: gdriveRow } = await supabase
     .from('gdrive_connections')
@@ -141,6 +144,7 @@ export default async function DocumentUploadPage({
               defaultDocumentGroupId={defaultDocumentGroupId}
               defaultDocumentDetailId={defaultDocumentDetailId}
               defaultDocumentSubtype={defaultDocumentSubtype}
+              persona={persona}
             />
           </section>
 
