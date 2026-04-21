@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -339,7 +340,7 @@ export function DocumentDetailSlideover({
     setRetryError(null)
     setDeleteError(null)
     setSignedUrl(null)
-  }, [doc?.id])
+  }, [doc?.id, onDocumentPatched])
 
   useEffect(() => {
     if (!doc?.id) return
@@ -373,7 +374,7 @@ export function DocumentDetailSlideover({
     return () => {
       cancelled = true
     }
-  }, [doc?.id])
+  }, [doc?.id, onDocumentPatched])
 
   useEffect(() => {
     if (!doc?.id || !status) return
@@ -728,6 +729,20 @@ export function DocumentDetailSlideover({
                       This document requires OCR processing. Text was extracted via optical character
                       recognition, which may affect search accuracy.
                     </p>
+                  </div>
+                )}
+
+                {detailedProcessingState?.current_stage === 'needs_review' && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-amber-900">Human review required</p>
+                      <p className="text-xs text-amber-800">
+                        Low-confidence or handwritten OCR segments were routed to the review queue before becoming canonical evidence.
+                      </p>
+                    </div>
+                    <Button asChild size="sm" variant="outline" className="border-amber-300 text-amber-900 hover:bg-amber-100">
+                      <Link href="/documents/review">Open review</Link>
+                    </Button>
                   </div>
                 )}
 

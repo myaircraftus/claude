@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp } from 'lucide-react'
@@ -728,11 +729,11 @@ export function UploadDropzone({
     })
   }
 
-  async function kickOffDocumentProcessing(documentId: string, fileId: string) {
+  async function kickOffDocumentProcessing(documentId: string, fileId: string, attempt = 1): Promise<void> {
     try {
       const response = await fetch(`/api/documents/${documentId}/retry`, {
         method: 'POST',
-        keepalive: true,
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -746,6 +747,13 @@ export function UploadDropzone({
       }
 
       if (!response.ok || payload.status === 'failed') {
+        if (attempt < 3) {
+          window.setTimeout(() => {
+            void kickOffDocumentProcessing(documentId, fileId, attempt + 1)
+          }, attempt * 1500)
+          return
+        }
+
         updateFile(fileId, {
           status: 'error',
           progress: 0,
@@ -753,8 +761,51 @@ export function UploadDropzone({
             payload.error ?? payload.warning ?? `Document processing failed (${response.status})`
           ),
         })
+        return
       }
+
+      updateFile(fileId, {
+        processingState: coerceDocumentProcessingState(null, undefined, {
+          status: 'parsing',
+          parseError: null,
+        }),
+      })
+
+      window.setTimeout(async () => {
+        try {
+          const supabase = createBrowserSupabase()
+          const { data, error } = await supabase
+            .from('documents')
+            .select('parsing_status, processing_state, parse_error')
+            .eq('id', documentId)
+            .single()
+
+          if (error || !data) return
+
+          const processingState = coerceDocumentProcessingState(data.processing_state, undefined, {
+            status: data.parsing_status,
+            parseError: data.parse_error,
+          })
+
+          const stillQueued =
+            data.parsing_status === 'queued' &&
+            processingState.current_stage === 'uploaded'
+
+          if (stillQueued && attempt < 3) {
+            void kickOffDocumentProcessing(documentId, fileId, attempt + 1)
+          }
+        } catch {
+          // Best effort only. Polling/realtime will reconcile state.
+        }
+      }, 3000)
     } catch (error) {
+      if (attempt < 3) {
+        window.setTimeout(() => {
+          void kickOffDocumentProcessing(documentId, fileId, attempt + 1)
+        }, attempt * 1500)
+        return
+      }
+
       updateFile(fileId, {
         status: 'error',
         progress: 0,
@@ -1556,6 +1607,19 @@ export function UploadDropzone({
                       {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
                       {batchLabel ? ` · ${batchLabel}` : ''}
                     </p>
+                    {item.processingState?.current_stage === 'needs_review' && item.documentId && (
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="text-amber-700">
+                          Low-confidence or handwritten OCR content needs human review.
+                        </span>
+                        <Link
+                          href="/documents/review"
+                          className="font-medium text-brand-700 hover:text-brand-900"
+                        >
+                          Open review queue
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -57,7 +57,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
-  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic']
+  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
   if (!isPlatformAdmin && membership && !ALLOWED_ROLES.includes(membership.role)) {
     return NextResponse.json(
       { error: 'Insufficient permissions. Mechanic role or higher required.' },
