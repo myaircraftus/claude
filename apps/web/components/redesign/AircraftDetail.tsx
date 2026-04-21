@@ -1447,256 +1447,8 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               </div>
             )}
 
-            {/* ══════════════════════ SQUAWKS TAB ══════════════════════ */}
-            {activeTab === "Squawks" && (
-              <div className="space-y-4 px-6 py-5">
-                {/* Command bar */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {(["All", "Open", "In Progress", "Resolved"] as const).map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setSquawkFilter(f)}
-                        className={`px-3 py-1.5 rounded-lg text-[12px] transition-colors ${squawkFilter === f ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-muted/30"}`}
-                        style={{ fontWeight: squawkFilter === f ? 600 : 400 }}
-                      >
-                        {f}
-                        {f === "Open" && openSquawks.filter(s => s.status === "Open").length > 0 && (
-                          <span className="ml-1 text-[10px] opacity-80">({openSquawks.filter(s => s.status === "Open").length})</span>
-                        )}
-                      </button>
-                    ))}
-                    {loadingSquawks && (
-                      <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        Syncing
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedSquawks.length > 0 && (
-                      <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-2">
-                        <Link href="/maintenance" className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
-                          <Wrench className="w-3.5 h-3.5" /> Request Maintenance ({selectedSquawks.length})
-                        </Link>
-                        <button onClick={() => setSelectedSquawks([])} className="p-2 hover:bg-muted rounded-lg transition-colors">
-                          <X className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                      </motion.div>
-                    )}
-                    <button
-                      onClick={() => setShowAddSquawk(true)}
-                      className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors"
-                      style={{ fontWeight: 500 }}
-                    >
-                      <Plus className="w-4 h-4" /> Add Squawk
-                    </button>
-                  </div>
-                </div>
-
-                {/* Add squawk form */}
-                <AnimatePresence>
-                  {showAddSquawk && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                      <div className="bg-white rounded-xl border border-primary/30 p-5">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <Sparkles className="w-4 h-4 text-primary" />
-                            <span className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Add Squawk — AI Assisted</span>
-                          </div>
-                          <button onClick={() => setShowAddSquawk(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                            <X className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        </div>
-                        <div className="bg-muted/30 rounded-xl p-4 mb-4">
-                          <textarea
-                            className="w-full bg-transparent text-[13px] outline-none resize-none text-foreground placeholder:text-muted-foreground/60"
-                            rows={3}
-                            placeholder='Describe the squawk in plain English, e.g. "Left brake feels soft on landing, heard slight grinding sound during taxi"'
-                            value={squawkText}
-                            onChange={(event) => {
-                              setSquawkText(event.target.value);
-                              setSquawkStructure(null);
-                              setSquawkNotice(null);
-                              setSquawkError(null);
-                            }}
-                          />
-                        </div>
-                        {(squawkNotice || squawkError || squawkStructure) && (
-                          <div className="space-y-2 mb-4">
-                            {squawkStructure && (
-                              <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
-                                <div className="text-[12px] text-foreground flex flex-wrap items-center gap-2" style={{ fontWeight: 600 }}>
-                                  <span>{squawkStructure.title}</span>
-                                  <span className={`px-2 py-0.5 rounded-full ${severityColor(squawkStructure.severity)}`}>{squawkStructure.severity}</span>
-                                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{squawkStructure.category}</span>
-                                  {squawkStructure.grounded && (
-                                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700">Grounded</span>
-                                  )}
-                                </div>
-                                <div className="text-[11px] text-muted-foreground mt-1">
-                                  {squawkStructure.description}
-                                </div>
-                              </div>
-                            )}
-                            {squawkNotice && (
-                              <div className="text-[12px] text-primary bg-primary/5 border border-primary/10 rounded-lg px-3 py-2">
-                                {squawkNotice}
-                              </div>
-                            )}
-                            {squawkError && (
-                              <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                                {squawkError}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => squawkPhotoInputRef.current?.click()}
-                              disabled={squawkExtractingPhoto || savingSquawk}
-                              className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
-                              style={{ fontWeight: 500 }}
-                            >
-                              <Camera className="w-3.5 h-3.5" />
-                              {squawkExtractingPhoto ? "Analyzing..." : "Photo"}
-                            </button>
-                            <input
-                              ref={squawkPhotoInputRef}
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              className="hidden"
-                              onChange={handleSquawkPhotoSelect}
-                            />
-                            <button
-                              type="button"
-                              onClick={squawkRecording ? stopSquawkRecording : startSquawkRecording}
-                              disabled={squawkTranscribing || savingSquawk}
-                              className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
-                              style={{ fontWeight: 500 }}
-                            >
-                              <Mic className="w-3.5 h-3.5" />
-                              {squawkTranscribing ? "Transcribing..." : squawkRecording ? "Stop Dictation" : "Dictate"}
-                            </button>
-                            <label className="inline-flex items-center gap-2 cursor-pointer">
-                              <div className="relative">
-                                <input
-                                  type="checkbox"
-                                  className="sr-only"
-                                  checked={squawkGrounded}
-                                  onChange={(event) => setSquawkGrounded(event.target.checked)}
-                                />
-                                <div className={`w-9 h-5 rounded-full transition-colors ${squawkGrounded ? "bg-red-500/70" : "bg-muted"}`} />
-                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${squawkGrounded ? "left-[18px]" : "left-0.5"}`} />
-                              </div>
-                              <span className="text-[12px] text-muted-foreground" style={{ fontWeight: 500 }}>Aircraft Grounded</span>
-                            </label>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                setShowAddSquawk(false);
-                                resetSquawkComposer();
-                              }}
-                              className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/30 transition-colors"
-                              style={{ fontWeight: 500 }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void structureSquawk(squawkText, squawkGrounded)}
-                              disabled={!squawkText.trim() || squawkStructuring || savingSquawk}
-                              className="inline-flex items-center gap-1.5 border border-primary/30 text-primary px-4 py-1.5 rounded-lg text-[12px] hover:bg-primary/5 transition-colors disabled:opacity-60"
-                              style={{ fontWeight: 500 }}
-                            >
-                              <Sparkles className={`w-3.5 h-3.5 ${squawkStructuring ? "animate-pulse" : ""}`} /> AI Structure
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void saveAircraftSquawk()}
-                              disabled={!squawkText.trim() || savingSquawk}
-                              className="inline-flex items-center gap-1.5 bg-primary text-white px-4 py-1.5 rounded-lg text-[12px] hover:bg-primary/90 transition-colors disabled:opacity-60"
-                              style={{ fontWeight: 500 }}
-                            >
-                              {savingSquawk ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                              Save Squawk
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Squawk cards */}
-                <div className="space-y-3">
-                  {filteredSquawks.length === 0 ? (
-                    <div className="bg-white rounded-xl border border-border p-10 text-center">
-                      <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                      <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>No squawks</div>
-                      <div className="text-[13px] text-muted-foreground">All clear in this category.</div>
-                    </div>
-                  ) : filteredSquawks.map((sq) => (
-                    <div key={sq.id} className={`bg-white rounded-xl border transition-all ${selectedSquawks.includes(sq.id) ? "border-primary/40 shadow-sm shadow-primary/10" : "border-border"}`}>
-                      <div className="p-5">
-                        <div className="flex items-start gap-3">
-                          <button onClick={() => toggleSquawkSelect(sq.id)} className="mt-0.5 shrink-0">
-                            {selectedSquawks.includes(sq.id)
-                              ? <CheckSquare className="w-4 h-4 text-primary" />
-                              : <Square className="w-4 h-4 text-muted-foreground/40 hover:text-muted-foreground transition-colors" />
-                            }
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-3 mb-2">
-                              <div>
-                                <div className="flex items-center gap-2 flex-wrap mb-1">
-                                  <span className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>{sq.title}</span>
-                                  {sq.grounded && (
-                                    <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 700 }}>GROUNDED</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[11px] px-2 py-0.5 rounded-full ${severityColor(sq.severity)}`} style={{ fontWeight: 600 }}>{sq.severity}</span>
-                                  <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>{sq.category}</span>
-                                  {sq.status === "In Progress" && <span className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>In Progress</span>}
-                                  {sq.linkedWO && <span className="text-[11px] text-primary flex items-center gap-0.5" style={{ fontWeight: 500 }}><Hash className="w-3 h-3" />{sq.linkedWO}</span>}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                                  <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-[13px] text-muted-foreground mb-3 leading-relaxed">{sq.description}</p>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                                <span>{sq.reportedBy} &middot; {sq.reportedByRole}</span>
-                                <span>{sq.date}</span>
-                                {sq.photos && <span className="flex items-center gap-0.5"><Camera className="w-3 h-3" /> {sq.photos}</span>}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button className="text-[12px] text-muted-foreground hover:text-foreground transition-colors" style={{ fontWeight: 500 }}>Resolve</button>
-                                <Link href="/maintenance" className="text-[12px] text-primary hover:text-primary/80 transition-colors flex items-center gap-0.5" style={{ fontWeight: 500 }}>
-                                  <Wrench className="w-3 h-3" /> Request Maintenance
-                                </Link>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ══════════════════════ REMINDERS TAB ══════════════════════ */}
-            {activeTab === "Reminders" && (
+            {/* ══════════════════════ REMINDERS TAB (now inside Maintenance) ══════════════════════ */}
+            {false && (
               <div className="space-y-4 px-6 py-5">
                 {/* Summary pills */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2893,8 +2645,397 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     ))}
                   </div>
                 </div>
-                </div></>}
+                </>}
 
+                  {/* ── Squawks sub-tab ── */}
+                  {maintTab === "Squawks" && (
+                    <div className="space-y-4 p-5 overflow-auto flex-1">
+                      {/* Command bar */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {(["All", "Open", "In Progress", "Resolved"] as const).map((f) => (
+                            <button
+                              key={f}
+                              onClick={() => setSquawkFilter(f)}
+                              className={`px-3 py-1.5 rounded-lg text-[12px] transition-colors ${squawkFilter === f ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-muted/30"}`}
+                              style={{ fontWeight: squawkFilter === f ? 600 : 400 }}
+                            >
+                              {f}
+                              {f === "Open" && openSquawks.filter(s => s.status === "Open").length > 0 && (
+                                <span className="ml-1 text-[10px] opacity-80">({openSquawks.filter(s => s.status === "Open").length})</span>
+                              )}
+                            </button>
+                          ))}
+                          {loadingSquawks && (
+                            <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Syncing
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {selectedSquawks.length > 0 && (
+                            <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-2">
+                              <Link href="/maintenance" className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                                <Wrench className="w-3.5 h-3.5" /> Request Maintenance ({selectedSquawks.length})
+                              </Link>
+                              <button onClick={() => setSelectedSquawks([])} className="p-2 hover:bg-muted rounded-lg transition-colors">
+                                <X className="w-3.5 h-3.5 text-muted-foreground" />
+                              </button>
+                            </motion.div>
+                          )}
+                          <button
+                            onClick={() => setShowAddSquawk(true)}
+                            className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors"
+                            style={{ fontWeight: 500 }}
+                          >
+                            <Plus className="w-4 h-4" /> Add Squawk
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Add squawk form */}
+                      <AnimatePresence>
+                        {showAddSquawk && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                            <div className="bg-white rounded-xl border border-primary/30 p-5">
+                              <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                  <Sparkles className="w-4 h-4 text-primary" />
+                                  <span className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Add Squawk — AI Assisted</span>
+                                </div>
+                                <button onClick={() => setShowAddSquawk(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+                                  <X className="w-4 h-4 text-muted-foreground" />
+                                </button>
+                              </div>
+                              <div className="bg-muted/30 rounded-xl p-4 mb-4">
+                                <textarea
+                                  className="w-full bg-transparent text-[13px] outline-none resize-none text-foreground placeholder:text-muted-foreground/60"
+                                  rows={3}
+                                  placeholder='Describe the squawk in plain English, e.g. "Left brake feels soft on landing, heard slight grinding sound during taxi"'
+                                  value={squawkText}
+                                  onChange={(event) => {
+                                    setSquawkText(event.target.value);
+                                    setSquawkStructure(null);
+                                    setSquawkNotice(null);
+                                    setSquawkError(null);
+                                  }}
+                                />
+                              </div>
+                              {(squawkNotice || squawkError || squawkStructure) && (
+                                <div className="space-y-2 mb-4">
+                                  {squawkStructure && (
+                                    <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
+                                      <div className="text-[12px] text-foreground flex flex-wrap items-center gap-2" style={{ fontWeight: 600 }}>
+                                        <span>{squawkStructure.title}</span>
+                                        <span className={`px-2 py-0.5 rounded-full ${severityColor(squawkStructure.severity)}`}>{squawkStructure.severity}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{squawkStructure.category}</span>
+                                        {squawkStructure.grounded && (
+                                          <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700">Grounded</span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-muted-foreground mt-1">
+                                        {squawkStructure.description}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {squawkNotice && (
+                                    <div className="text-[12px] text-primary bg-primary/5 border border-primary/10 rounded-lg px-3 py-2">
+                                      {squawkNotice}
+                                    </div>
+                                  )}
+                                  {squawkError && (
+                                    <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                      {squawkError}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <button type="button" onClick={() => squawkPhotoInputRef.current?.click()} disabled={squawkExtractingPhoto || savingSquawk} className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60" style={{ fontWeight: 500 }}>
+                                    <Camera className="w-3.5 h-3.5" />
+                                    {squawkExtractingPhoto ? "Analyzing..." : "Photo"}
+                                  </button>
+                                  <input ref={squawkPhotoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleSquawkPhotoSelect} />
+                                  <button type="button" onClick={squawkRecording ? stopSquawkRecording : startSquawkRecording} disabled={squawkTranscribing || savingSquawk} className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground border border-border px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60" style={{ fontWeight: 500 }}>
+                                    <Mic className="w-3.5 h-3.5" />
+                                    {squawkTranscribing ? "Transcribing..." : squawkRecording ? "Stop Dictation" : "Dictate"}
+                                  </button>
+                                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                                    <div className="relative">
+                                      <input type="checkbox" className="sr-only" checked={squawkGrounded} onChange={(event) => setSquawkGrounded(event.target.checked)} />
+                                      <div className={`w-9 h-5 rounded-full transition-colors ${squawkGrounded ? "bg-red-500/70" : "bg-muted"}`} />
+                                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${squawkGrounded ? "left-[18px]" : "left-0.5"}`} />
+                                    </div>
+                                    <span className="text-[12px] text-muted-foreground" style={{ fontWeight: 500 }}>Aircraft Grounded</span>
+                                  </label>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => { setShowAddSquawk(false); resetSquawkComposer(); }} className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>Cancel</button>
+                                  <button type="button" onClick={() => void structureSquawk(squawkText, squawkGrounded)} disabled={!squawkText.trim() || squawkStructuring || savingSquawk} className="inline-flex items-center gap-1.5 border border-primary/30 text-primary px-4 py-1.5 rounded-lg text-[12px] hover:bg-primary/5 transition-colors disabled:opacity-60" style={{ fontWeight: 500 }}>
+                                    <Sparkles className={`w-3.5 h-3.5 ${squawkStructuring ? "animate-pulse" : ""}`} /> AI Structure
+                                  </button>
+                                  <button type="button" onClick={() => void saveAircraftSquawk()} disabled={!squawkText.trim() || savingSquawk} className="inline-flex items-center gap-1.5 bg-primary text-white px-4 py-1.5 rounded-lg text-[12px] hover:bg-primary/90 transition-colors disabled:opacity-60" style={{ fontWeight: 500 }}>
+                                    {savingSquawk ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                    Save Squawk
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Squawk cards */}
+                      <div className="space-y-3">
+                        {filteredSquawks.length === 0 ? (
+                          <div className="bg-white rounded-xl border border-border p-10 text-center">
+                            <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                            <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>No squawks</div>
+                            <div className="text-[13px] text-muted-foreground">All clear in this category.</div>
+                          </div>
+                        ) : filteredSquawks.map((sq) => (
+                          <div key={sq.id} className={`bg-white rounded-xl border transition-all ${selectedSquawks.includes(sq.id) ? "border-primary/40 shadow-sm shadow-primary/10" : "border-border"}`}>
+                            <div className="p-5">
+                              <div className="flex items-start gap-3">
+                                <button onClick={() => toggleSquawkSelect(sq.id)} className="mt-0.5 shrink-0">
+                                  {selectedSquawks.includes(sq.id)
+                                    ? <CheckSquare className="w-4 h-4 text-primary" />
+                                    : <Square className="w-4 h-4 text-muted-foreground/40 hover:text-muted-foreground transition-colors" />
+                                  }
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-3 mb-2">
+                                    <div>
+                                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                                        <span className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>{sq.title}</span>
+                                        {sq.grounded && (
+                                          <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 700 }}>GROUNDED</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={`text-[11px] px-2 py-0.5 rounded-full ${severityColor(sq.severity)}`} style={{ fontWeight: 600 }}>{sq.severity}</span>
+                                        <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>{sq.category}</span>
+                                        {sq.status === "In Progress" && <span className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>In Progress</span>}
+                                        {sq.linkedWO && <span className="text-[11px] text-primary flex items-center gap-0.5" style={{ fontWeight: 500 }}><Hash className="w-3 h-3" />{sq.linkedWO}</span>}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+                                        <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="text-[13px] text-muted-foreground mb-3 leading-relaxed">{sq.description}</p>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                                      <span>{sq.reportedBy} &middot; {sq.reportedByRole}</span>
+                                      <span>{sq.date}</span>
+                                      {sq.photos && <span className="flex items-center gap-0.5"><Camera className="w-3 h-3" /> {sq.photos}</span>}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button className="text-[12px] text-muted-foreground hover:text-foreground transition-colors" style={{ fontWeight: 500 }}>Resolve</button>
+                                      <button onClick={() => setMaintTab("Work Orders")} className="text-[12px] text-primary hover:text-primary/80 transition-colors flex items-center gap-0.5" style={{ fontWeight: 500 }}>
+                                        <Wrench className="w-3 h-3" /> View in Work Orders
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Reminders sub-tab ── */}
+                  {maintTab === "Reminders" && (
+                    <div className="space-y-4 p-5 overflow-auto flex-1">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {[
+                          { label: "Overdue / Critical", count: criticalReminders.length, color: criticalReminders.length > 0 ? "border-orange-200 bg-orange-50" : "border-border bg-white", textColor: criticalReminders.length > 0 ? "text-orange-700" : "text-muted-foreground" },
+                          { label: "Upcoming (30 days)", count: reminders.filter(r => r.status === "Upcoming").length, color: "border-amber-200 bg-amber-50", textColor: "text-amber-700" },
+                          { label: "OK", count: reminders.filter(r => r.status === "OK").length, color: "border-emerald-200 bg-emerald-50", textColor: "text-emerald-700" },
+                          { label: "Total Reminders", count: reminders.length, color: "border-border bg-white", textColor: "text-foreground" },
+                        ].map((item) => (
+                          <div key={item.label} className={`rounded-xl border ${item.color} p-4`}>
+                            <div className={`text-[22px] tracking-tight ${item.textColor}`} style={{ fontWeight: 700 }}>{item.count}</div>
+                            <div className="text-[11px] text-muted-foreground" style={{ fontWeight: 500 }}>{item.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {["All", "Date", "Hobbs", "Tach"].map((f) => (
+                            <button key={f} onClick={() => setReminderFilter(f)} className={`px-3 py-1.5 rounded-lg text-[12px] transition-colors ${reminderFilter === f ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-muted/30"}`} style={{ fontWeight: reminderFilter === f ? 600 : 400 }}>
+                              {f}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="inline-flex items-center gap-1.5 bg-white border border-border text-muted-foreground px-3 py-2 rounded-lg text-[12px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
+                            <Sparkles className="w-3.5 h-3.5 text-primary" /> Describe in plain English
+                          </button>
+                          <button className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                            <Plus className="w-4 h-4" /> Add Reminder
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {reminders
+                          .filter(r => reminderFilter === "All" || r.type === reminderFilter)
+                          .sort((a, b) => {
+                            const order = { Overdue: 0, Critical: 1, Upcoming: 2, OK: 3 };
+                            return order[a.status] - order[b.status];
+                          })
+                          .map((rem) => (
+                            <div key={rem.id} className={`bg-white rounded-xl border p-5 ${rem.status === "Critical" || rem.status === "Overdue" ? "border-orange-200" : "border-border"}`}>
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${rem.type === "Date" ? "bg-blue-50" : rem.type === "Hobbs" ? "bg-violet-50" : "bg-emerald-50"}`}>
+                                    {rem.type === "Date" ? <Calendar className={`w-4 h-4 ${rem.status === "Critical" ? "text-orange-600" : "text-blue-600"}`} /> : rem.type === "Hobbs" ? <Gauge className="w-4 h-4 text-violet-600" /> : <Activity className="w-4 h-4 text-emerald-600" />}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{rem.title}</span>
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${reminderStatusColor(rem.status)}`} style={{ fontWeight: 600 }}>{rem.status}</span>
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground mb-2">{rem.category} &middot; {rem.type}-based</div>
+                                    {rem.type === "Date" && (
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-[200px]">
+                                          <div className={`h-full rounded-full ${rem.status === "Critical" ? "bg-orange-500" : rem.status === "Upcoming" ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${Math.max(5, Math.min(100, 100 - (rem.daysRemaining! / 365) * 100))}%` }} />
+                                        </div>
+                                        <span className="text-[12px] text-muted-foreground">{rem.daysRemaining} days remaining &middot; Due {rem.dueDate}</span>
+                                      </div>
+                                    )}
+                                    {rem.type === "Hobbs" && <span className="text-[12px] text-muted-foreground">{rem.hobbsRemaining} Hobbs hrs remaining &middot; Due at {rem.dueHobbs} Hobbs</span>}
+                                    {rem.type === "Tach" && <span className="text-[12px] text-muted-foreground">{rem.tachRemaining} Tach hrs remaining &middot; Due at {rem.dueTach} Tach</span>}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {rem.canRequestMaintenance && (
+                                    <button onClick={() => setMaintTab("Work Orders")} className="text-[12px] text-primary hover:text-primary/80 flex items-center gap-1" style={{ fontWeight: 500 }}>
+                                      <Wrench className="w-3 h-3" /> Request
+                                    </button>
+                                  )}
+                                  <button className="text-[12px] text-muted-foreground hover:text-foreground transition-colors" style={{ fontWeight: 500 }}>Snooze</button>
+                                  <button className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+                                    <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Activity sub-tab ── */}
+                  {maintTab === "Activity" && (
+                    <div className="p-5 overflow-auto flex-1 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>Aircraft Activity</h2>
+                        <button className="flex items-center gap-1.5 bg-white border border-border text-muted-foreground px-3 py-1.5 rounded-lg text-[12px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
+                          <Filter className="w-3.5 h-3.5" /> Filter
+                        </button>
+                      </div>
+                      <div className="bg-white rounded-xl border border-border divide-y divide-border">
+                        {activity.map((item) => {
+                          const Icon = activityIcon(item.type);
+                          return (
+                            <div key={item.id} className="px-5 py-4 flex items-start gap-4 hover:bg-muted/20 transition-colors">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${activityColor(item.type)}`}>
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[13px] text-foreground mb-0.5" style={{ fontWeight: 600 }}>{item.title}</div>
+                                <div className="text-[12px] text-muted-foreground mb-1.5 leading-relaxed">{item.detail}</div>
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                  <span>{item.actor}</span>
+                                  <span>&middot;</span>
+                                  <span className="text-primary/60">{item.actorRole}</span>
+                                </div>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground shrink-0">{item.time}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="bg-white rounded-xl border border-border p-4">
+                        <div className="flex gap-3">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <User className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="flex-1 flex items-center gap-2 bg-muted/30 border border-border rounded-xl px-4 py-2.5">
+                            <input type="text" placeholder="Add a note to this aircraft's activity..." className="bg-transparent text-[13px] outline-none flex-1" />
+                            <button className="shrink-0 bg-primary text-white w-7 h-7 rounded-lg flex items-center justify-center hover:bg-primary/90 transition-colors">
+                              <Send className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Mechanics sub-tab ── */}
+                  {maintTab === "Mechanics" && (
+                    <div className="p-5 overflow-auto flex-1 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>Assigned Mechanics</h2>
+                          <p className="text-[12px] text-muted-foreground mt-0.5">Mechanics who have access to this aircraft</p>
+                        </div>
+                        <button onClick={() => setShowInviteMechanic(true)} className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                          <UserPlus className="w-3.5 h-3.5" /> Assign Mechanic
+                        </button>
+                      </div>
+                      {mechanics.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-border p-10 text-center">
+                          <HardHat className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+                          <div className="text-[14px] text-foreground mb-1" style={{ fontWeight: 600 }}>No mechanics assigned</div>
+                          <div className="text-[13px] text-muted-foreground mb-4">Invite mechanics to this aircraft so they can view records, create work orders, and log maintenance.</div>
+                          <button onClick={() => setShowInviteMechanic(true)} className="inline-flex items-center gap-1.5 bg-primary text-white px-4 py-2 rounded-lg text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                            <UserPlus className="w-3.5 h-3.5" /> Invite a Mechanic
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {mechanics.map(m => {
+                            const initials = m.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+                            const colors = ["bg-blue-600","bg-violet-600","bg-emerald-600","bg-amber-500","bg-slate-500"];
+                            const c = colors[Math.abs(m.name.charCodeAt(0) + (m.name.charCodeAt(1)||0)) % colors.length];
+                            return (
+                              <div key={m.id} className="bg-white rounded-xl border border-border p-4 flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-[12px] shrink-0 ${c} ${!m.enabled ? "opacity-40 grayscale" : ""}`} style={{ fontWeight: 700 }}>{initials}</div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>{m.name}</div>
+                                  <div className="text-[12px] text-muted-foreground">{m.email}</div>
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {m.permissions?.map(p => (
+                                      <span key={p} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>{p}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className={`text-[11px] px-2 py-1 rounded-full ${m.status === "Active" && m.enabled ? "bg-emerald-50 text-emerald-700" : m.status === "Invited" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`} style={{ fontWeight: 600 }}>{m.status === "Active" && m.enabled ? "Active" : m.status === "Invited" ? "Invited" : "Inactive"}</span>
+                                  <button onClick={() => toggleAircraftAssignment(m.id)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+                                    <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                                  </button>
+                                  <button onClick={() => { removeAircraftAssignment(m.id); }} className="p-1.5 hover:bg-red-50 rounded-lg transition-colors group">
+                                    <Trash2 className="w-4 h-4 text-slate-300 group-hover:text-red-500 transition-colors" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
               </div>
             )}
@@ -3332,56 +3473,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               </div>
             )}
 
-            {/* ══════════════════════ ACTIVITY TAB ══════════════════════ */}
-            {activeTab === "Activity" && (
-              <div className="max-w-3xl space-y-4 px-6 py-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>Aircraft Activity</h2>
-                  <div className="flex items-center gap-2">
-                    <button className="flex items-center gap-1.5 bg-white border border-border text-muted-foreground px-3 py-1.5 rounded-lg text-[12px] hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
-                      <Filter className="w-3.5 h-3.5" /> Filter
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-white rounded-xl border border-border divide-y divide-border">
-                  {activity.map((item) => {
-                    const Icon = activityIcon(item.type);
-                    return (
-                      <div key={item.id} className="px-5 py-4 flex items-start gap-4 hover:bg-muted/20 transition-colors">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${activityColor(item.type)}`}>
-                          <Icon className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] text-foreground mb-0.5" style={{ fontWeight: 600 }}>{item.title}</div>
-                          <div className="text-[12px] text-muted-foreground mb-1.5 leading-relaxed">{item.detail}</div>
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>{item.actor}</span>
-                            <span>&middot;</span>
-                            <span className="text-primary/60">{item.actorRole}</span>
-                          </div>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground shrink-0">{item.time}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Add note */}
-                <div className="bg-white rounded-xl border border-border p-4">
-                  <div className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <User className="w-4 h-4 text-primary" />
-                    </div>
-                    <div className="flex-1 flex items-center gap-2 bg-muted/30 border border-border rounded-xl px-4 py-2.5">
-                      <input type="text" placeholder="Add a note to this aircraft's activity..." className="bg-transparent text-[13px] outline-none flex-1" />
-                      <button className="shrink-0 bg-primary text-white w-7 h-7 rounded-lg flex items-center justify-center hover:bg-primary/90 transition-colors">
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Activity moved inside Maintenance sub-tabs */}
           </motion.div>
         </AnimatePresence>
       </div>

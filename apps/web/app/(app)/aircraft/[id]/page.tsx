@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { Suspense } from 'react'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { AircraftDetail } from '@/components/redesign/AircraftDetail'
 import type { UserProfile } from '@/types'
@@ -70,29 +71,31 @@ export default async function AircraftDetailPage({
   ])
 
   return (
-    <AircraftDetail
-      aircraftId={aircraft.id}
-      aircraftTail={aircraft.tail_number}
-      aircraft={{
-        tail_number: aircraft.tail_number,
-        serial_number: aircraft.serial_number,
-        make: aircraft.make,
-        model: aircraft.model,
-        year: aircraft.year,
-        engine_make: aircraft.engine_make,
-        engine_model: aircraft.engine_model,
-        prop_make: aircraft.prop_make,
-        prop_model: aircraft.prop_model,
-        base_airport: aircraft.base_airport,
-        operator_name: aircraft.operator_name,
-        operation_types: aircraft.operation_types,
-        total_time_hours: aircraft.total_time_hours,
-        document_count: documentCount ?? 0,
-        owner_name: ownerCustomerRes.data?.name ?? null,
-        owner_company: ownerCustomerRes.data?.company ?? null,
-        owner_email: ownerCustomerRes.data?.email ?? null,
-        owner_phone: ownerCustomerRes.data?.phone ?? null,
-      }}
-    />
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>}>
+      <AircraftDetail
+        aircraftId={aircraft.id}
+        aircraftTail={aircraft.tail_number}
+        aircraft={{
+          tail_number: aircraft.tail_number,
+          serial_number: aircraft.serial_number,
+          make: aircraft.make,
+          model: aircraft.model,
+          year: aircraft.year,
+          engine_make: aircraft.engine_make,
+          engine_model: aircraft.engine_model,
+          prop_make: aircraft.prop_make,
+          prop_model: aircraft.prop_model,
+          base_airport: aircraft.base_airport,
+          operator_name: aircraft.operator_name,
+          operation_types: aircraft.operation_types,
+          total_time_hours: aircraft.total_time_hours,
+          document_count: documentCount ?? 0,
+          owner_name: ownerCustomerRes.data?.name ?? null,
+          owner_company: ownerCustomerRes.data?.company ?? null,
+          owner_email: ownerCustomerRes.data?.email ?? null,
+          owner_phone: ownerCustomerRes.data?.phone ?? null,
+        }}
+      />
+    </Suspense>
   )
 }
