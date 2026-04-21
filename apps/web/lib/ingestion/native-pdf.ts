@@ -45,6 +45,32 @@ function getTrimmedEnvValue(name: string) {
   return value ? value : undefined
 }
 
+function extractJsonValueCandidate(raw: string) {
+  const normalized = raw.replace(/\\n/g, '\n').trim()
+  if (!normalized) return normalized
+
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    try {
+      const parsed = JSON.parse(normalized)
+      if (typeof parsed === 'string') {
+        return extractJsonObjectCandidate(parsed.trim())
+      }
+      return JSON.stringify(parsed)
+    } catch {
+      return extractJsonObjectCandidate(normalized.slice(1, -1).trim())
+    }
+  }
+
+  return extractJsonObjectCandidate(normalized)
+}
+
+function parseJsonEnvValue<T>(raw: string): T {
+  return JSON.parse(extractJsonValueCandidate(raw)) as T
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null
 
@@ -78,7 +104,7 @@ function extractJsonObjectCandidate(raw: string) {
 }
 
 export function parseOpenAiJsonOutput<T>(raw: string): T {
-  const candidate = extractJsonObjectCandidate(raw)
+  const candidate = extractJsonValueCandidate(raw)
   return JSON.parse(candidate) as T
 }
 
@@ -256,18 +282,18 @@ function getOpenAI() {
 
 function getDocumentAiConfig(): DocumentAiConfig | null {
   const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT?.trim() ||
-    process.env.GOOGLE_DOCUMENT_AI_PROJECT_ID?.trim()
+    getTrimmedEnvValue('GOOGLE_CLOUD_PROJECT') ||
+    getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_PROJECT_ID')
   const location =
-    process.env.DOCUMENT_AI_LOCATION?.trim() ||
-    process.env.GOOGLE_DOCUMENT_AI_LOCATION?.trim()
+    getTrimmedEnvValue('DOCUMENT_AI_LOCATION') ||
+    getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_LOCATION')
   const processorId =
-    process.env.DOCUMENT_AI_PROCESSOR_ID?.trim() ||
-    process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID?.trim()
+    getTrimmedEnvValue('DOCUMENT_AI_PROCESSOR_ID') ||
+    getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_PROCESSOR_ID')
   const credentialsJson =
-    process.env.GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON?.trim() ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()
+    getTrimmedEnvValue('GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON') ||
+    getTrimmedEnvValue('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+  const credentialsPath = getTrimmedEnvValue('GOOGLE_APPLICATION_CREDENTIALS')
 
   if (!projectId || !location || !processorId) {
     return null
@@ -287,13 +313,13 @@ function getDocumentAiConfig(): DocumentAiConfig | null {
 }
 
 function getDocumentAiSchemaOverride(): DocumentAiSchemaOverride | null {
-  const raw = process.env.DOCUMENT_AI_SCHEMA_JSON?.trim()
+  const raw = getTrimmedEnvValue('DOCUMENT_AI_SCHEMA_JSON')
   if (!raw) {
     return null
   }
 
   try {
-    return JSON.parse(raw) as DocumentAiSchemaOverride
+    return parseJsonEnvValue<DocumentAiSchemaOverride>(raw)
   } catch (error) {
     console.warn('[ingestion] invalid DOCUMENT_AI_SCHEMA_JSON, omitting schema override', error)
     return null
@@ -1154,7 +1180,7 @@ function buildScannedIngestResponse(args: {
 
 async function getDocumentAiAuthHeader(config: DocumentAiConfig) {
   const credentials = config.credentialsJson
-    ? (JSON.parse(config.credentialsJson) as Record<string, unknown>)
+    ? parseJsonEnvValue<Record<string, unknown>>(config.credentialsJson)
     : undefined
 
   const auth = new GoogleAuth({

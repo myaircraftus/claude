@@ -21,4 +21,20 @@ Here is the OCR result:
 
     expect(parsed.pages).toEqual([{ page_number: 2 }])
   })
+
+  it('parses json wrapped in outer single quotes', () => {
+    const parsed = parseOpenAiJsonOutput<{ type: string; value: number }>(
+      `'{"type":"service_account","value":1}'`
+    )
+
+    expect(parsed).toEqual({ type: 'service_account', value: 1 })
+  })
+
+  it('parses json wrapped in outer double quotes', () => {
+    const parsed = parseOpenAiJsonOutput<{ type: string; value: number }>(
+      '"{\\"type\\":\\"service_account\\",\\"value\\":2}"'
+    )
+
+    expect(parsed).toEqual({ type: 'service_account', value: 2 })
+  })
 })
