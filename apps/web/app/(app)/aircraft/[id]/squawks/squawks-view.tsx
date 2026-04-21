@@ -42,6 +42,7 @@ import {
   Send,
   Loader2,
   Trash2,
+  FileText,
 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -138,6 +139,11 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
   const [requestMessage, setRequestMessage] = useState('')
   const [requestSquawkIds, setRequestSquawkIds] = useState<string[]>([])
   const [requestSaving, setRequestSaving] = useState(false)
+
+  // Create estimate from squawks
+  const [estimateOpen, setEstimateOpen] = useState(false)
+  const [estimateSquawkIds, setEstimateSquawkIds] = useState<string[]>([])
+  const [estimateSaving, setEstimateSaving] = useState(false)
 
   // Inline edit
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -412,6 +418,53 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
     )
   }
 
+  // ── Create Estimate from squawks ─────────────────────────────────────────
+
+  const openEstimateDialog = () => {
+    setEstimateSquawkIds(
+      squawks.filter(s => s.status === 'open' || s.status === 'acknowledged').map(s => s.id)
+    )
+    setEstimateOpen(true)
+  }
+
+  const toggleEstimateSquawk = (id: string) => {
+    setEstimateSquawkIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const createEstimateFromSquawks = async () => {
+    if (estimateSquawkIds.length === 0) return
+    setEstimateSaving(true)
+    try {
+      // Build customer_notes from selected squawk titles
+      const selected = squawks.filter(s => estimateSquawkIds.includes(s.id))
+      const customerNotes = selected
+        .map(s => `• [${s.severity.toUpperCase()}] ${s.title}${s.description ? ': ' + s.description : ''}`)
+        .join('\n')
+
+      const res = await fetch('/api/estimates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: aircraftId,
+          linked_squawk_ids: estimateSquawkIds,
+          customer_notes: customerNotes,
+          status: 'draft',
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to create estimate')
+      const data = await res.json()
+      setEstimateOpen(false)
+      router.push(`/estimates/${data.id}`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to create estimate')
+    } finally {
+      setEstimateSaving(false)
+    }
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   const openCount = squawks.filter(s => s.status === 'open').length
@@ -429,6 +482,12 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {openCount > 0 && (
+            <Button variant="outline" size="sm" onClick={openEstimateDialog}>
+              <FileText className="h-4 w-4 mr-1" />
+              Create Estimate
+            </Button>
+          )}
           {mechanics.length > 0 && openCount > 0 && (
             <Button variant="outline" size="sm" onClick={openRequestDialog}>
               <Send className="h-4 w-4 mr-1" />
@@ -768,6 +827,70 @@ export function SquawksView({ aircraftId, aircraftTail, initialSquawks, mechanic
           })}
         </div>
       )}
+
+      {/* ── Create Estimate Dialog ───────────────────────────────────────── */}
+      <Dialog open={estimateOpen} onOpenChange={setEstimateOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Estimate from Squawks</DialogTitle>
+            <DialogDescription>
+              Select the squawks to include as notes on the estimate. An AI summary will be available after creation.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Squawks to include</Label>
+              <div className="space-y-1 max-h-48 overflow-y-auto border rounded-lg p-2">
+                {squawks
+                  .filter(s => s.status === 'open' || s.status === 'acknowledged')
+                  .map(s => (
+                    <label
+                      key={s.id}
+                      className="flex items-start gap-2 p-1.5 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={estimateSquawkIds.includes(s.id)}
+                        onCheckedChange={() => toggleEstimateSquawk(s.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <Badge className={cn('text-[10px] px-1.5 py-0', SEVERITY_CONFIG[s.severity].className)}>
+                            {SEVERITY_CONFIG[s.severity].label}
+                          </Badge>
+                          <span className="text-sm font-medium">{s.title}</span>
+                        </div>
+                        {s.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{s.description}</p>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                {squawks.filter(s => s.status === 'open' || s.status === 'acknowledged').length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    No open squawks available.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEstimateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={createEstimateFromSquawks}
+              disabled={estimateSquawkIds.length === 0 || estimateSaving}
+            >
+              {estimateSaving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              <FileText className="h-4 w-4 mr-1" />
+              Create Estimate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Maintenance Request Dialog ────────────────────────────────────── */}
       <Dialog open={requestOpen} onOpenChange={setRequestOpen}>

@@ -63,6 +63,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Estimate not found' }, { status: 404 })
   }
 
+  // Fetch linked squawks
+  const squawkIds: string[] = Array.isArray((estimate as any).linked_squawk_ids)
+    ? (estimate as any).linked_squawk_ids
+    : []
+  let linkedSquawks: any[] = []
+  if (squawkIds.length > 0) {
+    const { data } = await supabase
+      .from('squawks')
+      .select('id, title, description, severity')
+      .in('id', squawkIds)
+    linkedSquawks = data ?? []
+  }
+
   const lineItems = (((estimate.line_items ?? []) as any[]).sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
   ))
@@ -194,6 +207,33 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             <div class="subtle">${escapeHtml(customer?.email ?? '')}</div>
           </div>
         </div>
+
+        ${(estimate as any).ai_summary ? `
+          <div class="section-title">Summary</div>
+          <div class="narrative">${escapeHtml((estimate as any).ai_summary)}</div>
+        ` : ''}
+
+        ${linkedSquawks.length > 0 ? `
+          <div class="section-title">Reported Issues (Squawks)</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:100px;">Severity</th>
+                <th>Issue</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${linkedSquawks.map((s: any) => `
+                <tr>
+                  <td>${escapeHtml(s.severity ?? 'normal')}</td>
+                  <td>${escapeHtml(s.title)}</td>
+                  <td>${escapeHtml(s.description ?? '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
 
         <div class="section-title">Line Items</div>
         <table>

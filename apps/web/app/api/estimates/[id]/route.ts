@@ -76,6 +76,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'service_type',
     'customer_id',
     'aircraft_id',
+    'linked_squawk_ids',
+    'ai_summary',
+    'ai_summary_generated_at',
   ]
   const updates: Record<string, unknown> = {
     updated_at: new Date().toISOString(),

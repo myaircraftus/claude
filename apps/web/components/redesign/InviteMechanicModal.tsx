@@ -1,74 +1,103 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   X, UserPlus, Mail, Phone, User, CheckCircle, Wrench,
-  HardHat, AlertCircle, Loader2, Send, Link2,
+  HardHat, AlertCircle, Loader2, Send, Link2, Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useAppContext } from "./AppContext";
 import { toast } from "sonner";
+
+interface SearchResult {
+  user_id: string;
+  org_id: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+}
 
 interface Props {
   aircraftTail: string;
+  aircraftId?: string;
+  estimateId?: string;
   onClose: () => void;
+  onInvited?: (invite: { invite_id: string; email_sent: boolean; existing_user: boolean }) => void;
 }
 
-export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
-  const { team, addAircraftAssignment, aircraftAssignments } = useAppContext();
-
-  const [name,  setName]  = useState("");
+export function InviteMechanicModal({ aircraftTail, aircraftId, estimateId, onClose, onInvited }: Props) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [checking, setChecking] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedExisting, setSelectedExisting] = useState<SearchResult | null>(null);
+
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [inviteResult, setInviteResult] = useState<any>(null);
 
-  /* ── ecosystem lookup: match email against existing team members ── */
-  const emailLower = email.trim().toLowerCase();
-  const ecosystemMatch = emailLower.length > 5
-    ? team.find(m => m.email.toLowerCase() === emailLower)
-    : undefined;
-
-  /* ── check if already assigned to this aircraft ── */
-  const alreadyAssigned = aircraftAssignments.some(
-    a => a.aircraftTail === aircraftTail && a.email.toLowerCase() === emailLower
-  );
-
-  function handleEmailChange(val: string) {
-    setEmail(val);
-    if (val.trim().toLowerCase() === ecosystemMatch?.email.toLowerCase() && ecosystemMatch) {
-      // Auto-fill name from ecosystem match
-      if (!name) setName(ecosystemMatch.name);
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/mechanics/search?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      setSearchResults(json.mechanics ?? []);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
+  }, []);
+
+  function handleSearchChange(val: string) {
+    setSearchQuery(val);
+    doSearch(val);
   }
 
-  function handleSubmit() {
-    if (!name.trim() || !email.trim()) {
-      toast.error("Name and email are required.");
-      return;
-    }
-    if (alreadyAssigned) {
-      toast.error("This mechanic is already assigned to this aircraft.");
-      return;
-    }
+  function selectExisting(m: SearchResult) {
+    setSelectedExisting(m);
+    setName(m.name);
+    setEmail(m.email);
+    setPhone(m.phone);
+    setSearchQuery("");
+    setSearchResults([]);
+  }
 
-    setChecking(true);
-    // Simulate a brief "sending" delay
-    setTimeout(() => {
-      addAircraftAssignment({
-        aircraftTail,
-        name:  ecosystemMatch ? ecosystemMatch.name : name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        status: "Invited",
-        enabled: true,
-        linkedTeamMemberId: ecosystemMatch?.id,
-        invitedAt: new Date().toISOString().slice(0, 10),
+  async function handleSubmit() {
+    if (!name.trim()) { toast.error("Name is required."); return; }
+    if (!email.trim() && !phone.trim()) { toast.error("Email or phone is required."); return; }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/mechanics/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mechanic_name: name.trim(),
+          mechanic_email: email.trim() || undefined,
+          mechanic_phone: phone.trim() || undefined,
+          aircraft_id: aircraftId ?? undefined,
+          estimate_id: estimateId ?? undefined,
+        }),
       });
-      setChecking(false);
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Failed to send invite");
+        return;
+      }
+      setInviteResult(json);
       setSubmitted(true);
-      toast.success(`Invite sent to ${email.trim()}`);
-    }, 900);
+      toast.success(`Invite sent to ${email || phone}`);
+      onInvited?.({ invite_id: json.invite_id, email_sent: json.email_sent, existing_user: json.existing_user });
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -116,14 +145,25 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
               </div>
               <div className="text-[16px] text-foreground mb-1" style={{ fontWeight: 700 }}>Invite Sent!</div>
               <p className="text-[13px] text-muted-foreground mb-1">
-                {ecosystemMatch
-                  ? `${ecosystemMatch.name} is already in the myaircraft ecosystem — they've been notified and linked to ${aircraftTail}.`
-                  : `An invitation was sent to ${email}. Once accepted, they'll be able to access ${aircraftTail} in their mechanic portal.`}
+                {inviteResult?.existing_user
+                  ? `${name} is already in the myaircraft ecosystem — they've been notified and linked to ${aircraftTail}.`
+                  : `An invitation was sent to ${email || phone}. Once accepted, they'll get a 30-day free trial and access to ${aircraftTail} in their mechanic portal.`}
               </p>
-              {ecosystemMatch && (
+              {inviteResult?.existing_user && (
                 <div className="mt-3 flex items-center justify-center gap-1.5 text-[12px] text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
                   <Link2 className="w-3.5 h-3.5" />
                   Linked to existing account — no sign-up required
+                </div>
+              )}
+              {!inviteResult?.email_sent && email && (
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[12px] text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Email delivery not configured — share the invite link manually
+                </div>
+              )}
+              {inviteResult?.invite_url && (
+                <div className="mt-3 text-[11px] text-muted-foreground break-all bg-muted/30 rounded-lg px-3 py-2 text-left">
+                  <span className="font-medium">Invite link:</span> {inviteResult.invite_url}
                 </div>
               )}
               <button
@@ -139,29 +179,51 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
             <div className="p-6 space-y-5">
               {/* Info banner */}
               <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-[12px] text-blue-700 leading-relaxed">
-                Enter the mechanic's email. If they're already in the myaircraft ecosystem, their profile will auto-link. Otherwise they'll receive an email invite.
+                Search for a mechanic already in the system, or enter their info to send a new invite. New mechanics get a 30-day free trial.
               </div>
 
-              {/* Email first (triggers lookup) */}
+              {/* Live search */}
               <div>
                 <label className="block text-[12px] text-muted-foreground mb-1.5" style={{ fontWeight: 600 }}>
-                  Email Address <span className="text-red-500">*</span>
+                  Search existing mechanics
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
-                    type="email"
-                    value={email}
-                    onChange={e => handleEmailChange(e.target.value)}
-                    placeholder="mechanic@shop.com"
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => handleSearchChange(e.target.value)}
+                    placeholder="Name, email or phone..."
                     className="w-full border border-border rounded-xl pl-10 pr-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
                   />
+                  {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
                 </div>
+                {searchResults.length > 0 && (
+                  <div className="mt-1 border border-border rounded-xl divide-y overflow-hidden max-h-36 overflow-y-auto">
+                    {searchResults.map(m => (
+                      <button
+                        key={m.user_id}
+                        type="button"
+                        onClick={() => selectExisting(m)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/50 text-left"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-[11px] font-bold text-blue-700 shrink-0">
+                          {m.name?.[0]?.toUpperCase() ?? "?"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium truncate">{m.name}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">{m.email}{m.phone ? ` · ${m.phone}` : ""}</p>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground capitalize shrink-0">{m.role}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Ecosystem match banner */}
               <AnimatePresence>
-                {ecosystemMatch && (
+                {selectedExisting && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
@@ -169,39 +231,46 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
                     className="overflow-hidden"
                   >
                     <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-                      <div className={`w-9 h-9 rounded-full ${ecosystemMatch.color} flex items-center justify-center shrink-0 text-[12px]`} style={{ fontWeight: 700 }}>
-                        {ecosystemMatch.initials}
+                      <div className="w-9 h-9 rounded-full bg-emerald-200 flex items-center justify-center shrink-0 text-[12px] font-bold text-emerald-800">
+                        {selectedExisting.name?.[0]?.toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
                           <span className="text-[12px] text-emerald-800" style={{ fontWeight: 700 }}>Already in the ecosystem</span>
                         </div>
-                        <div className="text-[12px] text-emerald-700">{ecosystemMatch.name} · {ecosystemMatch.role}</div>
-                        <div className="text-[11px] text-emerald-600">{ecosystemMatch.cert} · Rate: ${ecosystemMatch.rate}/hr</div>
+                        <div className="text-[12px] text-emerald-700">{selectedExisting.name} · {selectedExisting.role}</div>
+                        <div className="text-[11px] text-emerald-600">{selectedExisting.email}</div>
                       </div>
-                      <Link2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                      <button onClick={() => setSelectedExisting(null)} className="text-emerald-500 hover:text-emerald-700">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* Already assigned warning */}
-              <AnimatePresence>
-                {alreadyAssigned && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span className="text-[12px] text-amber-800" style={{ fontWeight: 500 }}>This mechanic is already assigned to {aircraftTail}.</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                <div className="relative flex justify-center text-[11px] uppercase"><span className="bg-white px-2 text-muted-foreground">Or enter manually</span></div>
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-[12px] text-muted-foreground mb-1.5" style={{ fontWeight: 600 }}>
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="mechanic@shop.com"
+                    className="w-full border border-border rounded-xl pl-10 pr-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
+                  />
+                </div>
+              </div>
 
               {/* Name */}
               <div>
@@ -212,16 +281,12 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
-                    value={ecosystemMatch ? ecosystemMatch.name : name}
+                    value={name}
                     onChange={e => setName(e.target.value)}
-                    disabled={!!ecosystemMatch}
                     placeholder="Mike Torres"
-                    className="w-full border border-border rounded-xl pl-10 pr-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 disabled:opacity-60 disabled:bg-muted/20"
+                    className="w-full border border-border rounded-xl pl-10 pr-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
                   />
                 </div>
-                {ecosystemMatch && (
-                  <p className="text-[11px] text-muted-foreground mt-1">Auto-filled from ecosystem profile.</p>
-                )}
               </div>
 
               {/* Phone */}
@@ -248,7 +313,7 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
                   {[
                     { icon: HardHat, label: `${aircraftTail} in their Mechanic Portal` },
                     { icon: Wrench, label: "Squawks, estimates, and work orders for this aircraft" },
-                    { icon: CheckCircle, label: "Ability to accept or decline the invitation" },
+                    { icon: CheckCircle, label: "30-day free trial if they're new to myaircraft" },
                   ].map(({ icon: Icon, label }) => (
                     <div key={label} className="flex items-center gap-2 text-[12px] text-muted-foreground">
                       <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
@@ -269,14 +334,14 @@ export function InviteMechanicModal({ aircraftTail, onClose }: Props) {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={checking || !email.trim() || (!name.trim() && !ecosystemMatch) || alreadyAssigned}
+                  disabled={submitting || !name.trim() || (!email.trim() && !phone.trim())}
                   className="flex-1 flex items-center justify-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 disabled:opacity-40 transition-colors"
                   style={{ fontWeight: 600 }}
                 >
-                  {checking ? (
+                  {submitting ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
-                  ) : ecosystemMatch ? (
-                    <><Link2 className="w-4 h-4" /> Link & Assign</>
+                  ) : selectedExisting ? (
+                    <><Link2 className="w-4 h-4" /> Send Invite</>
                   ) : (
                     <><Send className="w-4 h-4" /> Send Invite</>
                   )}

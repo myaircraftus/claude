@@ -251,9 +251,33 @@ _Agents append completed work here. Keeps context of what's already been done._
   - Marketing CMS: /admin/content loads with all 9 page tabs + slot editor
   - Stuck Documents card: /admin shows 1 stuck doc + Retry button. ROOT CAUSE found: "Trigger.dev is not configured in this environment"
   - /api/me returns user profile + is_platform_admin + membership role
-- 🔄 Wave 2 agents running:
-  - Real integration logos (replacing Clearbit API) + CMS seed defaults + more sidebar polish
-  - Logbook+WO wiring: "Create Logbook Entry" button on completed WOs, mechanic tools panel in Ask
+- ✅ Wave 2 deployed (commit 1b6dd19): 30 letter-circle SVG logos, mechanic AI tools panel, WO→logbook flow
+- ✅ Wave 3 deployed (commit 6511da0): JSON-LD SEO, OG image, UUID→tail fix, toast sweep
+- ✅ Individual blog post pages at /blog/[slug] with Article JSON-LD (commit 000b784)
+
+### User Feedback Round 2 (round trip after autonomous run):
+User tested and found still broken / changes requested:
+1. Document upload button not working
+2. "Generate Intelligence Packet" not working
+3. Marketplace stuck when clicking aircraft
+4. Part number not auto-filled on edit
+5. Letter-circle logos WRONG — need REAL brand logos
+6. Integrations need search
+7. Estimate should carry squawks as notes + AI summary
+8. Owner portal: move Squawks + Reminders INTO Maintenance
+9. Mechanic portal: WO list+create inline, logbook search
+10. Mechanic invite flow with 30-day trial + SMS/email
+11. Wire EVERYTHING to AI Command Center
+12. Intelligence packet types (insurance, pre-buy, reports)
+
+### 🔄 Wave 4+5 agents running:
+- 4 critical fixes (upload, intelligence, marketplace, part edit)
+- Real logos (Simple Icons SVGs) + searchable integrations
+- Mechanic invite flow (migration 044 + /api/mechanics/search+invite + /accept-mechanic-invite page)
+- Estimate with squawks as notes + AI summary (migration 045 + /api/estimates/[id]/generate-summary)
+- Aircraft detail restructure (Squawks/Reminders → Maintenance sub-tabs)
+
+✅ Migrations 044 (mechanic_invites) and 045 (estimates_squawks_link) applied
 
 ### Known Follow-ups (not yet assigned)
 - Graphical error: emoji rendering near "AIRCRAFT OWNER" / "A&P MECHANIC" icons on homepage episode sections — icon+text merging oddly

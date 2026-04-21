@@ -6,7 +6,8 @@ import {
   Building2, Users, Plug, CreditCard, AlertTriangle, DollarSign,
   Loader2, Check, Trash2, UserPlus, ChevronDown, ExternalLink,
   CheckCircle2, FileUp, Lock, Unlock, Download, FileText,
-  RefreshCw, Clock, Plane, AlertCircle, XCircle,
+  RefreshCw, Clock, Plane, AlertCircle, XCircle, Wrench, Send,
+  Search, Phone, Mail, User, Link2,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -181,6 +182,19 @@ export function SettingsClient({
   const [billingLoading, setBillingLoading] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
+  // Mechanic invites state
+  const [mechanicInvites, setMechanicInvites] = useState<any[]>([])
+  const [mechanicInvitesLoaded, setMechanicInvitesLoaded] = useState(false)
+  const [mechanicInviteLoading, setMechanicInviteLoading] = useState(false)
+  const [showInviteMechanicDialog, setShowInviteMechanicDialog] = useState(false)
+  const [mechanicSearch, setMechanicSearch] = useState('')
+  const [mechanicSearchResults, setMechanicSearchResults] = useState<any[]>([])
+  const [mechanicSearching, setMechanicSearching] = useState(false)
+  const [newMechanicName, setNewMechanicName] = useState('')
+  const [newMechanicEmail, setNewMechanicEmail] = useState('')
+  const [newMechanicPhone, setNewMechanicPhone] = useState('')
+  const [mechanicInviteError, setMechanicInviteError] = useState('')
+
   // Integration state
   const [integrations, setIntegrations] = useState<Integration[]>(initialIntegrations)
   const [connectDialogOpen, setConnectDialogOpen] = useState<string | null>(null)
@@ -192,6 +206,60 @@ export function SettingsClient({
 
   const isOwner = role === 'owner'
   const isAdmin = role === 'admin' || isOwner
+
+  async function loadMechanicInvites() {
+    if (mechanicInvitesLoaded) return
+    setMechanicInviteLoading(true)
+    const supabase = createBrowserSupabase()
+    const { data } = await supabase
+      .from('mechanic_invites')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setMechanicInvites(data ?? [])
+    setMechanicInvitesLoaded(true)
+    setMechanicInviteLoading(false)
+  }
+
+  async function searchMechanics(q: string) {
+    if (!q.trim()) { setMechanicSearchResults([]); return }
+    setMechanicSearching(true)
+    const res = await fetch(`/api/mechanics/search?q=${encodeURIComponent(q)}`)
+    const json = await res.json()
+    setMechanicSearchResults(json.mechanics ?? [])
+    setMechanicSearching(false)
+  }
+
+  async function sendMechanicInvite() {
+    if (!newMechanicName.trim()) { setMechanicInviteError('Name is required'); return }
+    if (!newMechanicEmail.trim() && !newMechanicPhone.trim()) {
+      setMechanicInviteError('Email or phone is required')
+      return
+    }
+    setMechanicInviteLoading(true)
+    setMechanicInviteError('')
+    const res = await fetch('/api/mechanics/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mechanic_name: newMechanicName.trim(),
+        mechanic_email: newMechanicEmail.trim() || undefined,
+        mechanic_phone: newMechanicPhone.trim() || undefined,
+      }),
+    })
+    const json = await res.json()
+    setMechanicInviteLoading(false)
+    if (!res.ok) {
+      setMechanicInviteError(json.error ?? 'Failed to send invite')
+      return
+    }
+    setShowInviteMechanicDialog(false)
+    setNewMechanicName('')
+    setNewMechanicEmail('')
+    setNewMechanicPhone('')
+    setMechanicInvitesLoaded(false)
+    loadMechanicInvites()
+  }
 
   async function saveOrgName() {
     setSavingOrg(true)
@@ -354,6 +422,7 @@ export function SettingsClient({
           <TabsList className="mb-6">
             <TabsTrigger value="organization"><Building2 className="h-4 w-4 mr-1.5" />Organization</TabsTrigger>
             <TabsTrigger value="members"><Users className="h-4 w-4 mr-1.5" />Members</TabsTrigger>
+            <TabsTrigger value="mechanics"><Wrench className="h-4 w-4 mr-1.5" />Mechanics</TabsTrigger>
             <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1.5" />Integrations</TabsTrigger>
             <TabsTrigger value="uploads"><FileUp className="h-4 w-4 mr-1.5" />My Uploads</TabsTrigger>
             <TabsTrigger value="billing"><CreditCard className="h-4 w-4 mr-1.5" />Billing</TabsTrigger>
@@ -542,6 +611,165 @@ export function SettingsClient({
                     )
                   })}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Mechanics tab */}
+          <TabsContent value="mechanics" className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Mechanic Invites</CardTitle>
+                  <CardDescription>Invite mechanics to view estimates and work orders. New mechanics get a 30-day free trial.</CardDescription>
+                </div>
+                {isAdmin && (
+                  <Dialog open={showInviteMechanicDialog} onOpenChange={(open) => {
+                    setShowInviteMechanicDialog(open)
+                    if (open) { setMechanicSearch(''); setMechanicSearchResults([]); setMechanicInviteError('') }
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" className="gap-1.5">
+                        <UserPlus className="h-4 w-4" />Invite Mechanic
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Invite a Mechanic</DialogTitle>
+                        <DialogDescription>Search for an existing mechanic or enter details to send an invite.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-2">
+                        {/* Live search */}
+                        <div className="space-y-1.5">
+                          <Label>Search existing mechanics</Label>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              className="pl-9"
+                              placeholder="Name, email or phone..."
+                              value={mechanicSearch}
+                              onChange={e => {
+                                setMechanicSearch(e.target.value)
+                                searchMechanics(e.target.value)
+                              }}
+                            />
+                          </div>
+                          {mechanicSearching && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Searching...</p>}
+                          {mechanicSearchResults.length > 0 && (
+                            <div className="border rounded-lg divide-y max-h-40 overflow-y-auto">
+                              {mechanicSearchResults.map((m: any) => (
+                                <button
+                                  key={m.user_id}
+                                  type="button"
+                                  className="w-full flex items-center gap-3 p-2.5 hover:bg-muted/50 text-left"
+                                  onClick={() => {
+                                    setNewMechanicName(m.name)
+                                    setNewMechanicEmail(m.email)
+                                    setNewMechanicPhone(m.phone)
+                                    setMechanicSearch('')
+                                    setMechanicSearchResults([])
+                                  }}
+                                >
+                                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-semibold text-blue-700 shrink-0">
+                                    {m.name?.[0]?.toUpperCase() ?? '?'}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">{m.name}</p>
+                                    <p className="text-xs text-muted-foreground truncate">{m.email}{m.phone ? ` · ${m.phone}` : ''}</p>
+                                  </div>
+                                  <Badge variant="outline" className="text-xs capitalize shrink-0">{m.role}</Badge>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="relative">
+                          <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                          <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">Or enter manually</span></div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <Label htmlFor="inv-name">Name <span className="text-red-500">*</span></Label>
+                            <div className="relative">
+                              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input id="inv-name" className="pl-9" placeholder="Mike Torres" value={newMechanicName} onChange={e => setNewMechanicName(e.target.value)} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="inv-email">Email</Label>
+                            <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input id="inv-email" type="email" className="pl-9" placeholder="mechanic@shop.com" value={newMechanicEmail} onChange={e => setNewMechanicEmail(e.target.value)} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="inv-phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <div className="relative">
+                              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input id="inv-phone" type="tel" className="pl-9" placeholder="(512) 555-0100" value={newMechanicPhone} onChange={e => setNewMechanicPhone(e.target.value)} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {mechanicInviteError && (
+                          <Alert variant="destructive"><AlertDescription>{mechanicInviteError}</AlertDescription></Alert>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowInviteMechanicDialog(false)}>Cancel</Button>
+                        <Button onClick={sendMechanicInvite} disabled={mechanicInviteLoading} className="gap-1.5">
+                          {mechanicInviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                          Send Invite
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
+              </CardHeader>
+              <CardContent>
+                {/* Load on first view */}
+                {!mechanicInvitesLoaded && (
+                  <Button variant="ghost" size="sm" onClick={loadMechanicInvites} disabled={mechanicInviteLoading} className="gap-1.5">
+                    {mechanicInviteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    Load invites
+                  </Button>
+                )}
+                {mechanicInvitesLoaded && mechanicInvites.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">No mechanic invites yet. Click &quot;Invite Mechanic&quot; to get started.</p>
+                )}
+                {mechanicInvites.length > 0 && (
+                  <div className="divide-y">
+                    {mechanicInvites.map((inv: any) => (
+                      <div key={inv.id} className="flex items-center gap-3 py-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                          <Wrench className="h-4 w-4 text-slate-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{inv.mechanic_name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {inv.mechanic_email ?? inv.mechanic_phone ?? '—'}
+                            {inv.trial_expires_at && !inv.accepted_at && (
+                              <span className="ml-1.5 text-amber-600">· trial expires {formatDate(inv.trial_expires_at)}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {inv.existing_user_id && (
+                            <Badge variant="outline" className="text-xs gap-1"><Link2 className="h-3 w-3" />Existing</Badge>
+                          )}
+                          <Badge
+                            variant={inv.status === 'accepted' ? 'success' : inv.status === 'pending' ? 'secondary' : 'outline'}
+                            className="text-xs capitalize"
+                          >
+                            {inv.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

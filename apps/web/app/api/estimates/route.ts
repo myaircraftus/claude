@@ -151,6 +151,7 @@ export async function POST(req: NextRequest) {
       total,
       valid_until: body.valid_until ?? null,
       linked_work_order_id: body.linked_work_order_id ?? null,
+      linked_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
     })
     .select()
     .single()
