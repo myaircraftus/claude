@@ -5,6 +5,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Escape HTML special characters to prevent injection in PDF/email templates. */
+export function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+/** Escape LIKE pattern metacharacters (% _ \) so user input can be used
+ *  safely inside an `ilike('%' + input + '%')` filter without wildcards. */
+export function escapeLike(str: string): string {
+  return String(str).replace(/[\\%_]/g, (m) => '\\' + m)
+}
+
+/** Currency formatter (USD, 2 decimals). Shared across invoices/estimates/analytics. */
+export function formatCurrency(amount: number | string | null | undefined): string {
+  const n = typeof amount === 'string' ? parseFloat(amount) : (amount ?? 0)
+  if (!Number.isFinite(n)) return '$0.00'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+}
+
 export function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return '0 Bytes'
   const k = 1024
