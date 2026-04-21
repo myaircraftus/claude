@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { escapeLike } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -23,14 +24,15 @@ export async function GET(req: NextRequest) {
   const q = (searchParams.get('q') ?? '').trim()
   if (!q) return NextResponse.json({ mechanics: [] })
 
-  // Search user_profiles joined with organization_memberships for mechanic roles
+  // user_profiles has: id, email, full_name, avatar_url, job_title (no phone column)
+  // Search across name + email only; escape the pattern to prevent LIKE injection.
+  const safe = escapeLike(q)
   const { data: profiles, error } = await supabase
     .from('user_profiles')
     .select(`
       id,
       full_name,
       email,
-      phone,
       organization_memberships!inner (
         organization_id,
         role,
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
     `)
     .not('organization_memberships.accepted_at', 'is', null)
     .in('organization_memberships.role', ['mechanic', 'owner', 'admin'])
-    .or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+    .or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`)
     .limit(20)
 
   if (error) {
@@ -48,16 +50,16 @@ export async function GET(req: NextRequest) {
   }
 
   const mechanics = (profiles ?? []).map((p: any) => {
-    const membership = Array.isArray(p.organization_memberships)
+    const m = Array.isArray(p.organization_memberships)
       ? p.organization_memberships[0]
       : p.organization_memberships
     return {
       user_id: p.id,
-      org_id: membership?.organization_id ?? null,
+      org_id: m?.organization_id ?? null,
       name: p.full_name ?? '',
       email: p.email ?? '',
-      phone: p.phone ?? '',
-      role: membership?.role ?? 'mechanic',
+      phone: '', // user_profiles does not currently store phone — placeholder
+      role: m?.role ?? 'mechanic',
     }
   })
 

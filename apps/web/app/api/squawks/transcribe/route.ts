@@ -6,7 +6,12 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const formData = await req.formData()
+  let formData: FormData
+  try {
+    formData = await req.formData()
+  } catch {
+    return NextResponse.json({ error: 'Invalid form data — send audio as multipart/form-data with field name "audio".' }, { status: 400 })
+  }
   const audioBlob = formData.get('audio')
 
   if (!audioBlob || !(audioBlob instanceof Blob)) {

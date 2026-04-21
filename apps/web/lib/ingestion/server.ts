@@ -1562,19 +1562,34 @@ export async function queueDocumentIngestion(
   const preferBackground = options?.preferBackground ?? false
   const triggerConfigured = isTriggerConfigured()
 
+  // Track the inline failure so we can return a useful error even if the
+  // background fallback also fails.
+  let inlineFailureMessage: string | null = null
+
   if (!preferBackground) {
     try {
       const result = await ingestDocumentInline(documentId)
       return result
     } catch (inlineError) {
       console.warn('[ingestion] inline ingestion failed, attempting background queue', inlineError)
+      inlineFailureMessage = inlineError instanceof Error ? inlineError.message : 'Inline ingestion failed'
 
       if (options?.allowInlineFallback === false) {
-        const warning = inlineError instanceof Error ? inlineError.message : 'Inline ingestion failed'
         return {
           mode: 'queued',
           status: 'failed',
-          warning,
+          warning: inlineFailureMessage,
+        }
+      }
+
+      // If trigger is not configured, there's no background to fall back to —
+      // surface the actual inline error rather than the confusing "Trigger.dev
+      // is not configured" message.
+      if (!triggerConfigured) {
+        return {
+          mode: 'queued',
+          status: 'failed',
+          warning: `Inline ingestion failed: ${inlineFailureMessage}. (Background queue is not configured as a fallback.)`,
         }
       }
     }
