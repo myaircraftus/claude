@@ -321,6 +321,12 @@ export interface RetrievedChunk {
   document_id: string
   document_title: string
   doc_type: DocType
+  truth_role?: string
+  document_group_id?: string
+  document_detail_id?: string
+  completeness_relevance?: boolean
+  document_date?: string
+  uploaded_at?: string
   aircraft_id?: string
   aircraft_tail?: string
   page_number: number

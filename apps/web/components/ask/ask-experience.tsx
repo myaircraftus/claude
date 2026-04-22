@@ -43,6 +43,44 @@ interface AircraftOption {
   model: string
 }
 
+function buildAircraftIdentityKey(option: AircraftOption) {
+  return `${option.tail_number.trim().toUpperCase()}::${option.make.trim().toUpperCase()}::${option.model.trim().toUpperCase()}`
+}
+
+function dedupeAircraftOptions(
+  options: AircraftOption[],
+  documentCounts: Map<string, number>,
+  preferredAircraftId?: string
+) {
+  const byIdentity = new Map<string, AircraftOption>()
+
+  for (const option of options) {
+    const identityKey = buildAircraftIdentityKey(option)
+    const existing = byIdentity.get(identityKey)
+
+    if (!existing) {
+      byIdentity.set(identityKey, option)
+      continue
+    }
+
+    const existingCount = documentCounts.get(existing.id) ?? 0
+    const nextCount = documentCounts.get(option.id) ?? 0
+
+    const keepNext =
+      nextCount > existingCount ||
+      (nextCount === existingCount &&
+        preferredAircraftId != null &&
+        option.id === preferredAircraftId &&
+        existing.id !== preferredAircraftId)
+
+    if (keepNext) {
+      byIdentity.set(identityKey, option)
+    }
+  }
+
+  return Array.from(byIdentity.values())
+}
+
 const OWNER_PROMPTS = [
   'When was the last annual inspection?',
   'Show oil change history',
@@ -63,6 +101,7 @@ const MECHANIC_PROMPTS = [
 
 const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic']
 const RECENT_QUERY_STORAGE_KEY_PREFIX = 'ask_recent_queries'
+const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
 type AskPersona = 'owner' | 'mechanic'
 
@@ -89,6 +128,15 @@ function createMessageId() {
 
 function getRecentQueryStorageKey(persona: AskPersona) {
   return `${RECENT_QUERY_STORAGE_KEY_PREFIX}:${persona}`
+}
+
+function loadPersistedAircraftSelection() {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY)
+  } catch {
+    return null
+  }
 }
 
 function loadRecentQueries(persona: AskPersona): Array<{ id: string; question: string; created_at: string }> {
@@ -243,10 +291,11 @@ export function AskExperience() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { persona, setPersona, currentUserRole } = useAppContext()
+  const aircraftParam = searchParams.get('aircraft')?.trim() ?? ''
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
-    searchParams.get('aircraft') ?? 'all'
+    aircraftParam || loadPersistedAircraftSelection() || 'all'
   )
   const [messages, setMessages] = useState<Message[]>([])
   const [question, setQuestion] = useState(initialQuestionFromQuery)
@@ -267,12 +316,89 @@ export function AskExperience() {
 
   useEffect(() => {
     const supabase = createBrowserSupabase()
+    let cancelled = false
 
-    supabase.from('aircraft')
-      .select('id, tail_number, make, model')
-      .eq('is_archived', false)
-      .then(({ data }) => setAircraft(data ?? []))
-  }, [])
+    async function loadAircraftOptions() {
+      const { data: aircraftRows } = await supabase
+        .from('aircraft')
+        .select('id, tail_number, make, model')
+        .eq('is_archived', false)
+
+      if (!Array.isArray(aircraftRows) || cancelled) {
+        if (!cancelled) setAircraft([])
+        return
+      }
+
+      const normalizedRows = aircraftRows.map((row) => ({
+        id: row.id,
+        tail_number: row.tail_number ?? '',
+        make: row.make ?? '',
+        model: row.model ?? '',
+      }))
+
+      const aircraftIds = normalizedRows.map((row) => row.id)
+      const documentCounts = new Map<string, number>()
+
+      if (aircraftIds.length > 0) {
+        const { data: documentRows } = await supabase
+          .from('documents')
+          .select('aircraft_id')
+          .in('aircraft_id', aircraftIds)
+          .neq('parsing_status', 'failed')
+
+        if (Array.isArray(documentRows)) {
+          for (const row of documentRows) {
+            const aircraftId = typeof row.aircraft_id === 'string' ? row.aircraft_id : null
+            if (!aircraftId) continue
+            documentCounts.set(aircraftId, (documentCounts.get(aircraftId) ?? 0) + 1)
+          }
+        }
+      }
+
+      const dedupedRows = dedupeAircraftOptions(normalizedRows, documentCounts, aircraftParam || undefined)
+        .sort((a, b) => a.tail_number.localeCompare(b.tail_number))
+
+      if (cancelled) return
+      setAircraft(dedupedRows)
+
+      const persistedAircraftId = loadPersistedAircraftSelection()
+      const fallbackSelection = aircraftParam || persistedAircraftId || dedupedRows[0]?.id || 'all'
+
+      if (!aircraftParam && fallbackSelection !== 'all') {
+        setSelectedAircraftId((current) => (current === fallbackSelection ? current : fallbackSelection))
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('aircraft', fallbackSelection)
+        router.replace(`/ask?${params.toString()}`, { scroll: false })
+        return
+      }
+
+      if (!aircraftParam) return
+
+      const matchedOriginal = normalizedRows.find((row) => row.id === aircraftParam)
+      if (!matchedOriginal) return
+
+      const canonicalMatch = dedupedRows.find(
+        (row) => buildAircraftIdentityKey(row) === buildAircraftIdentityKey(matchedOriginal)
+      )
+
+      if (canonicalMatch && canonicalMatch.id !== aircraftParam) {
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('aircraft', canonicalMatch.id)
+        router.replace(`/ask?${params.toString()}`, { scroll: false })
+      }
+    }
+
+    void loadAircraftOptions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [aircraftParam, router, searchParams])
+
+  useEffect(() => {
+    const nextSelection = aircraftParam || 'all'
+    setSelectedAircraftId((current) => (current === nextSelection ? current : nextSelection))
+  }, [aircraftParam])
 
   useEffect(() => {
     if (!canUseMechanicPersona && persona === 'mechanic') {
@@ -404,6 +530,24 @@ export function AskExperience() {
     }
   }
 
+  function handleAircraftChange(nextAircraftId: string) {
+    setSelectedAircraftId(nextAircraftId)
+
+    if (typeof window !== 'undefined' && nextAircraftId !== 'all') {
+      window.localStorage.setItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY, nextAircraftId)
+    }
+
+    const params = new URLSearchParams(searchParams.toString())
+    if (nextAircraftId === 'all') {
+      params.delete('aircraft')
+    } else {
+      params.set('aircraft', nextAircraftId)
+    }
+
+    const next = params.toString()
+    router.replace(next ? `/ask?${next}` : '/ask', { scroll: false })
+  }
+
   return (
     <div className="h-full flex">
       {/* ── Mobile citation modal (full-screen on small screens) ─────────────── */}
@@ -470,7 +614,7 @@ export function AskExperience() {
                 )}
               </div>
 
-              <Select value={selectedAircraftId} onValueChange={setSelectedAircraftId}>
+              <Select value={selectedAircraftId} onValueChange={handleAircraftChange}>
                 <SelectTrigger className="flex items-center gap-2 bg-muted/50 border border-border rounded-lg px-3 py-1.5 text-[13px] w-[220px]" style={{ fontWeight: 500 }}>
                   <Plane className="w-4 h-4 text-primary" />
                   <SelectValue placeholder="All aircraft" />
