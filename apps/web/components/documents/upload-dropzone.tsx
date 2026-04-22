@@ -118,6 +118,13 @@ interface UploadDropzoneProps {
   persona?: 'owner' | 'mechanic'
 }
 
+type DocumentStatusRow = {
+  id: string
+  parsing_status: ParsingStatus
+  processing_state?: DocumentProcessingState | null
+  parse_error?: string | null
+}
+
 function buildFileSignature(file: File) {
   return [file.name, file.size, file.lastModified].join('::')
 }
@@ -139,6 +146,50 @@ function normalizeUploadErrorMessage(message: string) {
   }
 
   return message
+}
+
+function reconcileFileWithDocumentRow(
+  item: FileUploadItem,
+  row: DocumentStatusRow
+): FileUploadItem {
+  const normalizedProcessingState = coerceDocumentProcessingState(row.processing_state, undefined, {
+    status: row.parsing_status,
+    parseError: row.parse_error ?? null,
+  })
+  const currentStage = normalizedProcessingState.current_stage
+  const terminalReviewState = currentStage === 'needs_review' || row.parsing_status === 'needs_ocr'
+
+  if (row.parsing_status === 'failed') {
+    return {
+      ...item,
+      status: 'error',
+      progress: getDocumentProcessingProgress(normalizedProcessingState, row.parsing_status),
+      error:
+        row.parse_error ??
+        normalizedProcessingState.last_error ??
+        item.error ??
+        'Document processing failed after upload.',
+      processingState: normalizedProcessingState,
+    }
+  }
+
+  if (row.parsing_status === 'completed' || terminalReviewState) {
+    return {
+      ...item,
+      status: 'completed',
+      progress: 100,
+      error: undefined,
+      processingState: normalizedProcessingState,
+    }
+  }
+
+  return {
+    ...item,
+    status: 'processing',
+    progress: getDocumentProcessingProgress(normalizedProcessingState, row.parsing_status),
+    error: row.parse_error ?? undefined,
+    processingState: normalizedProcessingState,
+  }
 }
 
 // ─── ProcessingStatusBadge ────────────────────────────────────────────────────
@@ -451,26 +502,29 @@ export function UploadDropzone({
   }, [documentIdsSignature, trackedDocumentIds])
 
   useEffect(() => {
-    const docIds = trackedDocumentIds
+    const docIds = documentIdsSignature ? documentIdsSignature.split(',').filter(Boolean) : []
     if (docIds.length === 0) return
 
     let cancelled = false
-    const supabase = createBrowserSupabase()
 
     const poll = async () => {
-      const { data, error } = await supabase
-        .from('documents')
-        .select('id, parsing_status, processing_state, parse_error')
-        .in('id', docIds)
+      const params = new URLSearchParams()
+      for (const id of docIds) params.append('id', id)
 
-      if (cancelled || error || !data) return
+      const response = await fetch(`/api/documents/status?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+      })
 
-      const rows = data as Array<{
-        id: string
-        parsing_status: ParsingStatus
-        processing_state?: DocumentProcessingState | null
-        parse_error?: string | null
-      }>
+      const payload = (await response.json().catch(() => ({}))) as {
+        documents?: DocumentStatusRow[]
+      }
+
+      if (cancelled || !response.ok || !payload.documents) return
+
+      const rows = payload.documents
+      const rowsById = new Map(rows.map((row) => [row.id, row]))
 
       setParsingStatuses((prev) => {
         const next = { ...prev }
@@ -487,12 +541,9 @@ export function UploadDropzone({
       setFiles((prev) =>
         prev.map((item) => {
           if (!item.documentId) return item
-          const row = rows.find((candidate) => candidate.id === item.documentId)
-          if (!row || !row.parse_error) return item
-          return {
-            ...item,
-            error: row.parse_error,
-          }
+          const row = rowsById.get(item.documentId)
+          if (!row) return item
+          return reconcileFileWithDocumentRow(item, row)
         })
       )
     }
@@ -506,7 +557,7 @@ export function UploadDropzone({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [trackedDocumentIds])
+  }, [documentIdsSignature])
 
   useEffect(() => {
     if (Object.keys(parsingStatuses).length === 0) return
@@ -518,42 +569,21 @@ export function UploadDropzone({
         const realtimeStatus = parsingStatuses[item.documentId]
         const realtimeProcessingState = processingStates[item.documentId]
         if (!realtimeStatus) return item
-        const normalizedProcessingState = realtimeProcessingState
-          ? coerceDocumentProcessingState(realtimeProcessingState, undefined, {
-              status: realtimeStatus,
-              parseError: item.error ?? null,
-            })
-          : null
-
-        if (realtimeStatus === 'completed' && item.status !== 'completed') {
-          return {
-            ...item,
-            status: 'completed',
-            progress: 100,
-            error: undefined,
-            processingState: normalizedProcessingState,
-          }
+        if (
+          item.status === 'completed' &&
+          realtimeStatus !== 'completed' &&
+          realtimeStatus !== 'failed' &&
+          realtimeStatus !== 'needs_ocr'
+        ) {
+          return item
         }
 
-        if (realtimeStatus === 'failed' && item.status !== 'error') {
-          return {
-            ...item,
-            status: 'error',
-            progress: 0,
-            error:
-              realtimeProcessingState?.last_error ??
-              item.error ??
-              'Document processing failed after upload.',
-            processingState: normalizedProcessingState,
-          }
-        }
-
-        return {
-          ...item,
-          status: item.status === 'completed' ? item.status : 'processing',
-          progress: getDocumentProcessingProgress(normalizedProcessingState, realtimeStatus),
-          processingState: normalizedProcessingState,
-        }
+        return reconcileFileWithDocumentRow(item, {
+          id: item.documentId,
+          parsing_status: realtimeStatus,
+          processing_state: realtimeProcessingState ?? null,
+          parse_error: item.error ?? null,
+        })
       })
     )
   }, [parsingStatuses, processingStates])
@@ -1595,15 +1625,16 @@ export function UploadDropzone({
                   </div>
                 )}
 
-                {item.status === 'processing' && (
+                {(item.status === 'processing' ||
+                  (item.status === 'completed' && Boolean(item.processingState))) && (
                   <div className="pl-11 space-y-2">
                     <Progress value={item.progress} className="h-1.5" />
                     <CompactProcessingTimeline
                       state={item.processingState}
-                      fallbackStatus={realtimeStatus ?? 'queued'}
+                      fallbackStatus={realtimeStatus ?? (item.status === 'completed' ? 'completed' : 'queued')}
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      {currentStageLabel ?? 'Processing'}
+                      {currentStageLabel ?? (item.status === 'completed' ? 'Indexed' : 'Processing')}
                       {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
                       {batchLabel ? ` · ${batchLabel}` : ''}
                     </p>
