@@ -127,7 +127,11 @@ function looksLikeEngineLog(title: string, detailId?: string) {
 }
 
 function looksLikeAirframeLog(title: string, detailId?: string) {
-  return /AFM_LOGBOOK|AIRFRAME/i.test(title) || detailId === 'airframe_logbooks'
+  return /AFM_LOGBOOK|AF_LOGBOOK|AIRFRAME|AIRFRAME_ESIGNEDRECORD/i.test(title) || detailId === 'airframe_logbooks'
+}
+
+function looksLikePropellerLog(title: string, detailId?: string) {
+  return /PROP_LOGBOOK|PROPELLER|PROPELLER_ESIGNEDRECORD/i.test(title) || detailId === 'propeller_logbooks'
 }
 
 function isInternalReferenceChunk(chunk: RetrievedChunk) {
@@ -196,7 +200,23 @@ function documentRelevanceAdjustment(queryText: string, chunk: RetrievedChunk) {
     }
 
     if (isAnnualInspectionQuery(queryText) && looksLikeAirframeLog(title, chunk.document_detail_id)) {
-      adjustment += 0.18
+      adjustment += 0.24
+    }
+
+    if (
+      isAnnualInspectionQuery(queryText) &&
+      !asksForPropellerLogbook(queryText) &&
+      looksLikePropellerLog(title, chunk.document_detail_id)
+    ) {
+      adjustment -= 0.32
+    }
+
+    if (
+      isAnnualInspectionQuery(queryText) &&
+      !asksForEngineLogbook(queryText) &&
+      chunk.document_detail_id === 'engine_logbooks'
+    ) {
+      adjustment -= 0.18
     }
 
     if (isOverhaulQuery(queryText) && looksLikeEngineLog(title, chunk.document_detail_id)) {
