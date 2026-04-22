@@ -97,6 +97,32 @@ const COMPACT_STAGE_LABELS: Partial<Record<DocumentProcessingState['current_stag
   completed: 'Done',
 }
 
+function getCompactStageLabel(
+  state: DocumentProcessingState | null | undefined,
+  stage: DocumentProcessingState['current_stage']
+) {
+  const snapshot = state?.stages?.[stage]
+  if (stage === 'document_ai_ocr' && snapshot?.status === 'skipped') {
+    return 'OCR Skipped'
+  }
+
+  return COMPACT_STAGE_LABELS[stage] ?? DOCUMENT_PROCESSING_STAGE_LABELS[stage]
+}
+
+function getProcessingStateHint(state: DocumentProcessingState | null | undefined) {
+  if (!state) return null
+
+  if (state.stages?.document_ai_ocr?.status === 'skipped') {
+    return 'Text layer detected, so Google Document AI OCR was skipped.'
+  }
+
+  if (state.current_stage === 'needs_review') {
+    return 'Low-confidence or handwritten OCR content needs human review.'
+  }
+
+  return null
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AircraftOption {
@@ -388,7 +414,7 @@ function CompactProcessingTimeline({
           const inferredStatus =
             snapshot?.status ??
             (stage === normalizedState.current_stage ? 'running' : stage === 'uploaded' ? 'completed' : 'pending')
-          const label = COMPACT_STAGE_LABELS[stage] ?? DOCUMENT_PROCESSING_STAGE_LABELS[stage]
+          const label = getCompactStageLabel(normalizedState, stage)
 
           const circleClass =
             inferredStatus === 'completed'
@@ -1540,13 +1566,14 @@ export function UploadDropzone({
             const itemDetailOptions = getDocumentItemsForGroup(item.documentGroupId)
             const selectedDetail = getDocumentItem(item.documentDetailId)
             const currentStageLabel = item.processingState
-              ? DOCUMENT_PROCESSING_STAGE_LABELS[item.processingState.current_stage]
+              ? getCompactStageLabel(item.processingState, item.processingState.current_stage)
               : null
             const currentEngineLabel = getDocumentProcessingEngineLabel(item.processingState?.current_engine)
             const batchLabel =
               item.processingState?.current_batch && item.processingState?.total_batches
                 ? `Batch ${item.processingState.current_batch} of ${item.processingState.total_batches}`
                 : null
+            const processingHint = getProcessingStateHint(item.processingState)
 
             return (
               <div
@@ -1567,6 +1594,11 @@ export function UploadDropzone({
                         {currentStageLabel}
                         {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
                         {batchLabel ? ` · ${batchLabel}` : ''}
+                      </p>
+                    )}
+                    {processingHint && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {processingHint}
                       </p>
                     )}
                   </div>
@@ -1917,13 +1949,14 @@ export function UploadDropzone({
           {recentUploads.map((item) => {
             const realtimeStatus = parsingStatuses[item.documentId]
             const currentStageLabel = item.processingState
-              ? DOCUMENT_PROCESSING_STAGE_LABELS[item.processingState.current_stage]
+              ? getCompactStageLabel(item.processingState, item.processingState.current_stage)
               : null
             const currentEngineLabel = getDocumentProcessingEngineLabel(item.processingState?.current_engine)
             const batchLabel =
               item.processingState?.current_batch && item.processingState?.total_batches
                 ? `Batch ${item.processingState.current_batch} of ${item.processingState.total_batches}`
                 : null
+            const processingHint = getProcessingStateHint(item.processingState)
 
             return (
               <div
@@ -1937,12 +1970,17 @@ export function UploadDropzone({
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{item.fileName}</p>
-                    <p className="text-xs text-muted-foreground">{formatBytes(item.fileSize)}</p>
+                  <p className="text-xs text-muted-foreground">{formatBytes(item.fileSize)}</p>
                     {(item.status === 'processing' || item.status === 'completed') && currentStageLabel && (
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         {currentStageLabel}
                         {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
                         {batchLabel ? ` · ${batchLabel}` : ''}
+                      </p>
+                    )}
+                    {processingHint && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {processingHint}
                       </p>
                     )}
                   </div>
