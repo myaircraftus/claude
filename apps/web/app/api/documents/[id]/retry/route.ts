@@ -19,6 +19,10 @@ interface RouteContext {
 
 export async function POST(_req: NextRequest, { params }: RouteContext) {
   const { id } = params
+  const internalSecret = process.env.INTERNAL_SECRET ?? process.env.PARSER_SERVICE_SECRET ?? ''
+  const isInternalRequest =
+    internalSecret.length > 0 &&
+    _req.headers.get('x-internal-secret') === internalSecret
   let force = false
   try {
     const body = await _req.json()
@@ -34,31 +38,35 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
     error: authError,
   } = await supabase.auth.getUser()
 
-  if (authError || !user) {
+  if (!isInternalRequest && (authError || !user)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // ── 2. Role check (mechanic+, or platform admin) ──────────────────────────
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single()
-  const isPlatformAdmin = profile?.is_platform_admin === true
+  const { data: profile } = user
+    ? await supabase
+        .from('user_profiles')
+        .select('is_platform_admin')
+        .eq('id', user.id)
+        .single()
+    : { data: null as { is_platform_admin?: boolean } | null }
+  const isPlatformAdmin = isInternalRequest || profile?.is_platform_admin === true
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .maybeSingle()
+  const { data: membership } = user
+    ? await supabase
+        .from('organization_memberships')
+        .select('organization_id, role')
+        .eq('user_id', user.id)
+        .not('accepted_at', 'is', null)
+        .maybeSingle()
+    : { data: null as { organization_id: string; role: string } | null }
 
-  if (!membership && !isPlatformAdmin) {
+  if (!isInternalRequest && !membership && !isPlatformAdmin) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
   const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
-  if (!isPlatformAdmin && membership && !ALLOWED_ROLES.includes(membership.role)) {
+  if (!isInternalRequest && !isPlatformAdmin && membership && !ALLOWED_ROLES.includes(membership.role)) {
     return NextResponse.json(
       { error: 'Insufficient permissions. Mechanic role or higher required.' },
       { status: 403 }
@@ -89,17 +97,24 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
 
   const RETRYABLE_STATUSES = ['failed', 'queued', 'needs_ocr']
   const IN_PROGRESS_STATUSES = ['parsing', 'ocr_processing', 'chunking', 'embedding']
+  const INTERNAL_FORCE_STATUSES = ['completed', 'failed', 'queued', 'needs_ocr']
   const retryableAsStale = IN_PROGRESS_STATUSES.includes(doc.parsing_status)
+  const retryableViaInternalForce =
+    isInternalRequest && force && INTERNAL_FORCE_STATUSES.includes(doc.parsing_status)
   const parseStartedAt = doc.parse_started_at ?? doc.updated_at ?? null
   const staleThresholdMs = 15 * 60 * 1000
   const isStale =
     Boolean(parseStartedAt) &&
     Date.now() - new Date(parseStartedAt).getTime() >= staleThresholdMs
 
-  if (!RETRYABLE_STATUSES.includes(doc.parsing_status) && !(force && retryableAsStale && isStale)) {
+  if (
+    !RETRYABLE_STATUSES.includes(doc.parsing_status) &&
+    !(force && retryableAsStale && isStale) &&
+    !retryableViaInternalForce
+  ) {
     return NextResponse.json(
       {
-        error: `Cannot retry document with status "${doc.parsing_status}". Only queued, failed, OCR-required, or stale in-progress documents can be retried.`,
+        error: `Cannot retry document with status "${doc.parsing_status}". Only queued, failed, OCR-required, stale in-progress documents, or internal forced reprocesses can be retried.`,
       },
       { status: 409 }
     )
@@ -163,7 +178,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
   // ── Write audit log ────────────────────────────────────────────────────────
   await serviceClient.from('audit_logs').insert({
     organization_id: targetOrgId,
-    user_id: user.id,
+    user_id: user?.id ?? null,
     action: 'document.retry',
     resource_type: 'document',
     resource_id: id,
@@ -172,6 +187,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
       force,
       stale_retry: force && retryableAsStale && isStale,
       platform_admin_retry: isPlatformAdmin && targetOrgId !== orgId,
+      internal_retry: isInternalRequest,
     },
   })
 

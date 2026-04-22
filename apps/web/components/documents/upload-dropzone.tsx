@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp } from 'lucide-react'
@@ -1994,7 +1994,7 @@ export function UploadDropzone({
                         Low-confidence or handwritten OCR content needs human review.
                       </span>
                       <Link
-                        href="/documents/review"
+                        href={`/documents/review?documentId=${encodeURIComponent(item.documentId)}`}
                         className="font-medium text-brand-700 hover:text-brand-900"
                       >
                         Open review queue

@@ -295,41 +295,171 @@ async function persistDocumentProcessingState(args: {
 }
 
 async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string) {
-  try {
-    const { data: pageJobs } = await supabase
-      .from('ocr_page_jobs')
-      .select('id')
-      .eq('document_id', documentId)
+  const { data: pageJobs, error: pageJobsError } = await supabase
+    .from('ocr_page_jobs')
+    .select('id')
+    .eq('document_id', documentId)
 
-    const pageJobIds = (pageJobs as Array<{ id: string }> | null)?.map((page) => page.id) ?? []
-
-    if (pageJobIds.length > 0) {
-      const { data: extractedEvents } = await supabase
-        .from('ocr_extracted_events')
-        .select('id')
-        .in('ocr_page_job_id', pageJobIds)
-
-      const extractedEventIds =
-        (extractedEvents as Array<{ id: string }> | null)?.map((event) => event.id) ?? []
-
-      if (extractedEventIds.length > 0) {
-        await supabase.from('review_queue_items').delete().in('ocr_extracted_event_id', extractedEventIds)
-      }
-
-      await supabase.from('review_queue_items').delete().in('ocr_page_job_id', pageJobIds)
-      await supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', pageJobIds)
-      await supabase.from('ocr_page_jobs').delete().eq('document_id', documentId)
-    }
-  } catch (error) {
-    console.warn('[ingestion] failed to clear OCR artifacts', error)
+  if (pageJobsError) {
+    throw new Error(`Failed to load OCR page jobs for cleanup: ${pageJobsError.message}`)
   }
 
-  await supabase.from('document_metadata_extractions').delete().eq('document_id', documentId)
-  await supabase.from('maintenance_events').delete().eq('document_id', documentId)
-  await supabase.from('document_pages').delete().eq('document_id', documentId)
-  await supabase.from('canonical_document_embeddings').delete().eq('document_id', documentId)
-  await supabase.from('canonical_document_chunks').delete().eq('document_id', documentId)
-  await supabase.from('document_chunks').delete().eq('document_id', documentId)
+  const pageJobIds = (pageJobs as Array<{ id: string }> | null)?.map((page) => page.id) ?? []
+
+  if (pageJobIds.length > 0) {
+    const [
+      { data: extractedEvents, error: extractedEventsError },
+      { data: segments, error: segmentsError },
+    ] = await Promise.all([
+      supabase
+        .from('ocr_extracted_events')
+        .select('id')
+        .in('ocr_page_job_id', pageJobIds),
+      supabase
+        .from('ocr_entry_segments')
+        .select('id')
+        .in('ocr_page_job_id', pageJobIds),
+    ])
+
+    if (extractedEventsError) {
+      throw new Error(`Failed to load OCR extracted events for cleanup: ${extractedEventsError.message}`)
+    }
+
+    if (segmentsError) {
+      throw new Error(`Failed to load OCR entry segments for cleanup: ${segmentsError.message}`)
+    }
+
+    const extractedEventIds =
+      (extractedEvents as Array<{ id: string }> | null)?.map((event) => event.id) ?? []
+    const segmentIds =
+      (segments as Array<{ id: string }> | null)?.map((segment) => segment.id) ?? []
+
+    if (extractedEventIds.length > 0) {
+      const { error } = await supabase
+        .from('review_queue_items')
+        .delete()
+        .in('ocr_extracted_event_id', extractedEventIds)
+      if (error) {
+        throw new Error(`Failed to clear review queue items for extracted events: ${error.message}`)
+      }
+    }
+
+    if (segmentIds.length > 0) {
+      const [
+        { error: queueBySegmentError },
+        { error: segmentCandidatesError },
+        { error: segmentConflictsError },
+      ] = await Promise.all([
+        supabase.from('review_queue_items').delete().in('ocr_entry_segment_id', segmentIds),
+        supabase.from('ocr_segment_field_candidates').delete().in('segment_id', segmentIds),
+        supabase.from('segment_conflicts').delete().in('segment_id', segmentIds),
+      ])
+
+      if (queueBySegmentError) {
+        throw new Error(`Failed to clear review queue items for segments: ${queueBySegmentError.message}`)
+      }
+
+      if (segmentCandidatesError) {
+        throw new Error(`Failed to clear OCR segment field candidates: ${segmentCandidatesError.message}`)
+      }
+
+      if (segmentConflictsError) {
+        throw new Error(`Failed to clear OCR segment conflicts: ${segmentConflictsError.message}`)
+      }
+    }
+
+    const [
+      { error: queueByPageError },
+      { error: extractedCandidatesError },
+      { error: fieldConflictsError },
+      { error: extractedDeleteError },
+      { error: segmentsDeleteError },
+      { error: pageDeleteError },
+    ] = await Promise.all([
+      supabase.from('review_queue_items').delete().in('ocr_page_job_id', pageJobIds),
+      supabase.from('extracted_field_candidates').delete().in('page_id', pageJobIds),
+      supabase.from('field_conflicts').delete().in('page_id', pageJobIds),
+      supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', pageJobIds),
+      supabase.from('ocr_entry_segments').delete().in('ocr_page_job_id', pageJobIds),
+      supabase.from('ocr_page_jobs').delete().eq('document_id', documentId),
+    ])
+
+    if (queueByPageError) {
+      throw new Error(`Failed to clear review queue items for pages: ${queueByPageError.message}`)
+    }
+
+    if (extractedCandidatesError) {
+      throw new Error(`Failed to clear extracted field candidates: ${extractedCandidatesError.message}`)
+    }
+
+    if (fieldConflictsError) {
+      throw new Error(`Failed to clear field conflicts: ${fieldConflictsError.message}`)
+    }
+
+    if (extractedDeleteError) {
+      throw new Error(`Failed to clear OCR extracted events: ${extractedDeleteError.message}`)
+    }
+
+    if (segmentsDeleteError) {
+      throw new Error(`Failed to clear OCR entry segments: ${segmentsDeleteError.message}`)
+    }
+
+    if (pageDeleteError) {
+      throw new Error(`Failed to clear OCR page jobs: ${pageDeleteError.message}`)
+    }
+  }
+
+  const [
+    { error: metadataError },
+    { error: maintenanceEventsError },
+    { error: documentPagesError },
+    { error: citationsError },
+    { error: documentEmbeddingsError },
+    { error: documentChunksError },
+    { error: canonicalEmbeddingsError },
+    { error: canonicalChunksError },
+  ] = await Promise.all([
+    supabase.from('document_metadata_extractions').delete().eq('document_id', documentId),
+    supabase.from('maintenance_events').delete().eq('document_id', documentId),
+    supabase.from('document_pages').delete().eq('document_id', documentId),
+    supabase.from('citations').delete().eq('document_id', documentId),
+    supabase.from('document_embeddings').delete().eq('document_id', documentId),
+    supabase.from('document_chunks').delete().eq('document_id', documentId),
+    supabase.from('canonical_document_embeddings').delete().eq('document_id', documentId),
+    supabase.from('canonical_document_chunks').delete().eq('document_id', documentId),
+  ])
+
+  if (metadataError) {
+    throw new Error(`Failed to clear metadata extractions: ${metadataError.message}`)
+  }
+
+  if (maintenanceEventsError) {
+    throw new Error(`Failed to clear maintenance events: ${maintenanceEventsError.message}`)
+  }
+
+  if (documentPagesError) {
+    throw new Error(`Failed to clear document pages: ${documentPagesError.message}`)
+  }
+
+  if (citationsError) {
+    throw new Error(`Failed to clear citations: ${citationsError.message}`)
+  }
+
+  if (documentEmbeddingsError) {
+    throw new Error(`Failed to clear document embeddings: ${documentEmbeddingsError.message}`)
+  }
+
+  if (documentChunksError) {
+    throw new Error(`Failed to clear document chunks: ${documentChunksError.message}`)
+  }
+
+  if (canonicalEmbeddingsError) {
+    throw new Error(`Failed to clear canonical document embeddings: ${canonicalEmbeddingsError.message}`)
+  }
+
+  if (canonicalChunksError) {
+    throw new Error(`Failed to clear canonical document chunks: ${canonicalChunksError.message}`)
+  }
 }
 
 async function createSignedDocumentUrl(supabase: ServiceClient, filePath: string) {

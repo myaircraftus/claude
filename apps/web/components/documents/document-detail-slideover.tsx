@@ -1,10 +1,11 @@
 'use client'
 
-import Link from 'next/link'
+import Link from '@/components/shared/tenant-link'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -24,6 +25,7 @@ import {
   Eye,
   Info,
   Trash2,
+  X,
 } from 'lucide-react'
 import { cn, formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
 import {
@@ -581,7 +583,7 @@ export function DocumentDetailSlideover({
 
   return (
     <Dialog open={!!doc} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden [&>button:last-child]:hidden">
         {doc && (
           <>
             {/* Header */}
@@ -613,6 +615,17 @@ export function DocumentDetailSlideover({
                     )}
                   </div>
                 </div>
+                <DialogClose asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    aria-label="Close document details"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </DialogClose>
               </div>
             </DialogHeader>
 
@@ -741,7 +754,7 @@ export function DocumentDetailSlideover({
                       </p>
                     </div>
                     <Button asChild size="sm" variant="outline" className="border-amber-300 text-amber-900 hover:bg-amber-100">
-                      <Link href="/documents/review">Open review</Link>
+                      <Link href={`/documents/review?documentId=${encodeURIComponent(doc.id)}`}>Open review</Link>
                     </Button>
                   </div>
                 )}

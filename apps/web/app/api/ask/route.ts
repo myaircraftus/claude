@@ -11,7 +11,7 @@
  * Falls back to pure RAG for simple Q&A (when no tools are called).
  *
  * Request body:
- *   { question: string, aircraft_id?: string, conversation_history?: ConversationTurn[] }
+ *   { question: string, aircraft_id?: string, persona?: 'owner' | 'mechanic', conversation_history?: ConversationTurn[] }
  *
  * Response:
  *   { answer: string, artifacts?: Artifact[], citations?: ..., tool_calls_made?: string[] }
@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
-import { AI_TOOLS } from '@/lib/ai/tools'
+import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -188,6 +188,47 @@ BEHAVIOR RULES:
 7. After tools return results, synthesize a concise, helpful response. Do not just dump raw JSON.
 8. For safety-critical items (ADs, limits, emergency procedures), always note the user should verify with the actual document and a qualified aviation professional.`
 
+type AskPersona = 'owner' | 'mechanic'
+
+const OWNER_TOOL_NAMES: readonly AiToolName[] = [
+  'search_documents',
+  'search_logbook',
+]
+
+const MECHANIC_TOOL_NAMES: readonly AiToolName[] = [
+  'create_logbook_entry',
+  'search_parts',
+  'search_logbook',
+  'search_documents',
+  'generate_checklist',
+]
+
+const MECHANIC_ELIGIBLE_ROLES = new Set(['owner', 'admin', 'mechanic'])
+
+function buildSystemPrompt(persona: AskPersona) {
+  if (persona === 'mechanic') {
+    return `${SYSTEM_PROMPT}
+
+CURRENT PERSONA: mechanic
+
+Mechanic mode is action-oriented. You may use maintenance workflow tools like create_logbook_entry, search_parts, and generate_checklist when they materially help the user. Prefer concrete maintenance outputs over generic advice when appropriate.`
+  }
+
+  return `${SYSTEM_PROMPT}
+
+CURRENT PERSONA: owner
+
+Owner mode is records- and operations-oriented.
+- Focus on aircraft history, inspections, compliance, records, document evidence, and status.
+- Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode.
+- If the user asks for a mechanic action, explain briefly that they should switch to mechanic mode for maintenance workflow tasks.`
+}
+
+function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] {
+  const allowed = new Set(persona === 'mechanic' ? MECHANIC_TOOL_NAMES : OWNER_TOOL_NAMES)
+  return AI_TOOLS.filter((tool) => allowed.has(tool.function.name as AiToolName)) as OpenAI.Chat.ChatCompletionTool[]
+}
+
 // ── POST handler ───────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -218,16 +259,22 @@ export async function POST(req: NextRequest) {
 
   const question: string = String(body.question ?? '').trim()
   const aircraft_id: string | undefined = body.aircraft_id ?? undefined
+  const requestedPersona: AskPersona = body.persona === 'mechanic' ? 'mechanic' : 'owner'
+  const persona: AskPersona =
+    requestedPersona === 'mechanic' && MECHANIC_ELIGIBLE_ROLES.has(String(membership.role))
+      ? 'mechanic'
+      : 'owner'
   const conversation_history: Array<{ role: 'user' | 'assistant'; content: string }> =
     Array.isArray(body.conversation_history) ? body.conversation_history.slice(-10) : []
 
   if (!question) return NextResponse.json({ error: 'question is required' }, { status: 400 })
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const personaTools = toolsForPersona(persona)
 
   // Build initial messages
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: buildSystemPrompt(persona) },
     ...conversation_history.map(m => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
     {
       role: 'user',
@@ -255,7 +302,7 @@ export async function POST(req: NextRequest) {
         model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
         temperature: 0.3,
         max_tokens: 1500,
-        tools: AI_TOOLS as OpenAI.Chat.ChatCompletionTool[],
+        tools: personaTools,
         tool_choice: 'auto',
         messages,
       })

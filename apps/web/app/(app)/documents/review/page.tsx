@@ -6,7 +6,11 @@ import type { UserProfile } from '@/types'
 
 export const metadata = { title: 'OCR Review Queue' }
 
-export default async function ReviewQueuePage() {
+export default async function ReviewQueuePage({
+  searchParams,
+}: {
+  searchParams?: { documentId?: string }
+}) {
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -25,8 +29,23 @@ export default async function ReviewQueuePage() {
   if (!membership) redirect('/onboarding')
 
   const orgId = membership.organization_id
+  const focusDocumentId = typeof searchParams?.documentId === 'string' ? searchParams.documentId : null
+  let focusDocumentTitle: string | null = null
   let reviewLoadState: 'loaded' | 'error' = 'loaded'
   let reviewLoadError: string | null = null
+
+  if (focusDocumentId) {
+    try {
+      const { data } = await supabase
+        .from('documents')
+        .select('title')
+        .eq('id', focusDocumentId)
+        .eq('organization_id', orgId)
+        .single()
+
+      focusDocumentTitle = data?.title ?? null
+    } catch {}
+  }
 
   // ── Queue items with full arbitration data ─────────────────────────────────
   let queueItems: any[] = []
@@ -205,6 +224,8 @@ export default async function ReviewQueuePage() {
         totalNeedsReview={totalNeedsReview}
         loadState={reviewLoadState}
         loadError={reviewLoadError}
+        focusDocumentId={focusDocumentId}
+        focusDocumentTitle={focusDocumentTitle}
       />
     </div>
   )

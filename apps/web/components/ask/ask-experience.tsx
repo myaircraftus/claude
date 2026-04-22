@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AnswerBlock } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
+import { useAppContext } from '@/components/redesign/AppContext'
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import { formatDateTime } from '@/lib/utils'
 import type { Aircraft, AnswerCitation, QueryConfidence, OrgRole } from '@/types'
@@ -42,14 +43,25 @@ interface AircraftOption {
   model: string
 }
 
-const SUGGESTED_PROMPTS = [
+const OWNER_PROMPTS = [
   'When was the last annual inspection?',
-  'Draft a logbook entry for the oil change I just did',
-  'Find magneto parts for my aircraft',
-  'Generate an annual inspection checklist',
   'Show oil change history',
   'What does my engine logbook say about the last overhaul?',
+  'What inspections are coming due for this aircraft?',
+  'Summarize the most recent maintenance performed on this aircraft.',
+  'Do my documents show any open AD or compliance concerns?',
 ]
+
+const MECHANIC_PROMPTS = [
+  'Draft a logbook entry for the oil change I just did',
+  'Generate an annual inspection checklist',
+  'Find magneto parts for my aircraft',
+  'Search the logbook for the last overhaul entry.',
+  'What does the maintenance manual say about this discrepancy?',
+  'Generate an AD compliance checklist for this aircraft.',
+]
+
+const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic']
 
 const DocumentViewer = dynamic(
   () => import('@/components/ask/document-viewer').then((mod) => mod.DocumentViewer),
@@ -191,9 +203,9 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 export function AskExperience() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { persona, setPersona, currentUserRole } = useAppContext()
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
-  const [userRole, setUserRole] = useState<OrgRole | null>(null)
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
     searchParams.get('aircraft') ?? 'all'
   )
@@ -205,6 +217,14 @@ export function AskExperience() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const autoAskedQueryRef = useRef<string | null>(null)
+  const canUseMechanicPersona = currentUserRole != null && MECHANIC_PERSONA_ROLES.includes(currentUserRole)
+  const suggestedPrompts = persona === 'mechanic' ? MECHANIC_PROMPTS : OWNER_PROMPTS
+  const emptyStateDescription = persona === 'mechanic'
+    ? 'Use mechanic mode for maintenance workflows, parts lookup, checklists, and draft entries.'
+    : 'Use owner mode for records, inspections, compliance, history, and source-backed aircraft answers.'
+  const inputPlaceholder = persona === 'mechanic'
+    ? 'Ask about maintenance actions, parts, manuals, or draft entries...'
+    : 'Ask about records, inspections, compliance, or aircraft history...'
 
   useEffect(() => {
     const supabase = createBrowserSupabase()
@@ -219,16 +239,24 @@ export function AskExperience() {
       .order('created_at', { ascending: false })
       .limit(20)
       .then(({ data }) => setPreviousQueries(data ?? []))
-
-    fetch('/api/me')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.role) setUserRole(d.role as OrgRole) })
-      .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!canUseMechanicPersona && persona === 'mechanic') {
+      setPersona('owner')
+    }
+  }, [canUseMechanicPersona, persona, setPersona])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    setMessages([])
+    setQuestion('')
+    setActiveCitation(null)
+    autoAskedQueryRef.current = null
+  }, [persona])
 
   const handleAsk = useCallback(async (questionText?: string) => {
     const q = questionText ?? question.trim()
@@ -256,6 +284,7 @@ export function AskExperience() {
         body: JSON.stringify({
           question: q,
           aircraft_id: selectedAircraftId === 'all' ? undefined : selectedAircraftId,
+          persona,
           conversation_history: history,
         }),
       })
@@ -315,7 +344,7 @@ export function AskExperience() {
       setIsLoading(false)
       inputRef.current?.focus()
     }
-  }, [isLoading, messages, question, selectedAircraftId])
+  }, [isLoading, messages, persona, question, selectedAircraftId])
 
   useEffect(() => {
     const queryQuestion = searchParams.get('q')?.trim() ?? ''
@@ -371,30 +400,60 @@ export function AskExperience() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="p-6 border-b border-border bg-white">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <Sparkles className="w-5 h-5 text-primary" />
-              <h1 className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>Ask Your Aircraft</h1>
+              <div>
+                <h1 className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>Ask Your Aircraft</h1>
+                <p className="text-[12px] text-muted-foreground">
+                  {persona === 'mechanic' ? 'Mechanic mode' : 'Owner mode'}
+                </p>
+              </div>
             </div>
-            <Select value={selectedAircraftId} onValueChange={setSelectedAircraftId}>
-              <SelectTrigger className="flex items-center gap-2 bg-muted/50 border border-border rounded-lg px-3 py-1.5 text-[13px] w-[220px]" style={{ fontWeight: 500 }}>
-                <Plane className="w-4 h-4 text-primary" />
-                <SelectValue placeholder="All aircraft" />
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Aircraft</SelectItem>
-                {aircraft.map(ac => (
-                  <SelectItem key={ac.id} value={ac.id}>
-                    <div className="flex items-center gap-2">
-                      <Plane className="h-3.5 w-3.5" />
-                      <span className="font-mono text-sm">{ac.tail_number}</span>
-                      <span className="text-muted-foreground text-xs">{ac.make} {ac.model}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-end gap-3 flex-wrap">
+              <div className="inline-flex items-center rounded-lg border border-border bg-muted/30 p-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={persona === 'owner' ? 'default' : 'ghost'}
+                  className="h-8 px-3 text-[12px]"
+                  onClick={() => setPersona('owner')}
+                >
+                  Owner
+                </Button>
+                {canUseMechanicPersona && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={persona === 'mechanic' ? 'default' : 'ghost'}
+                    className="h-8 px-3 text-[12px]"
+                    onClick={() => setPersona('mechanic')}
+                  >
+                    Mechanic
+                  </Button>
+                )}
+              </div>
+
+              <Select value={selectedAircraftId} onValueChange={setSelectedAircraftId}>
+                <SelectTrigger className="flex items-center gap-2 bg-muted/50 border border-border rounded-lg px-3 py-1.5 text-[13px] w-[220px]" style={{ fontWeight: 500 }}>
+                  <Plane className="w-4 h-4 text-primary" />
+                  <SelectValue placeholder="All aircraft" />
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Aircraft</SelectItem>
+                  {aircraft.map(ac => (
+                    <SelectItem key={ac.id} value={ac.id}>
+                      <div className="flex items-center gap-2">
+                        <Plane className="h-3.5 w-3.5" />
+                        <span className="font-mono text-sm">{ac.tail_number}</span>
+                        <span className="text-muted-foreground text-xs">{ac.make} {ac.model}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -404,12 +463,14 @@ export function AskExperience() {
               <div className="w-16 h-16 rounded-2xl bg-primary/8 flex items-center justify-center mx-auto mb-5">
                 <Sparkles className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>What would you like to know?</h2>
+              <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
+                {persona === 'mechanic' ? 'What maintenance help do you need?' : 'What would you like to know?'}
+              </h2>
               <p className="text-[14px] text-muted-foreground mb-8">
-                Get source-backed answers from your aircraft records. Every answer includes citations.
+                {emptyStateDescription}
               </p>
               <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
-                {SUGGESTED_PROMPTS.map((prompt) => (
+                {suggestedPrompts.map((prompt) => (
                   <button
                     key={prompt}
                     onClick={() => handleAsk(prompt)}
@@ -502,7 +563,7 @@ export function AskExperience() {
                 value={question}
                 onChange={e => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your aircraft records..."
+                placeholder={inputPlaceholder}
                 className="bg-transparent text-[13px] outline-none flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 maxLength={2000}
               />
@@ -545,7 +606,9 @@ export function AskExperience() {
           </div>
         ) : (
           <div className="p-4 space-y-4">
-            <MechanicToolsPanel userRole={userRole} aircraft={aircraft} />
+            {persona === 'mechanic' && (
+              <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
+            )}
 
             <div>
               <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Query History</h3>

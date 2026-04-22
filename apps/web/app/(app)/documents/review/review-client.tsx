@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from '@/components/shared/tenant-link'
 import {
   ClipboardCheck,
   CheckCircle2,
@@ -1053,18 +1054,28 @@ export default function ReviewQueueClient({
   totalNeedsReview,
   loadState,
   loadError,
+  focusDocumentId,
+  focusDocumentTitle,
 }: {
   items: any[]
   orgId: string
   totalNeedsReview: number
   loadState: 'loaded' | 'error'
   loadError: string | null
+  focusDocumentId: string | null
+  focusDocumentTitle: string | null
 }) {
   const [items, setItems] = useState<any[]>(initialItems)
   const [filter, setFilter] = useState<FilterType>('all')
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
 
   const filtered = items.filter((item) => {
+    if (
+      focusDocumentId &&
+      item.ocr_page_job?.document?.id !== focusDocumentId
+    ) {
+      return false
+    }
     const arbStatus = item.ocr_page_job?.arbitration_status
     const conf = item.ocr_page_job?.arbitration_confidence ?? item.ocr_page_job?.ocr_confidence ?? 1
     const hasConflicts = (item.fieldConflicts ?? []).length > 0
@@ -1255,6 +1266,22 @@ export default function ReviewQueueClient({
           </div>
         </div>
 
+        {focusDocumentId && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Reviewing a specific document</p>
+              <p className="text-xs text-muted-foreground">
+                {focusDocumentTitle
+                  ? `Showing pending review items for ${focusDocumentTitle}.`
+                  : 'Showing pending review items for the document you opened from the upload flow.'}
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/documents/review">Show full queue</Link>
+            </Button>
+          </div>
+        )}
+
         {/* Filter tabs */}
         <div className="flex flex-wrap gap-2">
           {filterButtons.map((btn) => (
@@ -1297,12 +1324,18 @@ export default function ReviewQueueClient({
                   <ClipboardCheck className="w-8 h-8 text-green-600" />
                 </div>
                 <h2 className="text-lg font-semibold text-foreground mb-1">
-                  {items.length === 0 ? 'Queue is clear!' : 'No items match this filter'}
+                  {focusDocumentId
+                    ? 'No pending review items for this document'
+                    : items.length === 0
+                      ? 'Queue is clear!'
+                      : 'No items match this filter'}
                 </h2>
                 <p className="text-sm text-muted-foreground max-w-md">
-                  {items.length === 0
-                    ? 'All extractions have passed arbitration or been reviewed.'
-                    : 'Try a different filter to see more items.'}
+                  {focusDocumentId
+                    ? 'This document no longer has any low-confidence OCR segments waiting for human review.'
+                    : items.length === 0
+                      ? 'All extractions have passed arbitration or been reviewed.'
+                      : 'Try a different filter to see more items.'}
                 </p>
               </>
             )}
