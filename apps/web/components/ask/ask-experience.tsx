@@ -62,6 +62,9 @@ const MECHANIC_PROMPTS = [
 ]
 
 const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic']
+const RECENT_QUERY_STORAGE_KEY_PREFIX = 'ask_recent_queries'
+
+type AskPersona = 'owner' | 'mechanic'
 
 const DocumentViewer = dynamic(
   () => import('@/components/ask/document-viewer').then((mod) => mod.DocumentViewer),
@@ -82,6 +85,42 @@ function createMessageId() {
   }
 
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function getRecentQueryStorageKey(persona: AskPersona) {
+  return `${RECENT_QUERY_STORAGE_KEY_PREFIX}:${persona}`
+}
+
+function loadRecentQueries(persona: AskPersona): Array<{ id: string; question: string; created_at: string }> {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(getRecentQueryStorageKey(persona))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((entry: any) => ({
+        id: typeof entry?.id === 'string' ? entry.id : createMessageId(),
+        question: typeof entry?.question === 'string' ? entry.question : '',
+        created_at: typeof entry?.created_at === 'string' ? entry.created_at : new Date().toISOString(),
+      }))
+      .filter((entry) => entry.question.trim().length > 0)
+      .slice(0, 20)
+  } catch {
+    return []
+  }
+}
+
+function persistRecentQueries(
+  persona: AskPersona,
+  queries: Array<{ id: string; question: string; created_at: string }>
+) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getRecentQueryStorageKey(persona), JSON.stringify(queries.slice(0, 20)))
+  } catch {
+    // ignore storage failures
+  }
 }
 
 // ── Artifact card renderer ────────────────────────────────────────────────────
@@ -233,12 +272,6 @@ export function AskExperience() {
       .select('id, tail_number, make, model')
       .eq('is_archived', false)
       .then(({ data }) => setAircraft(data ?? []))
-
-    supabase.from('queries')
-      .select('id, question, created_at')
-      .order('created_at', { ascending: false })
-      .limit(20)
-      .then(({ data }) => setPreviousQueries(data ?? []))
   }, [])
 
   useEffect(() => {
@@ -256,6 +289,7 @@ export function AskExperience() {
     setQuestion('')
     setActiveCitation(null)
     autoAskedQueryRef.current = null
+    setPreviousQueries(loadRecentQueries(persona))
   }, [persona])
 
   const handleAsk = useCallback(async (questionText?: string) => {
@@ -327,7 +361,9 @@ export function AskExperience() {
           ...prev.filter((item) => item.question !== q),
         ]
 
-        return next.slice(0, 20)
+        const trimmed = next.slice(0, 20)
+        persistRecentQueries(persona, trimmed)
+        return trimmed
       })
     } catch {
       setMessages(prev => [...prev, {

@@ -124,6 +124,7 @@ function AppLayoutInner({
 
   const tenantMatch = extractTenantPathname(pathname);
   const effectivePathname = tenantMatch?.rewrittenPathname ?? pathname;
+  const hideSidebarPersonaSwitcher = effectivePathname === "/ask" || effectivePathname.startsWith("/ask/");
 
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [ownerAircraft, setOwnerAircraft] = useState<OwnerAircraftSummary[]>([]);
@@ -286,6 +287,7 @@ function AppLayoutInner({
         </div>
 
         {/* Persona switcher */}
+        {!hideSidebarPersonaSwitcher && (
         <div className={`${collapsed ? "px-1 py-2" : "px-3 py-3"} border-b border-sidebar-border shrink-0`}>
           {collapsed ? (
             <div className="flex flex-col items-center gap-1">
@@ -338,6 +340,7 @@ function AppLayoutInner({
             </div>
           )}
         </div>
+        )}
 
         {/* Mechanic "Viewing As" role picker */}
         {persona === "mechanic" && !collapsed && (
