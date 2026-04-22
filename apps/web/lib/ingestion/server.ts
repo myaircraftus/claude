@@ -176,6 +176,15 @@ function normalizeValidatedDate(value: string | null | undefined) {
   return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
 }
 
+function isDeadlockError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return /deadlock detected/i.test(error.message)
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function insertOcrPageJobsCompat(
   supabase: ServiceClient,
   rows: Array<Record<string, unknown>>,
@@ -407,6 +416,23 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
   await runDelete('canonical document chunks', () =>
     supabase.from('canonical_document_chunks').delete().eq('document_id', documentId)
   )
+}
+
+async function clearDerivedArtifactsWithRetry(supabase: ServiceClient, documentId: string) {
+  const maxAttempts = 4
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await clearDerivedArtifacts(supabase, documentId)
+      return
+    } catch (error) {
+      if (!isDeadlockError(error) || attempt === maxAttempts) {
+        throw error
+      }
+
+      await sleep(250 * attempt)
+    }
+  }
 }
 
 async function createSignedDocumentUrl(supabase: ServiceClient, filePath: string) {
@@ -1483,7 +1509,7 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       },
     })
 
-    await clearDerivedArtifacts(supabase, documentId)
+    await clearDerivedArtifactsWithRetry(supabase, documentId)
 
     const fileUrl = await createSignedDocumentUrl(supabase, document.file_path)
     const nativeData = await parseTextNativePdf({
