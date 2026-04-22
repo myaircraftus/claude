@@ -125,6 +125,20 @@ type DocumentStatusRow = {
   parse_error?: string | null
 }
 
+type RecentUploadItem = {
+  id: string
+  documentId: string
+  fileName: string
+  fileSize: number
+  aircraftId?: string
+  status: 'processing' | 'completed' | 'error'
+  progress: number
+  error?: string
+  processingState?: DocumentProcessingState | null
+}
+
+const RECENT_UPLOADS_STORAGE_KEY = 'documents_recent_uploads_v1'
+
 function buildFileSignature(file: File) {
   return [file.name, file.size, file.lastModified].join('::')
 }
@@ -148,10 +162,96 @@ function normalizeUploadErrorMessage(message: string) {
   return message
 }
 
+function readPersistedRecentUploads(): RecentUploadItem[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.sessionStorage.getItem(RECENT_UPLOADS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({
+        id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+        documentId: typeof item.documentId === 'string' ? item.documentId : '',
+        fileName: typeof item.fileName === 'string' ? item.fileName : 'Uploaded document',
+        fileSize: typeof item.fileSize === 'number' ? item.fileSize : 0,
+        aircraftId: typeof item.aircraftId === 'string' ? item.aircraftId : undefined,
+        status:
+          item.status === 'completed' || item.status === 'error'
+            ? item.status
+            : 'processing',
+        progress: typeof item.progress === 'number' ? item.progress : 0,
+        error: typeof item.error === 'string' ? item.error : undefined,
+        processingState: (item.processingState as DocumentProcessingState | null | undefined) ?? null,
+      }))
+      .filter((item) => Boolean(item.documentId))
+      .slice(0, 20)
+  } catch {
+    return []
+  }
+}
+
+function persistRecentUploads(items: RecentUploadItem[]) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.sessionStorage.setItem(RECENT_UPLOADS_STORAGE_KEY, JSON.stringify(items.slice(0, 20)))
+  } catch {
+    // Best effort only.
+  }
+}
+
 function reconcileFileWithDocumentRow(
   item: FileUploadItem,
   row: DocumentStatusRow
 ): FileUploadItem {
+  const normalizedProcessingState = coerceDocumentProcessingState(row.processing_state, undefined, {
+    status: row.parsing_status,
+    parseError: row.parse_error ?? null,
+  })
+  const currentStage = normalizedProcessingState.current_stage
+  const terminalReviewState = currentStage === 'needs_review' || row.parsing_status === 'needs_ocr'
+
+  if (row.parsing_status === 'failed') {
+    return {
+      ...item,
+      status: 'error',
+      progress: getDocumentProcessingProgress(normalizedProcessingState, row.parsing_status),
+      error:
+        row.parse_error ??
+        normalizedProcessingState.last_error ??
+        item.error ??
+        'Document processing failed after upload.',
+      processingState: normalizedProcessingState,
+    }
+  }
+
+  if (row.parsing_status === 'completed' || terminalReviewState) {
+    return {
+      ...item,
+      status: 'completed',
+      progress: 100,
+      error: undefined,
+      processingState: normalizedProcessingState,
+    }
+  }
+
+  return {
+    ...item,
+    status: 'processing',
+    progress: getDocumentProcessingProgress(normalizedProcessingState, row.parsing_status),
+    error: row.parse_error ?? undefined,
+    processingState: normalizedProcessingState,
+  }
+}
+
+function reconcileRecentUploadWithDocumentRow(
+  item: RecentUploadItem,
+  row: DocumentStatusRow
+): RecentUploadItem {
   const normalizedProcessingState = coerceDocumentProcessingState(row.processing_state, undefined, {
     status: row.parsing_status,
     parseError: row.parse_error ?? null,
@@ -366,6 +466,9 @@ export function UploadDropzone({
       ? 'Manuals, catalogs, and compliance records'
       : 'Aircraft records & certificates'
   const [files, setFiles] = useState<FileUploadItem[]>([])
+  const [recentUploads, setRecentUploads] = useState<RecentUploadItem[]>(() =>
+    readPersistedRecentUploads()
+  )
   const [isUploading, setIsUploading] = useState(false)
   const [parsingStatuses, setParsingStatuses] = useState<Record<string, ParsingStatus>>({})
   const [processingStates, setProcessingStates] = useState<Record<string, DocumentProcessingState | null>>({})
@@ -387,11 +490,14 @@ export function UploadDropzone({
   const channelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabase>['channel']> | null>(null)
   const deferredClassificationSearch = useDeferredValue(classificationSearch)
   const trackedDocumentIds = useMemo(
-    () =>
-      files
-        .map((file) => file.documentId)
-        .filter((documentId): documentId is string => Boolean(documentId)),
-    [files]
+    () => [
+      ...new Set(
+        recentUploads
+          .map((item) => item.documentId)
+          .filter((documentId): documentId is string => Boolean(documentId))
+      ),
+    ],
+    [recentUploads]
   )
   const documentIdsSignature = useMemo(
     () => trackedDocumentIds.join(','),
@@ -430,6 +536,44 @@ export function UploadDropzone({
     () => getDocumentClassificationSummary(defaultDocumentDetailSelection),
     [defaultDocumentDetailSelection]
   )
+
+  useEffect(() => {
+    persistRecentUploads(recentUploads)
+  }, [recentUploads])
+
+  useEffect(() => {
+    const processingItems = files.filter(
+      (item) => item.documentId && (item.status === 'processing' || item.status === 'completed')
+    )
+    if (processingItems.length === 0) return
+
+    setRecentUploads((prev) => {
+      const next = [...prev]
+      for (const item of processingItems) {
+        const recentItem: RecentUploadItem = {
+          id: item.id,
+          documentId: item.documentId!,
+          fileName: item.file.name,
+          fileSize: item.file.size,
+          aircraftId: item.aircraftId,
+          status: item.status === 'completed' ? 'completed' : 'processing',
+          progress: item.progress,
+          error: item.error,
+          processingState: item.processingState ?? null,
+        }
+        const existingIndex = next.findIndex((candidate) => candidate.documentId === recentItem.documentId)
+        if (existingIndex >= 0) next[existingIndex] = recentItem
+        else next.unshift(recentItem)
+      }
+      return next.slice(0, 20)
+    })
+
+    setFiles((prev) =>
+      prev.filter(
+        (item) => !(item.documentId && (item.status === 'processing' || item.status === 'completed'))
+      )
+    )
+  }, [files])
 
   useEffect(() => {
     const persistedAircraftId = getPersistedOwnerAircraftId()
@@ -574,6 +718,14 @@ export function UploadDropzone({
           return reconcileFileWithDocumentRow(item, row)
         })
       )
+
+      setRecentUploads((prev) =>
+        prev.map((item) => {
+          const row = rowsById.get(item.documentId)
+          if (!row) return item
+          return reconcileRecentUploadWithDocumentRow(item, row)
+        })
+      )
     }
 
     void poll()
@@ -607,6 +759,21 @@ export function UploadDropzone({
         }
 
         return reconcileFileWithDocumentRow(item, {
+          id: item.documentId,
+          parsing_status: realtimeStatus,
+          processing_state: realtimeProcessingState ?? null,
+          parse_error: item.error ?? null,
+        })
+      })
+    )
+
+    setRecentUploads((prev) =>
+      prev.map((item) => {
+        const realtimeStatus = parsingStatuses[item.documentId]
+        const realtimeProcessingState = processingStates[item.documentId]
+        if (!realtimeStatus) return item
+
+        return reconcileRecentUploadWithDocumentRow(item, {
           id: item.documentId,
           parsing_status: realtimeStatus,
           processing_state: realtimeProcessingState ?? null,
@@ -716,6 +883,10 @@ export function UploadDropzone({
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
   }
 
+  function dismissRecentUpload(id: string) {
+    setRecentUploads((prev) => prev.filter((item) => item.id !== id))
+  }
+
   function applySuggestedCategory(label: string, match?: { groupId: string; detailId: string; detailLabel?: string } | null) {
     if (match) {
       setDefaultDocumentGroupSelection(match.groupId)
@@ -819,15 +990,58 @@ export function UploadDropzone({
             payload.error ?? payload.warning ?? `Document processing failed (${response.status})`
           ),
         })
+        setRecentUploads((prev) =>
+          prev.map((item) =>
+            item.id === fileId
+              ? {
+                  ...item,
+                  status: 'error',
+                  progress: 0,
+                  error: normalizeUploadErrorMessage(
+                    payload.error ?? payload.warning ?? `Document processing failed (${response.status})`
+                  ),
+                }
+              : item
+          )
+        )
         return
       }
 
       updateFile(fileId, {
+        status: 'processing',
+        progress: getDocumentProcessingProgress(
+          coerceDocumentProcessingState(null, undefined, {
+            status: 'parsing',
+            parseError: null,
+          }),
+          'parsing'
+        ),
         processingState: coerceDocumentProcessingState(null, undefined, {
           status: 'parsing',
           parseError: null,
         }),
       })
+      setRecentUploads((prev) =>
+        prev.map((item) =>
+          item.id === fileId
+            ? {
+                ...item,
+                status: 'processing',
+                progress: getDocumentProcessingProgress(
+                  coerceDocumentProcessingState(null, undefined, {
+                    status: 'parsing',
+                    parseError: null,
+                  }),
+                  'parsing'
+                ),
+                processingState: coerceDocumentProcessingState(null, undefined, {
+                  status: 'parsing',
+                  parseError: null,
+                }),
+              }
+            : item
+        )
+      )
 
       window.setTimeout(async () => {
         try {
@@ -871,6 +1085,20 @@ export function UploadDropzone({
           error instanceof Error ? error.message : 'Failed to start document processing.'
         ),
       })
+      setRecentUploads((prev) =>
+        prev.map((item) =>
+          item.id === fileId
+            ? {
+                ...item,
+                status: 'error',
+                progress: 0,
+                error: normalizeUploadErrorMessage(
+                  error instanceof Error ? error.message : 'Failed to start document processing.'
+                ),
+              }
+            : item
+        )
+      )
     }
   }
 
@@ -979,6 +1207,22 @@ export function UploadDropzone({
         processingState: buildInitialDocumentProcessingState(),
       })
 
+      setRecentUploads((prev) =>
+        [
+          {
+            id: item.id,
+            documentId: completePayload.document_id,
+            fileName: item.file.name,
+            fileSize: item.file.size,
+            aircraftId: item.aircraftId,
+            status: 'processing',
+            progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
+            processingState: buildInitialDocumentProcessingState(),
+          },
+          ...prev.filter((candidate) => candidate.documentId !== completePayload.document_id),
+        ].slice(0, 20)
+      )
+
       void kickOffDocumentProcessing(completePayload.document_id, item.id)
     } catch (err) {
       updateFile(item.id, {
@@ -1018,8 +1262,11 @@ export function UploadDropzone({
     }
   }
 
-  const pendingCount = files.filter((f) => f.status === 'pending' || f.status === 'error').length
-  const hasFiles = files.length > 0
+  const localQueueFiles = files.filter(
+    (f) => f.status === 'pending' || f.status === 'uploading' || f.status === 'error'
+  )
+  const pendingCount = localQueueFiles.filter((f) => f.status === 'pending' || f.status === 'error').length
+  const hasFiles = localQueueFiles.length > 0
 
   return (
     <div className="space-y-4">
@@ -1284,7 +1531,7 @@ export function UploadDropzone({
       {/* File queue */}
       {hasFiles && (
         <div className="space-y-2">
-          {files.map((item) => {
+          {localQueueFiles.map((item) => {
             const realtimeStatus = item.documentId ? parsingStatuses[item.documentId] : undefined
             const manual = isManualType(item.docType)
             const isPaid = item.manualAccess === 'paid'
@@ -1653,34 +1900,108 @@ export function UploadDropzone({
                   </div>
                 )}
 
-                {(item.status === 'processing' ||
-                  (item.status === 'completed' && Boolean(item.processingState))) && (
-                  <div className="pl-11 space-y-2">
-                    <Progress value={item.progress} className="h-1.5" />
-                    <CompactProcessingTimeline
-                      state={item.processingState}
-                      fallbackStatus={realtimeStatus ?? (item.status === 'completed' ? 'completed' : 'queued')}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      {currentStageLabel ?? (item.status === 'completed' ? 'Indexed' : 'Processing')}
-                      {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
-                      {batchLabel ? ` · ${batchLabel}` : ''}
-                    </p>
-                    {item.processingState?.current_stage === 'needs_review' && item.documentId && (
-                      <div className="flex items-center gap-2 text-[11px]">
-                        <span className="text-amber-700">
-                          Low-confidence or handwritten OCR content needs human review.
-                        </span>
-                        <Link
-                          href="/documents/review"
-                          className="font-medium text-brand-700 hover:text-brand-900"
-                        >
-                          Open review queue
-                        </Link>
-                      </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {recentUploads.length > 0 && (
+        <div className="space-y-2">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">Processing & recent uploads</h3>
+            <p className="text-xs text-muted-foreground">
+              Live status from the saved document rows. This section survives refresh.
+            </p>
+          </div>
+          {recentUploads.map((item) => {
+            const realtimeStatus = parsingStatuses[item.documentId]
+            const currentStageLabel = item.processingState
+              ? DOCUMENT_PROCESSING_STAGE_LABELS[item.processingState.current_stage]
+              : null
+            const currentEngineLabel = getDocumentProcessingEngineLabel(item.processingState?.current_engine)
+            const batchLabel =
+              item.processingState?.current_batch && item.processingState?.total_batches
+                ? `Batch ${item.processingState.current_batch} of ${item.processingState.total_batches}`
+                : null
+
+            return (
+              <div
+                key={item.id}
+                className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-red-50">
+                    <FileText className="h-4 w-4 text-red-500" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{item.fileName}</p>
+                    <p className="text-xs text-muted-foreground">{formatBytes(item.fileSize)}</p>
+                    {(item.status === 'processing' || item.status === 'completed') && currentStageLabel && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {currentStageLabel}
+                        {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
+                        {batchLabel ? ` · ${batchLabel}` : ''}
+                      </p>
                     )}
                   </div>
-                )}
+
+                  <div className="flex-shrink-0">
+                    {item.status === 'processing' && (
+                      <ProcessingStatusBadge
+                        status={realtimeStatus ?? 'queued'}
+                        currentStage={item.processingState?.current_stage ?? null}
+                      />
+                    )}
+                    {item.status === 'completed' && (
+                      <ProcessingStatusBadge
+                        status="completed"
+                        currentStage={item.processingState?.current_stage ?? null}
+                      />
+                    )}
+                    {item.status === 'error' && (
+                      <span className="flex items-center gap-1 text-xs text-destructive">
+                        <AlertCircle className="h-3 w-3" />
+                        {item.error ?? 'Error'}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => dismissRecentUpload(item.id)}
+                    className="flex-shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="pl-11 space-y-2">
+                  <Progress value={item.progress} className="h-1.5" />
+                  <CompactProcessingTimeline
+                    state={item.processingState}
+                    fallbackStatus={realtimeStatus ?? (item.status === 'completed' ? 'completed' : 'queued')}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {currentStageLabel ?? (item.status === 'completed' ? 'Indexed' : 'Processing')}
+                    {currentEngineLabel ? ` · ${currentEngineLabel}` : ''}
+                    {batchLabel ? ` · ${batchLabel}` : ''}
+                  </p>
+                  {item.processingState?.current_stage === 'needs_review' && (
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <span className="text-amber-700">
+                        Low-confidence or handwritten OCR content needs human review.
+                      </span>
+                      <Link
+                        href="/documents/review"
+                        className="font-medium text-brand-700 hover:text-brand-900"
+                      >
+                        Open review queue
+                      </Link>
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })}
