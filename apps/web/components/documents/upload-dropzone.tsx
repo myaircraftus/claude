@@ -507,23 +507,51 @@ export function UploadDropzone({
 
     let cancelled = false
 
+    const pollViaBrowserSupabase = async (): Promise<DocumentStatusRow[] | null> => {
+      try {
+        const supabase = createBrowserSupabase()
+        const { data, error } = await supabase
+          .from('documents')
+          .select('id, parsing_status, processing_state, parse_error')
+          .in('id', docIds)
+
+        if (cancelled || error || !data) return null
+        return data as DocumentStatusRow[]
+      } catch {
+        return null
+      }
+    }
+
     const poll = async () => {
       const params = new URLSearchParams()
       for (const id of docIds) params.append('id', id)
 
-      const response = await fetch(`/api/documents/status?${params.toString()}`, {
-        method: 'GET',
-        cache: 'no-store',
-        credentials: 'same-origin',
-      })
+      let rows: DocumentStatusRow[] | null = null
 
-      const payload = (await response.json().catch(() => ({}))) as {
-        documents?: DocumentStatusRow[]
+      try {
+        const response = await fetch(`/api/documents/status?${params.toString()}`, {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+        })
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          documents?: DocumentStatusRow[]
+        }
+
+        if (!cancelled && response.ok && payload.documents) {
+          rows = payload.documents
+        }
+      } catch {
+        // Fall through to browser-client query.
       }
 
-      if (cancelled || !response.ok || !payload.documents) return
+      if (!rows || rows.length === 0) {
+        rows = await pollViaBrowserSupabase()
+      }
 
-      const rows = payload.documents
+      if (cancelled || !rows) return
+
       const rowsById = new Map(rows.map((row) => [row.id, row]))
 
       setParsingStatuses((prev) => {
