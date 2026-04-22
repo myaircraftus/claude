@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
 import ReviewQueueClient from './review-client'
-import type { UserProfile } from '@/types'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 
 export const metadata = { title: 'OCR Review Queue' }
 
@@ -11,21 +10,7 @@ export default async function ReviewQueuePage({
 }: {
   searchParams?: { documentId?: string }
 }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase.from('organization_memberships')
-      .select('organization_id, role, organizations(*)')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  const membership = membershipRes.data
+  const { supabase, profile, membership } = await requireAppServerSession()
   if (!membership) redirect('/onboarding')
 
   const orgId = membership.organization_id

@@ -1,27 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { pageId: string } }
 ) {
   const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-
-  if (!membership) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgContext = await resolveRequestOrgContext(req)
+  if (!orgContext) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    return NextResponse.json({ error: user ? 'Forbidden' : 'Unauthorized' }, { status: user ? 403 : 401 })
   }
 
   const { data: page } = await supabase
@@ -34,7 +25,7 @@ export async function GET(
     return NextResponse.json({ error: 'Page not found' }, { status: 404 })
   }
 
-  if (page.organization_id !== membership.organization_id) {
+  if (page.organization_id !== orgContext.organizationId) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

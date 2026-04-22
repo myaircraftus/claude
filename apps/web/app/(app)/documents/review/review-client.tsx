@@ -23,7 +23,10 @@ import {
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
+import { DocumentViewer } from '@/components/ask/document-viewer'
+import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import {
   getDocumentClassificationProfileBySelection,
   type ParserStrategy,
@@ -36,6 +39,7 @@ import {
   isDocumentGroupId,
   resolveStoredDocumentClassification,
 } from '@/lib/documents/taxonomy'
+import type { AnswerCitation } from '@/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -306,6 +310,9 @@ function QueueItemCard({
   const [pageImageVariant, setPageImageVariant] = useState<'processed' | 'original'>('processed')
   const [pageImageError, setPageImageError] = useState<string | null>(null)
   const [pageImageLoading, setPageImageLoading] = useState(false)
+  const [draftingWithAi, setDraftingWithAi] = useState(false)
+  const [draftAssistError, setDraftAssistError] = useState<string | null>(null)
+  const [draftAssistNote, setDraftAssistNote] = useState<string | null>(null)
 
   // Proposed values from arbitration (fall back to extracted event)
   function proposedFor(fieldName: string, fallback: string) {
@@ -466,6 +473,66 @@ function QueueItemCard({
     [classification.document_group_id]
   )
 
+  const keywordSuggestions = useMemo(() => {
+    const values = new Set<string>()
+    const addValue = (value: unknown) => {
+      if (typeof value !== 'string') return
+      const normalized = value.trim()
+      if (!normalized) return
+      if (normalized.length > 80) return
+      values.add(normalized)
+    }
+
+    for (const candidate of fieldCandidates) {
+      addValue(candidate.candidate_value)
+    }
+
+    for (const field of Object.values(fieldResults)) {
+      addValue((field as any)?.proposed)
+    }
+
+    addValue(detectedType)
+    addValue(fields.event_date)
+    addValue(fields.tach_time)
+    addValue(fields.mechanic_name)
+    addValue(fields.mechanic_cert_number)
+
+    return Array.from(values).slice(0, 16)
+  }, [detectedType, fieldCandidates, fieldResults, fields.event_date, fields.mechanic_cert_number, fields.mechanic_name, fields.tach_time])
+
+  const [selectedKeywords, setSelectedKeywords] = useState<string[]>([])
+
+  useEffect(() => {
+    setSelectedKeywords(keywordSuggestions.slice(0, Math.min(4, keywordSuggestions.length)))
+  }, [job.id, keywordSuggestions])
+
+  const docTitle = job.document?.title ?? 'Unknown Document'
+  const pageNumber = job.page_number ?? '?'
+
+  const fallbackCitation = useMemo<AnswerCitation | null>(() => {
+    const documentId = job.document?.id
+    if (!documentId) return null
+    const resolvedPageNumber = Number(job.page_number) || 1
+    return {
+      chunkId: `${documentId}:page:${resolvedPageNumber}`,
+      documentId,
+      documentTitle: job.document?.title ?? 'Unknown Document',
+      docType: (job.document?.doc_type ?? 'miscellaneous') as any,
+      pageNumber: resolvedPageNumber,
+      snippet: job.ocr_raw_text ?? '',
+      quotedText: undefined,
+      relevanceScore: 1,
+      boundingRegions: highlightRegions.map((region) => ({
+        page: region.page,
+        x: region.x,
+        y: region.y,
+        width: region.width,
+        height: region.height,
+        source: region.source,
+      })),
+    }
+  }, [highlightRegions, job.document?.doc_type, job.document?.id, job.document?.title, job.ocr_raw_text, job.page_number])
+
   function update(key: keyof EditedFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }))
   }
@@ -483,8 +550,68 @@ function QueueItemCard({
     })
   }
 
-  const docTitle = job.document?.title ?? 'Unknown Document'
-  const pageNumber = job.page_number ?? '?'
+  function toggleKeyword(keyword: string) {
+    setSelectedKeywords((prev) =>
+      prev.includes(keyword)
+        ? prev.filter((entry) => entry !== keyword)
+        : [...prev, keyword]
+    )
+  }
+
+  async function handleAiDraft() {
+    if (selectedKeywords.length === 0 || draftingWithAi) return
+
+    setDraftingWithAi(true)
+    setDraftAssistError(null)
+    setDraftAssistNote(null)
+
+    try {
+      const response = await fetch('/api/ocr/review/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_title: docTitle,
+          page_classification: job.page_classification ?? null,
+          raw_text: job.ocr_raw_text ?? '',
+          selected_keywords: selectedKeywords,
+          candidate_keywords: keywordSuggestions,
+          current_fields: fields,
+        }),
+      })
+
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to generate draft')
+      }
+
+      const draft = payload?.draft
+      if (!draft || typeof draft !== 'object') {
+        throw new Error('AI did not return a usable draft')
+      }
+
+      setFields((prev) => ({
+        ...prev,
+        event_type: typeof draft.event_type === 'string' && draft.event_type ? draft.event_type : prev.event_type,
+        event_date: typeof draft.event_date === 'string' ? draft.event_date : prev.event_date,
+        tach_time: typeof draft.tach_time === 'string' ? draft.tach_time : prev.tach_time,
+        work_description: typeof draft.work_description === 'string' && draft.work_description ? draft.work_description : prev.work_description,
+        mechanic_name: typeof draft.mechanic_name === 'string' ? draft.mechanic_name : prev.mechanic_name,
+        mechanic_cert_number:
+          typeof draft.mechanic_cert_number === 'string'
+            ? draft.mechanic_cert_number
+            : prev.mechanic_cert_number,
+        ad_references: Array.isArray(draft.ad_references)
+          ? draft.ad_references.join(', ')
+          : prev.ad_references,
+      }))
+      setDraftAssistNote(typeof draft.draft_notes === 'string' ? draft.draft_notes : 'AI generated a best-effort draft from the selected keywords.')
+    } catch (error) {
+      setDraftAssistError(error instanceof Error ? error.message : 'Failed to generate draft')
+    } finally {
+      setDraftingWithAi(false)
+    }
+  }
+
   const band = confidenceBand(arbConf)
   const statusMeta = STATUS_BADGE[arbStatus] ?? STATUS_BADGE.pending
   const conflictCount = fieldConflicts.length
@@ -602,10 +729,6 @@ function QueueItemCard({
                     </div>
                   )}
 
-                  {!pageImageLoading && pageImageError && (
-                    <div className="text-xs text-muted-foreground">{pageImageError}</div>
-                  )}
-
                   {!pageImageLoading && pageImageUrl && (
                     <div className="relative w-full overflow-hidden rounded-md border border-border bg-white">
                       <img
@@ -630,6 +753,28 @@ function QueueItemCard({
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {!pageImageLoading && !pageImageUrl && fallbackCitation && (
+                    <div className="rounded-md border border-border bg-white overflow-hidden">
+                      <div className="px-3 py-2 border-b border-border text-xs text-muted-foreground">
+                        PDF page preview fallback
+                      </div>
+                      <div className="h-[420px]">
+                        <DocumentViewerBoundary
+                          resetKey={`review:${fallbackCitation.documentId}:${fallbackCitation.pageNumber}`}
+                        >
+                          <DocumentViewer
+                            citation={fallbackCitation}
+                            documentId={fallbackCitation.documentId}
+                          />
+                        </DocumentViewerBoundary>
+                      </div>
+                    </div>
+                  )}
+
+                  {!pageImageLoading && !pageImageUrl && !fallbackCitation && pageImageError && (
+                    <div className="text-xs text-muted-foreground">{pageImageError}</div>
                   )}
                 </div>
               </div>
@@ -981,6 +1126,67 @@ function QueueItemCard({
                   )}
                 </div>
 
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                        Human AI Draft Assist
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Select the strongest keywords first. AI will draft fields from those hints only. It will not auto-save or auto-canonicalize.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={draftingWithAi || selectedKeywords.length === 0}
+                      onClick={handleAiDraft}
+                    >
+                      {draftingWithAi ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+                      Draft with AI
+                    </Button>
+                  </div>
+
+                  {keywordSuggestions.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {keywordSuggestions.map((keyword) => {
+                        const active = selectedKeywords.includes(keyword)
+                        return (
+                          <button
+                            key={keyword}
+                            type="button"
+                            onClick={() => toggleKeyword(keyword)}
+                            className={cn(
+                              'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                              active
+                                ? 'border-brand-200 bg-brand-50 text-brand-700'
+                                : 'border-border bg-background text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                            )}
+                          >
+                            {keyword}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No reliable keyword suggestions were extracted for this page yet.
+                    </p>
+                  )}
+
+                  {draftAssistNote && (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                      {draftAssistNote}
+                    </div>
+                  )}
+
+                  {draftAssistError && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {draftAssistError}
+                    </div>
+                  )}
+                </div>
+
 	              {/* Action buttons */}
 	              <div className="flex flex-wrap gap-2 pt-2">
 	                <Button
@@ -1068,6 +1274,7 @@ export default function ReviewQueueClient({
   const [items, setItems] = useState<any[]>(initialItems)
   const [filter, setFilter] = useState<FilterType>('all')
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const filtered = items.filter((item) => {
     if (
@@ -1109,6 +1316,7 @@ export default function ReviewQueueClient({
     classification?: ClassificationEdits
   ) {
     setActionLoading((prev) => ({ ...prev, [id]: true }))
+    setActionError(null)
     try {
       if (action === 'reclassify') {
         const response = await fetch('/api/ocr/review', {
@@ -1125,7 +1333,8 @@ export default function ReviewQueueClient({
         })
 
         if (!response.ok) {
-          throw new Error('Failed to save classification')
+          const payload = await response.json().catch(() => ({}))
+          throw new Error(payload?.error ?? 'Failed to save classification')
         }
 
         setItems((prev) =>
@@ -1193,7 +1402,8 @@ export default function ReviewQueueClient({
         })
 
         if (!response.ok) {
-          throw new Error('Failed to canonicalize review item')
+          const payload = await response.json().catch(() => ({}))
+          throw new Error(payload?.error ?? 'Failed to canonicalize review item')
         }
       } else {
         const response = await fetch('/api/ocr/review', {
@@ -1210,12 +1420,13 @@ export default function ReviewQueueClient({
         })
 
         if (!response.ok) {
-          throw new Error('Failed to update review item')
+          const payload = await response.json().catch(() => ({}))
+          throw new Error(payload?.error ?? 'Failed to update review item')
         }
       }
       setItems((prev) => prev.filter((i) => i.id !== id))
-    } catch {
-      // Silent fail — item stays in queue
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to update review item')
     } finally {
       setActionLoading((prev) => ({ ...prev, [id]: false }))
     }
@@ -1280,6 +1491,14 @@ export default function ReviewQueueClient({
               <Link href="/documents/review">Show full queue</Link>
             </Button>
           </div>
+        )}
+
+        {actionError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Review action failed</AlertTitle>
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
         )}
 
         {/* Filter tabs */}

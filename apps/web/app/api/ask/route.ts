@@ -22,6 +22,7 @@ import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -237,16 +238,12 @@ export async function POST(req: NextRequest) {
   if (!rl.success) return rateLimitResponse(rl)
 
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const orgContext = await resolveRequestOrgContext(req)
+  if (!orgContext) {
+    const { data: { user } } = await supabase.auth.getUser()
+    return NextResponse.json({ error: user ? 'No organization' : 'Unauthorized' }, { status: user ? 403 : 401 })
+  }
+  const membership = orgContext.membership
 
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json({ error: 'AI not configured' }, { status: 503 })

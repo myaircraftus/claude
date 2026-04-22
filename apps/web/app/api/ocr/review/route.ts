@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import {
   buildClassificationStorageFieldsBySelection,
   getDocumentClassificationProfileBySelection,
@@ -116,16 +117,11 @@ function buildClassificationPatch(
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgContext = await resolveRequestOrgContext(req)
+  if (!orgContext) {
+    const { data: { user } } = await supabase.auth.getUser()
+    return NextResponse.json({ error: user ? 'Forbidden' : 'Unauthorized' }, { status: user ? 403 : 401 })
+  }
 
   let items: any[] = []
   try {
@@ -137,7 +133,7 @@ export async function GET(req: NextRequest) {
         ocr_entry_segment:ocr_entry_segment_id(*),
         ocr_extracted_event:ocr_extracted_event_id(*)
       `)
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgContext.organizationId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(30)
@@ -149,16 +145,12 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgContext = await resolveRequestOrgContext(req)
+  if (!orgContext) {
+    const { data: { user } } = await supabase.auth.getUser()
+    return NextResponse.json({ error: user ? 'Forbidden' : 'Unauthorized' }, { status: user ? 403 : 401 })
+  }
+  const user = orgContext.user
 
   const body = await req.json()
   const {
@@ -196,7 +188,7 @@ export async function PATCH(req: NextRequest) {
         )
       `)
       .eq('id', id)
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgContext.organizationId)
       .maybeSingle()
 
     if (!reviewItem) {
