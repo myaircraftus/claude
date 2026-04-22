@@ -271,6 +271,11 @@ function collapseDuplicatePages(chunks: RetrievedChunk[]) {
   return Array.from(byPage.values())
 }
 
+function coerceFiniteNumber(value: unknown, fallback = 0) {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
 function mapRpcRow(row: Record<string, unknown>): RetrievedChunk {
   return {
     chunk_id: row.chunk_id as string,
@@ -289,9 +294,9 @@ function mapRpcRow(row: Record<string, unknown>): RetrievedChunk {
     section_title: (row.section_title as string | undefined) ?? undefined,
     chunk_text: row.chunk_text as string,
     metadata_json: (row.metadata_json as Record<string, unknown>) ?? {},
-    vector_score: Number(row.vector_score ?? 0),
-    keyword_score: Number(row.keyword_score ?? 0),
-    combined_score: Number(row.combined_score ?? 0),
+    vector_score: coerceFiniteNumber(row.vector_score, 0),
+    keyword_score: coerceFiniteNumber(row.keyword_score, 0),
+    combined_score: coerceFiniteNumber(row.combined_score, 0),
   }
 }
 

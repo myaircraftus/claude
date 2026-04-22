@@ -225,13 +225,25 @@ function AppLayoutInner({
     ? "No aircraft yet"
     : "Aircraft";
 
+  const ownerAskHref = selectedOwnerAircraft
+    ? `/ask?aircraft=${encodeURIComponent(selectedOwnerAircraft.id)}`
+    : "/ask";
+
+  const ownerNavBase = ownerNavItems.map((item) => {
+    if (item.label !== "Ask / AI Command") return item;
+    return {
+      ...item,
+      href: ownerAskHref,
+    };
+  });
+
   const ownerNav = isPlatformAdmin
     ? [
-        ...ownerNavItems,
+        ...ownerNavBase,
         { icon: ShieldCheck, label: "Admin", href: "/admin" },
         { icon: FileText, label: "Marketing CMS", href: "/admin/content" },
       ]
-    : ownerNavItems;
+    : ownerNavBase;
 
   const navItems: NavItem[] = persona === "owner"
     ? ownerNav

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies, headers } from 'next/headers'
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
@@ -26,6 +27,48 @@ async function getMembership(
   return data
 }
 
+interface OrganizationRecord {
+  id: string
+  slug?: string | null
+}
+
+interface MembershipRecord {
+  organization_id: string
+  role: string
+  organizations?: OrganizationRecord | OrganizationRecord[] | null
+}
+
+function normalizeOrganizationRecord(
+  value: MembershipRecord['organizations']
+): OrganizationRecord | null {
+  if (!value) return null
+  if (Array.isArray(value)) return (value[0] as OrganizationRecord | undefined) ?? null
+  return value as OrganizationRecord
+}
+
+function getRequestedOrganizationId(): string | null {
+  const headerStore = headers()
+  const cookieStore = cookies()
+  return (
+    headerStore.get('x-organization-id') ||
+    headerStore.get('x-org-id') ||
+    cookieStore.get('active_organization_id')?.value ||
+    cookieStore.get('organization_id')?.value ||
+    null
+  )
+}
+
+function getRequestedOrganizationSlug(): string | null {
+  const headerStore = headers()
+  const cookieStore = cookies()
+  return (
+    headerStore.get('x-organization-slug') ||
+    headerStore.get('x-org-slug') ||
+    cookieStore.get('active_organization_slug')?.value ||
+    null
+  )
+}
+
 // ─── GET /api/aircraft ────────────────────────────────────────────────────────
 
 export async function GET(_req: NextRequest) {
@@ -40,15 +83,33 @@ export async function GET(_req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's org
-    const { data: membership, error: membershipError } = await supabase
+    const requestedOrgId = getRequestedOrganizationId()
+    const requestedOrgSlug = getRequestedOrganizationSlug()
+
+    const { data: memberships, error: membershipError } = await supabase
       .from('organization_memberships')
-      .select('organization_id, role')
+      .select('organization_id, role, organizations(*)')
       .eq('user_id', user.id)
       .not('accepted_at', 'is', null)
-      .single()
+      .limit(25)
 
-    if (membershipError || !membership) {
+    if (membershipError) {
+      console.error('[GET /api/aircraft] membership error', membershipError)
+      return NextResponse.json({ error: 'Failed to resolve organization membership' }, { status: 500 })
+    }
+
+    const membership =
+      ((memberships ?? []) as MembershipRecord[]).find(
+        (entry) => requestedOrgId && entry.organization_id === requestedOrgId
+      ) ??
+      ((memberships ?? []) as MembershipRecord[]).find((entry) => {
+        if (!requestedOrgSlug) return false
+        return normalizeOrganizationRecord(entry.organizations)?.slug === requestedOrgSlug
+      }) ??
+      ((memberships ?? []) as MembershipRecord[])[0] ??
+      null
+
+    if (!membership) {
       return NextResponse.json({ error: 'No organization found' }, { status: 404 })
     }
 

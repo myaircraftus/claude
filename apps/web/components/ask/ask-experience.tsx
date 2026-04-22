@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import { AnswerBlock } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
 import { useAppContext } from '@/components/redesign/AppContext'
-import { createBrowserSupabase } from '@/lib/supabase/browser'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { formatDateTime } from '@/lib/utils'
 import type { Aircraft, AnswerCitation, QueryConfidence, OrgRole } from '@/types'
 
@@ -289,7 +289,7 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 
 export function AskExperience() {
   const searchParams = useSearchParams()
-  const router = useRouter()
+  const router = useTenantRouter()
   const { persona, setPersona, currentUserRole } = useAppContext()
   const aircraftParam = searchParams.get('aircraft')?.trim() ?? ''
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
@@ -315,76 +315,73 @@ export function AskExperience() {
     : 'Ask about records, inspections, compliance, or aircraft history...'
 
   useEffect(() => {
-    const supabase = createBrowserSupabase()
     let cancelled = false
 
     async function loadAircraftOptions() {
-      const { data: aircraftRows } = await supabase
-        .from('aircraft')
-        .select('id, tail_number, make, model')
-        .eq('is_archived', false)
-
-      if (!Array.isArray(aircraftRows) || cancelled) {
-        if (!cancelled) setAircraft([])
-        return
-      }
-
-      const normalizedRows = aircraftRows.map((row) => ({
-        id: row.id,
-        tail_number: row.tail_number ?? '',
-        make: row.make ?? '',
-        model: row.model ?? '',
-      }))
-
-      const aircraftIds = normalizedRows.map((row) => row.id)
-      const documentCounts = new Map<string, number>()
-
-      if (aircraftIds.length > 0) {
-        const { data: documentRows } = await supabase
-          .from('documents')
-          .select('aircraft_id')
-          .in('aircraft_id', aircraftIds)
-          .neq('parsing_status', 'failed')
-
-        if (Array.isArray(documentRows)) {
-          for (const row of documentRows) {
-            const aircraftId = typeof row.aircraft_id === 'string' ? row.aircraft_id : null
-            if (!aircraftId) continue
-            documentCounts.set(aircraftId, (documentCounts.get(aircraftId) ?? 0) + 1)
-          }
+      try {
+        const response = await fetch('/api/aircraft', { cache: 'no-store' })
+        if (!response.ok) {
+          if (!cancelled) setAircraft([])
+          return
         }
-      }
 
-      const dedupedRows = dedupeAircraftOptions(normalizedRows, documentCounts, aircraftParam || undefined)
-        .sort((a, b) => a.tail_number.localeCompare(b.tail_number))
+        const payload = await response.json()
+        const aircraftRows = Array.isArray(payload?.aircraft)
+          ? payload.aircraft
+          : Array.isArray(payload)
+          ? payload
+          : []
 
-      if (cancelled) return
-      setAircraft(dedupedRows)
+        if (!Array.isArray(aircraftRows) || cancelled) {
+          if (!cancelled) setAircraft([])
+          return
+        }
 
-      const persistedAircraftId = loadPersistedAircraftSelection()
-      const fallbackSelection = aircraftParam || persistedAircraftId || dedupedRows[0]?.id || 'all'
+        const normalizedRows = aircraftRows
+          .map((row: any) => ({
+            id: String(row.id ?? ''),
+            tail_number: String(row.tail_number ?? '').trim(),
+            make: String(row.make ?? '').trim(),
+            model: String(row.model ?? '').trim(),
+          }))
+          .filter((row) => row.id && row.tail_number)
 
-      if (!aircraftParam && fallbackSelection !== 'all') {
-        setSelectedAircraftId((current) => (current === fallbackSelection ? current : fallbackSelection))
-        const params = new URLSearchParams(searchParams.toString())
-        params.set('aircraft', fallbackSelection)
-        router.replace(`/ask?${params.toString()}`, { scroll: false })
+        const dedupedRows = dedupeAircraftOptions(normalizedRows, new Map(), aircraftParam || undefined)
+          .sort((a, b) => a.tail_number.localeCompare(b.tail_number))
+
+        if (cancelled) return
+        setAircraft(dedupedRows)
+
+        const persistedAircraftId = loadPersistedAircraftSelection()
+        const fallbackSelection = aircraftParam || persistedAircraftId || dedupedRows[0]?.id || 'all'
+
+        if (!aircraftParam && fallbackSelection !== 'all') {
+          setSelectedAircraftId((current) => (current === fallbackSelection ? current : fallbackSelection))
+          const params = new URLSearchParams(searchParams.toString())
+          params.set('aircraft', fallbackSelection)
+          router.replace(`/ask?${params.toString()}`, { scroll: false })
+          return
+        }
+
+        if (!aircraftParam) return
+
+        const matchedOriginal = normalizedRows.find((row) => row.id === aircraftParam)
+        if (!matchedOriginal) return
+
+        const canonicalMatch = dedupedRows.find(
+          (row) => buildAircraftIdentityKey(row) === buildAircraftIdentityKey(matchedOriginal)
+        )
+
+        if (canonicalMatch && canonicalMatch.id !== aircraftParam) {
+          const params = new URLSearchParams(searchParams.toString())
+          params.set('aircraft', canonicalMatch.id)
+          router.replace(`/ask?${params.toString()}`, { scroll: false })
+        }
+      } catch {
+        if (!cancelled) {
+          setAircraft([])
+        }
         return
-      }
-
-      if (!aircraftParam) return
-
-      const matchedOriginal = normalizedRows.find((row) => row.id === aircraftParam)
-      if (!matchedOriginal) return
-
-      const canonicalMatch = dedupedRows.find(
-        (row) => buildAircraftIdentityKey(row) === buildAircraftIdentityKey(matchedOriginal)
-      )
-
-      if (canonicalMatch && canonicalMatch.id !== aircraftParam) {
-        const params = new URLSearchParams(searchParams.toString())
-        params.set('aircraft', canonicalMatch.id)
-        router.replace(`/ask?${params.toString()}`, { scroll: false })
       }
     }
 
