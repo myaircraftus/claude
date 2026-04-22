@@ -88,10 +88,51 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
   const toggleOp = (id: string) =>
     setSelectedOps((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
+  const resolveOrCreateCustomer = async () => {
+    const trimmedName = customerName.trim();
+    if (!trimmedName) return null;
+
+    const searchRes = await fetch(`/api/customers?search=${encodeURIComponent(trimmedName)}&limit=20`, {
+      cache: "no-store",
+    });
+    const searchPayload = await searchRes.json().catch(() => null);
+
+    if (searchRes.ok && Array.isArray(searchPayload?.customers)) {
+      const exactMatch = searchPayload.customers.find((customer: any) =>
+        String(customer?.name ?? "").trim().toLowerCase() === trimmedName.toLowerCase()
+      );
+
+      if (exactMatch?.id) {
+        return exactMatch;
+      }
+    }
+
+    const createRes = await fetch("/api/customers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: trimmedName,
+        email: customerEmail.trim() || undefined,
+        phone: customerPhone.trim() || undefined,
+        billing_address: faaData ? formatRegistrantLocation(faaData.registrant) : undefined,
+      }),
+    });
+
+    const createPayload = await createRes.json().catch(() => null);
+    if (!createRes.ok || !createPayload?.id) {
+      throw new Error(createPayload?.error ?? "Failed to save customer");
+    }
+
+    return createPayload;
+  };
+
   const handleAdd = async () => {
     setAdding(true);
     setSaveError("");
+    let customerRecord: any = null;
     try {
+      customerRecord = await resolveOrCreateCustomer();
+
       // Persist customer in DataStore if name is provided
       if (customerName) {
         const existing = customers.find(
@@ -142,6 +183,7 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
             ? overrideFields.engine.trim().split(/\s+/).slice(1).join(" ")
             : faaData?.engine.model ?? ""
           ).trim() || undefined,
+        owner_customer_id: customerRecord?.id ?? null,
         base_airport: basedAt.trim() || undefined,
         operator_name: customerName.trim() || undefined,
         operation_types: selectedOps,
@@ -169,6 +211,60 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
         onClose();
       }, 1200);
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error as Error & {
+          code?: string;
+          current_customer?: { name?: string };
+          existing_aircraft_id?: string;
+          can_transfer?: boolean;
+        }).code === "AIRCRAFT_ALREADY_ASSIGNED"
+      ) {
+        const currentCustomerName =
+          (error as Error & { current_customer?: { name?: string } }).current_customer?.name ??
+          "another customer";
+        const existingAircraftId = (error as Error & { existing_aircraft_id?: string }).existing_aircraft_id;
+
+        if (customerRecord?.id && existingAircraftId) {
+          const confirmed = window.confirm(
+            `Aircraft ${tailNumber.trim().toUpperCase()} is already assigned to ${currentCustomerName}. Transfer it to ${customerName.trim() || "this customer"} instead?`
+          );
+
+          if (confirmed) {
+            const transferRes = await fetch(`/api/customers/${customerRecord.id}/aircraft`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                aircraft_id: existingAircraftId,
+                relationship: "owner",
+                is_primary: true,
+                transfer: true,
+              }),
+            });
+            const transferPayload = await transferRes.json().catch(() => null);
+
+            if (!transferRes.ok) {
+              setAdding(false);
+              setSaveError(transferPayload?.error ?? "Failed to transfer existing aircraft");
+              return;
+            }
+
+            await refreshAircraft();
+            setAdding(false);
+            setAdded(true);
+            setTimeout(() => {
+              onClose();
+            }, 1200);
+            return;
+          }
+        }
+
+        setAdding(false);
+        setSaveError(
+          `${error.message} Current owner is ${currentCustomerName}. Transfer the aircraft to the new customer or remove it from the current customer's UI instead of creating a duplicate.`
+        );
+        return;
+      }
       setAdding(false);
       setSaveError(error instanceof Error ? error.message : "Failed to add aircraft");
     }

@@ -14,6 +14,7 @@ export interface CreateAircraftPayload {
   operator_name?: string;
   operation_types?: string[];
   notes?: string;
+  owner_customer_id?: string | null;
 }
 
 async function resolveOrganizationId() {
@@ -63,8 +64,19 @@ export async function createAircraftRecord(payload: CreateAircraftPayload) {
     const firstFieldMessage = fieldErrors
       ? Object.values(fieldErrors).flat().find(Boolean)
       : undefined;
-
-    throw new Error(firstFieldMessage ?? data?.error ?? `Failed to create aircraft (HTTP ${res.status})`);
+    const error = new Error(firstFieldMessage ?? data?.error ?? `Failed to create aircraft (HTTP ${res.status})`) as Error & {
+      code?: string;
+      current_customer?: unknown;
+      existing_aircraft_id?: string;
+      can_transfer?: boolean;
+      can_hide_from_customer?: boolean;
+    };
+    error.code = data?.code;
+    error.current_customer = data?.current_customer;
+    error.existing_aircraft_id = data?.existing_aircraft_id;
+    error.can_transfer = data?.can_transfer;
+    error.can_hide_from_customer = data?.can_hide_from_customer;
+    throw error;
   }
 
   return data;

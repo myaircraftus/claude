@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
+import { findOwnerCustomer, syncAircraftOwnerAssignment } from '@/lib/aircraft/ownership'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ const createAircraftSchema = z.object({
   operator_name: z.string().max(120).optional(),
   operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional(),
   notes: z.string().max(2000).optional(),
+  owner_customer_id: z.string().uuid().optional().nullable(),
 })
 
 export async function POST(req: NextRequest) {
@@ -150,19 +152,51 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const requestedOwnerCustomer = fields.owner_customer_id
+      ? await findOwnerCustomer(supabase, organization_id, fields.owner_customer_id)
+      : null
+
+    if (fields.owner_customer_id && !requestedOwnerCustomer) {
+      return NextResponse.json({ error: 'Owner customer not found' }, { status: 404 })
+    }
+
     // Check for duplicate tail number in same org, including archived aircraft.
     // If the aircraft exists but was archived, revive and update it instead of
     // failing on the unique (organization_id, tail_number) index.
     const { data: existingAircraft } = await supabase
       .from('aircraft')
-      .select('id, is_archived')
+      .select('id, is_archived, owner_customer_id')
       .eq('organization_id', organization_id)
       .eq('tail_number', fields.tail_number)
       .maybeSingle()
 
     if (existingAircraft && !existingAircraft.is_archived) {
+      if (
+        fields.owner_customer_id &&
+        existingAircraft.owner_customer_id &&
+        existingAircraft.owner_customer_id !== fields.owner_customer_id
+      ) {
+        const currentOwner = await findOwnerCustomer(supabase, organization_id, existingAircraft.owner_customer_id)
+
+        return NextResponse.json(
+          {
+            error: `Aircraft ${fields.tail_number} is already assigned to ${currentOwner?.name ?? 'another customer'}. Transfer it instead of creating a duplicate.`,
+            code: 'AIRCRAFT_ALREADY_ASSIGNED',
+            existing_aircraft_id: existingAircraft.id,
+            current_customer: currentOwner ?? null,
+            can_transfer: true,
+            can_hide_from_customer: true,
+          },
+          { status: 409 }
+        )
+      }
+
       return NextResponse.json(
-        { error: `Aircraft ${fields.tail_number} already exists in your organization` },
+        {
+          error: `Aircraft ${fields.tail_number} already exists in your organization`,
+          code: 'AIRCRAFT_ALREADY_EXISTS',
+          existing_aircraft_id: existingAircraft.id,
+        },
         { status: 409 }
       )
     }
@@ -207,6 +241,23 @@ export async function POST(req: NextRequest) {
       }
 
       aircraft = insertedAircraft
+    }
+
+    if (Object.prototype.hasOwnProperty.call(fields, 'owner_customer_id')) {
+      const { error: ownerAssignmentError } = await syncAircraftOwnerAssignment({
+        supabase,
+        organizationId: organization_id,
+        aircraftId: aircraft.id,
+        ownerCustomerId: fields.owner_customer_id ?? null,
+      })
+
+      if (ownerAssignmentError) {
+        console.error('[POST /api/aircraft] owner assignment sync error', ownerAssignmentError)
+        return NextResponse.json(
+          { error: 'Aircraft was created, but owner assignment could not be synchronized' },
+          { status: 500 }
+        )
+      }
     }
 
     // Audit log

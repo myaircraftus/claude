@@ -158,15 +158,39 @@ export function CustomerDetail({
     if (!assignAircraftId) return
     setAssignSaving(true)
     try {
-      const res = await fetch(`/api/customers/${customer.id}/aircraft`, {
+      const requestBody = {
+        aircraft_id: assignAircraftId,
+        relationship: assignRelationship,
+        is_primary: assignPrimary,
+      }
+
+      let res = await fetch(`/api/customers/${customer.id}/aircraft`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aircraft_id: assignAircraftId,
-          relationship: assignRelationship,
-          is_primary: assignPrimary,
-        }),
+        body: JSON.stringify(requestBody),
       })
+
+      let data = await res.json().catch(() => null)
+
+      if (!res.ok && data?.code === 'AIRCRAFT_ALREADY_ASSIGNED' && data?.can_transfer) {
+        const currentCustomerName = data?.current_customer?.name ?? 'another customer'
+        const confirmed = window.confirm(
+          `This aircraft is already assigned to ${currentCustomerName}. Transfer it to ${customer.name} instead?`
+        )
+
+        if (confirmed) {
+          res = await fetch(`/api/customers/${customer.id}/aircraft`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...requestBody,
+              transfer: true,
+            }),
+          })
+          data = await res.json().catch(() => null)
+        }
+      }
+
       if (res.ok) {
         setAssignOpen(false)
         setAssignAircraftId('')
@@ -174,7 +198,6 @@ export function CustomerDetail({
         setAssignPrimary(false)
         router.refresh()
       } else {
-        const data = await res.json()
         toast.error(data.error || 'Failed to assign aircraft')
       }
     } finally {
@@ -183,7 +206,7 @@ export function CustomerDetail({
   }
 
   async function handleRemoveAircraft(aircraftId: string) {
-    if (!confirm('Remove this aircraft assignment?')) return
+    if (!confirm('Remove this aircraft from this customer only? The aircraft record stays in the backend and can be reassigned later.')) return
     const res = await fetch(`/api/customers/${customer.id}/aircraft`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },

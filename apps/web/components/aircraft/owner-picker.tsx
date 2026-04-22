@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -63,11 +64,16 @@ export function OwnerPicker({ aircraftId, currentOwner }: OwnerPickerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ owner_customer_id: customer?.id ?? null }),
       })
-      if (res.ok) {
-        setOwner(customer)
-        setShowPicker(false)
-        setSearch('')
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Failed to update aircraft owner')
+        return
       }
+
+      setOwner(customer)
+      setShowPicker(false)
+      setSearch('')
     } finally {
       setSaving(false)
     }
@@ -170,7 +176,14 @@ export function OwnerPicker({ aircraftId, currentOwner }: OwnerPickerProps) {
               size="sm"
               variant="ghost"
               className="text-destructive hover:text-destructive"
-              onClick={() => selectOwner(null)}
+              onClick={() => {
+                const confirmed = window.confirm(
+                  'Remove this aircraft from the current owner UI? The aircraft record will stay in the backend and can be reassigned later.'
+                )
+                if (confirmed) {
+                  void selectOwner(null)
+                }
+              }}
               disabled={saving}
             >
               Remove owner

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
+import { findOwnerCustomer, syncAircraftOwnerAssignment } from '@/lib/aircraft/ownership'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -143,7 +144,7 @@ export async function PUT(
     // Fetch aircraft to get org id
     const { data: aircraft, error: fetchError } = await supabase
       .from('aircraft')
-      .select('id, organization_id, tail_number')
+      .select('id, organization_id, tail_number, owner_customer_id')
       .eq('id', params.id)
       .single()
 
@@ -178,6 +179,37 @@ export async function PUT(
       )
     }
 
+    const nextOwnerCustomerId = Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id')
+      ? parsed.data.owner_customer_id ?? null
+      : aircraft.owner_customer_id ?? null
+
+    if (
+      Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id') &&
+      nextOwnerCustomerId
+    ) {
+      const ownerCustomer = await findOwnerCustomer(supabase, aircraft.organization_id, nextOwnerCustomerId)
+      if (!ownerCustomer) {
+        return NextResponse.json({ error: 'Owner customer not found' }, { status: 404 })
+      }
+    }
+
+    if (parsed.data.tail_number && parsed.data.tail_number !== aircraft.tail_number) {
+      const { data: duplicateAircraft } = await supabase
+        .from('aircraft')
+        .select('id')
+        .eq('organization_id', aircraft.organization_id)
+        .eq('tail_number', parsed.data.tail_number)
+        .neq('id', params.id)
+        .maybeSingle()
+
+      if (duplicateAircraft) {
+        return NextResponse.json(
+          { error: `Aircraft ${parsed.data.tail_number} already exists in your organization` },
+          { status: 409 }
+        )
+      }
+    }
+
     const { data: updated, error: updateError } = await supabase
       .from('aircraft')
       .update({ ...parsed.data, updated_at: new Date().toISOString() })
@@ -188,6 +220,23 @@ export async function PUT(
     if (updateError || !updated) {
       console.error('[PUT /api/aircraft/[id]] update error', updateError)
       return NextResponse.json({ error: 'Failed to update aircraft' }, { status: 500 })
+    }
+
+    if (Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id')) {
+      const { error: ownerAssignmentError } = await syncAircraftOwnerAssignment({
+        supabase,
+        organizationId: aircraft.organization_id,
+        aircraftId: params.id,
+        ownerCustomerId: nextOwnerCustomerId,
+      })
+
+      if (ownerAssignmentError) {
+        console.error('[PUT /api/aircraft/[id]] owner assignment sync error', ownerAssignmentError)
+        return NextResponse.json(
+          { error: 'Aircraft was updated, but owner assignment could not be synchronized' },
+          { status: 500 }
+        )
+      }
     }
 
     // Audit log
