@@ -113,6 +113,32 @@ export function parseOpenAiJsonOutput<T>(raw: string): T {
   return JSON.parse(candidate) as T
 }
 
+function looksLikeInvalidPdfParseMessage(message: string) {
+  return (
+    /invalid pdf structure/i.test(message) ||
+    /missing pdf/i.test(message) ||
+    /bad xref/i.test(message) ||
+    /xref table/i.test(message) ||
+    /startxref/i.test(message) ||
+    /unexpected end of file/i.test(message) ||
+    /end of file inside stream/i.test(message) ||
+    /no pdf header/i.test(message) ||
+    /malformed pdf/i.test(message) ||
+    /invalid xref/i.test(message)
+  )
+}
+
+function normalizePdfStructureError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  if (!looksLikeInvalidPdfParseMessage(message)) {
+    return error instanceof Error ? error : new Error(message)
+  }
+
+  return new InvalidUploadedPdfError(
+    'Uploaded PDF is structurally invalid or blank. Re-export or re-scan the file and upload it again.'
+  )
+}
+
 function isRecoverableJsonParseError(error: unknown) {
   if (!(error instanceof SyntaxError)) return false
   return /JSON|Unexpected|Unterminated|Expected/i.test(error.message)
@@ -166,6 +192,13 @@ export class OcrNotConfiguredError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'OcrNotConfiguredError'
+  }
+}
+
+export class InvalidUploadedPdfError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidUploadedPdfError'
   }
 }
 
@@ -575,8 +608,13 @@ export async function parseTextNativePdf(args: {
     disableFontFace: true,
     verbosity: 0,
   })
+  let pdf: Awaited<typeof loadingTask.promise>
 
-  const pdf = await loadingTask.promise
+  try {
+    pdf = await loadingTask.promise
+  } catch (error) {
+    throw normalizePdfStructureError(error)
+  }
 
   try {
     const pageCount = pdf.numPages
@@ -630,6 +668,8 @@ export async function parseTextNativePdf(args: {
         model: args.model,
       }),
     }
+  } catch (error) {
+    throw normalizePdfStructureError(error)
   } finally {
     await loadingTask.destroy()
   }
@@ -1385,7 +1425,12 @@ async function parseScannedPdfWithDocumentAi(args: {
       return [{ bytes: pdfBytes, pageOffset: 0, pageCount: args.pageCount }]
     }
 
-    const sourcePdf = await PDFDocument.load(pdfBytes)
+    let sourcePdf: PDFDocument
+    try {
+      sourcePdf = await PDFDocument.load(pdfBytes)
+    } catch (error) {
+      throw normalizePdfStructureError(error)
+    }
     const requests: Array<{ bytes: Uint8Array; pageOffset: number; pageCount: number }> = []
 
     let pageOffset = 0
