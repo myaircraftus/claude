@@ -1,28 +1,12 @@
-import { redirect, notFound } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { WorkOrderDetailClient } from './work-order-detail-client'
-import type { UserProfile, WorkOrder } from '@/types'
+import type { WorkOrder } from '@/types'
 
 export default async function WorkOrderDetailPage({ params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  if (!profile || !membershipRes.data) redirect('/login')
-
-  const orgId = membershipRes.data.organization_id
+  const { supabase, profile, membership } = await requireAppServerSession()
+  const orgId = membership.organization_id
 
   const { data: wo } = await supabase
     .from('work_orders')
@@ -62,7 +46,7 @@ export default async function WorkOrderDetailPage({ params }: { params: { id: st
       <WorkOrderDetailClient
         workOrder={wo as WorkOrder}
         aircraft={aircraft ?? []}
-        userRole={membershipRes.data.role}
+        userRole={membership.role}
       />
     </div>
   )

@@ -52,7 +52,7 @@ export function LoginPage() {
     setError("");
     try {
       const supabase = createBrowserSupabase();
-      const callbackUrl = new URL("/auth/oauth-callback", window.location.origin);
+      const callbackUrl = new URL("/auth/callback", window.location.origin);
       if (redirectTarget && redirectTarget.startsWith("/")) {
         callbackUrl.searchParams.set("next", redirectTarget);
       }

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,22 +43,89 @@ function formatCurrency(amount: number): string {
 }
 
 interface Props {
-  initialEstimate: any
-  initialSquawks: any[]
+  estimateId: string
+  userRole: string
 }
 
-export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
-  const [estimate, setEstimate] = useState(initialEstimate)
-  const [squawks] = useState<any[]>(initialSquawks)
-  const [summary, setSummary] = useState<string>(initialEstimate.ai_summary ?? '')
+export function EstimateDetail({ estimateId, userRole }: Props) {
+  const router = useTenantRouter()
+  const [estimate, setEstimate] = useState<any | null>(null)
+  const [squawks, setSquawks] = useState<any[]>([])
+  const [summary, setSummary] = useState<string>('')
   const [generating, setGenerating] = useState(false)
   const [sending, setSending] = useState(false)
+  const [approving, setApproving] = useState<null | 'approve' | 'reject'>(null)
+  const [loading, setLoading] = useState(true)
 
-  const lineItems: any[] = (estimate.line_items ?? []).sort(
-    (a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-  )
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        const res = await fetch(`/api/estimates/${estimateId}`, { cache: 'no-store' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.error ?? 'Failed to load estimate')
+        }
+        const data = await res.json()
+        if (!active) return
+        setEstimate(data)
+        setSquawks(Array.isArray(data.linked_squawks) ? data.linked_squawks : [])
+        setSummary(data.ai_summary ?? '')
+      } catch (err: any) {
+        if (!active) return
+        toast.error(err?.message ?? 'Failed to load estimate')
+      } finally {
+        if (active) setLoading(false)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [estimateId])
+
+  const lineItems: any[] = useMemo(() => {
+    if (!estimate) return []
+    return [...(estimate.line_items ?? [])].sort(
+      (a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    )
+  }, [estimate])
+
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto">
+        <Card>
+          <CardContent className="flex items-center gap-3 py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Loading estimate…</p>
+              <p className="text-sm text-muted-foreground">Fetching the latest estimate data for this aircraft.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!estimate) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto">
+        <Card>
+          <CardContent className="py-10 text-center">
+            <p className="text-sm font-medium text-foreground">Estimate not found</p>
+            <p className="text-sm text-muted-foreground mt-1">The estimate could not be loaded for the current organization.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const aircraft = estimate.aircraft as any
   const customer = estimate.customer as any
+  const canRespondToApproval =
+    (userRole === 'owner' || userRole === 'admin') &&
+    estimate.status === 'sent'
+  const canOperateEstimate = userRole !== 'owner'
 
   const handleGenerateSummary = async () => {
     setGenerating(true)
@@ -109,6 +177,45 @@ export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
     }
   }
 
+  const handleApproval = async (action: 'approve' | 'reject') => {
+    setApproving(action)
+    try {
+      const res = await fetch(`/api/estimates/${estimate.id}/approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to update estimate')
+        return
+      }
+
+      if (data.estimate) {
+        setEstimate((prev: any) => ({
+          ...prev,
+          ...data.estimate,
+          linked_work_order_id: data.estimate.linked_work_order_id ?? data.work_order_id ?? prev?.linked_work_order_id,
+        }))
+      }
+
+      if (action === 'approve') {
+        toast.success('Estimate approved and work order created')
+        if (data.work_order_id) {
+          router.push(`/work-orders/${data.work_order_id}`)
+          return
+        }
+      } else {
+        toast.success('Estimate rejected')
+      }
+      router.refresh()
+    } catch {
+      toast.error('Failed to update estimate')
+    } finally {
+      setApproving(null)
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
@@ -132,20 +239,22 @@ export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleGenerateSummary}
-            disabled={generating}
-          >
-            {generating ? (
-              <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Generating...</>
-            ) : summary ? (
-              <><RefreshCw className="h-4 w-4 mr-1" /> Regenerate Summary</>
-            ) : (
-              <><Sparkles className="h-4 w-4 mr-1" /> Generate AI Summary</>
-            )}
-          </Button>
+          {canOperateEstimate && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGenerateSummary}
+              disabled={generating}
+            >
+              {generating ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Generating...</>
+              ) : summary ? (
+                <><RefreshCw className="h-4 w-4 mr-1" /> Regenerate Summary</>
+              ) : (
+                <><Sparkles className="h-4 w-4 mr-1" /> Generate AI Summary</>
+              )}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -154,17 +263,60 @@ export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
             <FileText className="h-4 w-4 mr-1" />
             View PDF
           </Button>
-          {customer?.email && (
+          {canOperateEstimate && customer?.email && (
             <Button size="sm" onClick={handleSend} disabled={sending}>
               {sending ? (
                 <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Sending...</>
               ) : (
-                <><Send className="h-4 w-4 mr-1" /> Send to Customer</>
+                <><Send className="h-4 w-4 mr-1" /> Send to Owner for Approval</>
               )}
+            </Button>
+          )}
+          {canRespondToApproval && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleApproval('reject')}
+                disabled={approving !== null}
+              >
+                {approving === 'reject' ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Rejecting...</>
+                ) : (
+                  'Reject'
+                )}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleApproval('approve')}
+                disabled={approving !== null}
+              >
+                {approving === 'approve' ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Approving...</>
+                ) : (
+                  'Approve & Create WO'
+                )}
+              </Button>
+            </>
+          )}
+          {estimate.linked_work_order_id && (
+            <Button size="sm" variant="outline" onClick={() => router.push(`/work-orders/${estimate.linked_work_order_id}`)}>
+              Open Work Order
             </Button>
           )}
         </div>
       </div>
+
+      {estimate.status === 'sent' && canOperateEstimate && (
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardContent className="py-4">
+            <p className="text-sm text-blue-900 font-medium">Owner approval pending</p>
+            <p className="text-sm text-blue-700 mt-1">
+              The estimate has been sent to the owner. Approval in the app will create the linked work order automatically.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Aircraft + Customer */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -255,7 +407,7 @@ export function EstimateDetail({ initialEstimate, initialSquawks }: Props) {
         </Card>
       )}
 
-      {!summary && (
+      {!summary && canOperateEstimate && (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-8 text-center">
             <Sparkles className="h-8 w-8 text-muted-foreground mb-3" />

@@ -16,17 +16,25 @@ export async function middleware(request: NextRequest) {
     effectiveUrl.pathname = tenantMatch.rewrittenPathname
   }
 
-  let supabaseResponse = tenantMatch
-    ? NextResponse.rewrite(effectiveUrl, { request: { headers: requestHeaders } })
-    : NextResponse.next({ request: { headers: requestHeaders } })
-
-  if (tenantMatch) {
-    supabaseResponse.cookies.set('active_organization_slug', tenantMatch.slug, {
-      path: '/',
-      sameSite: 'lax',
-      httpOnly: false,
-    })
+  const tenantCookieOptions = {
+    path: '/',
+    sameSite: 'lax' as const,
+    httpOnly: false,
   }
+
+  function createBaseResponse() {
+    const response = tenantMatch
+      ? NextResponse.rewrite(effectiveUrl, { request: { headers: requestHeaders } })
+      : NextResponse.next({ request: { headers: requestHeaders } })
+
+    if (tenantMatch) {
+      response.cookies.set('active_organization_slug', tenantMatch.slug, tenantCookieOptions)
+    }
+
+    return response
+  }
+
+  let supabaseResponse = createBaseResponse()
 
   // @supabase/ssr v0.3.x uses get/set/remove (NOT getAll/setAll)
   const supabase = createServerClient(
@@ -39,12 +47,12 @@ export async function middleware(request: NextRequest) {
         },
         set(name: string, value: string, options: any) {
           request.cookies.set({ name, value, ...options })
-          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse = createBaseResponse()
           supabaseResponse.cookies.set({ name, value, ...options })
         },
         remove(name: string, options: any) {
           request.cookies.set({ name, value: '', ...options })
-          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse = createBaseResponse()
           supabaseResponse.cookies.set({ name, value: '', ...options })
         },
       },

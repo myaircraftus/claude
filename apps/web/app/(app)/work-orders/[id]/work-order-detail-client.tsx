@@ -77,6 +77,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
   const [wo, setWo] = useState(workOrder)
   const [lines, setLines] = useState<WorkOrderLine[]>((workOrder.lines as WorkOrderLine[]) ?? [])
   const [saving, setSaving] = useState(false)
+  const [approvalLoading, setApprovalLoading] = useState<null | 'approve' | 'reject'>(null)
   const [addingLine, setAddingLine] = useState(false)
   const [showAddLine, setShowAddLine] = useState(false)
   const [showAIPlan, setShowAIPlan] = useState(false)
@@ -115,6 +116,10 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
 
   function markDirty() { setDirty(true) }
 
+  const isOwnerView = userRole === 'owner'
+  const isApprovalViewer = userRole === 'owner' || userRole === 'admin'
+  const canRespondToApproval = isApprovalViewer && wo.status === 'awaiting_approval'
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -149,6 +154,31 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
     const data = await res.json()
     setWo(prev => ({ ...prev, status: data.status, closed_at: data.closed_at }))
     router.refresh()
+  }
+
+  async function handleApproval(action: 'approve' | 'reject') {
+    setApprovalLoading(action)
+    try {
+      const res = await fetch(`/api/work-orders/${wo.id}/approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to update work order')
+        return
+      }
+      if (data.work_order) {
+        setWo((prev) => ({ ...prev, ...data.work_order }))
+      }
+      toast.success(action === 'approve' ? 'Work order approved' : 'Work order sent back to the shop')
+      router.refresh()
+    } catch {
+      toast.error('Failed to update work order')
+    } finally {
+      setApprovalLoading(null)
+    }
   }
 
   async function handleAddLine(e: React.FormEvent) {
@@ -216,7 +246,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
     window.location.reload()
   }
 
-  const isReadonly = ['closed', 'invoiced', 'paid', 'archived'].includes(wo.status)
+  const isReadonly = isOwnerView || ['closed', 'invoiced', 'paid', 'archived'].includes(wo.status)
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -248,6 +278,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
               <select
                 value={wo.status}
                 onChange={e => handleStatusChange(e.target.value as WorkOrderStatus)}
+                disabled={isOwnerView}
                 className="h-9 pl-3 pr-8 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
               >
                 {(Object.entries(STATUS_LABEL) as [WorkOrderStatus, string][]).map(([val, label]) => (
@@ -267,63 +298,120 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
         </div>
 
         {/* Main fields */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Customer Complaint</Label>
-            <textarea
-              value={complaint}
-              onChange={e => { setComplaint(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Describe the customer's complaint or reported issue…"
-            />
+        {isOwnerView ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Reported Scope</Label>
+              <textarea
+                value={complaint}
+                readOnly
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Shop Notes</Label>
+              <textarea
+                value={customerNotes || discrepancy}
+                readOnly
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Discrepancy</Label>
-            <textarea
-              value={discrepancy}
-              onChange={e => { setDiscrepancy(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Describe the discrepancy found during inspection…"
-            />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Customer Complaint</Label>
+              <textarea
+                value={complaint}
+                onChange={e => { setComplaint(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Describe the customer's complaint or reported issue…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Discrepancy</Label>
+              <textarea
+                value={discrepancy}
+                onChange={e => { setDiscrepancy(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Describe the discrepancy found during inspection…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Troubleshooting Notes</Label>
+              <textarea
+                value={troubleshootingNotes}
+                onChange={e => { setTroubleshootingNotes(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Troubleshooting steps taken…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Findings</Label>
+              <textarea
+                value={findings}
+                onChange={e => { setFindings(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Findings from inspection or troubleshooting…"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Corrective Action</Label>
+              <textarea
+                value={correctiveAction}
+                onChange={e => { setCorrectiveAction(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Corrective action taken to resolve the discrepancy…"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Troubleshooting Notes</Label>
-            <textarea
-              value={troubleshootingNotes}
-              onChange={e => { setTroubleshootingNotes(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Troubleshooting steps taken…"
-            />
+        )}
+
+        {canRespondToApproval && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+            <h2 className="text-sm font-semibold text-amber-900 mb-1">Owner approval required</h2>
+            <p className="text-sm text-amber-800">
+              Review the work order scope below. Approving will release the work order to the shop. Rejecting will return it to the mechanic for changes.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleApproval('reject')}
+                disabled={approvalLoading !== null}
+              >
+                {approvalLoading === 'reject' ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Rejecting...</>
+                ) : (
+                  'Reject'
+                )}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleApproval('approve')}
+                disabled={approvalLoading !== null}
+              >
+                {approvalLoading === 'approve' ? (
+                  <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Approving...</>
+                ) : (
+                  'Approve Work Order'
+                )}
+              </Button>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Findings</Label>
-            <textarea
-              value={findings}
-              onChange={e => { setFindings(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Findings from inspection or troubleshooting…"
-            />
-          </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <Label>Corrective Action</Label>
-            <textarea
-              value={correctiveAction}
-              onChange={e => { setCorrectiveAction(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Corrective action taken to resolve the discrepancy…"
-            />
-          </div>
-        </div>
+        )}
 
         {/* Line Items */}
         <div className="space-y-3">
@@ -561,30 +649,32 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
         </div>
 
         {/* Notes */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Internal Notes</Label>
-            <textarea
-              value={internalNotes}
-              onChange={e => { setInternalNotes(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Internal notes (not visible to customer)…"
-            />
+        {!isOwnerView && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Internal Notes</Label>
+              <textarea
+                value={internalNotes}
+                onChange={e => { setInternalNotes(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Internal notes (not visible to customer)…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Customer-Visible Notes</Label>
+              <textarea
+                value={customerNotes}
+                onChange={e => { setCustomerNotes(e.target.value); markDirty() }}
+                readOnly={isReadonly}
+                rows={3}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Notes visible on customer copy…"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Customer-Visible Notes</Label>
-            <textarea
-              value={customerNotes}
-              onChange={e => { setCustomerNotes(e.target.value); markDirty() }}
-              readOnly={isReadonly}
-              rows={3}
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="Notes visible on customer copy…"
-            />
-          </div>
-        </div>
+        )}
 
         {/* Action Buttons */}
         <div className="rounded-xl border border-border bg-card p-4">
@@ -600,26 +690,28 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
                 AI Work Plan
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                const res = await fetch('/api/invoices', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ work_order_id: wo.id }),
-                })
-                const data = await res.json()
-                if (data.id) {
-                  window.location.href = `/invoices/${data.id}`
-                } else {
-                  toast.error(data.error ?? 'Failed to generate invoice')
-                }
-              }}
-            >
-              <Receipt className="h-3.5 w-3.5 mr-1" />
-              Generate Invoice
-            </Button>
+            {!isOwnerView && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const res = await fetch('/api/invoices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ work_order_id: wo.id }),
+                  })
+                  const data = await res.json()
+                  if (data.id) {
+                    router.push(`/invoices/${data.id}`)
+                  } else {
+                    toast.error(data.error ?? 'Failed to generate invoice')
+                  }
+                }}
+              >
+                <Receipt className="h-3.5 w-3.5 mr-1" />
+                Generate Invoice
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -631,13 +723,17 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
               <MessageSquare className="h-3.5 w-3.5 mr-1" />
               Activity Log
             </Button>
-            <Button size="sm" variant="outline" asChild>
-              <a href={`/parts?work_order_id=${wo.id}&aircraft_id=${(wo as any).aircraft?.id ?? ''}`}>
+            {!isOwnerView && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => router.push(`/parts?work_order_id=${wo.id}&aircraft_id=${(wo as any).aircraft?.id ?? ''}`)}
+              >
                 <Package className="h-3.5 w-3.5 mr-1" />
                 Find Parts
-              </a>
-            </Button>
-            {(['completed', 'closed', 'invoiced', 'paid'].includes(wo.status)) && (
+              </Button>
+            )}
+            {!isOwnerView && ['completed', 'closed', 'invoiced', 'paid'].includes(wo.status) && (
               <Button
                 size="sm"
                 variant="outline"

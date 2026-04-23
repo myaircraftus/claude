@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildTenantAppUrl } from '@/lib/approvals'
 const nodemailer = require('nodemailer')
-
-async function getOrgMembership(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data ?? null
-}
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -39,18 +31,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     )
   }
 
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const membership = await getOrgMembership(supabase, user.id)
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role)) {
+  const ctx = await resolveRequestOrgContext(req, { includeOrganization: true })
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const orgId = membership.organization_id
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data: estimate } = await supabase
     .from('estimates')
@@ -58,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       *,
       aircraft:aircraft_id (id, tail_number, make, model, year, serial_number),
       customer:customer_id (id, name, email, company, billing_address),
-      organization:organization_id (id, name),
+      organization:organization_id (id, name, slug),
       line_items:estimate_line_items (*)
     `)
     .eq('id', params.id)
@@ -106,6 +94,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:right;font-weight:600;color:#111827;">${formatCurrency(Number(li.line_total ?? 0))}</td>
     </tr>
   `).join('')
+  const reviewEstimateUrl = buildTenantAppUrl(
+    `/estimates/${estimate.id}`,
+    (estimate.organization as any)?.slug ?? ctx.organization?.slug ?? null
+  )
 
   // Squawks notes section
   const squawksSection = squawks.length > 0
@@ -188,8 +180,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           </table>
 
           <div style="margin-top:24px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;text-align:center;">
-            <p style="margin:0;font-size:14px;color:#166534;">To approve this estimate, please reply to this email or contact us directly.</p>
-            <p style="margin:6px 0 0;font-size:13px;color:#4ade80;">Your approval will allow us to schedule the work.</p>
+            <p style="margin:0 0 12px;font-size:14px;color:#166534;">Review this estimate in myaircraft.us to approve or reject it.</p>
+            <a href="${reviewEstimateUrl}" style="display:inline-block;padding:12px 28px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+              Review Estimate
+            </a>
+            <p style="margin:10px 0 0;font-size:13px;color:#4ade80;">Approval will create the work order in the app and notify the shop.</p>
           </div>
 
           ${estimate.customer_notes ? `
@@ -228,6 +223,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('organization_id', orgId)
       .select()
       .single()
+
+    await supabase.from('audit_logs').insert({
+      organization_id: orgId,
+      user_id: ctx.user.id,
+      action: 'estimate.sent_for_approval',
+      entity_type: 'estimate',
+      entity_id: params.id,
+      metadata_json: {
+        recipient_email: recipientEmail,
+        estimate_number: estimate.estimate_number,
+      },
+    })
 
     return NextResponse.json({ sent: true, estimate: updated })
   } catch (err: any) {

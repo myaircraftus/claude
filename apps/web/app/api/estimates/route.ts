@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { describeEstimateTotal, sendOwnerApprovalEmail } from '@/lib/approvals'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-async function getOrgMembership(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data ?? null
-}
 
 function normalizeEstimateStatus(value: unknown): string {
   if (typeof value !== 'string') return 'draft'
@@ -58,14 +50,10 @@ function toLineItems(
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const membership = await getOrgMembership(supabase, user.id)
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
 
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')
@@ -85,7 +73,7 @@ export async function GET(req: NextRequest) {
     `,
       { count: 'exact' }
     )
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', ctx.organizationId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
@@ -100,17 +88,27 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req, { includeOrganization: true })
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const membership = await getOrgMembership(supabase, user.id)
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
 
   const body = await req.json()
-  const organizationId = membership.organization_id
+  const organizationId = ctx.organizationId
+  const { data: aircraft } = body.aircraft_id
+    ? await supabase
+        .from('aircraft')
+        .select('id, owner_customer_id')
+        .eq('id', body.aircraft_id)
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+    : { data: null }
+  const resolvedCustomerId = body.customer_id ?? aircraft?.owner_customer_id ?? null
+  const requestedStatus = normalizeEstimateStatus(body.status)
+  const shouldAutoSendForApproval =
+    ctx.role === 'mechanic' &&
+    !body.status &&
+    !!resolvedCustomerId
 
   let estimateNumber = body.estimate_number ?? null
   if (!estimateNumber) {
@@ -125,11 +123,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const status = normalizeEstimateStatus(body.status)
+  const status = shouldAutoSendForApproval ? 'sent' : requestedStatus
   const laborTotal = Number(body.labor_total ?? 0)
   const partsTotal = Number(body.parts_total ?? 0)
   const outsideTotal = Number(body.outside_services_total ?? 0)
   const total = Number(body.total ?? laborTotal + partsTotal + outsideTotal)
+  const { data: organization } = await supabase
+    .from('organizations')
+    .select('id, name, slug')
+    .eq('id', organizationId)
+    .single()
 
   const { data: estimate, error } = await supabase
     .from('estimates')
@@ -137,8 +140,8 @@ export async function POST(req: NextRequest) {
       organization_id: organizationId,
       estimate_number: estimateNumber,
       aircraft_id: body.aircraft_id ?? null,
-      customer_id: body.customer_id ?? null,
-      created_by: user.id,
+      customer_id: resolvedCustomerId,
+      created_by: ctx.user.id,
       mechanic_name: body.mechanic_name ?? null,
       status,
       service_type: body.service_type ?? null,
@@ -189,5 +192,51 @@ export async function POST(req: NextRequest) {
     .eq('id', estimate.id)
     .single()
 
-  return NextResponse.json(fullEstimate ?? estimate, { status: 201 })
+  const estimateForResponse = fullEstimate ?? estimate
+  const customerEmail = (estimateForResponse as any)?.customer?.email as string | undefined
+
+  let ownerApprovalEmailSent = false
+  if (shouldAutoSendForApproval && customerEmail) {
+    try {
+      const emailResult = await sendOwnerApprovalEmail({
+        recipientEmail: customerEmail,
+        orgName: organization?.name ?? 'myaircraft.us',
+        tenantSlug: organization?.slug ?? ctx.organization?.slug ?? null,
+        subject: `Estimate ${estimateNumber} awaiting your approval`,
+        heading: `Estimate ${estimateNumber}`,
+        intro: 'A mechanic prepared an estimate for your aircraft. Open the app to approve or reject it.',
+        actionLabel: 'Review Estimate',
+        actionPath: `/estimates/${estimate.id}`,
+        detailRows: [
+          { label: 'Estimate', value: estimateNumber },
+          { label: 'Total', value: describeEstimateTotal(total) },
+          { label: 'Status', value: 'Awaiting approval' },
+        ],
+      })
+      ownerApprovalEmailSent = emailResult.sent
+    } catch (emailError) {
+      console.error('[estimates] Failed to send owner approval email', emailError)
+    }
+  }
+
+  await supabase.from('audit_logs').insert({
+    organization_id: organizationId,
+    user_id: ctx.user.id,
+    action: shouldAutoSendForApproval ? 'estimate.created.sent_for_approval' : 'estimate.created',
+    entity_type: 'estimate',
+    entity_id: estimate.id,
+    metadata_json: {
+      estimate_number: estimateNumber,
+      customer_id: resolvedCustomerId,
+      owner_approval_email_sent: ownerApprovalEmailSent,
+    },
+  })
+
+  return NextResponse.json(
+    {
+      ...estimateForResponse,
+      owner_approval_email_sent: ownerApprovalEmailSent,
+    },
+    { status: 201 }
+  )
 }

@@ -86,8 +86,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       organization_id: orgId,
       aircraft_id: request.aircraft_id,
       work_order_number,
-      status: 'draft',
-      customer_complaint: complaintText,
+      status: 'open',
+      complaint: complaintText,
+      discrepancy: complaintText,
       assigned_mechanic_id: user.id,
     })
     .select()
