@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { exportAccountingInvoices, type ExportableInvoice } from '@/lib/integrations/accounting'
 const nodemailer = require('nodemailer')
-
-async function getOrgId(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data?.organization_id ?? null
-}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -22,12 +13,11 @@ function formatDate(date: string): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return NextResponse.json({ error: 'Email not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD.' }, { status: 503 })

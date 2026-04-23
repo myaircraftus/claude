@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-async function getOrgId(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data?.organization_id ?? null
-}
 
 async function recalculateInvoiceTotals(supabase: any, invoiceId: string, orgId: string) {
   const { data: lines } = await supabase
@@ -44,12 +35,11 @@ async function recalculateInvoiceTotals(supabase: any, invoiceId: string, orgId:
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data, error } = await supabase
     .from('invoice_line_items')
@@ -63,12 +53,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   // Verify invoice belongs to org
   const { data: invoice } = await supabase
