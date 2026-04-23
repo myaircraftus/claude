@@ -1432,10 +1432,24 @@ export function WorkspaceClient({
   const router = useTenantRouter()
   const searchParams = useSearchParams()
   const { persona } = useAppContext()
+  const ownerDefaultAircraftId = aircraft[0]?.id ?? null
   // State
   const [messages, setMessages] = useState<Message[]>([])
   const [activeArtifact, setActiveArtifact] = useState<ActiveArtifact | null>(null)
-  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(initialAircraftId)
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(() => {
+    if (initialAircraftId && aircraft.some((candidate) => candidate.id === initialAircraftId)) {
+      return initialAircraftId
+    }
+
+    if (typeof window !== 'undefined') {
+      const persisted = window.localStorage.getItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY)?.trim()
+      if (persisted && aircraft.some((candidate) => candidate.id === persisted)) {
+        return persisted
+      }
+    }
+
+    return persona === 'owner' ? ownerDefaultAircraftId : null
+  })
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [threads, setThreads] = useState<Thread[]>(initialThreads)
   const [isLoading, setIsLoading] = useState(false)
@@ -1484,13 +1498,18 @@ export function WorkspaceClient({
       }
     }
 
+    if (persona === 'owner' && ownerDefaultAircraftId) {
+      setSelectedAircraftId(ownerDefaultAircraftId)
+      return
+    }
+
     if (aircraft.length === 1) {
       setSelectedAircraftId(aircraft[0].id)
       return
     }
 
     setSelectedAircraftId(null)
-  }, [aircraft, initialAircraftId, searchParams, selectedAircraftId])
+  }, [aircraft, initialAircraftId, ownerDefaultAircraftId, persona, searchParams, selectedAircraftId])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
