@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRequestOrgContext } from "@/lib/auth/context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { MECHANIC_AND_ABOVE } from "@/lib/roles";
 
@@ -9,21 +10,14 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const ctx = await resolveRequestOrgContext(req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = ctx.user;
+  const orgId = ctx.organizationId;
 
-  const { data: membership } = await supabase
-    .from("organization_memberships")
-    .select("organization_id, role")
-    .eq("user_id", user.id)
-    .not("accepted_at", "is", null)
-    .single();
-  if (!membership) return NextResponse.json({ error: "No organization" }, { status: 403 });
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role)) {
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
   }
 
@@ -60,7 +54,7 @@ export async function POST(
     .from("logbook_entries")
     .select("id, organization_id, status")
     .eq("id", params.id)
-    .eq("organization_id", membership.organization_id)
+    .eq("organization_id", orgId)
     .maybeSingle();
 
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -87,7 +81,7 @@ export async function POST(
       updated_at: nowIso,
     })
     .eq("id", params.id)
-    .eq("organization_id", membership.organization_id)
+    .eq("organization_id", orgId)
     .select(`
       id, aircraft_id, work_order_id, entry_type, entry_date, description,
       total_time, hobbs_in, hobbs_out, tach_time, status, signed_at, signed_by,

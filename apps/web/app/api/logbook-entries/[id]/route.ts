@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRequestOrgContext } from "@/lib/auth/context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { MECHANIC_AND_ABOVE } from "@/lib/roles";
 import {
@@ -6,16 +7,6 @@ import {
   VALID_STATUSES,
   VALID_LOGBOOK_TYPES,
 } from "../route";
-
-async function getMembership(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from("organization_memberships")
-    .select("organization_id, role")
-    .eq("user_id", userId)
-    .not("accepted_at", "is", null)
-    .single();
-  return data ?? null;
-}
 
 const ENTRY_SELECT = `
   id, aircraft_id, work_order_id, entry_type, entry_date, description,
@@ -27,23 +18,20 @@ const ENTRY_SELECT = `
 `;
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await resolveRequestOrgContext(req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const membership = await getMembership(supabase, user.id);
-  if (!membership) return NextResponse.json({ error: "No organization" }, { status: 403 });
+  const supabase = createServerSupabase();
+  const orgId = ctx.organizationId;
 
   const { data, error } = await supabase
     .from("logbook_entries")
     .select(ENTRY_SELECT)
     .eq("id", params.id)
-    .eq("organization_id", membership.organization_id)
+    .eq("organization_id", orgId)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -56,16 +44,13 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const ctx = await resolveRequestOrgContext(req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const orgId = ctx.organizationId;
 
-  const membership = await getMembership(supabase, user.id);
-  if (!membership) return NextResponse.json({ error: "No organization" }, { status: 403 });
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role)) {
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
   }
 
@@ -81,7 +66,7 @@ export async function PATCH(
     .from("logbook_entries")
     .select("id, organization_id, status")
     .eq("id", params.id)
-    .eq("organization_id", membership.organization_id)
+    .eq("organization_id", orgId)
     .maybeSingle();
 
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -145,7 +130,7 @@ export async function PATCH(
     .from("logbook_entries")
     .update(updatePayload)
     .eq("id", params.id)
-    .eq("organization_id", membership.organization_id)
+    .eq("organization_id", orgId)
     .select(ENTRY_SELECT)
     .single();
 

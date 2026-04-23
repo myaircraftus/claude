@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRequestOrgContext } from "@/lib/auth/context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { MECHANIC_AND_ABOVE } from "@/lib/roles";
 
@@ -32,26 +33,12 @@ export const VALID_LOGBOOK_TYPES = [
 type EntryType = typeof VALID_ENTRY_TYPES[number];
 type EntryStatus = typeof VALID_STATUSES[number];
 
-async function getMembership(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from("organization_memberships")
-    .select("organization_id, role")
-    .eq("user_id", userId)
-    .not("accepted_at", "is", null)
-    .single();
-  return data ?? null;
-}
-
 export async function GET(req: NextRequest) {
-  const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await resolveRequestOrgContext(req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const membership = await getMembership(supabase, user.id);
-  if (!membership) return NextResponse.json({ error: "No organization" }, { status: 403 });
-  const orgId = membership.organization_id;
+  const supabase = createServerSupabase();
+  const orgId = ctx.organizationId;
 
   const { searchParams } = new URL(req.url);
   const aircraft_id = searchParams.get("aircraft_id");
@@ -91,17 +78,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const ctx = await resolveRequestOrgContext(req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = ctx.user;
+  const orgId = ctx.organizationId;
 
-  const membership = await getMembership(supabase, user.id);
-  if (!membership) return NextResponse.json({ error: "No organization" }, { status: 403 });
-  const orgId = membership.organization_id;
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role)) {
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
   }
 

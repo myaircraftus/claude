@@ -2,6 +2,7 @@
 // Runs AI part resolution + SerpAPI + eBay providers, normalizes, ranks, persists.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { searchParts } from '@/lib/parts/search'
 import type { AircraftContext } from '@/lib/parts/ai-resolve'
@@ -9,17 +10,12 @@ import type { AircraftContext } from '@/lib/parts/ai-resolve'
 export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const user = ctx.user
+  const orgId = ctx.organizationId
 
   const body = await req.json()
   const query = String(body.query ?? '').trim()
@@ -90,7 +86,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await searchParts(supabase, {
       query,
-      organizationId: membership.organization_id,
+      organizationId: orgId,
       aircraftId: body.aircraft_id ?? null,
       workOrderId: body.work_order_id ?? null,
       maintenanceDraftId: body.maintenance_draft_id ?? null,
