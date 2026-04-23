@@ -202,7 +202,7 @@ export function LoginPage() {
 
           {signupSuccess && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] text-[13px]">
-              Account created. Check your inbox to confirm your email if prompted, then sign in to continue your owner onboarding.
+              Account created. Check your inbox to confirm your email if prompted, then sign in to continue onboarding.
             </div>
           )}
 

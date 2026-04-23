@@ -8,6 +8,7 @@ import { FormEvent, useState } from "react";
 import { motion } from "motion/react";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
+import { getOnboardingPathForPersona } from "@/lib/auth/onboarding";
 
 const IMG_AUTH = "https://images.unsplash.com/photo-1772354838120-a78234bf7316?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhdmlhdGlvbiUyMGNvY2twaXQlMjBsdXh1cnklMjBwcml2YXRlJTIwamV0JTIwaW50ZXJpb3J8ZW58MXx8fHwxNzc1OTYxNDc0fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 
@@ -52,6 +53,7 @@ export function SignupPage() {
 
   const handleCreate = async (event?: FormEvent) => {
     event?.preventDefault();
+    const onboardingPath = getOnboardingPathForPersona(selectedPersona);
 
     if (!email || !password) {
       setError("Please enter an email and password.");
@@ -72,7 +74,7 @@ export function SignupPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(onboardingPath)}`,
           data: {
             first_name: firstName,
             last_name: lastName,
@@ -92,13 +94,13 @@ export function SignupPage() {
       }
 
       if (data.session) {
-        router.push("/onboarding");
+        router.push(onboardingPath);
         return;
       }
 
       const next = new URLSearchParams({
         signup: "success",
-        redirect: "/onboarding",
+        redirect: onboardingPath,
         email,
       });
       router.push(`/login?${next.toString()}`);

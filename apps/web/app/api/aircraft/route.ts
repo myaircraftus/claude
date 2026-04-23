@@ -167,6 +167,7 @@ const createAircraftSchema = z.object({
   engine_model: z.string().max(80).optional(),
   base_airport: z.string().max(10).optional(),
   operator_name: z.string().max(120).optional(),
+  operation_type: z.enum(AIRCRAFT_OPERATION_TYPES).optional(),
   operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional(),
   notes: z.string().max(2000).optional(),
   owner_customer_id: z.string().uuid().optional().nullable(),
@@ -199,7 +200,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { organization_id, ...fields } = parsed.data
+    const { organization_id, ...rawFields } = parsed.data
+    const derivedOperationType =
+      rawFields.operation_type ?? rawFields.operation_types?.[0] ?? undefined
+    const derivedOperationTypes =
+      rawFields.operation_types && rawFields.operation_types.length > 0
+        ? rawFields.operation_types
+        : derivedOperationType
+          ? [derivedOperationType]
+          : undefined
+
+    const fields = {
+      ...rawFields,
+      operation_type: derivedOperationType,
+      operation_types: derivedOperationTypes,
+    }
 
     // Validate org membership (mechanic+ required)
     const membership = await getMembership(supabase, user.id, organization_id)

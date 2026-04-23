@@ -110,6 +110,8 @@ function isAppRoute(pathname: string): boolean {
     '/reminders',
     '/scanner',
     '/settings',
+    '/owner/onboarding',
+    '/mechanic/onboarding',
     '/work-orders',
     '/workspace',
     '/onboarding',

@@ -33,22 +33,21 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  // Verify aircraft belongs to user's org
   const { data: aircraft } = await supabase
     .from('aircraft')
     .select('id, organization_id, make, model, year, operation_type, operation_types')
     .eq('id', params.id)
-    .eq('organization_id', membership.organization_id)
-    .single()
+    .maybeSingle()
   if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
+
+  const { data: membership } = await supabase
+    .from('organization_memberships')
+    .select('organization_id, role')
+    .eq('user_id', user.id)
+    .eq('organization_id', aircraft.organization_id)
+    .not('accepted_at', 'is', null)
+    .maybeSingle()
+  if (!membership) return NextResponse.json({ error: 'No organization access' }, { status: 403 })
 
   // Allow operation_type override from request body
   let body: { operation_type?: string; operation_types?: string[] } = {}

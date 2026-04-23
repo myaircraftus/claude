@@ -120,6 +120,7 @@ const updateAircraftSchema = z.object({
   avionics_notes: z.string().max(2000).optional().nullable(),
   base_airport: z.string().max(10).optional().nullable(),
   operator_name: z.string().max(120).optional().nullable(),
+  operation_type: z.enum(AIRCRAFT_OPERATION_TYPES).optional().nullable(),
   operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   total_time_hours: z.number().min(0).optional().nullable(),
@@ -179,12 +180,27 @@ export async function PUT(
       )
     }
 
-    const nextOwnerCustomerId = Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id')
-      ? parsed.data.owner_customer_id ?? null
+    const normalizedUpdate = { ...parsed.data }
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdate, 'operation_type') || Object.prototype.hasOwnProperty.call(normalizedUpdate, 'operation_types')) {
+      const derivedOperationType =
+        normalizedUpdate.operation_type ??
+        normalizedUpdate.operation_types?.[0] ??
+        null
+      normalizedUpdate.operation_type = derivedOperationType
+      normalizedUpdate.operation_types =
+        normalizedUpdate.operation_types && normalizedUpdate.operation_types.length > 0
+          ? normalizedUpdate.operation_types
+          : derivedOperationType
+            ? [derivedOperationType]
+            : []
+    }
+
+    const nextOwnerCustomerId = Object.prototype.hasOwnProperty.call(normalizedUpdate, 'owner_customer_id')
+      ? normalizedUpdate.owner_customer_id ?? null
       : aircraft.owner_customer_id ?? null
 
     if (
-      Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id') &&
+      Object.prototype.hasOwnProperty.call(normalizedUpdate, 'owner_customer_id') &&
       nextOwnerCustomerId
     ) {
       const ownerCustomer = await findOwnerCustomer(supabase, aircraft.organization_id, nextOwnerCustomerId)
@@ -193,18 +209,18 @@ export async function PUT(
       }
     }
 
-    if (parsed.data.tail_number && parsed.data.tail_number !== aircraft.tail_number) {
+    if (normalizedUpdate.tail_number && normalizedUpdate.tail_number !== aircraft.tail_number) {
       const { data: duplicateAircraft } = await supabase
         .from('aircraft')
         .select('id')
         .eq('organization_id', aircraft.organization_id)
-        .eq('tail_number', parsed.data.tail_number)
+        .eq('tail_number', normalizedUpdate.tail_number)
         .neq('id', params.id)
         .maybeSingle()
 
       if (duplicateAircraft) {
         return NextResponse.json(
-          { error: `Aircraft ${parsed.data.tail_number} already exists in your organization` },
+          { error: `Aircraft ${normalizedUpdate.tail_number} already exists in your organization` },
           { status: 409 }
         )
       }
@@ -212,7 +228,7 @@ export async function PUT(
 
     const { data: updated, error: updateError } = await supabase
       .from('aircraft')
-      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .update({ ...normalizedUpdate, updated_at: new Date().toISOString() })
       .eq('id', params.id)
       .select()
       .single()
@@ -222,7 +238,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Failed to update aircraft' }, { status: 500 })
     }
 
-    if (Object.prototype.hasOwnProperty.call(parsed.data, 'owner_customer_id')) {
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdate, 'owner_customer_id')) {
       const { error: ownerAssignmentError } = await syncAircraftOwnerAssignment({
         supabase,
         organizationId: aircraft.organization_id,
@@ -246,7 +262,7 @@ export async function PUT(
       action: 'aircraft.updated',
       target_type: 'aircraft',
       target_id: params.id,
-      metadata: parsed.data,
+      metadata: normalizedUpdate,
     })
 
     return NextResponse.json(updated)
