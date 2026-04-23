@@ -27,6 +27,37 @@ async function getMembership(
   return data
 }
 
+function formatAircraftUpdateError(error: {
+  code?: string | null
+  message?: string | null
+  details?: string | null
+  hint?: string | null
+}) {
+  const combined = [error.message, error.details, error.hint].filter(Boolean).join(' ')
+
+  if (error.code === '23505' && /tail_number/i.test(combined)) {
+    return {
+      status: 409,
+      error: 'This tail number already exists in your workspace.',
+    }
+  }
+
+  if (error.code === '23514' && /operation_type/i.test(combined)) {
+    return {
+      status: 422,
+      error:
+        'That operating profile could not be saved right now. Please refresh and try again. If this aircraft is already claimed in another workspace, contact support.',
+      details: combined,
+    }
+  }
+
+  return {
+    status: 500,
+    error: error.message || 'Failed to update aircraft',
+    details: error.details || undefined,
+  }
+}
+
 // ─── GET /api/aircraft/[id] ───────────────────────────────────────────────────
 
 export async function GET(
@@ -235,7 +266,15 @@ export async function PUT(
 
     if (updateError || !updated) {
       console.error('[PUT /api/aircraft/[id]] update error', updateError)
-      return NextResponse.json({ error: 'Failed to update aircraft' }, { status: 500 })
+      const formatted = formatAircraftUpdateError(updateError ?? {})
+      return NextResponse.json(
+        {
+          error: formatted.error,
+          details: formatted.details,
+          code: updateError?.code ?? null,
+        },
+        { status: formatted.status }
+      )
     }
 
     if (Object.prototype.hasOwnProperty.call(normalizedUpdate, 'owner_customer_id')) {

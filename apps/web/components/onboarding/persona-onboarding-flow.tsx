@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
+  ArrowLeft,
   ArrowRight,
   Building2,
   Check,
@@ -607,6 +608,7 @@ function AircraftStep({
   organizationId,
   aircraft,
   onAircraftAdded,
+  onBack,
   onContinue,
   continueLabel,
   optional = false,
@@ -616,6 +618,7 @@ function AircraftStep({
   organizationId: string
   aircraft: AddedAircraft[]
   onAircraftAdded: (aircraft: AddedAircraft) => void
+  onBack?: () => void
   onContinue: () => void
   continueLabel: string
   optional?: boolean
@@ -887,29 +890,39 @@ function AircraftStep({
             </div>
           )}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Adding aircraft…
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add aircraft
-                </>
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onContinue}
-              disabled={!optional && aircraft.length === 0}
-            >
-              {continueLabel}
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              {onBack ? (
+                <Button type="button" variant="ghost" onClick={onBack}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Adding aircraft…
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add aircraft
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onContinue}
+                disabled={!optional && aircraft.length === 0}
+              >
+                {continueLabel}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </form>
 
@@ -955,10 +968,12 @@ function AircraftStep({
 
 function OperationStep({
   aircraft,
+  onBack,
   onContinue,
   onSkip,
 }: {
   aircraft: AddedAircraft[]
+  onBack?: () => void
   onContinue: (values: Record<string, AircraftOperationType>) => Promise<void>
   onSkip: () => Promise<void>
 }) {
@@ -1047,23 +1062,33 @@ function OperationStep({
           </div>
         )}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-          <Button variant="outline" onClick={() => void handleSkip()} disabled={loading}>
-            Skip for now
-          </Button>
-          <Button onClick={() => void handleContinue()} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                Continue
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </>
-            )}
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            {onBack ? (
+              <Button variant="ghost" onClick={onBack} disabled={loading}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => void handleSkip()} disabled={loading}>
+              Skip for now
+            </Button>
+            <Button onClick={() => void handleContinue()} disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </QuestionCard>
@@ -1073,11 +1098,13 @@ function OperationStep({
 function TeamInviteStep({
   organizationId,
   invites,
+  onBack,
   onInviteCreated,
   onContinue,
 }: {
   organizationId: string
   invites: TeamInviteDraft[]
+  onBack?: () => void
   onInviteCreated: (invite: TeamInviteDraft) => void
   onContinue: () => Promise<void>
 }) {
@@ -1193,33 +1220,43 @@ function TeamInviteStep({
             </div>
           )}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => void handleInvite()} disabled={submitting}>
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending invite…
-                </>
-              ) : (
-                <>
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Invite team member
-                </>
-              )}
-            </Button>
-            <Button onClick={() => void handleContinue()} disabled={finishing}>
-              {finishing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Finishing…
-                </>
-              ) : (
-                <>
-                  Continue
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              {onBack ? (
+                <Button type="button" variant="ghost" onClick={onBack} disabled={submitting || finishing}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+              <Button type="button" variant="outline" onClick={() => void handleInvite()} disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending invite…
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Invite team member
+                  </>
+                )}
+              </Button>
+              <Button onClick={() => void handleContinue()} disabled={finishing}>
+                {finishing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Finishing…
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1254,11 +1291,13 @@ function TeamInviteStep({
 function OwnerDocumentStep({
   aircraftCount,
   primaryAircraft,
+  onBack,
   onSkip,
   onUpload,
 }: {
   aircraftCount: number
   primaryAircraft: AddedAircraft | null
+  onBack?: () => void
   onSkip: () => Promise<void>
   onUpload: () => Promise<void>
 }) {
@@ -1312,27 +1351,37 @@ function OwnerDocumentStep({
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-          <Button
-            variant="outline"
-            onClick={() => void run('skip', onSkip)}
-            disabled={loadingAction !== null}
-          >
-            {loadingAction === 'skip' ? 'Finishing…' : 'Skip for now'}
-          </Button>
-          <Button onClick={() => void run('upload', onUpload)} disabled={loadingAction !== null}>
-            {loadingAction === 'upload' ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Opening upload…
-              </>
-            ) : (
-              <>
-                <FileText className="mr-2 h-4 w-4" />
-                Upload documents
-              </>
-            )}
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            {onBack ? (
+              <Button variant="ghost" onClick={onBack} disabled={loadingAction !== null}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => void run('skip', onSkip)}
+              disabled={loadingAction !== null}
+            >
+              {loadingAction === 'skip' ? 'Finishing…' : 'Skip for now'}
+            </Button>
+            <Button onClick={() => void run('upload', onUpload)} disabled={loadingAction !== null}>
+              {loadingAction === 'upload' ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Opening upload…
+                </>
+              ) : (
+                <>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Upload documents
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </QuestionCard>
@@ -1342,10 +1391,12 @@ function OwnerDocumentStep({
 function MechanicFinishStep({
   aircraftCount,
   inviteCount,
+  onBack,
   onFinish,
 }: {
   aircraftCount: number
   inviteCount: number
+  onBack?: () => void
   onFinish: () => Promise<void>
 }) {
   const [loading, setLoading] = useState(false)
@@ -1380,7 +1431,15 @@ function MechanicFinishStep({
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          {onBack ? (
+            <Button variant="ghost" onClick={onBack} disabled={loading}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
+          ) : null}
+        </div>
         <Button onClick={() => void handleFinish()} disabled={loading}>
           {loading ? (
             <>
@@ -1681,6 +1740,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
           organizationId={organizationId}
           aircraft={aircraft}
           onAircraftAdded={handleAircraftAdded}
+          onBack={() => setStep(1)}
           onContinue={() => setStep(3)}
           continueLabel={aircraft.length === 0 ? 'Add an aircraft to continue' : `Continue with ${aircraft.length} aircraft`}
         />
@@ -1688,6 +1748,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
       {persona === 'owner' && step === 3 && (
         <OperationStep
           aircraft={aircraft}
+          onBack={() => setStep(2)}
           onContinue={handleOperationsSaved}
           onSkip={handleOperationSkipped}
         />
@@ -1696,6 +1757,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
         <OwnerDocumentStep
           aircraftCount={aircraft.length}
           primaryAircraft={aircraft[0] ?? null}
+          onBack={() => setStep(3)}
           onSkip={handleSkipDocuments}
           onUpload={handleUploadDocuments}
         />
@@ -1711,6 +1773,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
           organizationId={organizationId}
           aircraft={aircraft}
           onAircraftAdded={handleAircraftAdded}
+          onBack={() => setStep(1)}
           onContinue={() => void handleMechanicAircraftContinue()}
           continueLabel={aircraft.length === 0 ? 'Skip for now' : `Continue with ${aircraft.length} aircraft`}
           optional
@@ -1720,6 +1783,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
         <TeamInviteStep
           organizationId={organizationId}
           invites={teamInvites}
+          onBack={() => setStep(2)}
           onInviteCreated={handleInviteCreated}
           onContinue={async () => setStep(4)}
         />
@@ -1728,6 +1792,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
         <MechanicFinishStep
           aircraftCount={aircraft.length}
           inviteCount={teamInvites.length}
+          onBack={() => setStep(3)}
           onFinish={finishMechanicOnboarding}
         />
       )}
