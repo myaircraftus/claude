@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "@/components/shared/tenant-link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   Plane, FileText, AlertTriangle, Clock, CheckCircle, ArrowRight,
@@ -77,6 +77,12 @@ const DarkTip = ({ active, payload, label }: any) => {
 export function Dashboard() {
   const { aircraft, workOrders, invoices } = useDataStore();
   const [period] = useState("7d");
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSelectedAircraftId(window.localStorage.getItem("owner_selected_aircraft_id"));
+  }, []);
   const todayLabel = useMemo(() => {
     return formatDashboardDate(new Date(), {
       weekday: "long",
@@ -103,6 +109,14 @@ export function Dashboard() {
       };
     });
   }, [aircraft]);
+
+  const currentAircraftId =
+    (selectedAircraftId && aircraft.some((candidate) => candidate.id === selectedAircraftId))
+      ? selectedAircraftId
+      : aircraft[0]?.id ?? null;
+
+  const askHref = currentAircraftId ? `/ask?aircraft=${encodeURIComponent(currentAircraftId)}` : "/ask";
+  const workspaceHref = currentAircraftId ? `/workspace?aircraft=${encodeURIComponent(currentAircraftId)}` : "/workspace";
 
   const openWorkOrders = useMemo(() => {
     return workOrders.filter((wo) => !["Closed", "Invoice Paid", "Archived"].includes(wo.status));
@@ -288,12 +302,12 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link href="/workspace"
+          <Link href={workspaceHref}
             className="inline-flex items-center gap-2 bg-gradient-to-r from-primary to-primary/80 text-white px-5 py-2.5 rounded-xl hover:opacity-90 transition-all shadow-lg shadow-primary/20 text-[13px]"
             style={{ fontWeight: 600 }}>
             <Cpu className="w-4 h-4" /> AI Command Center
           </Link>
-          <Link href="/ask"
+          <Link href={askHref}
             className="inline-flex items-center gap-2 border border-border text-foreground px-5 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
             style={{ fontWeight: 500 }}>
             <MessageSquare className="w-4 h-4" /> Ask Aircraft
@@ -646,8 +660,8 @@ export function Dashboard() {
             <div className="grid grid-cols-2 gap-2">
               {[
                 { icon: Upload,       label: "Upload Docs",    href: "/documents" },
-                { icon: MessageSquare,label: "Ask Aircraft",   href: "/ask" },
-                { icon: Cpu,          label: "Command AI",     href: "/workspace" },
+                { icon: MessageSquare,label: "Ask Aircraft",   href: askHref },
+                { icon: Cpu,          label: "Command AI",     href: workspaceHref },
                 { icon: Eye,          label: "Review Queue",   href: "/documents" },
               ].map(a => (
                 <Link key={a.label} href={a.href}
@@ -663,7 +677,7 @@ export function Dashboard() {
 
       {/* ── AI Teaser Banner ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
-        <Link href="/workspace"
+        <Link href={workspaceHref}
           className="block bg-gradient-to-r from-[#0A1628] to-[#1E3A5F] rounded-2xl p-6 hover:opacity-95 transition-opacity group">
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-4">

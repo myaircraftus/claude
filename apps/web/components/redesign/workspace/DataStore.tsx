@@ -13,6 +13,7 @@ interface ApiAircraft {
   serial_number?: string | null;
   engine_model?: string | null;
   owner_customer_id?: string | null;
+  operator_name?: string | null;
 }
 
 interface ApiWorkOrder {
@@ -444,6 +445,19 @@ function normalizeTailNumber(tail: string): string {
   return tail.trim().toUpperCase();
 }
 
+function normalizeCustomerIdentity(...values: Array<string | null | undefined>): string {
+  return values
+    .map((value) =>
+      (value ?? "")
+        .toLowerCase()
+        .replace(/\b(inc|llc|corp|corporation|company|co)\b/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .join("|");
+}
+
 function isLocalWorkspaceId(id?: string | null): boolean {
   return typeof id === "string" && /^(wo|inv|cust|est|entry)-/.test(id);
 }
@@ -775,39 +789,35 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         setAircraft(aircraftList as ApiAircraft[]);
 
         const apiCustomers = (customersPayload?.customers ?? []) as ApiCustomer[];
-        if (apiCustomers.length === 0) {
-          const orgPayload = await fetch("/api/organization", { cache: "no-store" })
-            .then(async (res) => (res.ok ? res.json() : null))
-            .catch(() => null);
-          const orgName = orgPayload?.organization?.name ?? "Horizon Flights";
-          const created = await fetch("/api/customers", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: orgName,
-              company: orgName,
-              email: "ops@horizonflights.com",
-              phone: "",
-              tags: ["Primary Customer"],
-            }),
-          });
-          const createdPayload = await created.json().catch(() => null);
-          if (createdPayload?.id) {
-            apiCustomers.push(createdPayload as ApiCustomer);
-          }
-        }
-
-        const customersMapped = apiCustomers.map((c) => {
+        const customerMap = new Map<string, Customer>();
+        for (const c of apiCustomers) {
           const tails =
             c.aircraft_customer_assignments?.map((a) => a.aircraft?.tail_number).filter(Boolean) as string[] || [];
-          return {
+          const key =
+            normalizeCustomerIdentity(c.email, c.name, c.company) ||
+            normalizeCustomerIdentity(c.name, c.company) ||
+            c.id;
+
+          const existing = customerMap.get(key);
+          if (existing) {
+            existing.aircraft = [...new Set([...existing.aircraft, ...tails])];
+            existing.tags = [...new Set([...(existing.tags ?? []), ...(c.tags ?? [])])];
+            if (!existing.company && c.company) existing.company = c.company;
+            if (!existing.email && c.email) existing.email = c.email;
+            if (!existing.phone && c.phone) existing.phone = c.phone;
+            if (!existing.address && c.billing_address) existing.address = c.billing_address;
+            if (!existing.notes && c.notes) existing.notes = c.notes;
+            continue;
+          }
+
+          customerMap.set(key, {
             id: c.id,
             name: c.name,
             company: c.company ?? "",
             email: c.email ?? "",
             phone: c.phone ?? "",
             address: c.billing_address ?? "",
-            aircraft: tails,
+            aircraft: [...new Set(tails)],
             totalWorkOrders: 0,
             openInvoices: 0,
             totalBilled: 0,
@@ -817,8 +827,10 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
             notes: c.notes ?? "",
             tags: c.tags ?? [],
             createdAt: new Date().toISOString(),
-          } satisfies Customer;
-        });
+          } satisfies Customer);
+        }
+
+        const customersMapped = Array.from(customerMap.values());
         setCustomers(customersMapped);
 
         const customerById = new Map(customersMapped.map((c) => [c.id, c]));

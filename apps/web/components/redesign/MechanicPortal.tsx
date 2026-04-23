@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Plane, Wrench, FileText, Receipt, BookOpen, Users, User, LayoutDashboard,
   AlertTriangle, CheckSquare, Square, Plus, Search, ChevronRight, X,
@@ -102,6 +102,18 @@ const threadColor = (type: string) => ({
 }[type] || "bg-slate-100 text-slate-500");
 
 const invoiceStatusColor = (s: string) => ({ Draft: "bg-slate-100 text-slate-600", Sent: "bg-slate-100 text-slate-700", Paid: "bg-slate-800 text-white", Overdue: "bg-slate-200 text-slate-700" }[s] || "bg-slate-100 text-slate-600");
+
+const normalizeCustomerIdentity = (...values: Array<string | null | undefined>) =>
+  values
+    .map((value) =>
+      (value ?? "")
+        .toLowerCase()
+        .replace(/\b(inc|llc|corp|corporation|company|co)\b/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .join("|");
 
 type MechanicSection = "dashboard" | "aircraft" | "squawks" | "estimates" | "workorders" | "invoices" | "logbook" | "customers" | "team" | "parts";
 
@@ -254,7 +266,10 @@ export function MechanicPortal() {
   const perm = activeMechanic.permissions;
   const isRestrictedMechanic = !perm.dashboard && !perm.aircraft && !perm.squawks && !perm.estimates && !perm.invoices && !perm.logbook;
   const router = useTenantRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const tenantSlug = (pathname ?? "").split("/").filter(Boolean)[0] ?? "";
+  const normalizedTenantCustomerKey = normalizeCustomerIdentity(tenantSlug.replace(/-/g, " "));
 
   const VALID_SECTIONS: MechanicSection[] = ["dashboard","aircraft","squawks","estimates","workorders","invoices","logbook","customers","team","parts"];
   const tabParam = searchParams.get("tab") as MechanicSection | null;
@@ -450,7 +465,25 @@ export function MechanicPortal() {
   }, []);
 
   const CUSTOMERS_DATA = useMemo(() => {
-    return customers.map((c) => {
+    const deduped = new Map<string, {
+      id: string;
+      name: string;
+      company: string;
+      email: string;
+      phone: string;
+      aircraft: string[];
+      wos: number;
+      billed: number;
+      outstanding: number;
+      lastService: string;
+      tags: string[];
+    }>();
+
+    customers.forEach((c) => {
+      const key =
+        normalizeCustomerIdentity(c.email, c.name, c.company) ||
+        normalizeCustomerIdentity(c.name, c.company) ||
+        c.id;
       const wos = workOrders.filter((wo) => wo.customer === c.name);
       const billed = invoices
         .filter((inv) => inv.customer === c.name)
@@ -458,20 +491,37 @@ export function MechanicPortal() {
       const outstanding = invoices
         .filter((inv) => inv.customer === c.name && inv.paymentStatus !== "Paid")
         .reduce((sum, inv) => sum + (inv.total ?? 0), 0);
-      return {
+
+      const existing = deduped.get(key);
+      if (existing) {
+        existing.aircraft = [...new Set([...(existing.aircraft ?? []), ...(c.aircraft ?? [])])];
+        existing.wos += wos.length;
+        existing.billed += billed;
+        existing.outstanding += outstanding;
+        existing.tags = [...new Set([...(existing.tags ?? []), ...(c.tags ?? [])])];
+        if (!existing.company && c.company) existing.company = c.company;
+        if (!existing.email && c.email) existing.email = c.email;
+        if (!existing.phone && c.phone) existing.phone = c.phone;
+        if (!existing.lastService && c.lastService) existing.lastService = c.lastService;
+        return;
+      }
+
+      deduped.set(key, {
         id: c.id,
         name: c.name,
         company: c.company ?? "",
         email: c.email ?? "",
         phone: c.phone ?? "",
-        aircraft: c.aircraft ?? [],
+        aircraft: [...new Set(c.aircraft ?? [])],
         wos: wos.length,
         billed,
         outstanding,
         lastService: c.lastService || "",
-        tags: c.tags ?? [],
-      };
+        tags: [...(c.tags ?? [])],
+      });
     });
+
+    return Array.from(deduped.values());
   }, [customers, workOrders, invoices]);
 
   const AIRCRAFT_TO_CUSTOMER_ID = useMemo(() => {
@@ -486,11 +536,49 @@ export function MechanicPortal() {
 
   const TAIL_TO_CUSTOMER_ID = AIRCRAFT_TO_CUSTOMER_ID;
 
+  const CUSTOMER_BY_TAIL = useMemo(() => {
+    const map: Record<string, (typeof CUSTOMERS_DATA)[number] | null> = {};
+    const singleCustomer = CUSTOMERS_DATA.length === 1 ? CUSTOMERS_DATA[0] : null;
+    const tenantCustomer =
+      CUSTOMERS_DATA.find((customer) =>
+        [customer.name, customer.company].some(
+          (value) => normalizeCustomerIdentity(value) === normalizedTenantCustomerKey
+        )
+      ) ?? null;
+
+    aircraft.forEach((ac) => {
+      const tail = ac.tail_number ?? "";
+      const directOwnerId = ac.owner_customer_id ?? AIRCRAFT_TO_CUSTOMER_ID[tail];
+      let owner = directOwnerId
+        ? CUSTOMERS_DATA.find((customer) => customer.id === directOwnerId) ?? null
+        : null;
+
+      if (!owner && ac.operator_name) {
+        const operatorKey = normalizeCustomerIdentity(ac.operator_name);
+        owner =
+          CUSTOMERS_DATA.find((customer) =>
+            [customer.name, customer.company].some((value) => normalizeCustomerIdentity(value) === operatorKey)
+          ) ?? null;
+      }
+
+      if (!owner && singleCustomer) {
+        owner = singleCustomer;
+      }
+
+      if (!owner && tenantCustomer) {
+        owner = tenantCustomer;
+      }
+
+      map[tail] = owner;
+    });
+
+    return map;
+  }, [aircraft, CUSTOMERS_DATA, AIRCRAFT_TO_CUSTOMER_ID, normalizedTenantCustomerKey]);
+
   const ASSIGNED_AIRCRAFT = useMemo(() => {
     return aircraft.map((ac) => {
       const tail = ac.tail_number ?? "";
-      const ownerId = ac.owner_customer_id ?? AIRCRAFT_TO_CUSTOMER_ID[tail];
-      const owner = CUSTOMERS_DATA.find((c) => c.id === ownerId);
+      const owner = CUSTOMER_BY_TAIL[tail];
       const woCount = workOrders.filter((wo) => wo.aircraft === tail).length;
       const openSquawks = savedSquawks.filter((s) => s.tail === tail).length;
       return {
@@ -507,7 +595,7 @@ export function MechanicPortal() {
         lastService: "",
       };
     });
-  }, [aircraft, CUSTOMERS_DATA, AIRCRAFT_TO_CUSTOMER_ID, workOrders, savedSquawks]);
+  }, [aircraft, CUSTOMER_BY_TAIL, workOrders, savedSquawks]);
 
   const TEAM_DATA = useMemo(() => {
     return team.map((m) => ({
@@ -564,7 +652,14 @@ export function MechanicPortal() {
     }));
   }, [logbookEntries]);
 
-  const squawkQueue = useMemo<SquawkRecord[]>(() => savedSquawks, [savedSquawks]);
+  const squawkQueue = useMemo<SquawkRecord[]>(
+    () =>
+      savedSquawks.map((squawk) => ({
+        ...squawk,
+        customer: CUSTOMER_BY_TAIL[squawk.tail]?.name ?? squawk.customer ?? "",
+      })),
+    [savedSquawks, CUSTOMER_BY_TAIL]
+  );
 
   const generateEstimateFromSquawks = (squawkIds: string[]): GeneratedEstimate => {
     const squawks = squawkQueue.filter((s) => squawkIds.includes(s.id));
