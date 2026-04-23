@@ -52,9 +52,13 @@ export function LoginPage() {
     setError("");
     try {
       const supabase = createBrowserSupabase();
+      const callbackUrl = new URL("/auth/callback", window.location.origin);
+      if (redirectTarget && redirectTarget.startsWith("/")) {
+        callbackUrl.searchParams.set("next", redirectTarget);
+      }
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
+        options: { redirectTo: callbackUrl.toString() },
       });
       if (oauthError) {
         // Supabase returns an error when provider is not configured
