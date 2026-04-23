@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { ADMIN_AND_ABOVE } from '@/lib/roles'
 const nodemailer = require('nodemailer')
 
 export async function POST(req: NextRequest) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = ctx.user
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  if (!ADMIN_AND_ABOVE.includes(membership.role as any)) {
+  if (!ADMIN_AND_ABOVE.includes(ctx.role as any)) {
     return NextResponse.json({ error: 'Insufficient permissions — owner/admin required' }, { status: 403 })
   }
 
@@ -33,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'At least one of mechanic_email or mechanic_phone is required' }, { status: 422 })
   }
 
-  const orgId = membership.organization_id
+  const orgId = ctx.organizationId
   const serviceSupabase = createServiceSupabase()
 
   // a. Try to find existing user by email

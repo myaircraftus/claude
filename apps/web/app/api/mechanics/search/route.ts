@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { escapeLike } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const orgId = ctx.organizationId
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role as any)) {
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role as any)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
@@ -45,6 +40,7 @@ export async function GET(req: NextRequest) {
   const { data: memberships, error: mErr } = await supabase
     .from('organization_memberships')
     .select('user_id, organization_id, role, accepted_at')
+    .eq('organization_id', orgId)
     .in('user_id', userIds)
     .not('accepted_at', 'is', null)
     .in('role', ['mechanic', 'owner', 'admin'])
@@ -61,7 +57,7 @@ export async function GET(req: NextRequest) {
       const m = membershipByUser.get(p.id)!
       return {
         user_id: p.id,
-        org_id: m.organization_id,
+        org_id: orgId,
         name: p.full_name ?? '',
         email: p.email ?? '',
         phone: '',

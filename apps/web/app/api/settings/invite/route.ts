@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import type { OrgRole } from '@/types'
 
@@ -12,37 +13,22 @@ const inviteSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Auth check
-    const supabase = createServerSupabase()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    const ctx = await resolveRequestOrgContext(req)
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Admin/owner role check
-    const { data: membership, error: membershipError } = await supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single()
+    const supabase = createServerSupabase()
+    const user = ctx.user
 
-    if (membershipError || !membership) {
-      return NextResponse.json({ error: 'No active organization' }, { status: 403 })
-    }
-
-    if (!ADMIN_ROLES.includes(membership.role as OrgRole)) {
+    if (!ADMIN_ROLES.includes(ctx.role as OrgRole)) {
       return NextResponse.json(
         { error: 'Insufficient permissions. Admin or owner role required.' },
         { status: 403 }
       )
     }
 
-    const orgId = membership.organization_id
+    const orgId = ctx.organizationId
 
     // Parse body
     let body: unknown
