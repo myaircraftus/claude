@@ -21,7 +21,6 @@ import {
   useDataStore,
   type LaborLine,
   type PartsLine,
-  type LogbookEntry as WorkspaceLogbookEntry,
 } from "./workspace/DataStore";
 import { useAppContext } from "./AppContext";
 import { toast } from "sonner";
@@ -46,18 +45,6 @@ import {
   invoiceStatusColor,
   normalizeCustomerIdentity,
 } from "./mechanicPortal/helpers";
-
-/* ═══════════════════ LIVE DATA ONLY ════════════════════════════ */
-// TODO: These 7 module-level consts are shadowed by same-named useMemo's inside
-// the component body (or never read). Scheduled for removal in a follow-up
-// commit right after the MechanicPortal decomposition lands.
-const ASSIGNED_AIRCRAFT: Array<Record<string, unknown>> = [];
-const EMPTY_MECHANIC_INVOICES: MechanicInvoice[] = [];
-const EMPTY_LOGBOOK_ENTRIES: WorkspaceLogbookEntry[] = [];
-const CUSTOMERS_DATA: any[] = [];
-const TAIL_TO_CUSTOMER_ID: Record<string, string> = {};
-const AIRCRAFT_TO_CUSTOMER_ID: Record<string, string> = {};
-const TEAM_DATA: any[] = [];
 
 /* ═══════════════════ MAIN COMPONENT ════════════════════════════ */
 export function MechanicPortal() {
