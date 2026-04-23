@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export async function GET(req: NextRequest) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { searchParams } = new URL(req.url)
   const aircraft_id = searchParams.get('aircraft_id')
@@ -29,7 +24,7 @@ export async function GET(req: NextRequest) {
       reporter:reported_by (id, full_name, email, avatar_url),
       aircraft:aircraft_id (id, tail_number, make, model)
     `, { count: 'exact' })
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
@@ -43,17 +38,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const user = ctx.user
+  const orgId = ctx.organizationId
 
   const body = await req.json()
 
@@ -64,7 +54,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('squawks')
     .insert({
-      organization_id: membership.organization_id,
+      organization_id: orgId,
       aircraft_id: body.aircraft_id,
       reported_by: user.id,
       title: body.title,

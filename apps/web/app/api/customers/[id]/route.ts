@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   // Fetch customer with aircraft assignments
   const { data: customer, error } = await supabase
@@ -30,7 +25,7 @@ export async function GET(
       )
     `)
     .eq('id', params.id)
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (error || !customer) {
@@ -44,7 +39,7 @@ export async function GET(
       id, work_order_number, status, customer_complaint, total, opened_at, created_at,
       aircraft:aircraft_id (id, tail_number)
     `)
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('customer_id', params.id)
     .order('created_at', { ascending: false })
     .limit(10)
@@ -53,7 +48,7 @@ export async function GET(
   const { count: invoiceCount } = await supabase
     .from('work_orders')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('customer_id', params.id)
     .in('status', ['invoiced', 'paid'])
 
@@ -68,17 +63,11 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
 
@@ -102,7 +91,7 @@ export async function PATCH(
     .from('customers')
     .update(updates)
     .eq('id', params.id)
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .select()
     .single()
 
@@ -116,20 +105,15 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
+  const role = ctx.role
 
   // Only owner/admin can delete customers
-  if (!['owner', 'admin'].includes(membership.role)) {
+  if (!['owner', 'admin'].includes(role)) {
     return NextResponse.json({ error: 'Only owner or admin can delete customers' }, { status: 403 })
   }
 
@@ -137,7 +121,7 @@ export async function DELETE(
     .from('customers')
     .delete()
     .eq('id', params.id)
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

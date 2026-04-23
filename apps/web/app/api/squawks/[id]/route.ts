@@ -1,23 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 
-async function getOrgId(supabase: ReturnType<typeof createServerSupabase>, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data?.organization_id ?? null
-}
-
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data, error } = await supabase
     .from('squawks')
@@ -36,12 +26,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
   const allowedFields = ['title', 'description', 'severity', 'status', 'assigned_work_order_id']
@@ -72,12 +61,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   // Only allow deleting open squawks
   const { data: squawk } = await supabase

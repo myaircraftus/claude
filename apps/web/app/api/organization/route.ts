@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 
-export async function GET(_req: NextRequest) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(req: NextRequest) {
+  const ctx = await resolveRequestOrgContext(req, { includeOrganization: true })
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: memberships } = await supabase
-    .from('organization_memberships')
-    .select(`
-      organization_id,
-      role,
-      organizations (
+  const supabase = createServerSupabase()
+  let organization = ctx.organization as any
+  if (!organization) {
+    const { data } = await supabase
+      .from('organizations')
+      .select(`
         id,
         name,
         plan,
@@ -24,40 +24,26 @@ export async function GET(_req: NextRequest) {
         estimate_terms,
         work_order_terms,
         checklist_templates
-      )
-    `)
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .order('accepted_at', { ascending: false })
-    .limit(1)
-
-  const membership = memberships?.[0] ?? null
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+      `)
+      .eq('id', ctx.organizationId)
+      .single()
+    organization = data ?? null
+  }
+  if (!organization) return NextResponse.json({ error: 'No organization' }, { status: 403 })
 
   return NextResponse.json({
-    organization_id: membership.organization_id,
-    role: membership.role,
-    organization: membership.organizations,
+    organization_id: ctx.organizationId,
+    role: ctx.role,
+    organization,
   })
 }
 
 export async function PATCH(req: NextRequest) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  if (!['owner', 'admin', 'mechanic'].includes(membership.role)) {
+  if (!['owner', 'admin', 'mechanic'].includes(ctx.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
@@ -88,7 +74,7 @@ export async function PATCH(req: NextRequest) {
   const { data, error } = await supabase
     .from('organizations')
     .update(updates)
-    .eq('id', membership.organization_id)
+    .eq('id', ctx.organizationId)
     .select(`
       id,
       name,

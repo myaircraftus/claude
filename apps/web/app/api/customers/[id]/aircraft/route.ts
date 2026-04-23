@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
 
@@ -32,7 +27,7 @@ export async function POST(
   const { data: aircraft, error: aircraftError } = await supabase
     .from('aircraft')
     .select('id, organization_id, tail_number, owner_customer_id')
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('id', body.aircraft_id)
     .maybeSingle()
 
@@ -51,7 +46,7 @@ export async function POST(
     const { data: currentCustomer } = await supabase
       .from('customers')
       .select('id, name, company, email')
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgId)
       .eq('id', aircraft.owner_customer_id)
       .maybeSingle()
 
@@ -69,7 +64,7 @@ export async function POST(
   const { data: existingAssignment } = await supabase
     .from('aircraft_customer_assignments')
     .select('id')
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('aircraft_id', body.aircraft_id)
     .eq('customer_id', params.id)
     .maybeSingle()
@@ -78,7 +73,7 @@ export async function POST(
     const { error: clearPreviousOwnerError } = await supabase
       .from('aircraft_customer_assignments')
       .delete()
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgId)
       .eq('aircraft_id', body.aircraft_id)
       .eq('customer_id', aircraft.owner_customer_id)
       .eq('relationship', 'owner')
@@ -112,7 +107,7 @@ export async function POST(
     const response = await supabase
       .from('aircraft_customer_assignments')
       .insert({
-        organization_id: membership.organization_id,
+        organization_id: orgId,
         aircraft_id: body.aircraft_id,
         customer_id: params.id,
         relationship,
@@ -143,7 +138,7 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq('id', body.aircraft_id)
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgId)
 
     if (ownerUpdateError) {
       return NextResponse.json({ error: ownerUpdateError.message }, { status: 500 })
@@ -157,17 +152,11 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
 
@@ -178,14 +167,14 @@ export async function DELETE(
   const { data: aircraft } = await supabase
     .from('aircraft')
     .select('id, owner_customer_id')
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('id', body.aircraft_id)
     .maybeSingle()
 
   const { error } = await supabase
     .from('aircraft_customer_assignments')
     .delete()
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('aircraft_id', body.aircraft_id)
     .eq('customer_id', params.id)
 
@@ -198,7 +187,7 @@ export async function DELETE(
         owner_customer_id: null,
         updated_at: new Date().toISOString(),
       })
-      .eq('organization_id', membership.organization_id)
+      .eq('organization_id', orgId)
       .eq('id', body.aircraft_id)
 
     if (ownerClearError) {
