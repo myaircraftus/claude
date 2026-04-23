@@ -25,8 +25,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
-import { DocumentViewer } from '@/components/ask/document-viewer'
-import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import {
   getDocumentClassificationProfileBySelection,
   type ParserStrategy,
@@ -534,6 +532,9 @@ function QueueItemCard({
       })),
     }
   }, [highlightRegions, job.document?.doc_type, job.document?.id, job.document?.title, job.ocr_raw_text, job.page_number])
+  const fallbackPreviewUrl = fallbackCitation
+    ? `/api/documents/${fallbackCitation.documentId}/preview#page=${fallbackCitation.pageNumber}`
+    : null
 
   function update(key: keyof EditedFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }))
@@ -762,14 +763,17 @@ function QueueItemCard({
                         PDF page preview fallback
                       </div>
                       <div className="h-[420px]">
-                        <DocumentViewerBoundary
-                          resetKey={`review:${fallbackCitation.documentId}:${fallbackCitation.pageNumber}`}
-                        >
-                          <DocumentViewer
-                            citation={fallbackCitation}
-                            documentId={fallbackCitation.documentId}
+                        {fallbackPreviewUrl ? (
+                          <iframe
+                            src={fallbackPreviewUrl}
+                            title={`Preview ${fallbackCitation.documentTitle} page ${fallbackCitation.pageNumber}`}
+                            className="h-full w-full border-0 bg-white"
                           />
-                        </DocumentViewerBoundary>
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                            Preview unavailable
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
