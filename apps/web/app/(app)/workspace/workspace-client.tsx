@@ -5,6 +5,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type KeyboardEvent,
 } from 'react'
 import {
@@ -63,6 +64,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import type { Aircraft } from '@/types'
+import { useSearchParams } from 'next/navigation'
+import { useTenantRouter } from '@/components/shared/tenant-link'
+import { useAppContext } from '@/components/redesign/AppContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -164,6 +168,7 @@ interface WorkspaceClientProps {
   userId: string
   aircraft: Aircraft[]
   initialThreads: Thread[]
+  initialAircraftId?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,7 +202,16 @@ function threadGroup(dateStr: string): 'today' | 'yesterday' | 'earlier' {
   return 'earlier'
 }
 
-const SUGGESTED_PROMPTS = [
+const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
+
+const OWNER_SUGGESTED_PROMPTS = [
+  { label: 'What needs my attention for this aircraft?', icon: AlertTriangle, intent: 'query' },
+  { label: 'Show maintenance history', icon: History, intent: 'query' },
+  { label: 'Check AD compliance', icon: ShieldCheck, intent: 'query' },
+  { label: 'Summarize recent documents', icon: FileText, intent: 'query' },
+]
+
+const MECHANIC_SUGGESTED_PROMPTS = [
   { label: 'Prepare a logbook entry', icon: FileText, intent: 'logbook_entry' },
   { label: 'Generate a work order', icon: Wrench, intent: 'work_order' },
   { label: 'Create an invoice', icon: DollarSign, intent: 'invoice' },
@@ -205,6 +219,12 @@ const SUGGESTED_PROMPTS = [
   { label: 'Check AD compliance', icon: ShieldCheck, intent: 'query' },
   { label: 'Show maintenance history', icon: History, intent: 'query' },
 ]
+
+function buildThreadTitle(content: string) {
+  const compact = content.trim().replace(/\s+/g, ' ')
+  if (compact.length <= 60) return compact
+  return `${compact.slice(0, 57).trimEnd()}...`
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Artifact placeholder builders
@@ -1179,8 +1199,15 @@ function PartsSearchArtifact({
 // Empty artifact state
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ArtifactEmptyState({ onOpen }: { onOpen: (type: ArtifactType) => void }) {
-  const items = [
+function ArtifactEmptyState({
+  onOpen,
+  persona,
+}: {
+  onOpen: (type: ArtifactType) => void
+  persona: 'owner' | 'mechanic'
+}) {
+  const items = persona === 'mechanic'
+    ? [
     {
       type: 'logbook_entry' as ArtifactType,
       icon: FileText,
@@ -1214,6 +1241,7 @@ function ArtifactEmptyState({ onOpen }: { onOpen: (type: ArtifactType) => void }
       bg: 'bg-purple-50',
     },
   ]
+    : []
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-6">
@@ -1223,26 +1251,30 @@ function ArtifactEmptyState({ onOpen }: { onOpen: (type: ArtifactType) => void }
         </div>
         <h3 className="font-semibold text-foreground text-sm">Your workspace will appear here</h3>
         <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-          Ask the AI to prepare a document or click below to open one directly.
+          {persona === 'mechanic'
+            ? 'Ask the AI to prepare a document or click below to open one directly.'
+            : 'Owner mode is evidence-first. Ask questions about records, maintenance history, inspections, and compliance for the selected aircraft.'}
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
-        {items.map(({ type, icon: Icon, label, desc, color, bg }) => (
-          <button
-            key={type}
-            onClick={() => onOpen(type)}
-            className="flex flex-col items-start gap-1.5 p-3 rounded-lg border border-border hover:border-brand-300 hover:bg-brand-50/40 transition-all text-left"
-          >
-            <div className={cn('w-7 h-7 rounded-md flex items-center justify-center', bg)}>
-              <Icon className={cn('h-3.5 w-3.5', color)} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-foreground">{label}</div>
-              <div className="text-xs text-muted-foreground leading-tight">{desc}</div>
-            </div>
-          </button>
-        ))}
-      </div>
+      {items.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 w-full max-w-xs">
+          {items.map(({ type, icon: Icon, label, desc, color, bg }) => (
+            <button
+              key={type}
+              onClick={() => onOpen(type)}
+              className="flex flex-col items-start gap-1.5 p-3 rounded-lg border border-border hover:border-brand-300 hover:bg-brand-50/40 transition-all text-left"
+            >
+              <div className={cn('w-7 h-7 rounded-md flex items-center justify-center', bg)}>
+                <Icon className={cn('h-3.5 w-3.5', color)} />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-foreground">{label}</div>
+                <div className="text-xs text-muted-foreground leading-tight">{desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1395,13 +1427,15 @@ export function WorkspaceClient({
   userId,
   aircraft,
   initialThreads,
+  initialAircraftId = null,
 }: WorkspaceClientProps) {
+  const router = useTenantRouter()
+  const searchParams = useSearchParams()
+  const { persona } = useAppContext()
   // State
   const [messages, setMessages] = useState<Message[]>([])
   const [activeArtifact, setActiveArtifact] = useState<ActiveArtifact | null>(null)
-  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(
-    aircraft.length === 1 ? aircraft[0].id : null
-  )
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(initialAircraftId)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [threads, setThreads] = useState<Thread[]>(initialThreads)
   const [isLoading, setIsLoading] = useState(false)
@@ -1410,6 +1444,11 @@ export function WorkspaceClient({
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const suggestedPrompts = useMemo(
+    () => (persona === 'mechanic' ? MECHANIC_SUGGESTED_PROMPTS : OWNER_SUGGESTED_PROMPTS),
+    [persona]
+  )
 
   // Auto-scroll
   useEffect(() => {
@@ -1425,6 +1464,55 @@ export function WorkspaceClient({
   }, [input])
 
   const selectedAircraft = aircraft.find((a) => a.id === selectedAircraftId) ?? null
+
+  useEffect(() => {
+    if (selectedAircraftId && aircraft.some((candidate) => candidate.id === selectedAircraftId)) {
+      return
+    }
+
+    const requestedAircraftId = searchParams.get('aircraft') ?? initialAircraftId
+    if (requestedAircraftId && aircraft.some((candidate) => candidate.id === requestedAircraftId)) {
+      setSelectedAircraftId(requestedAircraftId)
+      return
+    }
+
+    if (typeof window !== 'undefined') {
+      const persisted = window.localStorage.getItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY)?.trim()
+      if (persisted && aircraft.some((candidate) => candidate.id === persisted)) {
+        setSelectedAircraftId(persisted)
+        return
+      }
+    }
+
+    if (aircraft.length === 1) {
+      setSelectedAircraftId(aircraft[0].id)
+      return
+    }
+
+    setSelectedAircraftId(null)
+  }, [aircraft, initialAircraftId, searchParams, selectedAircraftId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (persona !== 'owner') return
+    if (!selectedAircraftId) return
+    window.localStorage.setItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY, selectedAircraftId)
+  }, [persona, selectedAircraftId])
+
+  const updateAircraftSelection = useCallback(
+    (nextAircraftId: string | null) => {
+      setSelectedAircraftId(nextAircraftId)
+      const params = new URLSearchParams(searchParams.toString())
+      if (nextAircraftId) {
+        params.set('aircraft', nextAircraftId)
+      } else {
+        params.delete('aircraft')
+      }
+      const query = params.toString()
+      router.push(query ? `/workspace?${query}` : '/workspace', { scroll: false })
+    },
+    [router, searchParams]
+  )
 
   // ── Send message ───────────────────────────────────────────────────────────
 
@@ -1458,6 +1546,7 @@ export function WorkspaceClient({
             aircraftId: selectedAircraftId,
             conversationHistory: history,
             organizationId,
+            persona,
           }),
         })
 
@@ -1496,10 +1585,10 @@ export function WorkspaceClient({
         }
 
         // Update thread list if we got a title back
-        if (threadTitle && !activeThreadId) {
+        if (!activeThreadId) {
           const newThread: Thread = {
             id: data.threadId ?? crypto.randomUUID(),
-            title: threadTitle,
+            title: threadTitle || buildThreadTitle(trimmed),
             aircraft_id: selectedAircraftId,
             is_pinned: false,
             created_at: new Date().toISOString(),
@@ -1523,7 +1612,7 @@ export function WorkspaceClient({
         textareaRef.current?.focus()
       }
     },
-    [messages, isLoading, activeThreadId, selectedAircraftId, organizationId]
+    [messages, isLoading, activeThreadId, selectedAircraftId, organizationId, persona]
   )
 
   // ── Open artifact ──────────────────────────────────────────────────────────
@@ -1554,6 +1643,9 @@ export function WorkspaceClient({
     setActiveThreadId(thread.id)
     setMessages([]) // in production, load from DB
     setActiveArtifact(null)
+    if (thread.aircraft_id) {
+      updateAircraftSelection(thread.aircraft_id)
+    }
   }
 
   function togglePin(threadId: string) {
@@ -1615,7 +1707,7 @@ export function WorkspaceClient({
         <div className="p-3 border-b border-border space-y-2">
           <Select
             value={selectedAircraftId ?? 'all'}
-            onValueChange={(v) => setSelectedAircraftId(v === 'all' ? null : v)}
+            onValueChange={(v) => updateAircraftSelection(v === 'all' ? null : v)}
           >
             <SelectTrigger className="w-full h-8 text-xs">
               <SelectValue placeholder="All aircraft" />
@@ -1820,15 +1912,15 @@ export function WorkspaceClient({
                   What can I help you with?
                 </h2>
                 <p className="text-muted-foreground text-sm mt-1">
-                  I can prepare logbook entries, work orders, invoices, look up
-                  parts, check AD compliance, and answer questions about your
-                  aircraft records.
+                  {persona === 'mechanic'
+                    ? 'I can prepare logbook entries, work orders, invoices, look up parts, check AD compliance, and answer questions about your aircraft records.'
+                    : 'I can answer questions about aircraft records, maintenance history, inspections, compliance, and document evidence for the selected aircraft.'}
                 </p>
               </div>
 
               {/* Suggested prompts */}
               <div className="grid grid-cols-2 gap-2 w-full">
-                {SUGGESTED_PROMPTS.map(({ label, icon: Icon }) => (
+                {suggestedPrompts.map(({ label, icon: Icon }) => (
                   <button
                     key={label}
                     onClick={() => sendMessage(label)}
@@ -2000,7 +2092,7 @@ export function WorkspaceClient({
         {/* Artifact content */}
         <div className="flex-1 min-h-0 overflow-hidden">
           {!activeArtifact ? (
-            <ArtifactEmptyState onOpen={openArtifact} />
+            <ArtifactEmptyState onOpen={openArtifact} persona={persona} />
           ) : activeArtifact.type === 'logbook_entry' ? (
             <LogbookEntryArtifact
               data={activeArtifact.data as LogbookEntryData}

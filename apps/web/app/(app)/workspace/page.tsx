@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { WorkspaceClient } from './workspace-client'
 import type { Aircraft } from '@/types'
 
@@ -7,26 +6,13 @@ export const metadata = {
   title: 'Workspace — myaircraft.us',
 }
 
-export default async function WorkspacePage() {
-  const supabase = createServerSupabase()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  // Membership & org
-  const { data: membership } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role, organizations(*)')
-    .eq('user_id', user.id)
-    .not('accepted_at', 'is', null)
-    .single()
-
-  if (!membership) redirect('/onboarding')
-
+export default async function WorkspacePage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>
+}) {
+  const { supabase, user, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
-  const organization = (membership as any).organizations
 
   // Aircraft list
   const { data: aircraftData } = await supabase
@@ -37,6 +23,9 @@ export default async function WorkspacePage() {
     .order('created_at', { ascending: false })
 
   const aircraft: Aircraft[] = (aircraftData ?? []) as Aircraft[]
+  const requestedAircraftId = Array.isArray(searchParams?.aircraft)
+    ? searchParams?.aircraft[0] ?? null
+    : searchParams?.aircraft ?? null
 
   // Recent threads — gracefully handle if table doesn't exist yet
   let recentThreads: Array<{
@@ -67,6 +56,7 @@ export default async function WorkspacePage() {
       userId={user.id}
       aircraft={aircraft}
       initialThreads={recentThreads}
+      initialAircraftId={requestedAircraftId}
     />
   )
 }
