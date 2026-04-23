@@ -9,6 +9,8 @@ const ADMIN_ROLES: OrgRole[] = ['owner', 'admin']
 const inviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(['owner', 'admin', 'mechanic', 'pilot', 'viewer', 'auditor']),
+  full_name: z.string().trim().min(1).max(80).optional(),
+  job_title: z.string().trim().min(1).max(80).optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { email, role } = parsed.data
+    const { email, role, full_name, job_title } = parsed.data
 
     // Use service client for admin operations
     const serviceSupabase = createServiceSupabase()
@@ -63,6 +65,15 @@ export async function POST(req: NextRequest) {
     let status: 'invited' | 'added'
 
     if (existingProfile) {
+      if (full_name || job_title) {
+        const profilePatch: Record<string, unknown> = {}
+        if (full_name) profilePatch.full_name = full_name
+        if (job_title) profilePatch.job_title = job_title
+        if (Object.keys(profilePatch).length > 0) {
+          await serviceSupabase.from('user_profiles').update(profilePatch).eq('id', existingProfile.id)
+        }
+      }
+
       // 3a. Existing user: check if already a member of this org
       const { data: existingMembership } = await serviceSupabase
         .from('organization_memberships')
@@ -106,6 +117,8 @@ export async function POST(req: NextRequest) {
           invited_to_org: orgId,
           invited_role: role,
           invited_by: user.id,
+          full_name,
+          job_title,
         },
       })
 
@@ -142,7 +155,13 @@ export async function POST(req: NextRequest) {
       action: status === 'invited' ? 'member.invited' : 'member.added',
       target_type: 'user',
       target_id: existingProfile?.id ?? null,
-      metadata: { email, role, status },
+      metadata: {
+        email,
+        role,
+        status,
+        ...(full_name ? { full_name } : {}),
+        ...(job_title ? { job_title } : {}),
+      },
     })
 
     return NextResponse.json({ status }, { status: 200 })

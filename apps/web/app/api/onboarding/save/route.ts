@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   const profilePatch: Record<string, unknown> = {}
   if (body.full_name !== undefined) profilePatch.full_name = body.full_name
   if (body.phone !== undefined) profilePatch.phone = body.phone
+  if (body.job_title !== undefined) profilePatch.job_title = body.job_title
   if (body.cert_number !== undefined) profilePatch.cert_number = body.cert_number
   if (body.persona !== undefined) profilePatch.persona = body.persona
   if (body.onboarding_context !== undefined) profilePatch.onboarding_context = body.onboarding_context
