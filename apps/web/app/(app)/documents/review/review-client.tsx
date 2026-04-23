@@ -429,6 +429,11 @@ function QueueItemCard({
 
   useEffect(() => {
     if (!expanded || !job.id || pageImageUrl || pageImageLoading) return
+    if (!job.page_image_path) {
+      setPageImageLoading(false)
+      setPageImageError('No page image available')
+      return
+    }
     let cancelled = false
 
     async function loadImage() {
@@ -464,7 +469,7 @@ function QueueItemCard({
     return () => {
       cancelled = true
     }
-  }, [expanded, job.id, pageImageUrl, pageImageLoading])
+  }, [expanded, job.id, job.page_image_path, pageImageUrl, pageImageLoading])
 
   const classificationDetailOptions = useMemo(
     () => getDocumentItemsForGroup(classification.document_group_id),

@@ -42,6 +42,7 @@ export default async function ReviewQueuePage({
         ocr_page_job:ocr_page_job_id(
           id,
           page_number,
+          page_image_path,
           page_classification,
           ocr_confidence,
           ocr_raw_text,
