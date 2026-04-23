@@ -473,6 +473,8 @@ function QueueItemCard({
     [classification.document_group_id]
   )
 
+  const detectedType = reasoning.detected_inspection_type
+
   const keywordSuggestions = useMemo(() => {
     const values = new Set<string>()
     const addValue = (value: unknown) => {
@@ -616,7 +618,6 @@ function QueueItemCard({
   const statusMeta = STATUS_BADGE[arbStatus] ?? STATUS_BADGE.pending
   const conflictCount = fieldConflicts.length
   const hasEngines = Array.isArray(job.engines_run) && job.engines_run.length > 0
-  const detectedType = reasoning.detected_inspection_type
 
   return (
     <Card className="overflow-hidden">
