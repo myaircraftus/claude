@@ -1,33 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-async function getOrgMembership(
-  supabase: ReturnType<typeof createServerSupabase>,
-  userId: string
-) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-
-  return data ?? null
-}
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; checklistId: string } }
 ) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const membership = await getOrgMembership(supabase, user.id)
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-  if (!['owner', 'admin', 'mechanic'].includes(membership.role)) {
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
+  if (!['owner', 'admin', 'mechanic'].includes(ctx.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
@@ -39,10 +23,10 @@ export async function PATCH(
     .update({
       completed,
       completed_at: completed ? new Date().toISOString() : null,
-      completed_by: completed ? user.id : null,
+      completed_by: completed ? ctx.user.id : null,
       updated_at: new Date().toISOString(),
     })
-    .eq('organization_id', membership.organization_id)
+    .eq('organization_id', orgId)
     .eq('work_order_id', params.id)
     .eq('id', params.checklistId)
     .select(`

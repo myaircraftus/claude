@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-async function getOrgId(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data?.organization_id ?? null
-}
 
 function normalizeEstimateStatus(value: unknown): string {
   if (typeof value !== 'string') return 'draft'
@@ -20,15 +11,12 @@ function normalizeEstimateStatus(value: unknown): string {
   return 'draft'
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data, error } = await supabase
     .from('estimates')
@@ -52,18 +40,28 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     ;((data as any).line_items as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   }
 
+  const squawkIds: string[] = Array.isArray((data as any).linked_squawk_ids)
+    ? ((data as any).linked_squawk_ids as string[])
+    : []
+  if (squawkIds.length > 0) {
+    const { data: linkedSquawks } = await supabase
+      .from('squawks')
+      .select('id, title, description, severity')
+      .in('id', squawkIds)
+    ;(data as any).linked_squawks = linkedSquawks ?? []
+  } else {
+    ;(data as any).linked_squawks = []
+  }
+
   return NextResponse.json(data)
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
   const allowedFields = [
@@ -106,15 +104,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(data)
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data: estimate } = await supabase
     .from('estimates')

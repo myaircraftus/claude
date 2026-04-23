@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
-
-async function getOrgId(supabase: ReturnType<typeof import('@/lib/supabase/server').createServerSupabase>, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data?.organization_id ?? null
-}
 
 async function recalculateTotals(
   supabase: ReturnType<typeof import('@/lib/supabase/server').createServerSupabase>,
@@ -34,22 +25,24 @@ async function recalculateTotals(
 
   await supabase
     .from('work_orders')
-    .update({ labor_total, parts_total, outside_services_total, total, updated_at: new Date().toISOString() })
+    .update({ labor_total, parts_total, outside_services_total, total_amount: total, updated_at: new Date().toISOString() })
     .eq('id', workOrderId)
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const { data, error } = await supabase
     .from('work_orders')
     .select(`
       *,
+      customer_complaint:complaint,
+      customer_notes:customer_visible_notes,
+      total:total_amount,
       aircraft:aircraft_id (id, tail_number, make, model, year),
       lines:work_order_lines (*)
     `)
@@ -68,25 +61,26 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   const body = await req.json()
   const allowedFields = [
-    'status', 'customer_complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
-    'corrective_action', 'internal_notes', 'customer_notes',
+    'status', 'complaint', 'discrepancy', 'troubleshooting_notes', 'findings',
+    'corrective_action', 'internal_notes', 'customer_visible_notes',
     'assigned_mechanic_id', 'aircraft_id', 'customer_id', 'tax_amount', 'service_type',
     'linked_invoice_id', 'linked_logbook_entry_id',
     'closed_at',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   // Map frontend field names to DB column names
-  if ('complaint' in body) body.customer_complaint = body.complaint
-  if ('customer_visible_notes' in body) body.customer_notes = body.customer_visible_notes
+  if ('customer_complaint' in body) body.complaint = body.customer_complaint
+  if ('complaint' in body) body.complaint = body.complaint
+  if ('customer_notes' in body) body.customer_visible_notes = body.customer_notes
+  if ('customer_visible_notes' in body) body.customer_visible_notes = body.customer_visible_notes
   if ('status' in body) body.status = toDbWorkOrderStatus(body.status)
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
@@ -129,12 +123,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await getOrgId(supabase, user.id)
-  if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   // Only allow deleting draft or archived work orders
   const { data: wo } = await supabase

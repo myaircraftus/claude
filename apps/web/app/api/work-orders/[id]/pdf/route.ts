@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRequestOrgContext } from "@/lib/auth/context";
 import { createServerSupabase } from "@/lib/supabase/server";
-
-async function getOrgId(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from("organization_memberships")
-    .select("organization_id")
-    .eq("user_id", userId)
-    .not("accepted_at", "is", null)
-    .single();
-  return data?.organization_id ?? null;
-}
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -37,19 +28,19 @@ function formatDate(date: string | null | undefined): string {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await resolveRequestOrgContext(_req);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const orgId = await getOrgId(supabase, user.id);
-  if (!orgId) return NextResponse.json({ error: "No organization" }, { status: 403 });
+  const supabase = createServerSupabase();
+  const orgId = ctx.organizationId;
 
   const { data: workOrder } = await supabase
     .from("work_orders")
     .select(`
       *,
+      customer_complaint:complaint,
+      customer_notes:customer_visible_notes,
+      total:total_amount,
       aircraft:aircraft_id (id, tail_number, make, model, serial_number, year),
       customer:customer_id (id, name, email, company, billing_address),
       lines:work_order_lines (*),

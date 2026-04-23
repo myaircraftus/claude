@@ -191,6 +191,60 @@ BEHAVIOR RULES:
 
 type AskPersona = 'owner' | 'mechanic'
 
+async function resolveCanonicalAircraftId(
+  supabase: ReturnType<typeof createServerSupabase>,
+  organizationId: string,
+  aircraftId?: string
+) {
+  if (!aircraftId) return undefined
+
+  const { data: currentAircraft } = await supabase
+    .from('aircraft')
+    .select('id, tail_number, make, model')
+    .eq('id', aircraftId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (!currentAircraft?.tail_number) {
+    return aircraftId
+  }
+
+  const { data: siblingAircraft } = await supabase
+    .from('aircraft')
+    .select('id, tail_number, make, model')
+    .eq('organization_id', organizationId)
+    .eq('tail_number', currentAircraft.tail_number)
+    .eq('is_archived', false)
+
+  if (!Array.isArray(siblingAircraft) || siblingAircraft.length <= 1) {
+    return aircraftId
+  }
+
+  const siblingIds = siblingAircraft.map((row) => row.id)
+  const { data: docs } = await supabase
+    .from('documents')
+    .select('aircraft_id')
+    .in('aircraft_id', siblingIds)
+    .neq('parsing_status', 'failed')
+
+  const counts = new Map<string, number>()
+  for (const row of docs ?? []) {
+    const id = typeof row.aircraft_id === 'string' ? row.aircraft_id : null
+    if (!id) continue
+    counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+
+  const canonical = siblingAircraft.reduce((best, candidate) => {
+    const bestCount = counts.get(best.id) ?? 0
+    const candidateCount = counts.get(candidate.id) ?? 0
+    if (candidateCount > bestCount) return candidate
+    if (candidateCount === bestCount && candidate.id === aircraftId) return candidate
+    return best
+  })
+
+  return canonical.id
+}
+
 const OWNER_TOOL_NAMES: readonly AiToolName[] = [
   'search_documents',
   'search_logbook',
@@ -261,6 +315,11 @@ export async function POST(req: NextRequest) {
     requestedPersona === 'mechanic' && MECHANIC_ELIGIBLE_ROLES.has(String(membership.role))
       ? 'mechanic'
       : 'owner'
+  const resolvedAircraftId = await resolveCanonicalAircraftId(
+    supabase,
+    orgContext.organizationId,
+    aircraft_id
+  )
   const conversation_history: Array<{ role: 'user' | 'assistant'; content: string }> =
     Array.isArray(body.conversation_history) ? body.conversation_history.slice(-10) : []
 
@@ -276,7 +335,7 @@ export async function POST(req: NextRequest) {
     {
       role: 'user',
       content: aircraft_id
-        ? `[Context: aircraft_id=${aircraft_id}]\n\n${question}`
+        ? `[Context: aircraft_id=${resolvedAircraftId ?? aircraft_id}]\n\n${question}`
         : question,
     },
   ]
@@ -332,8 +391,8 @@ export async function POST(req: NextRequest) {
         try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
 
         // Inject aircraft_id from context if not provided
-        if (!args.aircraft_id && aircraft_id) {
-          args.aircraft_id = aircraft_id
+        if (!args.aircraft_id && resolvedAircraftId) {
+          args.aircraft_id = resolvedAircraftId
         }
 
         toolCallsMade.push(tc.function.name)
