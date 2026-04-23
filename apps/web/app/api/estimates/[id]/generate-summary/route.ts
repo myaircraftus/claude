@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import OpenAI from 'openai'
-
-async function getOrgMembership(supabase: any, userId: string) {
-  const { data } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, role')
-    .eq('user_id', userId)
-    .not('accepted_at', 'is', null)
-    .single()
-  return data ?? null
-}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -31,18 +22,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rl = rateLimit(`estimate-summary:${ip}`, { limit: 5, windowSeconds: 60 })
   if (!rl.success) return rateLimitResponse(rl)
 
-  const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const membership = await getOrgMembership(supabase, user.id)
-  if (!membership) return NextResponse.json({ error: 'No organization' }, { status: 403 })
-
-  if (!MECHANIC_AND_ABOVE.includes(membership.role)) {
+  const ctx = await resolveRequestOrgContext(req)
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const orgId = membership.organization_id
+  const supabase = createServerSupabase()
+  const orgId = ctx.organizationId
 
   // Fetch estimate + line items + aircraft + customer
   const { data: estimate, error: estError } = await supabase
