@@ -110,6 +110,9 @@ export default async function ReviewQueuePage({
           ad_references,
           part_numbers,
           confidence_overall,
+          confidence_date,
+          confidence_tach,
+          confidence_mechanic,
           review_status
         )
       `)

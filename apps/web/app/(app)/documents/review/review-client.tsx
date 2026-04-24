@@ -81,6 +81,82 @@ function formatClassification(raw: string | null | undefined) {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Tiny pill that shows the engine's confidence for a specific field.
+// Clicking the badge is not required — it's a signal for which fields to
+// scrutinize when handwriting is poor.
+function ConfidenceBadge({ value, label }: { value: number | null | undefined; label?: string }) {
+  if (value == null) return null
+  const band = confidenceBand(value)
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none',
+        band === 'high' && 'border-green-200 bg-green-50 text-green-700',
+        band === 'medium' && 'border-amber-200 bg-amber-50 text-amber-700',
+        band === 'low' && 'border-orange-200 bg-orange-50 text-orange-700',
+        band === 'critical' && 'border-red-200 bg-red-50 text-red-700',
+      )}
+      title={`Per-field OCR confidence${label ? ' for ' + label : ''}`}
+    >
+      {pct(value)}
+    </span>
+  )
+}
+
+// Horizontal stepper shown at each review card: Extracted → Arbitrated → Reviewing → Canonical.
+// Current stage glows; completed stages are filled; future stages are outlined.
+function CanonicalProgress({
+  arbitrationStatus,
+  isResolved,
+  evidenceState,
+}: {
+  arbitrationStatus: string | null | undefined
+  isResolved: boolean
+  evidenceState: string | null | undefined
+}) {
+  const arbitrated = Boolean(arbitrationStatus) && arbitrationStatus !== 'pending'
+  const canonical = isResolved && evidenceState === 'canonical_candidate'
+  const stages: Array<{ key: string; label: string; state: 'done' | 'active' | 'todo' }> = [
+    { key: 'extracted', label: 'Extracted', state: 'done' },
+    { key: 'arbitrated', label: 'Arbitrated', state: arbitrated ? 'done' : 'active' },
+    { key: 'reviewing', label: 'Reviewing', state: isResolved ? 'done' : arbitrated ? 'active' : 'todo' },
+    { key: 'canonical', label: 'Canonical', state: canonical ? 'done' : isResolved ? 'active' : 'todo' },
+  ]
+  return (
+    <div className="mt-2 flex items-center gap-1 text-[10px] font-medium">
+      {stages.map((s, i) => (
+        <div key={s.key} className="flex items-center gap-1">
+          <div
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 leading-none',
+              s.state === 'done' && 'border-green-300 bg-green-50 text-green-700',
+              s.state === 'active' && 'border-brand-300 bg-brand-50 text-brand-700 ring-2 ring-brand-200',
+              s.state === 'todo' && 'border-border bg-muted/30 text-muted-foreground',
+            )}
+          >
+            {s.state === 'done' ? (
+              <CheckCircle2 className="h-2.5 w-2.5" />
+            ) : s.state === 'active' ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <Clock className="h-2.5 w-2.5" />
+            )}
+            {s.label}
+          </div>
+          {i < stages.length - 1 && (
+            <div
+              className={cn(
+                'h-px w-3',
+                s.state === 'done' ? 'bg-green-300' : 'bg-border',
+              )}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── Per-field comparison table ───────────────────────────────────────────────
 
 function FieldComparisonTable({
@@ -705,14 +781,20 @@ function QueueItemCard({
             ))}
           </div>
         )}
+
+        <CanonicalProgress
+          arbitrationStatus={arbStatus}
+          isResolved={item.status === 'resolved' || item.status === 'skipped'}
+          evidenceState={segment.evidence_state ?? classification.evidence_state}
+        />
       </CardHeader>
 
       {expanded && (
         <CardContent className="pt-0">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-            {/* ── LEFT: raw text + multi-engine candidates ─────────────────── */}
-            <div className="space-y-4">
+            {/* ── LEFT: page image stays in view, raw text + candidates scroll with it ─ */}
+            <div className="space-y-4 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1">
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   <span>Page Image</span>
@@ -877,14 +959,15 @@ function QueueItemCard({
               {/* Date */}
               <div>
                 <label className={cn(
-                  'block text-xs font-medium mb-1',
+                  'flex items-center gap-1.5 text-xs font-medium mb-1',
                   fieldResults['entry_date']?.validationStatus === 'invalid' ? 'text-red-600' :
                   fieldResults['entry_date']?.validationStatus === 'suspicious' ? 'text-amber-600' :
                   'text-muted-foreground'
                 )}>
                   Date
+                  <ConfidenceBadge value={event.confidence_date} label="date" />
                   {fieldResults['entry_date']?.validationNotes && (
-                    <span className="ml-1.5 font-normal">({fieldResults['entry_date'].validationNotes})</span>
+                    <span className="ml-0.5 font-normal">({fieldResults['entry_date'].validationNotes})</span>
                   )}
                 </label>
                 <input
@@ -898,14 +981,15 @@ function QueueItemCard({
               {/* Tach / TT */}
               <div>
                 <label className={cn(
-                  'block text-xs font-medium mb-1',
+                  'flex items-center gap-1.5 text-xs font-medium mb-1',
                   fieldResults['tach_time']?.validationStatus === 'invalid' ? 'text-red-600' :
                   fieldResults['tach_time']?.validationStatus === 'suspicious' ? 'text-amber-600' :
                   'text-muted-foreground'
                 )}>
                   Tach / TT (hours)
+                  <ConfidenceBadge value={event.confidence_tach} label="tach" />
                   {fieldResults['tach_time']?.validationNotes && (
-                    <span className="ml-1.5 font-normal">({fieldResults['tach_time'].validationNotes})</span>
+                    <span className="ml-0.5 font-normal">({fieldResults['tach_time'].validationNotes})</span>
                   )}
                 </label>
                 <input
@@ -920,7 +1004,10 @@ function QueueItemCard({
 
               {/* Work description */}
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Work Description</label>
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+                  Work Description
+                  <ConfidenceBadge value={event.confidence_overall} label="overall" />
+                </label>
                 <textarea
                   value={fields.work_description}
                   onChange={(e) => update('work_description', e.target.value)}
@@ -932,7 +1019,10 @@ function QueueItemCard({
               {/* Mechanic */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">Mechanic Name</label>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+                    Mechanic Name
+                    <ConfidenceBadge value={event.confidence_mechanic} label="mechanic" />
+                  </label>
                   <input
                     type="text"
                     value={fields.mechanic_name}
