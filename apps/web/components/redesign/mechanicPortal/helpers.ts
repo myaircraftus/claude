@@ -23,6 +23,9 @@ export const threadColor = (type: string) => ({
 
 export const invoiceStatusColor = (s: string) => ({ Draft: "bg-slate-100 text-slate-600", Sent: "bg-slate-100 text-slate-700", Paid: "bg-slate-800 text-white", Overdue: "bg-slate-200 text-slate-700" }[s] || "bg-slate-100 text-slate-600");
 
+export const isFaaTemporarilyUnavailable = (error?: string | null) =>
+  Boolean(error && /unavailable|unreachable|timed out|returned 4|returned 5|forbidden|rate limit/i.test(error));
+
 export const normalizeCustomerIdentity = (...values: Array<string | null | undefined>) =>
   values
     .map((value) =>
