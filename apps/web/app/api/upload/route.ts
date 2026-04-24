@@ -93,10 +93,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
-  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
+  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic']
   if (!ALLOWED_ROLES.includes(requestContext.role)) {
     return NextResponse.json(
-      { error: 'Insufficient permissions. Pilot, mechanic, or higher required.' },
+      { error: 'Insufficient permissions. Mechanic or higher required.' },
       { status: 403 }
     )
   }
