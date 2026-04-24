@@ -13,10 +13,15 @@ const OCR_BATCH_SIZE = 6
 const OCR_MAX_OUTPUT_TOKENS = 12000
 const OCR_TEXT_ENRICH_BATCH_SIZE = 8
 const OCR_TEXT_ENRICH_MAX_CHARS = 12000
-const DOCUMENT_AI_TIMEOUT_MS = 90_000
-const DOCUMENT_AI_MAX_PAGES_PER_REQUEST = 15
+// Handwritten multi-page batches (esp. logbook scans) regularly blow past 90s.
+// 180s per batch + 10 pages/batch keeps each call well under the Document AI
+// sync-processing ceiling while giving slow handwritten pages real headroom.
+const DOCUMENT_AI_TIMEOUT_MS = 180_000
+const DOCUMENT_AI_MAX_PAGES_PER_REQUEST = 10
 const DOCUMENT_AI_MAX_ONLINE_FILE_BYTES = 40 * 1024 * 1024
 const DOCUMENT_AI_TARGET_BATCH_BYTES = 38 * 1024 * 1024
+const DOCUMENT_AI_BATCH_MAX_RETRIES = 2
+const DOCUMENT_AI_BATCH_RETRY_DELAY_MS = 3_000
 const OCR_TEXT_ENRICH_TIMEOUT_MS = 45_000
 const OPENAI_OCR_BATCH_TIMEOUT_MS = 75_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
@@ -1370,8 +1375,44 @@ async function parseScannedPdfWithDocumentAi(args: {
       return (await response.json()) as DocumentAiProcessResponse
     }
 
+    // Document AI sync processing is flaky on dense handwritten batches — a
+    // single transient 5xx or per-batch timeout would otherwise kill the entire
+    // document. Retry a few times with a short backoff before giving up.
+    const runWithRetries = async (includeSchemaOverride: boolean) => {
+      let lastError: unknown = null
+      for (let attempt = 0; attempt <= DOCUMENT_AI_BATCH_MAX_RETRIES; attempt += 1) {
+        try {
+          return await runProcessRequest(includeSchemaOverride)
+        } catch (error) {
+          lastError = error
+          const message = error instanceof Error ? error.message : String(error)
+          const name = error instanceof Error ? error.name : ''
+          const retryable =
+            name === 'TimeoutError' ||
+            name === 'AbortError' ||
+            /timeout|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message) ||
+            /returned 5\d\d/.test(message) ||
+            /returned 429/.test(message)
+          if (!retryable || attempt === DOCUMENT_AI_BATCH_MAX_RETRIES) {
+            throw error
+          }
+          console.warn('[ingestion] Document AI batch transient failure, retrying', {
+            batch: chunkContext.currentBatch,
+            totalBatches: chunkContext.totalBatches,
+            attempt: attempt + 1,
+            maxAttempts: DOCUMENT_AI_BATCH_MAX_RETRIES + 1,
+            error: message,
+          })
+          await new Promise((resolve) =>
+            setTimeout(resolve, DOCUMENT_AI_BATCH_RETRY_DELAY_MS * (attempt + 1))
+          )
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError))
+    }
+
     try {
-      return await runProcessRequest(Boolean(schemaOverride))
+      return await runWithRetries(Boolean(schemaOverride))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (schemaOverride && isUnsupportedDocumentAiSchemaOverrideMessage(message)) {
@@ -1382,7 +1423,7 @@ async function parseScannedPdfWithDocumentAi(args: {
             totalBatches: chunkContext.totalBatches,
           }
         )
-        return runProcessRequest(false)
+        return runWithRetries(false)
       }
       throw error
     }
