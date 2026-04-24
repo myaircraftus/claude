@@ -97,11 +97,14 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '100', 10)
   const offset = parseInt(searchParams.get('offset') ?? '0', 10)
 
+  // DB column is preferred_communication; expose as preferred_contact for UI compat.
   let query = supabase
     .from('customers')
     .select(`
       id, name, company, email, phone, secondary_email, secondary_phone,
-      billing_address, notes, preferred_contact, tags, portal_access,
+      billing_address, notes,
+      preferred_contact:preferred_communication,
+      tags, portal_access,
       imported_at, import_source, created_at, updated_at,
       aircraft_customer_assignments (
         id, aircraft_id, relationship, is_primary,

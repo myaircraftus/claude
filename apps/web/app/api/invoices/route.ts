@@ -16,10 +16,13 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '100', 10)
   const offset = parseInt(searchParams.get('offset') ?? '0', 10)
 
+  // DB column is issue_date; expose as invoice_date for UI compat.
   let query = supabase
     .from('invoices')
     .select(`
-      id, invoice_number, status, invoice_date, due_date,
+      id, invoice_number, status,
+      invoice_date:issue_date,
+      due_date,
       subtotal, tax_rate, tax_amount, total,
       amount_paid, balance_due, notes,
       sent_at, paid_at, created_at,
