@@ -173,7 +173,16 @@ function omitKeys<T extends Record<string, unknown>>(row: T, keys: Set<string>) 
 
 function normalizeValidatedDate(value: string | null | undefined) {
   const normalized = validateOcrField('entry_date', value ?? null).normalized ?? null
-  return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+  const [y, m, d] = normalized.split('-').map(Number)
+  // Reject impossible calendar dates (e.g. OCR reading "1975-02-30"). Postgres
+  // would reject these on INSERT and abort the entire document's ingestion, so
+  // we drop the date — the event still lands in the review queue for a human.
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return null
+  }
+  return normalized
 }
 
 function isDeadlockError(error: unknown) {
