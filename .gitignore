@@ -78,3 +78,6 @@ docs/*-key.json
 .env.*.local
 # Added by code-review-graph
 .code-review-graph/
+
+# Personal session notes (not repo history)
+TOMORROW.md
