@@ -628,14 +628,23 @@ async function insertCanonicalChunksFromTextNative(args: {
     .from('canonical_document_chunks')
     .upsert(rows, { onConflict: 'document_id,chunk_index' })
 
-  const { data: insertedChunks, error } = await args.supabase
-    .from('canonical_document_chunks')
-    .select('id, chunk_index')
-    .eq('document_id', args.document.id)
-    .order('chunk_index', { ascending: true })
+  // Page through all rows to avoid the PostgREST default 1000-row cap.
+  const insertedChunks: Array<{ id: string; chunk_index: number }> = []
+  const CHUNK_PAGE_SIZE = 1000
+  for (let from = 0; ; from += CHUNK_PAGE_SIZE) {
+    const { data: page, error } = await args.supabase
+      .from('canonical_document_chunks')
+      .select('id, chunk_index')
+      .eq('document_id', args.document.id)
+      .order('chunk_index', { ascending: true })
+      .range(from, from + CHUNK_PAGE_SIZE - 1)
 
-  if (error || !insertedChunks) {
-    throw new Error(`Failed to fetch canonical chunks: ${error?.message ?? 'unknown error'}`)
+    if (error) {
+      throw new Error(`Failed to fetch canonical chunks: ${error.message}`)
+    }
+    if (!page || page.length === 0) break
+    insertedChunks.push(...(page as Array<{ id: string; chunk_index: number }>))
+    if (page.length < CHUNK_PAGE_SIZE) break
   }
 
   await insertCanonicalEmbeddingsCompat({
@@ -1131,20 +1140,28 @@ async function persistOcrArtifacts(args: {
     await batchInsert(args.supabase, 'ocr_entry_segments', segmentRows, 100)
   }
 
-  const { data: insertedSegments, error: segmentsError } = await args.supabase
-    .from('ocr_entry_segments')
-    .select(
-      'id, ocr_page_job_id, page_number, segment_index, segment_group_key, evidence_state, canonical_candidate, segment_type, confidence, metadata_json'
-    )
-    .eq('document_id', args.document.id)
-    .order('page_number', { ascending: true })
-    .order('segment_index', { ascending: true })
+  // Page through all segments — avoid the PostgREST default 1000-row cap.
+  const segmentRowsTyped: InsertedSegmentRow[] = []
+  const SEGMENT_PAGE_SIZE = 1000
+  for (let from = 0; ; from += SEGMENT_PAGE_SIZE) {
+    const { data: page, error: segmentsError } = await args.supabase
+      .from('ocr_entry_segments')
+      .select(
+        'id, ocr_page_job_id, page_number, segment_index, segment_group_key, evidence_state, canonical_candidate, segment_type, confidence, metadata_json'
+      )
+      .eq('document_id', args.document.id)
+      .order('page_number', { ascending: true })
+      .order('segment_index', { ascending: true })
+      .range(from, from + SEGMENT_PAGE_SIZE - 1)
 
-  if (segmentsError) {
-    throw new Error(`Failed to fetch OCR entry segments: ${segmentsError.message}`)
+    if (segmentsError) {
+      throw new Error(`Failed to fetch OCR entry segments: ${segmentsError.message}`)
+    }
+    const typedPage = (page as InsertedSegmentRow[] | null) ?? []
+    if (typedPage.length === 0) break
+    segmentRowsTyped.push(...typedPage)
+    if (typedPage.length < SEGMENT_PAGE_SIZE) break
   }
-
-  const segmentRowsTyped = (insertedSegments as InsertedSegmentRow[] | null) ?? []
   const localKeyToId = new Map<string, string>()
 
   for (const row of segmentRowsTyped) {
@@ -1726,14 +1743,26 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
 
     await batchInsert(supabase, 'document_chunks', chunkRows, 50)
 
-    const { data: insertedChunks, error: chunksError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_index')
-      .eq('document_id', documentId)
-      .order('chunk_index', { ascending: true })
+    // PostgREST caps SELECT at 1000 rows by default — very large scanned docs
+    // (200+ pages = 3-5k chunks) were silently losing 70%+ of embeddings
+    // because only the first 1000 chunk IDs made it into chunkIdsByIndex.
+    // Page through all chunks explicitly.
+    const insertedChunks: Array<{ id: string; chunk_index: number }> = []
+    const CHUNK_PAGE_SIZE = 1000
+    for (let from = 0; ; from += CHUNK_PAGE_SIZE) {
+      const { data: page, error: chunksError } = await supabase
+        .from('document_chunks')
+        .select('id, chunk_index')
+        .eq('document_id', documentId)
+        .order('chunk_index', { ascending: true })
+        .range(from, from + CHUNK_PAGE_SIZE - 1)
 
-    if (chunksError || !insertedChunks) {
-      throw new Error(`Failed to fetch inserted chunks: ${chunksError?.message ?? 'unknown error'}`)
+      if (chunksError) {
+        throw new Error(`Failed to fetch inserted chunks: ${chunksError.message}`)
+      }
+      if (!page || page.length === 0) break
+      insertedChunks.push(...(page as Array<{ id: string; chunk_index: number }>))
+      if (page.length < CHUNK_PAGE_SIZE) break
     }
 
     processingState = markDocumentProcessingStage(processingState, 'chunking', 'completed', {
