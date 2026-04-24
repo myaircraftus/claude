@@ -110,40 +110,111 @@ export async function inviteCustomerOwner(args: InviteCustomerArgs): Promise<Inv
       const inviterName = (args.inviterDisplayName ?? '').trim()
       const orgName = (args.orgDisplayName ?? '').trim()
       const fromParty = orgName || inviterName || 'Your maintenance shop'
+      const firstName = (customerName || '').split(' ')[0] || 'there'
+      const logoUrl = 'https://www.myaircraft.us/redesign/MY_AIRCRAFT_LOGO.svg'
 
-      const subject = `${fromParty} invited you to coordinate your aircraft on myaircraft.us`
+      const subject = `Welcome to myaircraft — ${fromParty} invited you`
 
-      const html = `
-<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
-    <div style="background:white;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;">
-      <div style="padding:24px;border-bottom:1px solid #e5e7eb;">
-        <h1 style="margin:0;font-size:20px;color:#111827;">Hi ${customerName || 'there'},</h1>
-        <p style="margin:6px 0 0;font-size:14px;color:#6b7280;">You have been invited to myaircraft.us by ${fromParty}.</p>
-      </div>
-      <div style="padding:24px;">
-        <p style="font-size:14px;color:#374151;line-height:1.55;">
-          This is where your aircraft coordination with your mechanic happens — see approvals, invoices, logbook entries, squawks, and messages in one place.
-        </p>
-        <p style="font-size:14px;color:#374151;line-height:1.55;">
-          Click below to claim your account and start a <strong>30-day free trial</strong>. No credit card required.
-        </p>
-        <div style="text-align:center;margin:24px 0;">
-          <a href="${inviteUrl}" style="display:inline-block;padding:12px 32px;background-color:#3b82f6;color:white;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px;">
-            Claim your account
-          </a>
-        </div>
-        <p style="font-size:12px;color:#9ca3af;text-align:center;">
-          Or copy this link: ${inviteUrl}
-        </p>
-      </div>
-    </div>
-    <p style="text-align:center;margin-top:24px;font-size:12px;color:#9ca3af;">
-      Questions? <a href="mailto:info@myaircraft.us" style="color:#6b7280;">info@myaircraft.us</a>
-    </p>
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>${subject}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+    ${fromParty} invited you to myaircraft — coordinate maintenance, approvals, logbooks, and messages in one place. 30-day free trial, no card.
   </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr><td align="center" style="padding:0 0 20px;">
+          <img src="${logoUrl}" alt="myaircraft" width="180" style="display:block;border:0;outline:none;max-width:180px;height:auto;" />
+        </td></tr>
+        <tr><td style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);background-color:#1e40af;border-radius:16px 16px 0 0;padding:36px 32px;color:#ffffff;">
+          <p style="margin:0 0 6px;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#bfdbfe;font-weight:600;">
+            You're invited
+          </p>
+          <h1 style="margin:0 0 10px;font-size:26px;line-height:1.25;font-weight:700;color:#ffffff;">
+            Hi ${firstName} — welcome to myaircraft.
+          </h1>
+          <p style="margin:0;font-size:15px;line-height:1.55;color:#dbeafe;">
+            ${fromParty} uses myaircraft to coordinate aircraft maintenance with owners like you. Accept this invite to get your own workspace — logbooks, approvals, invoices, and messages, all in one place.
+          </p>
+        </td></tr>
+        <tr><td style="background:#ffffff;padding:32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td align="center" style="padding:0 0 28px;">
+              <a href="${inviteUrl}" style="display:inline-block;padding:14px 36px;background:#1e40af;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;letter-spacing:0.01em;box-shadow:0 4px 12px rgba(30,64,175,0.25);">
+                Claim your account
+              </a>
+              <p style="margin:14px 0 0;font-size:13px;color:#64748b;">
+                30-day free trial &middot; No credit card required
+              </p>
+            </td></tr>
+            <tr><td style="padding:4px 0 8px;">
+              <p style="margin:0;font-size:13px;color:#475569;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;">
+                What you get
+              </p>
+            </td></tr>
+            <tr><td style="padding:0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="40" valign="top" style="padding:12px 12px 0 0;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:18px;line-height:36px;text-align:center;font-weight:700;">&#10003;</div>
+                  </td>
+                  <td valign="top" style="padding:12px 0 0;">
+                    <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#0f172a;">Every answer, cited to the page</p>
+                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Ask your logbooks, POH, AFM, and maintenance records anything. Answers come back with the exact page reference.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="40" valign="top" style="padding:12px 12px 0 0;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:#ecfeff;color:#0e7490;font-size:18px;line-height:36px;text-align:center;font-weight:700;">&#9992;</div>
+                  </td>
+                  <td valign="top" style="padding:12px 0 0;">
+                    <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#0f172a;">One place for your aircraft</p>
+                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Logbook entries, squawks, work orders, invoices, and estimates from ${fromParty} — approve or question each one in the same thread.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="40" valign="top" style="padding:12px 12px 0 0;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:#f0fdf4;color:#15803d;font-size:18px;line-height:36px;text-align:center;font-weight:700;">&#128274;</div>
+                  </td>
+                  <td valign="top" style="padding:12px 0 0;">
+                    <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#0f172a;">Your records, your control</p>
+                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Everything stays in your own workspace. Export anything, revoke mechanic access any time.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="40" valign="top" style="padding:12px 12px 0 0;">
+                    <div style="width:36px;height:36px;border-radius:10px;background:#fef3c7;color:#b45309;font-size:18px;line-height:36px;text-align:center;font-weight:700;">&#9733;</div>
+                  </td>
+                  <td valign="top" style="padding:12px 0 0;">
+                    <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#0f172a;">Built for GA owners &amp; A&amp;Ps</p>
+                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">FAA 337s, 8130s, ADs, SBs, annual and 100-hour cycles — recognised and organised automatically.</p>
+                  </td>
+                </tr>
+              </table>
+            </td></tr>
+            <tr><td style="padding:28px 0 0;">
+              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.55;">
+                Button not working?
+                <a href="${inviteUrl}" style="color:#1d4ed8;text-decoration:none;font-weight:600;">Open your invite &rarr;</a>
+              </p>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="background:#0f172a;border-radius:0 0 16px 16px;padding:24px 32px;text-align:center;color:#94a3b8;font-size:12px;line-height:1.6;">
+          Questions? Reply to this email or reach us at
+          <a href="mailto:info@myaircraft.us" style="color:#cbd5e1;text-decoration:none;">info@myaircraft.us</a>.<br />
+          <span style="color:#64748b;">&copy; myaircraft.us &middot; Made for aircraft owners and the mechanics who keep them flying.</span>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>`
 
