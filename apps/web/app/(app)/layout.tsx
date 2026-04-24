@@ -1,4 +1,5 @@
 import { AppLayout } from '@/components/redesign/AppLayout'
+import { BillingBanner } from '@/components/billing/BillingBanner'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import type { ReactNode } from 'react'
 
@@ -7,6 +8,7 @@ export default async function AppShellLayout({ children }: { children: ReactNode
 
   return (
     <AppLayout userName={profile.full_name ?? profile.email ?? 'Owner'}>
+      <BillingBanner />
       {children}
     </AppLayout>
   )

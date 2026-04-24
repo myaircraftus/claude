@@ -229,6 +229,17 @@ export function Dashboard() {
   const docValue = docCountTotal > 0 ? docCountTotal.toLocaleString() : "—";
   const spendValue = invoices.length > 0 ? (formatCurrency(totalSpend) ?? "$0") : "—";
   const hasSpendData = monthlySpend.some((d) => d.v > 0);
+  const spendTrend = useMemo(() => {
+    const n = monthlySpend.length;
+    if (n < 2) return null;
+    const current = monthlySpend[n - 1].v;
+    const prior = monthlySpend[n - 2].v;
+    if (current === 0 && prior === 0) return null;
+    if (prior === 0) return { direction: "up" as const, pct: null };
+    const pct = Math.round(((current - prior) / prior) * 100);
+    if (pct === 0) return { direction: "flat" as const, pct: 0 };
+    return { direction: pct > 0 ? ("up" as const) : ("down" as const), pct: Math.abs(pct) };
+  }, [monthlySpend]);
   const hasWorkOrderHistory = monthlyWorkOrders.some((d) => d.wo > 0);
 
   const workOrderStatusDist = useMemo(() => {
@@ -538,7 +549,15 @@ export function Dashboard() {
             </div>
             <div className="text-right">
               <div className="text-[22px] text-foreground tracking-tight" style={{ fontWeight: 800 }}>${(totalSpend / 1000).toFixed(1)}K</div>
-              <div className="text-[11px] text-emerald-600" style={{ fontWeight: 500 }}>↓ 8% vs last period</div>
+              {spendTrend && (
+                <div
+                  className={`text-[11px] ${spendTrend.direction === "up" ? "text-amber-600" : spendTrend.direction === "down" ? "text-emerald-600" : "text-muted-foreground"}`}
+                  style={{ fontWeight: 500 }}
+                >
+                  {spendTrend.direction === "up" ? "↑" : spendTrend.direction === "down" ? "↓" : "→"}{" "}
+                  {spendTrend.pct === null ? "new spend" : `${spendTrend.pct}% vs prior month`}
+                </div>
+              )}
             </div>
           </div>
           {hasSpendData ? (

@@ -8,6 +8,7 @@ import {
   type ChecklistTemplateOverrides,
 } from '@/lib/work-orders/checklists'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -49,6 +50,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req, { includeOrganization: true })
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  try {
+    await requireActiveBilling(ctx.organizationId)
+  } catch (err) {
+    if (err instanceof BillingBlockedError) {
+      return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+    }
+    throw err
+  }
 
   const supabase = createServerSupabase()
   const orgId = ctx.organizationId

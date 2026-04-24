@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies, headers } from 'next/headers'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { inviteCustomerOwner } from '@/lib/invitations/customer'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 
 interface OrganizationRecord {
   id: string
@@ -134,6 +136,15 @@ export async function POST(req: NextRequest) {
   if (orgError) return NextResponse.json({ error: orgError.message }, { status: 500 })
   if (!organizationId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
 
+  try {
+    await requireActiveBilling(organizationId)
+  } catch (err) {
+    if (err instanceof BillingBlockedError) {
+      return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+    }
+    throw err
+  }
+
   const body = await req.json()
 
   if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
@@ -187,5 +198,28 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Auto-invite the owner to coordinate on myaircraft — fire-and-forget, never blocks the response
+  const customerEmail = (body.email ?? '').trim()
+  if (customerEmail && data?.id) {
+    const service = createServiceSupabase()
+    const [{ data: orgRow }, { data: profileRow }] = await Promise.all([
+      service.from('organizations').select('name').eq('id', organizationId).maybeSingle(),
+      service.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle(),
+    ])
+
+    inviteCustomerOwner({
+      customerId: data.id,
+      customerName: data.name ?? body.name.trim(),
+      customerEmail,
+      invitedByOrgId: organizationId,
+      invitedByUserId: user.id,
+      orgDisplayName: orgRow?.name ?? null,
+      inviterDisplayName: profileRow?.full_name ?? null,
+    }).catch((err) => {
+      console.error('[customers.POST] auto-invite failed', err)
+    })
+  }
+
   return NextResponse.json(data, { status: 201 })
 }

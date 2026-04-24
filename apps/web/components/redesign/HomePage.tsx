@@ -1338,7 +1338,7 @@ export function HomePage() {
                     ))}
                   </div>
                   <Link href="/signup" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#2563EB] to-[#1d4ed8] text-white py-4 rounded-2xl hover:shadow-xl hover:shadow-blue-300/40 transition-all text-[15px] shadow-lg" style={{ fontWeight: 700 }}>
-                    Start Free 14-Day Trial <ArrowRight className="w-4 h-4" />
+                    Start Free 30-Day Trial <ArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               </div>
@@ -1392,7 +1392,7 @@ export function HomePage() {
                     ))}
                   </div>
                   <Link href="/signup" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#1E3A5F] to-[#0A1628] text-white py-4 rounded-2xl hover:shadow-xl hover:shadow-slate-300/40 transition-all text-[15px] shadow-lg" style={{ fontWeight: 700 }}>
-                    Start Free 14-Day Trial <ArrowRight className="w-4 h-4" />
+                    Start Free 30-Day Trial <ArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               </div>
@@ -1402,7 +1402,7 @@ export function HomePage() {
           {/* Bottom trust */}
           <FadeIn delay={0.3} className="text-center mt-10">
             <div className="flex flex-wrap items-center justify-center gap-6">
-              {["14-day free trial", "No credit card required", "Cancel anytime", "On-site scanning — FREE"].map((t) => (
+              {["30-day free trial", "No credit card required", "Cancel anytime", "On-site scanning — FREE"].map((t) => (
                 <div key={t} className="flex items-center gap-2 text-[13px] text-gray-500">
                   <CheckCircle className="w-4 h-4 text-emerald-500" />
                   {t}
@@ -1518,7 +1518,7 @@ export function HomePage() {
               </Link>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-6 text-[13px] text-blue-100">
-              {["$99/aircraft/mo · $79 annual", "$99/mechanic/mo · $79 annual", "14-day free trial", "Cancel anytime"].map((t) => (
+              {["$99/aircraft/mo · $79 annual", "$99/mechanic/mo · $79 annual", "30-day free trial", "Cancel anytime"].map((t) => (
                 <div key={t} className="flex items-center gap-1.5">
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-300" />
                   {t}

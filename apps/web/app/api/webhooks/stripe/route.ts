@@ -15,6 +15,7 @@ const PLAN_LIMITS: Record<string, {
   pro: { plan: 'pro', aircraft: 5, storage_gb: 20, queries: 1000 },
   fleet: { plan: 'fleet', aircraft: 25, storage_gb: 100, queries: 10000 },
   enterprise: { plan: 'enterprise', aircraft: 9999, storage_gb: 1000, queries: 999999 },
+  per_aircraft: { plan: 'per_aircraft', aircraft: 9999, storage_gb: 100, queries: 10000 },
 }
 
 // Map Stripe price IDs to plan names (configure in dashboard)
@@ -46,8 +47,15 @@ export async function POST(req: NextRequest) {
         const sub = event.data.object as Stripe.Subscription
         const customerId = sub.customer as string
         const priceId = sub.items.data[0]?.price.id
-        const planName = PRICE_TO_PLAN[priceId] ?? 'starter'
-        const limits = PLAN_LIMITS[planName]
+        const isPerAircraft = priceId === process.env.STRIPE_PRICE_PER_AIRCRAFT
+        const planName = PRICE_TO_PLAN[priceId] ?? (isPerAircraft ? 'per_aircraft' : 'starter')
+        const limits = PLAN_LIMITS[planName] ?? PLAN_LIMITS['pro']
+        const stripeStatus = sub.status
+        const mappedStatus =
+          stripeStatus === 'active' || stripeStatus === 'trialing' ? 'active'
+          : stripeStatus === 'past_due' ? 'past_due'
+          : stripeStatus === 'canceled' ? 'cancelled'
+          : 'paywalled'
 
         await supabase
           .from('organizations')
@@ -57,6 +65,9 @@ export async function POST(req: NextRequest) {
             plan_storage_gb: limits.storage_gb,
             plan_queries_monthly: limits.queries,
             stripe_subscription_id: sub.id,
+            subscription_status: mappedStatus,
+            billing_model: isPerAircraft ? 'per_aircraft' : 'fixed',
+            paywalled_reason: mappedStatus === 'paywalled' ? 'payment_failed' : null,
           })
           .eq('stripe_customer_id', customerId)
         break
@@ -75,6 +86,8 @@ export async function POST(req: NextRequest) {
             plan_storage_gb: limits.storage_gb,
             plan_queries_monthly: limits.queries,
             stripe_subscription_id: null,
+            subscription_status: 'cancelled',
+            paywalled_reason: 'subscription_cancelled',
           })
           .eq('stripe_customer_id', customerId)
         break

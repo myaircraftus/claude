@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -47,6 +48,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  try {
+    await requireActiveBilling(ctx.organizationId)
+  } catch (err) {
+    if (err instanceof BillingBlockedError) {
+      return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+    }
+    throw err
+  }
 
   const supabase = createServerSupabase()
   const orgId = ctx.organizationId
@@ -132,7 +142,7 @@ export async function POST(req: NextRequest) {
       work_order_id,
       thread_id,
       status: 'draft',
-      invoice_date: today,
+      issue_date: today,
       due_date: dueDate,
       subtotal,
       tax_rate,
@@ -140,7 +150,6 @@ export async function POST(req: NextRequest) {
       discount_amount,
       total,
       amount_paid: 0,
-      balance_due: total,
       notes: body.notes ?? null,
       internal_notes: body.internal_notes ?? null,
       payment_terms: body.payment_terms ?? 'Net 30',

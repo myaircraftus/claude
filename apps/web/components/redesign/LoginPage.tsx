@@ -166,7 +166,7 @@ export function LoginPage() {
             {[
               { val: "50K+", label: "Documents Indexed" },
               { val: "99.9%", label: "Uptime SLA" },
-              { val: "14-day", label: "Free Trial" },
+              { val: "30-day", label: "Free Trial" },
             ].map((stat) => (
               <div key={stat.val}>
                 <div className="text-white text-[20px] tracking-tight" style={{ fontWeight: 800 }}>{stat.val}</div>
@@ -313,7 +313,7 @@ export function LoginPage() {
           <p className="text-center text-[13px] text-[#64748b]">
             Don&apos;t have an account?{" "}
             <Link href="/signup?preview=1" className="text-[#2563EB] hover:underline" style={{ fontWeight: 600 }}>
-              Start free 14-day trial
+              Start free 30-day trial
             </Link>
           </p>
 

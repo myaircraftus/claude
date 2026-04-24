@@ -247,6 +247,27 @@ export function SettingsPage() {
   const [profileLicenseNumber, setProfileLicenseNumber] = useState(activeMechanic.licenseNumber ?? "");
   const [profileSaved, setProfileSaved] = useState(false);
 
+  // Owner profile (fetched from /api/me)
+  const [ownerProfileName, setOwnerProfileName] = useState("");
+  const [ownerProfileEmail, setOwnerProfileEmail] = useState("");
+  const [ownerProfileJobTitle, setOwnerProfileJobTitle] = useState("");
+  const [ownerProfileAvatarUrl, setOwnerProfileAvatarUrl] = useState<string | null>(null);
+  const [ownerProfileHandle, setOwnerProfileHandle] = useState("");
+  const [ownerProfilePersona, setOwnerProfilePersona] = useState<string | null>(null);
+  const [ownerProfileLoading, setOwnerProfileLoading] = useState(false);
+  const [ownerProfileSaving, setOwnerProfileSaving] = useState(false);
+  const [ownerProfileSaved, setOwnerProfileSaved] = useState(false);
+  const [ownerProfileError, setOwnerProfileError] = useState<string | null>(null);
+  const [handleStatus, setHandleStatus] = useState<
+    | { kind: "idle" }
+    | { kind: "checking" }
+    | { kind: "available"; handle: string }
+    | { kind: "unavailable"; message: string }
+  >({ kind: "idle" });
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
   // Modals
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -285,6 +306,170 @@ export function SettingsPage() {
   const logbookInputRef = useRef<HTMLInputElement | null>(null);
 
   const validTab = tabs.find((t) => t.label === activeTab) ? activeTab : tabs[0].label;
+
+  useEffect(() => {
+    if (persona === "mechanic") return;
+
+    let cancelled = false;
+
+    async function loadOwnerProfile() {
+      setOwnerProfileLoading(true);
+      setOwnerProfileError(null);
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(payload?.error ?? `HTTP ${res.status}`);
+        }
+        if (cancelled) return;
+        setOwnerProfileName(payload?.profile?.full_name ?? "");
+        setOwnerProfileEmail(payload?.profile?.email ?? payload?.user?.email ?? "");
+        setOwnerProfileJobTitle(payload?.profile?.job_title ?? "");
+        setOwnerProfileAvatarUrl(payload?.profile?.avatar_url ?? null);
+        setOwnerProfileHandle(payload?.profile?.handle ?? "");
+        setOwnerProfilePersona(payload?.profile?.persona ?? null);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load profile", error);
+          setOwnerProfileError(
+            error instanceof Error ? error.message : "Failed to load profile."
+          );
+        }
+      } finally {
+        if (!cancelled) setOwnerProfileLoading(false);
+      }
+    }
+
+    loadOwnerProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [persona]);
+
+  useEffect(() => {
+    const trimmed = ownerProfileHandle.trim().toLowerCase();
+    if (!trimmed || trimmed === (ownerProfileHandle && handleStatus.kind === "idle" ? ownerProfileHandle.toLowerCase() : "")) {
+      // idle when empty or equal to current persisted
+    }
+    if (!trimmed) { setHandleStatus({ kind: "idle" }); return; }
+    setHandleStatus({ kind: "checking" });
+    const controller = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/me/handle-available?handle=${encodeURIComponent(trimmed)}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const payload = await res.json().catch(() => null);
+        if (!payload) return;
+        if (payload.available) {
+          setHandleStatus({ kind: "available", handle: payload.handle });
+        } else {
+          setHandleStatus({
+            kind: "unavailable",
+            message: payload.message ?? "Handle is not available.",
+          });
+        }
+      } catch (err) {
+        if ((err as Error)?.name !== "AbortError") {
+          setHandleStatus({ kind: "unavailable", message: "Could not check availability." });
+        }
+      }
+    }, 400);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [ownerProfileHandle]);
+
+  async function handleSaveOwnerProfile() {
+    setOwnerProfileSaving(true);
+    setOwnerProfileError(null);
+    try {
+      const body: Record<string, string> = {
+        full_name: ownerProfileName,
+        job_title: ownerProfileJobTitle,
+      };
+      if (handleStatus.kind === "available") {
+        body.handle = handleStatus.handle;
+      }
+      const res = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      }
+      setOwnerProfileName(payload?.profile?.full_name ?? "");
+      setOwnerProfileJobTitle(payload?.profile?.job_title ?? "");
+      if (payload?.profile?.handle) {
+        setOwnerProfileHandle(payload.profile.handle);
+        setHandleStatus({ kind: "idle" });
+      }
+      setOwnerProfileSaved(true);
+      setTimeout(() => setOwnerProfileSaved(false), 3000);
+    } catch (error) {
+      console.error("Failed to save profile", error);
+      setOwnerProfileError(
+        error instanceof Error ? error.message : "Failed to save profile."
+      );
+    } finally {
+      setOwnerProfileSaving(false);
+    }
+  }
+
+  async function handleAvatarFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Please choose an image file (PNG, JPG, WEBP, or GIF).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError("Image must be under 5 MB.");
+      return;
+    }
+    setAvatarUploading(true);
+    setAvatarError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/me/avatar", { method: "POST", body });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      }
+      setOwnerProfileAvatarUrl(payload?.profile?.avatar_url ?? null);
+    } catch (error) {
+      console.error("Failed to upload avatar", error);
+      setAvatarError(
+        error instanceof Error ? error.message : "Failed to upload photo."
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarUploading(true);
+    setAvatarError(null);
+    try {
+      const res = await fetch("/api/me/avatar", { method: "DELETE" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      }
+      setOwnerProfileAvatarUrl(null);
+    } catch (error) {
+      console.error("Failed to remove avatar", error);
+      setAvatarError(
+        error instanceof Error ? error.message : "Failed to remove photo."
+      );
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
   useEffect(() => {
     if (!tabs.find((t) => t.label === "Organization")) return;
@@ -575,19 +760,61 @@ export function SettingsPage() {
                 <h2 className="text-[16px] text-foreground mb-5" style={{ fontWeight: 600 }}>Profile Settings</h2>
                 <div className="space-y-4 max-w-md">
                   <div className="flex items-center gap-4 mb-4">
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-[22px] ${
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center overflow-hidden text-[22px] ${
                       persona === "mechanic" ? activeMechanic.color : "bg-primary/10"
                     }`} style={{ fontWeight: 700 }}>
-                      {persona === "mechanic" ? activeMechanic.initials : <User className="w-7 h-7 text-primary" />}
+                      {persona === "owner" && ownerProfileAvatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={ownerProfileAvatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                      ) : persona === "mechanic" ? (
+                        activeMechanic.initials
+                      ) : (
+                        <User className="w-7 h-7 text-primary" />
+                      )}
                     </div>
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
-                        {persona === "mechanic" ? activeMechanic.name : "John Mitchell"}
+                        {persona === "mechanic"
+                          ? activeMechanic.name
+                          : (ownerProfileName || ownerProfileEmail || "Set your name")}
                       </div>
                       <div className="text-[12px] text-muted-foreground">
-                        {persona === "mechanic" ? activeMechanic.role : "Owner / Operator"}
+                        {persona === "mechanic"
+                          ? activeMechanic.role
+                          : (ownerProfileJobTitle || "Owner / Operator")}
                       </div>
-                      <button className="text-[12px] text-primary mt-1" style={{ fontWeight: 500 }}>Change photo</button>
+                      {persona === "owner" && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            ref={avatarInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                            onChange={handleAvatarFileSelected}
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => avatarInputRef.current?.click()}
+                            disabled={avatarUploading || ownerProfileLoading}
+                            className="text-[11px] text-primary hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                          >
+                            {avatarUploading && <Loader2 className="w-3 h-3 animate-spin" />}
+                            {ownerProfileAvatarUrl ? "Change photo" : "Upload photo"}
+                          </button>
+                          {ownerProfileAvatarUrl && !avatarUploading && (
+                            <button
+                              type="button"
+                              onClick={handleAvatarRemove}
+                              className="text-[11px] text-muted-foreground hover:text-red-600"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {avatarError && (
+                        <div className="text-[11px] text-red-600 mt-1">{avatarError}</div>
+                      )}
                     </div>
                   </div>
 
@@ -671,20 +898,105 @@ export function SettingsPage() {
                     </>
                   ) : (
                     <>
-                      {[
-                        { label: "Full Name", value: "John Mitchell" },
-                        { label: "Email", value: "john@example.com" },
-                        { label: "Phone", value: "+1 (555) 123-4567" },
-                        { label: "Role", value: "Owner / Operator", disabled: true },
-                      ].map((f) => (
-                        <div key={f.label}>
-                          <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>{f.label}</label>
-                          <input type="text" defaultValue={f.value}
-                            disabled={"disabled" in f ? f.disabled : false}
-                            className="w-full border border-border rounded-lg px-3 py-2 text-[13px] bg-muted/20 outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50" />
+                      <div>
+                        <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>Full Name</label>
+                        <input
+                          type="text"
+                          value={ownerProfileName}
+                          onChange={(e) => setOwnerProfileName(e.target.value)}
+                          disabled={ownerProfileLoading || ownerProfileSaving}
+                          placeholder={ownerProfileLoading ? "Loading…" : "Your full name"}
+                          className="w-full border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>Email</label>
+                        <input
+                          type="email"
+                          value={ownerProfileEmail}
+                          disabled
+                          className="w-full border border-border rounded-lg px-3 py-2 text-[13px] bg-muted/20 outline-none disabled:opacity-60"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Email is managed by your sign-in. Contact support to change it.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>Job Title</label>
+                        <input
+                          type="text"
+                          value={ownerProfileJobTitle}
+                          onChange={(e) => setOwnerProfileJobTitle(e.target.value)}
+                          disabled={ownerProfileLoading || ownerProfileSaving}
+                          placeholder="e.g. Owner / Operator"
+                          className="w-full border border-border rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>
+                          Your public URL
+                        </label>
+                        <div className="flex items-stretch border border-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary/20">
+                          <span className="px-3 py-2 text-[12px] text-muted-foreground bg-muted/30 border-r border-border whitespace-nowrap">
+                            myaircraft.us/{ownerProfilePersona === "mechanic" ? "mechanic" : "owner"}/
+                          </span>
+                          <input
+                            type="text"
+                            value={ownerProfileHandle}
+                            onChange={(e) => setOwnerProfileHandle(e.target.value.toLowerCase())}
+                            disabled={ownerProfileLoading || ownerProfileSaving}
+                            placeholder="your-handle"
+                            spellCheck={false}
+                            className="flex-1 px-3 py-2 text-[13px] outline-none disabled:opacity-50"
+                          />
                         </div>
-                      ))}
-                      <button className="bg-primary text-white px-4 py-2 rounded-lg text-[13px] mt-2" style={{ fontWeight: 500 }}>Save Changes</button>
+                        <div className="mt-1 text-[11px] min-h-[14px]">
+                          {handleStatus.kind === "checking" && (
+                            <span className="text-muted-foreground inline-flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" /> Checking availability…
+                            </span>
+                          )}
+                          {handleStatus.kind === "available" && (
+                            <span className="text-emerald-700">✓ Available</span>
+                          )}
+                          {handleStatus.kind === "unavailable" && (
+                            <span className="text-red-600">{handleStatus.message}</span>
+                          )}
+                          {handleStatus.kind === "idle" && ownerProfileHandle && (
+                            <span className="text-muted-foreground">
+                              3–32 chars, lowercase letters / numbers / dashes.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[12px] text-muted-foreground mb-1" style={{ fontWeight: 500 }}>Role</label>
+                        <input
+                          type="text"
+                          value="Owner / Operator"
+                          disabled
+                          className="w-full border border-border rounded-lg px-3 py-2 text-[13px] bg-muted/20 outline-none disabled:opacity-60"
+                        />
+                      </div>
+                      {ownerProfileError && (
+                        <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[12px]">
+                          <AlertTriangle className="w-3.5 h-3.5" /> {ownerProfileError}
+                        </div>
+                      )}
+                      {ownerProfileSaved && (
+                        <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-[12px]">
+                          <CheckCircle className="w-3.5 h-3.5" /> Profile saved successfully
+                        </div>
+                      )}
+                      <button
+                        onClick={handleSaveOwnerProfile}
+                        disabled={ownerProfileLoading || ownerProfileSaving}
+                        className="bg-primary text-white px-5 py-2 rounded-lg text-[13px] mt-2 hover:bg-primary/90 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                        style={{ fontWeight: 600 }}
+                      >
+                        {ownerProfileSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        Save Changes
+                      </button>
                     </>
                   )}
                 </div>

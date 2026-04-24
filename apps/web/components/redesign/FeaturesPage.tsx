@@ -274,7 +274,7 @@ export function FeaturesPage() {
               <Plane className="w-7 h-7 text-[#60a5fa]" />
             </div>
             <h2 className="text-white text-[36px] mb-4" style={{ fontWeight: 800 }}>Ready to fly smarter?</h2>
-            <p className="text-white/45 text-[16px] mb-8">14-day free trial. Free on-site scanning. Cancel anytime.</p>
+            <p className="text-white/45 text-[16px] mb-8">30-day free trial. Free on-site scanning. Cancel anytime.</p>
             <div className="flex items-center justify-center gap-4 flex-wrap">
               <Link href="/signup" className="inline-flex items-center gap-2 bg-[#2563EB] hover:bg-[#1d4ed8] text-white px-8 py-3.5 rounded-xl text-[15px] transition-all shadow-xl shadow-blue-900/40" style={{ fontWeight: 700 }}>
                 Start Free Trial <ArrowRight className="w-4 h-4" />

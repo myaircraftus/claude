@@ -176,6 +176,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
   }
 
+  // Role-scoped doc_type enforcement:
+  // Owner-only doc types (aircraft identity / ownership records) can only be uploaded by
+  // an organization owner/admin, OR a user with persona='owner' (dual role).
+  const OWNER_ONLY_DOC_TYPES: DocType[] = [
+    'logbook', 'poh', 'afm', 'afm_supplement', 'insurance', 'lease_ownership',
+  ]
+  if (OWNER_ONLY_DOC_TYPES.includes(docType as DocType)) {
+    const orgRole = requestContext.role
+    const isOrgOwnerOrAdmin = orgRole === 'owner' || orgRole === 'admin'
+    if (!isOrgOwnerOrAdmin) {
+      const { data: uploaderPersonaRow } = await serviceClient
+        .from('user_profiles')
+        .select('persona')
+        .eq('id', user.id)
+        .maybeSingle()
+      const hasOwnerPersona = uploaderPersonaRow?.persona === 'owner'
+      if (!hasOwnerPersona) {
+        await serviceClient.storage.from('documents').remove([storagePath])
+        return NextResponse.json(
+          {
+            error:
+              'Only aircraft owners can upload this document type. Mechanics must have an owner profile and active subscription to upload aircraft logbooks, POH/AFM, insurance, or ownership documents.',
+            code: 'OWNER_ROLE_REQUIRED',
+            doc_type: docType,
+          },
+          { status: 403 }
+        )
+      }
+    }
+  }
+
   if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
     return NextResponse.json(
       { error: 'Invalid structured document classification selected.' },

@@ -63,6 +63,12 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Public vanity profile pages: /owner/{handle} and /mechanic/{handle}
+  // (signed-in portal = exact /mechanic; onboarding stays protected)
+  if (isPublicHandlePath(effectivePathname)) {
+    return supabaseResponse
+  }
+
   // Protect app routes
   if (effectivePathname.startsWith('/(app)') || isAppRoute(effectivePathname)) {
     if (!user) {
@@ -122,6 +128,16 @@ function isAppRoute(pathname: string): boolean {
 function isAuthRoute(pathname: string): boolean {
   const authRoutes = ['/login', '/signin', '/signup', '/forgot-password']
   return authRoutes.some(route => pathname === route)
+}
+
+const HANDLE_RE = /^[a-z0-9][a-z0-9-]{2,31}$/
+
+function isPublicHandlePath(pathname: string): boolean {
+  const match = pathname.match(/^\/(owner|mechanic)\/([^/]+)\/?$/)
+  if (!match) return false
+  const handle = match[2].toLowerCase()
+  if (handle === 'onboarding') return false
+  return HANDLE_RE.test(handle)
 }
 
 export const config = {

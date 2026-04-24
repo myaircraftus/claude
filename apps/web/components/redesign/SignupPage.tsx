@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plane, Lock, Eye, EyeOff, CheckCircle, Shield, Wrench, Users, Star, ChevronRight } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
@@ -39,6 +39,16 @@ const personas = [
   },
 ];
 
+interface InviteInfo {
+  token: string;
+  email: string;
+  name: string | null;
+  inviter_org_name: string | null;
+  inviter_user_name: string | null;
+  consumable: boolean;
+  expired: boolean;
+}
+
 export function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState("owner");
@@ -49,11 +59,61 @@ export function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams?.get("invite") ?? null;
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    let cancelled = false;
+    setInviteLoading(true);
+    setInviteError("");
+    fetch(`/api/customer-invitations/${encodeURIComponent(inviteToken)}`)
+      .then(async (r) => {
+        const json = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok || !json?.invitation) {
+          setInviteError(json?.error ?? "Invitation not found.");
+          return;
+        }
+        const inv = json.invitation as InviteInfo;
+        setInvite(inv);
+        if (!inv.consumable) {
+          setInviteError(
+            inv.expired
+              ? "This invitation has expired. Ask your mechanic for a new link."
+              : "This invitation has already been used."
+          );
+        } else {
+          setSelectedPersona("owner");
+          if (inv.email) setEmail(inv.email);
+          if (inv.name && !firstName) {
+            const parts = inv.name.trim().split(/\s+/);
+            setFirstName(parts[0] ?? "");
+            if (parts.length > 1) setLastName(parts.slice(1).join(" "));
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInviteError("Could not load invitation. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setInviteLoading(false);
+      });
+    return () => { cancelled = true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
 
   const handleCreate = async (event?: FormEvent) => {
     event?.preventDefault();
-    const onboardingPath = getOnboardingPathForPersona(selectedPersona);
+    const activePersona = invite?.consumable ? "owner" : selectedPersona;
+    const onboardingPath = getOnboardingPathForPersona(activePersona);
+    const onboardingWithInvite = invite?.consumable
+      ? `${onboardingPath}?invited=1`
+      : onboardingPath;
 
     if (!email || !password) {
       setError("Please enter an email and password.");
@@ -70,15 +130,19 @@ export function SignupPage() {
 
     try {
       const supabase = createBrowserSupabase();
+      const callbackNext = invite?.consumable
+        ? `${onboardingPath}?invited=1&invite=${encodeURIComponent(inviteToken!)}`
+        : onboardingPath;
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(onboardingPath)}`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackNext)}`,
           data: {
             first_name: firstName,
             last_name: lastName,
-            persona: selectedPersona,
+            persona: activePersona,
+            invite_token: invite?.consumable ? inviteToken : undefined,
           },
         },
       });
@@ -94,13 +158,22 @@ export function SignupPage() {
       }
 
       if (data.session) {
-        router.push(onboardingPath);
+        if (invite?.consumable && inviteToken) {
+          try {
+            await fetch(`/api/customer-invitations/${encodeURIComponent(inviteToken)}/accept`, {
+              method: "POST",
+            });
+          } catch (acceptErr) {
+            console.error("invite accept failed", acceptErr);
+          }
+        }
+        router.push(onboardingWithInvite);
         return;
       }
 
       const next = new URLSearchParams({
         signup: "success",
-        redirect: onboardingPath,
+        redirect: onboardingWithInvite,
         email,
       });
       router.push(`/login?${next.toString()}`);
@@ -136,7 +209,7 @@ export function SignupPage() {
             <div className="mb-8">
               <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-400/30 rounded-full px-3.5 py-1.5 mb-5">
                 <Star className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-300 text-[11px]" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>14-DAY FREE TRIAL — NO CARD NEEDED</span>
+                <span className="text-emerald-300 text-[11px]" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>30-DAY FREE TRIAL — NO CARD NEEDED</span>
               </div>
               <h2 className="text-white text-[36px] tracking-tight mb-4" style={{ fontWeight: 800, lineHeight: 1.15 }}>
                 Start organizing<br />
@@ -169,7 +242,7 @@ export function SignupPage() {
             {/* Trust indicators */}
             <div className="grid grid-cols-3 gap-3 border-t border-white/10 pt-6">
               {[
-                { val: "Free", label: "14-day trial" },
+                { val: "Free", label: "30-day trial" },
                 { val: "$0", label: "Scanning cost" },
                 { val: "∞", label: "Team members" },
               ].map((stat) => (
@@ -200,8 +273,23 @@ export function SignupPage() {
 
           <div className="mb-7">
             <h1 className="text-[28px] tracking-tight text-[#0A1628] mb-1.5" style={{ fontWeight: 800 }}>Create your account</h1>
-            <p className="text-[14px] text-[#64748b]">14-day free trial · No credit card required</p>
+            <p className="text-[14px] text-[#64748b]">30-day free trial · No credit card required</p>
           </div>
+
+          {inviteToken ? (
+            <div className="mb-5 px-4 py-3.5 rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] text-[#1E3A5F] text-[13px]">
+              {inviteLoading ? (
+                <>Loading invitation…</>
+              ) : inviteError ? (
+                <><strong>Invitation issue:</strong> {inviteError}</>
+              ) : invite?.consumable ? (
+                <>
+                  <strong>{invite.inviter_org_name || invite.inviter_user_name || "Your mechanic"}</strong> has
+                  invited you to coordinate your aircraft on myaircraft. Finish your account to get started.
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* Persona selector */}
           <div className="mb-5">
@@ -269,8 +357,12 @@ export function SignupPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="w-full border border-[rgba(15,23,42,0.12)] rounded-xl px-4 py-3 text-[14px] bg-[#f8f9fb] focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] outline-none transition-all text-[#0A1628] placeholder-[#94a3b8]"
+                readOnly={!!invite?.consumable}
+                className={`w-full border border-[rgba(15,23,42,0.12)] rounded-xl px-4 py-3 text-[14px] bg-[#f8f9fb] focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] outline-none transition-all text-[#0A1628] placeholder-[#94a3b8] ${invite?.consumable ? "cursor-not-allowed opacity-80" : ""}`}
               />
+              {invite?.consumable ? (
+                <p className="text-[11px] text-[#64748b] mt-1">Your invitation was sent to this email address.</p>
+              ) : null}
             </div>
             <div>
               <label className="block text-[13px] text-[#0A1628] mb-1.5" style={{ fontWeight: 600 }}>Password</label>
