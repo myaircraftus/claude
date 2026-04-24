@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { PersonaOnboardingFlow } from '@/components/onboarding/persona-onboarding-flow'
 
-export default function OwnerOnboardingPage() {
+function InviteAutoAccept() {
   const searchParams = useSearchParams()
   const inviteToken = searchParams?.get('invite') ?? null
 
@@ -15,5 +15,16 @@ export default function OwnerOnboardingPage() {
     }).catch(() => {})
   }, [inviteToken])
 
-  return <PersonaOnboardingFlow persona="owner" />
+  return null
+}
+
+export default function OwnerOnboardingPage() {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <InviteAutoAccept />
+      </Suspense>
+      <PersonaOnboardingFlow persona="owner" />
+    </>
+  )
 }
