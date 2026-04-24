@@ -113,7 +113,7 @@ export async function inviteCustomerOwner(args: InviteCustomerArgs): Promise<Inv
       const firstName = (customerName || '').split(' ')[0] || 'there'
       const logoUrl = 'https://www.myaircraft.us/redesign/MY_AIRCRAFT_LOGO.svg'
 
-      const subject = `Welcome to myaircraft — ${fromParty} invited you`
+      const subject = `myaircraft invited you — your aircraft, all in one place`
 
       const html = `<!DOCTYPE html>
 <html lang="en">
@@ -125,7 +125,7 @@ export async function inviteCustomerOwner(args: InviteCustomerArgs): Promise<Inv
 </head>
 <body style="margin:0;padding:0;background:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
-    ${fromParty} invited you to myaircraft — coordinate maintenance, approvals, logbooks, and messages in one place. 30-day free trial, no card.
+    myaircraft invited you — coordinate maintenance, approvals, logbooks, and messages with ${fromParty} in one place. 30-day free trial, no card.
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:32px 16px;">
     <tr><td align="center">
@@ -135,13 +135,13 @@ export async function inviteCustomerOwner(args: InviteCustomerArgs): Promise<Inv
         </td></tr>
         <tr><td style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);background-color:#1e40af;border-radius:16px 16px 0 0;padding:36px 32px;color:#ffffff;">
           <p style="margin:0 0 6px;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#bfdbfe;font-weight:600;">
-            You're invited
+            myaircraft has invited you
           </p>
           <h1 style="margin:0 0 10px;font-size:26px;line-height:1.25;font-weight:700;color:#ffffff;">
-            Hi ${firstName} — welcome to myaircraft.
+            Your aircraft, all in one place.
           </h1>
           <p style="margin:0;font-size:15px;line-height:1.55;color:#dbeafe;">
-            ${fromParty} uses myaircraft to coordinate aircraft maintenance with owners like you. Accept this invite to get your own workspace — logbooks, approvals, invoices, and messages, all in one place.
+            Hi ${firstName} — myaircraft is the workspace that owners and mechanics use to coordinate maintenance, approvals, logbooks, and messages. ${fromParty} is already on myaircraft and will be able to collaborate with you once you claim your account.
           </p>
         </td></tr>
         <tr><td style="background:#ffffff;padding:32px;">
@@ -176,7 +176,7 @@ export async function inviteCustomerOwner(args: InviteCustomerArgs): Promise<Inv
                   </td>
                   <td valign="top" style="padding:12px 0 0;">
                     <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#0f172a;">One place for your aircraft</p>
-                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Logbook entries, squawks, work orders, invoices, and estimates from ${fromParty} — approve or question each one in the same thread.</p>
+                    <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">Logbook entries, squawks, work orders, invoices, and estimates — approve or question each one in the same thread with your mechanic.</p>
                   </td>
                 </tr>
                 <tr>
