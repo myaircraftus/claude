@@ -52,6 +52,32 @@ function asStringArray(value: unknown) {
   return []
 }
 
+// Map canonicalized event_type → maintenance_entry_drafts.entry_type
+// (kept loose; drafts table is free-form; from-draft re-maps to logbook entry_type)
+function draftEntryTypeFromEvent(eventType: string | null | undefined): string {
+  if (!eventType) return 'maintenance'
+  const t = eventType.toLowerCase()
+  if (t.includes('annual')) return 'annual'
+  if (t.includes('100') && t.includes('hour')) return '100hr'
+  if (t.includes('100hr')) return '100hr'
+  if (t.includes('ad')) return 'ad_compliance'
+  if (t.includes('oil')) return 'oil_change'
+  if (t.includes('repair')) return 'repair'
+  if (t.includes('overhaul')) return 'overhaul'
+  if (t.includes('alteration')) return 'repair'
+  return 'maintenance'
+}
+
+function draftLogbookType(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const t = raw.toLowerCase()
+  if (t === 'airframe' || t === 'airframe_log') return 'airframe'
+  if (t === 'engine' || t === 'engine_log') return 'engine'
+  if (t === 'prop' || t === 'prop_log') return 'prop'
+  if (t === 'avionics') return 'avionics'
+  return null
+}
+
 function normalizeTruthState(raw: string | null | undefined) {
   if (raw === 'informational_only') return 'informational_only' as const
   if (raw === 'non_canonical_evidence') return 'non_canonical_evidence' as const
@@ -688,6 +714,58 @@ export async function POST(req: NextRequest) {
         linked_maintenance_event_id: maintenanceEventId,
       })
       .eq('id', event.id)
+  }
+
+  // Create a maintenance_entry_drafts row for each newly-approved event so the
+  // reviewer can finalize it to a logbook_entry via /api/logbook-entries/from-draft.
+  // Idempotent: skip if a draft already points at this source event.
+  if (event?.id && aircraftId && truthState === 'canonical' && snapshot.event_date && snapshot.description) {
+    const { data: existingDraft } = await service
+      .from('maintenance_entry_drafts')
+      .select('id')
+      .eq('organization_id', orgId)
+      .contains('structured_fields', { source_event_id: event.id })
+      .maybeSingle()
+
+    if (!existingDraft) {
+      const { error: draftErr } = await service
+        .from('maintenance_entry_drafts')
+        .insert({
+          organization_id: orgId,
+          aircraft_id: aircraftId,
+          created_by: user.id,
+          entry_type: draftEntryTypeFromEvent(snapshot.event_type),
+          logbook_type: draftLogbookType(base.logbook_type),
+          ai_generated_text: snapshot.description,
+          status: 'pending',
+          structured_fields: {
+            source_event_id: event.id,
+            source_page_id: resolvedPageId,
+            source_segment_id: targetSegment?.id ?? null,
+            source_maintenance_event_id: maintenanceEventId,
+            entry_type: snapshot.event_type,
+            logbook_type: base.logbook_type ?? null,
+            date: snapshot.event_date,
+            tach_time: snapshot.tach_time,
+            airframe_tt: snapshot.airframe_tt,
+            tsmoh: snapshot.tsmoh,
+            ata_chapter: snapshot.ata_chapter,
+            part_numbers: snapshot.part_numbers ?? [],
+            parts_used: snapshot.part_numbers ?? [],
+            ad_references: adRefs,
+            far_references: base.far_references ?? [],
+            manual_references: base.manual_references ?? [],
+            mechanic_name: snapshot.mechanic_name,
+            mechanic_cert_number: snapshot.mechanic_cert,
+            cert_number: snapshot.mechanic_cert,
+            ia_number: snapshot.ia_cert_number,
+          },
+        })
+
+      if (draftErr) {
+        console.error('[canonicalize] draft create failed:', draftErr.message)
+      }
+    }
   }
 
   await service.from('maintenance_entry_evidence').insert({
