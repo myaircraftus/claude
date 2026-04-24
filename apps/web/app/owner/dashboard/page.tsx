@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { ApprovalButtons } from '@/components/owner/approval-buttons'
+import { ThreadPanel } from '@/components/portal/thread-panel'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -262,8 +263,9 @@ export default async function OwnerDashboardPage() {
 
         {orgIds.map((orgId) => {
           const orgCustomers = customersByOrg.get(orgId) ?? []
-          const shopName = orgCustomers[0]?.organizations?.name ?? 'Maintenance shop'
-          const shopSlug = orgCustomers[0]?.organizations?.slug ?? null
+          const primaryCustomer = orgCustomers[0]
+          const shopName = primaryCustomer?.organizations?.name ?? 'Maintenance shop'
+          const shopSlug = primaryCustomer?.organizations?.slug ?? null
           const shopAircraft = Array.from(aircraftById.values()).filter(
             (a) => a.organization_id === orgId
           )
@@ -314,6 +316,16 @@ export default async function OwnerDashboardPage() {
                       </div>
                     )
                   })}
+                </div>
+              )}
+              {primaryCustomer && (
+                <div className="mt-4">
+                  <ThreadPanel
+                    apiBase="/api/owner"
+                    customerId={primaryCustomer.id}
+                    viewerRole="owner"
+                    heading={`Messages with ${shopName}`}
+                  />
                 </div>
               )}
             </section>
