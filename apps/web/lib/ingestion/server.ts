@@ -320,81 +320,89 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
     }
   }
 
-  const { data: pageJobs, error: pageJobsError } = await supabase
-    .from('ocr_page_jobs')
-    .select('id')
-    .eq('document_id', documentId)
-
-  if (pageJobsError) {
-    throw new Error(`Failed to load OCR page jobs for cleanup: ${pageJobsError.message}`)
-  }
-
-  const pageJobIds = (pageJobs as Array<{ id: string }> | null)?.map((page) => page.id) ?? []
-
-  if (pageJobIds.length > 0) {
-    const [
-      { data: extractedEvents, error: extractedEventsError },
-      { data: segments, error: segmentsError },
-    ] = await Promise.all([
-      supabase
-        .from('ocr_extracted_events')
-        .select('id')
-        .in('ocr_page_job_id', pageJobIds),
-      supabase
-        .from('ocr_entry_segments')
-        .select('id')
-        .in('ocr_page_job_id', pageJobIds),
-    ])
-
-    if (extractedEventsError) {
-      throw new Error(`Failed to load OCR extracted events for cleanup: ${extractedEventsError.message}`)
-    }
-
-    if (segmentsError) {
-      throw new Error(`Failed to load OCR entry segments for cleanup: ${segmentsError.message}`)
-    }
-
-    const extractedEventIds =
-      (extractedEvents as Array<{ id: string }> | null)?.map((event) => event.id) ?? []
-    const segmentIds =
-      (segments as Array<{ id: string }> | null)?.map((segment) => segment.id) ?? []
-
-    if (extractedEventIds.length > 0) {
-      const { error } = await supabase
-        .from('review_queue_items')
-        .delete()
-        .in('ocr_extracted_event_id', extractedEventIds)
+  // Postgres + PostgREST reject `IN (...)` filters whose URL-encoded list
+  // grows too long — large OCR docs (200+ pages, thousands of segments) were
+  // hitting HTTP 400 mid-cleanup. Chunk the IDs so each DELETE stays bounded.
+  const DELETE_IN_CHUNK_SIZE = 200
+  async function runChunkedDeleteIn<T extends string>(
+    step: string,
+    ids: T[],
+    buildAction: (chunk: T[]) => Promise<{ error: { message: string } | null }>
+  ) {
+    if (ids.length === 0) return
+    for (let i = 0; i < ids.length; i += DELETE_IN_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + DELETE_IN_CHUNK_SIZE)
+      const { error } = await buildAction(chunk)
       if (error) {
-        throw new Error(`Failed to clear review queue items for extracted events: ${error.message}`)
+        throw new Error(`Failed to clear ${step}: ${error.message}`)
       }
     }
+  }
 
-    if (segmentIds.length > 0) {
-      await runDelete('review queue items for segments', () =>
-        supabase.from('review_queue_items').delete().in('ocr_entry_segment_id', segmentIds)
-      )
-      await runDelete('OCR segment field candidates', () =>
-        supabase.from('ocr_segment_field_candidates').delete().in('segment_id', segmentIds)
-      )
-      await runDelete('OCR segment conflicts', () =>
-        supabase.from('segment_conflicts').delete().in('segment_id', segmentIds)
-      )
+  // Page through results to avoid the PostgREST 1000-row cap.
+  async function fetchAllIds(
+    table: string,
+    filter: (query: any) => any,
+  ): Promise<string[]> {
+    const out: string[] = []
+    const SELECT_PAGE_SIZE = 1000
+    for (let from = 0; ; from += SELECT_PAGE_SIZE) {
+      const { data, error } = await filter(supabase.from(table).select('id'))
+        .range(from, from + SELECT_PAGE_SIZE - 1)
+      if (error) {
+        throw new Error(`Failed to load ${table} for cleanup: ${error.message}`)
+      }
+      const rows = (data as Array<{ id: string }> | null) ?? []
+      if (rows.length === 0) break
+      out.push(...rows.map((r) => r.id))
+      if (rows.length < SELECT_PAGE_SIZE) break
+    }
+    return out
+  }
+
+  const pageJobIds = await fetchAllIds('ocr_page_jobs', (q) => q.eq('document_id', documentId))
+
+  if (pageJobIds.length > 0) {
+    const extractedEventIds: string[] = []
+    const segmentIds: string[] = []
+    for (let i = 0; i < pageJobIds.length; i += 200) {
+      const chunk = pageJobIds.slice(i, i + 200)
+      const [events, segs] = await Promise.all([
+        fetchAllIds('ocr_extracted_events', (q) => q.in('ocr_page_job_id', chunk)),
+        fetchAllIds('ocr_entry_segments', (q) => q.in('ocr_page_job_id', chunk)),
+      ])
+      extractedEventIds.push(...events)
+      segmentIds.push(...segs)
     }
 
-    await runDelete('review queue items for pages', () =>
-      supabase.from('review_queue_items').delete().in('ocr_page_job_id', pageJobIds)
+    await runChunkedDeleteIn('review queue items for extracted events', extractedEventIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_extracted_event_id', chunk)
     )
-    await runDelete('extracted field candidates', () =>
-      supabase.from('extracted_field_candidates').delete().in('page_id', pageJobIds)
+
+    await runChunkedDeleteIn('review queue items for segments', segmentIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_entry_segment_id', chunk)
     )
-    await runDelete('field conflicts', () =>
-      supabase.from('field_conflicts').delete().in('page_id', pageJobIds)
+    await runChunkedDeleteIn('OCR segment field candidates', segmentIds, (chunk) =>
+      supabase.from('ocr_segment_field_candidates').delete().in('segment_id', chunk)
     )
-    await runDelete('OCR extracted events', () =>
-      supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', pageJobIds)
+    await runChunkedDeleteIn('OCR segment conflicts', segmentIds, (chunk) =>
+      supabase.from('segment_conflicts').delete().in('segment_id', chunk)
     )
-    await runDelete('OCR entry segments', () =>
-      supabase.from('ocr_entry_segments').delete().in('ocr_page_job_id', pageJobIds)
+
+    await runChunkedDeleteIn('review queue items for pages', pageJobIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_page_job_id', chunk)
+    )
+    await runChunkedDeleteIn('extracted field candidates', pageJobIds, (chunk) =>
+      supabase.from('extracted_field_candidates').delete().in('page_id', chunk)
+    )
+    await runChunkedDeleteIn('field conflicts', pageJobIds, (chunk) =>
+      supabase.from('field_conflicts').delete().in('page_id', chunk)
+    )
+    await runChunkedDeleteIn('OCR extracted events', pageJobIds, (chunk) =>
+      supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', chunk)
+    )
+    await runChunkedDeleteIn('OCR entry segments', pageJobIds, (chunk) =>
+      supabase.from('ocr_entry_segments').delete().in('ocr_page_job_id', chunk)
     )
     await runDelete('OCR page jobs', () =>
       supabase.from('ocr_page_jobs').delete().eq('document_id', documentId)
