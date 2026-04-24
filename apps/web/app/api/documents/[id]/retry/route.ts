@@ -9,6 +9,14 @@ import {
 import { reconcileDocumentProcessingStates } from '@/lib/documents/processing-health'
 import type { DocType } from '@/types'
 
+export const runtime = 'nodejs'
+// Manual retries run ingestion inline and synchronously block the HTTP
+// response. Very large scanned PDFs (200+ handwritten pages = 20+ Document AI
+// batches) need well beyond the default 10s. 800s is the Vercel Fluid Compute
+// ceiling on the Pro plan; the platform will downgrade this automatically if
+// the plan doesn't support it.
+export const maxDuration = 800
+
 // ─── Route context type ────────────────────────────────────────────────────────
 
 interface RouteContext {
