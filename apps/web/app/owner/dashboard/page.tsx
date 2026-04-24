@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { ApprovalButtons } from '@/components/owner/approval-buttons'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -232,8 +233,9 @@ export default async function OwnerDashboardPage() {
                     : item.kind === 'work_order'
                     ? 'Work order'
                     : 'Invoice'
+                const canAct = item.kind === 'estimate' || item.kind === 'work_order'
                 return (
-                  <div key={`${item.kind}-${item.id}`} className="p-4 flex items-center gap-4">
+                  <div key={`${item.kind}-${item.id}`} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-foreground">
                         {kindLabel} · {aircraft?.tail_number ?? 'aircraft'}
@@ -245,6 +247,12 @@ export default async function OwnerDashboardPage() {
                     <div className="text-sm font-semibold text-foreground">
                       {formatCurrency(item.total)}
                     </div>
+                    {canAct && (
+                      <ApprovalButtons
+                        kind={item.kind as 'estimate' | 'work_order'}
+                        id={item.id}
+                      />
+                    )}
                   </div>
                 )
               })}
