@@ -516,7 +516,44 @@ function MechanicPortalMock() {
 /* ══════════════════════════════════════════════════════════════════
    MAIN HOMEPAGE
 ══════════════════════════════════════════════════════════════════ */
-export function HomePage() {
+
+type BrandKit = Record<string, string>
+
+function brandPartnerLogo(kit: BrandKit | undefined, name: string, fallback: string) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  return kit?.[`partner_${slug}`] || fallback
+}
+
+function brandOemLogo(kit: BrandKit | undefined, mark: string) {
+  return kit?.[`oem_${mark}`] || null
+}
+
+function ytEmbedUrl(input: string): string | null {
+  if (!input) return null
+  try {
+    const u = new URL(input)
+    const h = u.hostname.replace(/^www\./, '')
+    if (h === 'youtu.be') return `https://www.youtube.com/embed/${u.pathname.slice(1)}`
+    if (h.endsWith('youtube.com') || h === 'youtube-nocookie.com') {
+      if (u.pathname === '/watch') {
+        const id = u.searchParams.get('v')
+        return id ? `https://www.youtube.com/embed/${id}` : null
+      }
+      if (u.pathname.startsWith('/embed/')) return u.toString()
+      if (u.pathname.startsWith('/shorts/')) {
+        const id = u.pathname.split('/')[2]
+        return id ? `https://www.youtube.com/embed/${id}` : null
+      }
+    }
+    if (h === 'vimeo.com' || h === 'player.vimeo.com') {
+      const id = u.pathname.split('/').filter(Boolean).pop()
+      return id && /^\d+$/.test(id) ? `https://player.vimeo.com/video/${id}` : null
+    }
+  } catch {}
+  return null
+}
+
+export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
   return (
     <div className="overflow-x-hidden">
 
@@ -644,37 +681,51 @@ export function HomePage() {
           {/* Scrolling brand ticker */}
           <div className="overflow-hidden mb-6">
             <motion.div className="flex gap-4 whitespace-nowrap" animate={{ x: ["0%", "-50%"] }} transition={{ duration: 28, repeat: Infinity, ease: "linear" }}>
-              {[...AIRCRAFT_BRANDS, ...AIRCRAFT_BRANDS].map((brand, i) => (
-                <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
-                  style={{ minWidth: 200, borderColor: brand.color + "28" }}>
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: brand.bg }}>
-                    <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+              {[...AIRCRAFT_BRANDS, ...AIRCRAFT_BRANDS].map((brand, i) => {
+                const customLogo = brandOemLogo(brandKit, brand.mark)
+                return (
+                  <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
+                    style={{ minWidth: 200, borderColor: brand.color + "28" }}>
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: brand.bg }}>
+                      {customLogo ? (
+                        <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
+                      ) : (
+                        <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
+                      <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
-                    <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </motion.div>
           </div>
 
           {/* Second row moving opposite direction */}
           <div className="overflow-hidden">
             <motion.div className="flex gap-4 whitespace-nowrap" animate={{ x: ["-50%", "0%"] }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}>
-              {[...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6), ...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6)].map((brand, i) => (
-                <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
-                  style={{ minWidth: 200, borderColor: brand.color + "28", background: brand.bg + "66" }}>
-                  <div className="w-10 h-10 rounded-lg bg-white border flex items-center justify-center shrink-0 shadow-sm"
-                    style={{ borderColor: brand.color + "30" }}>
-                    <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+              {[...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6), ...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6)].map((brand, i) => {
+                const customLogo = brandOemLogo(brandKit, brand.mark)
+                return (
+                  <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
+                    style={{ minWidth: 200, borderColor: brand.color + "28", background: brand.bg + "66" }}>
+                    <div className="w-10 h-10 rounded-lg bg-white border flex items-center justify-center shrink-0 shadow-sm"
+                      style={{ borderColor: brand.color + "30" }}>
+                      {customLogo ? (
+                        <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
+                      ) : (
+                        <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
+                      <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
-                    <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </motion.div>
           </div>
 
@@ -703,31 +754,34 @@ export function HomePage() {
           </FadeIn>
 
           <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
-            {TECH_PARTNERS.map((partner, i) => (
-              <FadeIn key={partner.name} delay={i * 0.08}>
-                <div className={`bg-gradient-to-br ${partner.bg} border ${partner.border} rounded-2xl p-4 text-center hover:shadow-xl transition-all group cursor-default`}>
-                  <div className="flex items-center justify-center h-12 mb-3">
-                    <img
-                      src={partner.logoUrl}
-                      alt={partner.name}
-                      className="w-10 h-10 object-contain rounded-xl group-hover:scale-110 transition-transform"
-                      onError={(e) => {
-                        const t = e.currentTarget;
-                        t.style.display = "none";
-                        const sibling = t.nextElementSibling as HTMLElement;
-                        if (sibling) sibling.style.display = "flex";
-                      }}
-                    />
-                    <div className="w-10 h-10 rounded-xl bg-white/70 items-center justify-center text-[20px] hidden group-hover:scale-110 transition-transform"
-                      style={{ display: "none" }}>
-                      {partner.name.charAt(0)}
+            {TECH_PARTNERS.map((partner, i) => {
+              const logoSrc = brandPartnerLogo(brandKit, partner.name, partner.logoUrl)
+              return (
+                <FadeIn key={partner.name} delay={i * 0.08}>
+                  <div className={`bg-gradient-to-br ${partner.bg} border ${partner.border} rounded-2xl p-4 text-center hover:shadow-xl transition-all group cursor-default`}>
+                    <div className="flex items-center justify-center h-12 mb-3">
+                      <img
+                        src={logoSrc}
+                        alt={partner.name}
+                        className="w-10 h-10 object-contain rounded-xl group-hover:scale-110 transition-transform"
+                        onError={(e) => {
+                          const t = e.currentTarget;
+                          t.style.display = "none";
+                          const sibling = t.nextElementSibling as HTMLElement;
+                          if (sibling) sibling.style.display = "flex";
+                        }}
+                      />
+                      <div className="w-10 h-10 rounded-xl bg-white/70 items-center justify-center text-[20px] hidden group-hover:scale-110 transition-transform"
+                        style={{ display: "none" }}>
+                        {partner.name.charAt(0)}
+                      </div>
                     </div>
+                    <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{partner.name}</div>
+                    <div className="text-[10px] text-gray-500" style={{ fontWeight: 500 }}>{partner.role}</div>
                   </div>
-                  <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{partner.name}</div>
-                  <div className="text-[10px] text-gray-500" style={{ fontWeight: 500 }}>{partner.role}</div>
-                </div>
-              </FadeIn>
-            ))}
+                </FadeIn>
+              )
+            })}
           </div>
 
           {/* How AI flows */}
@@ -762,6 +816,71 @@ export function HomePage() {
           </FadeIn>
         </div>
       </section>
+
+      {/* ══════════════ INTERACTIVE DEMO ══════════════ */}
+      {(brandKit?.demo_video || brandKit?.demo_screenshot) && (
+        <section className="relative bg-gradient-to-b from-white via-[#F8FAFF] to-white py-24 overflow-hidden">
+          <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+            style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
+          <div className="absolute -top-32 right-1/4 w-[480px] h-[480px] rounded-full opacity-20 pointer-events-none"
+            style={{ background: "radial-gradient(circle, #93c5fd 0%, transparent 65%)" }} />
+
+          <div className="relative max-w-6xl mx-auto px-6">
+            <FadeIn className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 bg-white border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
+                <Play className="w-3.5 h-3.5 text-[#2563EB] fill-[#2563EB]" />
+                <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>See it in action</span>
+              </div>
+              <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 900 }}>
+                Get the feel before you sign in.
+              </h2>
+              <p className="text-[16px] text-gray-500 max-w-2xl mx-auto">
+                Watch a working mechanic move from squawk to logbook entry in under two minutes — no narration, just the actual product.
+              </p>
+            </FadeIn>
+
+            <FadeIn delay={0.1}>
+              <div className="relative rounded-3xl overflow-hidden border border-[#2563EB]/15 shadow-2xl shadow-blue-200/40 bg-[#0A1628]">
+                <div className="absolute top-0 left-0 right-0 h-9 bg-[#0A1628] border-b border-white/5 flex items-center px-4 gap-1.5 z-10">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80" />
+                  <span className="ml-3 text-[10px] text-white/40 font-mono">myaircraft.us — mechanic workspace</span>
+                </div>
+                <div className="pt-9 aspect-video bg-[#0A1628]">
+                  {brandKit?.demo_video && ytEmbedUrl(brandKit.demo_video) ? (
+                    <iframe
+                      src={ytEmbedUrl(brandKit.demo_video)!}
+                      title="myaircraft.us demo"
+                      loading="lazy"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="w-full h-full border-0"
+                    />
+                  ) : brandKit?.demo_screenshot ? (
+                    <img src={brandKit.demo_screenshot} alt="Mechanic UI preview" className="w-full h-full object-cover" />
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-3 gap-3 mt-6">
+                {[
+                  { icon: Wrench, t: "Open a squawk" },
+                  { icon: FileCheck, t: "Send the estimate" },
+                  { icon: BookOpen, t: "Generate the logbook entry" },
+                ].map((s) => (
+                  <div key={s.t} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shrink-0 shadow-lg shadow-blue-200">
+                      <s.icon className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="text-[13px] text-[#0A1628]" style={{ fontWeight: 600 }}>{s.t}</div>
+                  </div>
+                ))}
+              </div>
+            </FadeIn>
+          </div>
+        </section>
+      )}
 
       {/* ══════════════ EP 01: OWNER STORY ══════════════ */}
       <section className="bg-white py-28">

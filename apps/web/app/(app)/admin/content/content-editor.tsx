@@ -31,6 +31,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import type { ContentType } from '@/lib/marketing/content'
+import { toEmbedUrl } from '@/lib/marketing/content'
 import type { ContentDefault } from '@/lib/marketing/defaults'
 
 interface ContentRow {
@@ -68,6 +69,8 @@ function typeIcon(t: ContentType) {
     case 'image':
       return <ImageIcon className="h-3.5 w-3.5" />
     case 'video':
+      return <Video className="h-3.5 w-3.5" />
+    case 'embed':
       return <Video className="h-3.5 w-3.5" />
     case 'link':
       return <LinkIcon className="h-3.5 w-3.5" />
@@ -341,7 +344,7 @@ function ValuePreview({ row }: { row: ContentRow }) {
       </div>
     )
   }
-  if (row.content_type === 'video') {
+  if (row.content_type === 'video' || row.content_type === 'embed') {
     return (
       <div className="flex items-center gap-2">
         <Video className="h-4 w-4 text-muted-foreground" />
@@ -522,6 +525,39 @@ function EditDialog({
                   <video src={value} controls className="max-h-48 w-full rounded" />
                 </div>
               )}
+            </div>
+          )}
+
+          {row.content_type === 'embed' && (
+            <div className="space-y-3">
+              <Input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="Paste a YouTube or Vimeo URL"
+              />
+              <p className="text-xs text-muted-foreground">
+                Supported: youtube.com/watch, youtu.be, youtube.com/shorts, vimeo.com.
+              </p>
+              {value && (() => {
+                const embedUrl = toEmbedUrl(value)
+                return embedUrl ? (
+                  <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                    <div className="aspect-video">
+                      <iframe
+                        src={embedUrl}
+                        title="Embed preview"
+                        className="w-full h-full border-0"
+                        allowFullScreen
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600">
+                    URL not recognized as a YouTube or Vimeo embed. It will be saved as-is, but
+                    won&rsquo;t render an embedded player on the site.
+                  </p>
+                )
+              })()}
             </div>
           )}
         </div>
