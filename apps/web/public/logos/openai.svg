@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60">
-  <rect width="200" height="60" rx="8" fill="#10A37F"/>
-  <text x="100" y="38" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="22" font-weight="700" fill="white" letter-spacing="0.5">OpenAI</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" role="img"><title>OpenAI</title><text x="80" y="27" text-anchor="middle" font-family="ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif" font-size="20" font-weight="700" fill="#0A1628" letter-spacing="0.5">OpenAI</text></svg>

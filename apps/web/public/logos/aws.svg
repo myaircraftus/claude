@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60">
-  <rect width="200" height="60" rx="8" fill="#232F3E"/>
-  <text x="100" y="30" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="800" fill="white" letter-spacing="2">AWS</text>
-  <path d="M60 40 Q100 50 140 40" stroke="#FF9900" stroke-width="3" fill="none" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" role="img"><title>AWS</title><text x="80" y="27" text-anchor="middle" font-family="ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif" font-size="22" font-weight="800" fill="#0A1628" letter-spacing="2">AWS</text></svg>

@@ -591,7 +591,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
             <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
               className="text-[17px] text-gray-500 leading-relaxed max-w-lg mb-8">
-              We built <span className="text-[#0A1628]" style={{ fontWeight: 700 }}>myaircraft.us</span> because aircraft owners and A&P mechanics were drowning in paper, missed ADs, and broken communication. There is a better way — and it starts here.
+              Logbooks get lost. Maintenance history gets buried. ADs slip through. <span className="text-[#0A1628]" style={{ fontWeight: 700 }}>myaircraft.us</span> brings your records, squawks, work orders, estimates, and AI search into one trusted platform — built for the people who actually deal with the paperwork.
             </motion.p>
 
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.35 }}
@@ -732,6 +732,85 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <FadeIn delay={0.2} className="text-center mt-8">
             <p className="text-[13px] text-gray-400">
               <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>Any N-number. Any tail registration.</span> If it flies and has records, we manage them.
+            </p>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ══════════════ WHO IT'S FOR ══════════════ */}
+      <section className="relative bg-gradient-to-b from-white to-[#F8FAFF] py-24 border-t border-gray-100 overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
+        <div className="relative max-w-7xl mx-auto px-6">
+          <FadeIn className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-white border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
+              <Users className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Who it's for</span>
+            </div>
+            <h2 className="text-[40px] text-[#0A1628] leading-tight tracking-tight mb-3" style={{ fontWeight: 900 }}>
+              Built for the people who<br />actually deal with the records.
+            </h2>
+            <p className="text-[16px] text-gray-500 max-w-2xl mx-auto">
+              Aircraft owners, A&P mechanics, MRO shops, fleet operators, flight schools — every workflow on the same trusted platform.
+            </p>
+          </FadeIn>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {[
+              {
+                icon: Plane,
+                tag: "Aircraft Owners",
+                quote: "I own an aircraft, but my records are everywhere.",
+                blurb: "One place for every logbook, AD, STC, and 337 form. Search any answer in plain English.",
+                color: "from-blue-50 to-[#EFF6FF]", border: "border-[#2563EB]/20", icon_bg: "bg-[#2563EB]",
+              },
+              {
+                icon: Wrench,
+                tag: "A&P Mechanics",
+                quote: "I'm buried in paperwork I wasn't trained for.",
+                blurb: "AI drafts FAR 43.9 entries. Squawks, estimates, invoices flow in one portal.",
+                color: "from-emerald-50 to-teal-50", border: "border-emerald-200", icon_bg: "bg-emerald-500",
+              },
+              {
+                icon: Store,
+                tag: "MRO Shops",
+                quote: "Seven tools to run one job — none of them talk.",
+                blurb: "Work-order lifecycle from squawk to signed logbook. Owners stay in the loop automatically.",
+                color: "from-violet-50 to-purple-50", border: "border-violet-200", icon_bg: "bg-violet-500",
+              },
+              {
+                icon: BarChart3,
+                tag: "Fleet Operators",
+                quote: "I need to see status across every tail, right now.",
+                blurb: "Live compliance dashboard. ADs tracked by serial. Anomalies surfaced before they bite.",
+                color: "from-amber-50 to-orange-50", border: "border-amber-200", icon_bg: "bg-amber-500",
+              },
+              {
+                icon: BookOpen,
+                tag: "Flight Schools",
+                quote: "Instructors and renters need the same record, instantly.",
+                blurb: "Trainer fleet logbooks digitized and shared. Squawks routed to the right mechanic in one tap.",
+                color: "from-rose-50 to-pink-50", border: "border-rose-200", icon_bg: "bg-rose-500",
+              },
+            ].map((p, i) => (
+              <FadeIn key={p.tag} delay={i * 0.06}>
+                <div className={`bg-gradient-to-br ${p.color} border ${p.border} rounded-3xl p-5 h-full hover:shadow-xl hover:-translate-y-1 transition-all group cursor-default`}>
+                  <div className={`w-11 h-11 rounded-2xl ${p.icon_bg} flex items-center justify-center mb-4 shadow-md group-hover:scale-110 transition-transform`}>
+                    <p.icon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5" style={{ fontWeight: 700 }}>{p.tag}</div>
+                  <blockquote className="text-[14px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 700 }}>
+                    "{p.quote}"
+                  </blockquote>
+                  <p className="text-[12px] text-gray-500 leading-relaxed">{p.blurb}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+
+          <FadeIn delay={0.3} className="text-center mt-10">
+            <p className="text-[13px] text-gray-400">
+              <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>One platform. Every role.</span> From the owner's iPad to the mechanic's torque-wrench bench.
             </p>
           </FadeIn>
         </div>

@@ -27,9 +27,20 @@ export const MARKETING_DEFAULTS: Record<string, Record<string, ContentDefault>> 
     hero_subtitle: {
       content_type: 'rich_text',
       value:
-        'Scan every logbook, track every airworthiness directive, and answer any maintenance question in seconds. AI-powered records management built for mechanics, owners, and MROs.',
+        'Logbooks get lost. Maintenance history gets buried. ADs slip through. myaircraft.us brings your records, squawks, work orders, estimates, and AI search into one trusted platform — built for the people who actually deal with the paperwork.',
       label: 'Hero subtitle',
       description: 'Supporting text under the hero headline',
+    },
+    who_for_title: {
+      content_type: 'text',
+      value: 'Built for the people who actually deal with the records.',
+      label: 'Who-it\u2019s-for section title',
+    },
+    who_for_subtitle: {
+      content_type: 'rich_text',
+      value:
+        'Aircraft owners, A&P mechanics, MRO shops, fleet operators, flight schools \u2014 every workflow on the same trusted platform.',
+      label: 'Who-it\u2019s-for section subtitle',
     },
     hero_cta_primary: {
       content_type: 'text',
