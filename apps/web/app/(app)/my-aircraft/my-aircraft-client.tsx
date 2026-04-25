@@ -107,7 +107,7 @@ export function MyAircraftClient({ aircraft, squawkCounts, workOrdersByAircraft,
     invoicesByAircraft[inv.aircraft_id].push(inv)
   }
 
-  const totalUnpaid = invoices.reduce((sum, inv) => sum + (inv.balance_due ?? 0), 0)
+  const totalUnpaid = invoices.reduce((sum, inv) => sum + (Number(inv.balance_due) || 0), 0)
   const totalSquawks = Object.values(squawkCounts).reduce((sum, c) => sum + c, 0)
   const totalWOs = Object.values(workOrdersByAircraft).reduce((sum, wos) => sum + wos.length, 0)
 
@@ -195,7 +195,7 @@ export function MyAircraftClient({ aircraft, squawkCounts, workOrdersByAircraft,
             const squawkCount = squawkCounts[ac.id] ?? 0
             const wos = workOrdersByAircraft[ac.id] ?? []
             const acInvoices = invoicesByAircraft[ac.id] ?? []
-            const acUnpaid = acInvoices.reduce((sum, inv) => sum + (inv.balance_due ?? 0), 0)
+            const acUnpaid = acInvoices.reduce((sum, inv) => sum + (Number(inv.balance_due) || 0), 0)
 
             return (
               <Card key={ac.id}>

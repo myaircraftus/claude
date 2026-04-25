@@ -205,10 +205,9 @@ function readPersistedRecentUploads(): RecentUploadItem[] {
         fileName: typeof item.fileName === 'string' ? item.fileName : 'Uploaded document',
         fileSize: typeof item.fileSize === 'number' ? item.fileSize : 0,
         aircraftId: typeof item.aircraftId === 'string' ? item.aircraftId : undefined,
-        status:
-          item.status === 'completed' || item.status === 'error'
-            ? item.status
-            : 'processing',
+        status: (item.status === 'completed' || item.status === 'error'
+          ? item.status
+          : 'processing') as RecentUploadItem['status'],
         progress: typeof item.progress === 'number' ? item.progress : 0,
         error: typeof item.error === 'string' ? item.error : undefined,
         processingState: (item.processingState as DocumentProcessingState | null | undefined) ?? null,
@@ -1224,11 +1223,12 @@ export function UploadDropzone({
       if (!completeResponse.ok || !completePayload.document_id) {
         throw new Error(completePayload.error || `Upload failed (${completeResponse.status})`)
       }
+      const documentId: string = completePayload.document_id
 
       updateFile(item.id, {
         status: 'processing',
         progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
-        documentId: completePayload.document_id,
+        documentId,
         error: undefined,
         processingState: buildInitialDocumentProcessingState(),
       })
@@ -1237,19 +1237,19 @@ export function UploadDropzone({
         [
           {
             id: item.id,
-            documentId: completePayload.document_id,
+            documentId,
             fileName: item.file.name,
             fileSize: item.file.size,
             aircraftId: item.aircraftId,
-            status: 'processing',
+            status: 'processing' as const,
             progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
             processingState: buildInitialDocumentProcessingState(),
           },
-          ...prev.filter((candidate) => candidate.documentId !== completePayload.document_id),
+          ...prev.filter((candidate) => candidate.documentId !== documentId),
         ].slice(0, 20)
       )
 
-      void kickOffDocumentProcessing(completePayload.document_id, item.id)
+      void kickOffDocumentProcessing(documentId, item.id)
     } catch (err) {
       updateFile(item.id, {
         status: 'error',

@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest) {
     .eq('portal_user_id', user.id)
     .eq('portal_access', true)
 
-  const customerIds = (customers ?? []).map((c) => c.id)
+  const customerIds = (customers ?? []).map((c: { id: string }) => c.id)
   if (customerIds.length === 0) return NextResponse.json({ threads: [] })
 
   const { data: threads } = await service

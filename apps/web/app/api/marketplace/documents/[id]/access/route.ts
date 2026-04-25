@@ -158,8 +158,7 @@ async function cloneDocumentIntoWorkspace({
         parsing_status: 'failed',
         processing_state: markDocumentProcessingFailed(
           buildInitialDocumentProcessingState(),
-          ingestion.warning ?? 'Failed to hand document off for OCR/indexing.',
-          'uploaded'
+          ingestion.warning ?? 'Failed to hand document off for OCR/indexing.'
         ),
         parse_error:
           ingestion.warning ?? 'Failed to hand document off for OCR/indexing.',

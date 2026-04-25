@@ -35,6 +35,7 @@ export async function POST(
   if (!isKind(params.kind)) {
     return NextResponse.json({ error: 'Invalid kind' }, { status: 400 })
   }
+  const kind: Kind = params.kind
 
   const supabase = createServerSupabase()
   const {
@@ -42,13 +43,14 @@ export async function POST(
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json().catch(() => ({}))
+  const body = (await req.json().catch(() => ({}))) as { action?: unknown }
   if (!isAction(body.action)) {
     return NextResponse.json({ error: 'action must be approve or reject' }, { status: 400 })
   }
+  const action: Action = body.action
 
   const service = createServiceSupabase()
-  const table = TABLE_BY_KIND[params.kind]
+  const table = TABLE_BY_KIND[kind]
 
   const { data: item, error: itemErr } = await service
     .from(table)
@@ -74,10 +76,10 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const transition = TRANSITIONS[params.kind][body.action]
+  const transition = TRANSITIONS[kind][action]
   if (!transition.from.includes(item.status ?? '')) {
     return NextResponse.json(
-      { error: `Cannot ${body.action} from status "${item.status}"` },
+      { error: `Cannot ${action} from status "${item.status}"` },
       { status: 409 }
     )
   }
@@ -94,7 +96,7 @@ export async function POST(
   await service.from('audit_logs').insert({
     organization_id: item.organization_id,
     user_id: user.id,
-    action: `owner.${params.kind}.${body.action === 'approve' ? 'approved' : 'rejected'}`,
+    action: `owner.${kind}.${action === 'approve' ? 'approved' : 'rejected'}`,
     entity_type: params.kind,
     entity_id: params.id,
     metadata_json: { previous_status: item.status, new_status: transition.to },

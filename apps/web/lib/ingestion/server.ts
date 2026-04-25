@@ -1652,7 +1652,17 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
 
     if (!ingestData.is_text_native && ingestData.pages.length > 0) {
       const enrichedPages = await annotateOcrPagesWithOpenAI({
-        pages: ingestData.pages,
+        pages: ingestData.pages.map((p) => ({
+          page_number: p.page_number,
+          text: p.text,
+          ocr_confidence: p.ocr_confidence ?? 0,
+          word_count: p.word_count ?? 0,
+          char_count: p.char_count ?? 0,
+          ocr_engine: p.ocr_engine ?? null,
+          page_classification: p.page_classification ?? null,
+          extracted_event: p.extracted_event ?? null,
+          geometry_regions: p.geometry_regions,
+        })),
         docType: document.doc_type,
         title: document.title,
         make: aircraft?.make ?? null,

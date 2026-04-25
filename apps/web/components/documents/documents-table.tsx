@@ -110,11 +110,13 @@ export function DocumentsTable({
     setSelected((prev) => (prev?.id === documentId ? null : prev))
   }
 
-  function patchDocument(documentId: string, patch: Partial<DocumentRow>) {
+  function patchDocument(documentId: string, patch: Partial<Document>) {
     setLocalDocs((prev) =>
-      prev.map((doc) => (doc.id === documentId ? { ...doc, ...patch } : doc))
+      prev.map((doc) => (doc.id === documentId ? ({ ...doc, ...patch } as DocumentRow) : doc))
     )
-    setSelected((prev) => (prev?.id === documentId ? { ...prev, ...patch } : prev))
+    setSelected((prev) =>
+      prev?.id === documentId ? ({ ...prev, ...patch } as DocumentRow) : prev
+    )
   }
 
   useEffect(() => {

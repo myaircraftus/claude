@@ -303,8 +303,7 @@ export async function POST(req: NextRequest) {
               parsing_status: 'failed',
               processing_state: markDocumentProcessingFailed(
                 buildInitialDocumentProcessingState(),
-                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-                'uploaded'
+                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.'
               ),
               parse_error:
                 ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',

@@ -52,7 +52,11 @@ async function callInternal(
     },
     body: JSON.stringify(body),
   })
-  return res.json()
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    return { error: `${path} returned ${res.status}`, detail: errText.slice(0, 200) }
+  }
+  return res.json().catch(() => ({ error: `${path} returned non-JSON` }))
 }
 
 /** GET variant for logbook search */
@@ -66,7 +70,11 @@ async function callInternalGet(
   const res = await fetch(url.toString(), {
     headers: { cookie: req.headers.get('cookie') || '' },
   })
-  return res.json()
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    return { error: `${path} returned ${res.status}`, detail: errText.slice(0, 200) }
+  }
+  return res.json().catch(() => ({ error: `${path} returned non-JSON` }))
 }
 
 // ── Tool dispatcher ────────────────────────────────────────────────────────────
