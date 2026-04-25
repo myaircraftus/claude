@@ -557,15 +557,10 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
     <div className="overflow-x-hidden">
 
       {/* ══════════════ HERO ══════════════ */}
-      <section className="relative min-h-screen flex items-center overflow-hidden" style={{ background: "linear-gradient(135deg, #ffffff 0%, #EFF6FF 50%, #dbeafe 100%)" }}>
-        {/* Dot grid */}
-        <div className="absolute inset-0 opacity-[0.035]"
-          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "30px 30px" }} />
-        {/* Large gradient orbs */}
-        <div className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full opacity-25 pointer-events-none"
-          style={{ background: "radial-gradient(circle at 70% 20%, #93c5fd 0%, #dbeafe 40%, transparent 70%)" }} />
-        <div className="absolute -bottom-20 -left-20 w-[500px] h-[500px] rounded-full opacity-15 pointer-events-none"
-          style={{ background: "radial-gradient(circle, #818cf8 0%, transparent 70%)" }} />
+      <section className="relative min-h-screen flex items-center overflow-hidden bg-white">
+        {/* Subtle dot grid */}
+        <div className="absolute inset-0 opacity-[0.025]"
+          style={{ backgroundImage: "radial-gradient(rgba(10,22,40,1) 1px, transparent 1px)", backgroundSize: "30px 30px" }} />
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 pt-28 pb-16 grid lg:grid-cols-2 gap-12 items-center w-full">
           {/* Left copy */}
@@ -697,22 +692,22 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           </FadeIn>
 
           {/* Scrolling brand ticker */}
-          <div className="overflow-hidden mb-6">
-            <motion.div className="flex gap-4 whitespace-nowrap" animate={{ x: ["0%", "-50%"] }} transition={{ duration: 28, repeat: Infinity, ease: "linear" }}>
+          <div className="overflow-hidden mb-4">
+            <motion.div className="flex gap-3 whitespace-nowrap" animate={{ x: ["0%", "-50%"] }} transition={{ duration: 28, repeat: Infinity, ease: "linear" }}>
               {[...AIRCRAFT_BRANDS, ...AIRCRAFT_BRANDS].map((brand, i) => {
                 const customLogo = brandOemLogo(brandKit, brand.mark)
                 return (
-                  <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
-                    style={{ minWidth: 200, borderColor: brand.color + "28" }}>
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: brand.bg }}>
+                  <div key={i} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-5 py-3 shrink-0 hover:border-gray-300 hover:shadow-sm transition-all"
+                    style={{ minWidth: 220 }}>
+                    <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
                       {customLogo ? (
                         <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
                       ) : (
-                        <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+                        <AircraftBrandLogo mark={brand.mark} color="#0A1628" />
                       )}
                     </div>
                     <div>
-                      <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
+                      <div className="text-[13px] text-[#0A1628]" style={{ fontWeight: 700, letterSpacing: "0.04em" }}>{brand.name}</div>
                       <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
                     </div>
                   </div>
@@ -723,22 +718,21 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
           {/* Second row moving opposite direction */}
           <div className="overflow-hidden">
-            <motion.div className="flex gap-4 whitespace-nowrap" animate={{ x: ["-50%", "0%"] }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}>
+            <motion.div className="flex gap-3 whitespace-nowrap" animate={{ x: ["-50%", "0%"] }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}>
               {[...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6), ...AIRCRAFT_BRANDS.slice(6), ...AIRCRAFT_BRANDS.slice(0, 6)].map((brand, i) => {
                 const customLogo = brandOemLogo(brandKit, brand.mark)
                 return (
-                  <div key={i} className="flex items-center gap-3 bg-white border rounded-xl px-5 py-3 shrink-0 hover:shadow-md transition-all shadow-sm"
-                    style={{ minWidth: 200, borderColor: brand.color + "28", background: brand.bg + "66" }}>
-                    <div className="w-10 h-10 rounded-lg bg-white border flex items-center justify-center shrink-0 shadow-sm"
-                      style={{ borderColor: brand.color + "30" }}>
+                  <div key={i} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl px-5 py-3 shrink-0 hover:border-gray-300 hover:shadow-sm transition-all"
+                    style={{ minWidth: 220 }}>
+                    <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
                       {customLogo ? (
                         <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
                       ) : (
-                        <AircraftBrandLogo mark={brand.mark} color={brand.color} />
+                        <AircraftBrandLogo mark={brand.mark} color="#0A1628" />
                       )}
                     </div>
                     <div>
-                      <div className="text-[13px]" style={{ fontWeight: 800, letterSpacing: "0.04em", color: brand.color }}>{brand.name}</div>
+                      <div className="text-[13px] text-[#0A1628]" style={{ fontWeight: 700, letterSpacing: "0.04em" }}>{brand.name}</div>
                       <div className="text-[10px] text-gray-400" style={{ fontWeight: 500 }}>{brand.tagline}</div>
                     </div>
                   </div>
@@ -775,49 +769,19 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {[
-              {
-                icon: Plane,
-                tag: "Aircraft Owners",
-                quote: "I own an aircraft, but my records are everywhere.",
-                blurb: "One place for every logbook, AD, STC, and 337 form. Search any answer in plain English.",
-                color: "from-blue-50 to-[#EFF6FF]", border: "border-[#2563EB]/20", icon_bg: "bg-[#2563EB]",
-              },
-              {
-                icon: Wrench,
-                tag: "A&P Mechanics",
-                quote: "I'm buried in paperwork I wasn't trained for.",
-                blurb: "AI drafts FAR 43.9 entries. Squawks, estimates, invoices flow in one portal.",
-                color: "from-emerald-50 to-teal-50", border: "border-emerald-200", icon_bg: "bg-emerald-500",
-              },
-              {
-                icon: Store,
-                tag: "MRO Shops",
-                quote: "Seven tools to run one job — none of them talk.",
-                blurb: "Work-order lifecycle from squawk to signed logbook. Owners stay in the loop automatically.",
-                color: "from-violet-50 to-purple-50", border: "border-violet-200", icon_bg: "bg-violet-500",
-              },
-              {
-                icon: BarChart3,
-                tag: "Fleet Operators",
-                quote: "I need to see status across every tail, right now.",
-                blurb: "Live compliance dashboard. ADs tracked by serial. Anomalies surfaced before they bite.",
-                color: "from-amber-50 to-orange-50", border: "border-amber-200", icon_bg: "bg-amber-500",
-              },
-              {
-                icon: BookOpen,
-                tag: "Flight Schools",
-                quote: "Instructors and renters need the same record, instantly.",
-                blurb: "Trainer fleet logbooks digitized and shared. Squawks routed to the right mechanic in one tap.",
-                color: "from-rose-50 to-pink-50", border: "border-rose-200", icon_bg: "bg-rose-500",
-              },
+              { icon: Plane,     tag: "Aircraft Owners",  quote: "I own an aircraft, but my records are everywhere.",          blurb: "One place for every logbook, AD, STC, and 337 form. Search any answer in plain English." },
+              { icon: Wrench,    tag: "A&P Mechanics",    quote: "I'm buried in paperwork I wasn't trained for.",                blurb: "AI drafts FAR 43.9 entries. Squawks, estimates, invoices flow in one portal." },
+              { icon: Store,     tag: "MRO Shops",        quote: "Seven tools to run one job — none of them talk.",              blurb: "Work-order lifecycle from squawk to signed logbook. Owners stay in the loop automatically." },
+              { icon: BarChart3, tag: "Fleet Operators",  quote: "I need to see status across every tail, right now.",           blurb: "Live compliance dashboard. ADs tracked by serial. Anomalies surfaced before they bite." },
+              { icon: BookOpen,  tag: "Flight Schools",   quote: "Instructors and renters need the same record, instantly.",     blurb: "Trainer fleet logbooks digitized and shared. Squawks routed to the right mechanic in one tap." },
             ].map((p, i) => (
               <FadeIn key={p.tag} delay={i * 0.06}>
-                <div className={`bg-gradient-to-br ${p.color} border ${p.border} rounded-3xl p-5 h-full hover:shadow-xl hover:-translate-y-1 transition-all group cursor-default`}>
-                  <div className={`w-11 h-11 rounded-2xl ${p.icon_bg} flex items-center justify-center mb-4 shadow-md group-hover:scale-110 transition-transform`}>
-                    <p.icon className="w-5 h-5 text-white" />
+                <div className="bg-white border border-gray-200 rounded-3xl p-6 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all group cursor-default">
+                  <div className="w-11 h-11 rounded-2xl bg-[#EFF6FF] flex items-center justify-center mb-5 transition-colors group-hover:bg-[#2563EB]/10">
+                    <p.icon className="w-5 h-5 text-[#2563EB]" />
                   </div>
-                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-1.5" style={{ fontWeight: 700 }}>{p.tag}</div>
-                  <blockquote className="text-[14px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 700 }}>
+                  <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2" style={{ fontWeight: 700 }}>{p.tag}</div>
+                  <blockquote className="text-[14px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 600 }}>
                     "{p.quote}"
                   </blockquote>
                   <p className="text-[12px] text-gray-500 leading-relaxed">{p.blurb}</p>
@@ -883,29 +847,26 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
           {/* How AI flows */}
           <FadeIn delay={0.2}>
-            <div className="bg-gradient-to-br from-[#EFF6FF] to-[#dbeafe] border border-[#2563EB]/20 rounded-3xl p-8 shadow-xl">
-              <div className="text-center mb-6">
-                <h3 className="text-[22px] text-[#0A1628] tracking-tight" style={{ fontWeight: 800 }}>The AI Intelligence Pipeline</h3>
-                <p className="text-[14px] text-gray-500 mt-1">How every logbook scan becomes actionable intelligence</p>
+            <div className="bg-white border border-gray-200 rounded-3xl p-10">
+              <div className="text-center mb-8">
+                <div className="text-[11px] text-gray-400 uppercase tracking-[0.2em] mb-2" style={{ fontWeight: 600 }}>The AI Intelligence Pipeline</div>
+                <h3 className="text-[22px] text-[#0A1628] tracking-tight" style={{ fontWeight: 700 }}>How every logbook scan becomes actionable intelligence</h3>
               </div>
-              <div className="flex flex-col md:flex-row items-center gap-4 justify-center">
+              <div className="flex flex-col md:flex-row items-start gap-6 md:gap-3 justify-center">
                 {[
-                  { step: "01", label: "You Upload",      desc: "Scan or mail your logbooks",                  icon: Upload },
-                  { step: "02", label: "AWS Textract",    desc: "Extracts every character with 99.9% accuracy", icon: Database },
-                  { step: "03", label: "Google Doc AI",   desc: "Classifies document type, date, aircraft",     icon: FileCheck },
-                  { step: "04", label: "ChatGPT + Claude",desc: "Generates embeddings, answers queries",         icon: Brain },
-                  { step: "05", label: "You Ask",         desc: "Plain English answers with source citations",  icon: MessageSquare },
+                  { step: "01", label: "You Upload",       desc: "Scan or mail your logbooks" },
+                  { step: "02", label: "AWS Textract",     desc: "Extracts every character with 99.9% accuracy" },
+                  { step: "03", label: "Google Doc AI",    desc: "Classifies document type, date, aircraft" },
+                  { step: "04", label: "ChatGPT + Claude", desc: "Generates embeddings, answers queries" },
+                  { step: "05", label: "You Ask",          desc: "Plain English answers with source citations" },
                 ].map((s, i) => (
-                  <div key={s.step} className="flex md:flex-col items-center gap-3 md:gap-2 md:text-center flex-1">
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shrink-0 shadow-lg shadow-blue-200">
-                      <s.icon className="w-5 h-5 text-white" />
+                  <div key={s.step} className="flex md:flex-col items-start md:items-center gap-3 md:gap-1 md:text-center flex-1 relative">
+                    <div className="text-[11px] text-[#2563EB] tabular-nums shrink-0 md:mb-2" style={{ fontWeight: 600, letterSpacing: "0.08em" }}>STEP {s.step}</div>
+                    <div className="md:w-full">
+                      <div className="text-[14px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{s.label}</div>
+                      <div className="text-[12px] text-gray-500 leading-relaxed">{s.desc}</div>
                     </div>
-                    <div>
-                      <div className="text-[11px] text-[#2563EB] mb-0.5" style={{ fontWeight: 700 }}>Step {s.step}</div>
-                      <div className="text-[13px] text-[#0A1628]" style={{ fontWeight: 700 }}>{s.label}</div>
-                      <div className="text-[11px] text-gray-500">{s.desc}</div>
-                    </div>
-                    {i < 4 && <ChevronRight className="w-4 h-4 text-[#2563EB] shrink-0 hidden md:block" />}
+                    {i < 4 && <div className="hidden md:block absolute top-2 -right-1.5 w-3 h-px bg-gray-200" />}
                   </div>
                 ))}
               </div>
@@ -1442,19 +1403,14 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
       </section>
 
       {/* ══════════════ USE CASE STORIES ══════════════ */}
-      <section className="relative py-28 overflow-hidden" style={{ background: "linear-gradient(180deg, #F8FBFF 0%, white 100%)" }}>
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
-        <div className="absolute -top-32 right-0 w-[420px] h-[420px] rounded-full opacity-30 pointer-events-none"
-          style={{ background: "radial-gradient(circle, #93c5fd 0%, transparent 65%)" }} />
-
+      <section className="relative py-28 overflow-hidden bg-white border-t border-gray-100">
         <div className="relative max-w-6xl mx-auto px-6">
           <FadeIn className="text-center mb-14">
-            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-full px-4 py-1.5 mb-4">
-              <Star className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-[12px] text-amber-700" style={{ fontWeight: 600 }}>Heard on the Ramp</span>
+            <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4">
+              <Star className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Heard on the Ramp</span>
             </div>
-            <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 900 }}>
+            <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 800 }}>
               Real stories. Real aircraft. Real relief.
             </h2>
             <p className="text-[16px] text-gray-500 max-w-2xl mx-auto">
@@ -1465,11 +1421,11 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           {/* OWNERS */}
           <FadeIn>
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shadow-md shadow-blue-200">
-                <Plane className="w-4 h-4 text-white" />
+              <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
+                <Plane className="w-4 h-4 text-[#2563EB]" />
               </div>
-              <div className="text-[11px] uppercase tracking-widest text-[#2563EB]" style={{ fontWeight: 700 }}>For Aircraft Owners</div>
-              <div className="flex-1 h-px bg-gradient-to-r from-[#2563EB]/30 to-transparent" />
+              <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Aircraft Owners</div>
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
           </FadeIn>
           <div className="grid md:grid-cols-2 gap-5 mb-14">
@@ -1492,12 +1448,12 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               },
             ].map((t, i) => (
               <FadeIn key={t.quote} delay={i * 0.06}>
-                <div className="bg-gradient-to-br from-blue-50 to-[#EFF6FF] border border-[#2563EB]/15 rounded-3xl p-6 h-full hover:shadow-xl hover:-translate-y-0.5 transition-all group shadow-md">
-                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all group">
+                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 600 }}>
                     "{t.quote}"
                   </blockquote>
                   <p className="text-[13px] text-gray-600 leading-relaxed">
-                    <span className="text-[#2563EB]" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
+                    <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
                   </p>
                 </div>
               </FadeIn>
@@ -1507,11 +1463,11 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           {/* MECHANICS */}
           <FadeIn>
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-md shadow-emerald-200">
-                <Wrench className="w-4 h-4 text-white" />
+              <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
+                <Wrench className="w-4 h-4 text-[#2563EB]" />
               </div>
-              <div className="text-[11px] uppercase tracking-widest text-emerald-700" style={{ fontWeight: 700 }}>For Mechanics</div>
-              <div className="flex-1 h-px bg-gradient-to-r from-emerald-500/30 to-transparent" />
+              <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Mechanics</div>
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
           </FadeIn>
           <div className="grid md:grid-cols-2 gap-5 mb-14">
@@ -1534,12 +1490,12 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               },
             ].map((t, i) => (
               <FadeIn key={t.quote} delay={i * 0.06}>
-                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-3xl p-6 h-full hover:shadow-xl hover:-translate-y-0.5 transition-all group shadow-md">
-                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all group">
+                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 600 }}>
                     "{t.quote}"
                   </blockquote>
                   <p className="text-[13px] text-gray-600 leading-relaxed">
-                    <span className="text-emerald-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
+                    <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
                   </p>
                 </div>
               </FadeIn>
@@ -1549,35 +1505,35 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           {/* SCHOOLS + FLEETS */}
           <div className="grid md:grid-cols-2 gap-5">
             <FadeIn>
-              <div className="bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200 rounded-3xl p-6 h-full shadow-md">
+              <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all">
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="w-8 h-8 rounded-xl bg-rose-500 flex items-center justify-center">
-                    <BookOpen className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
+                    <BookOpen className="w-4 h-4 text-[#2563EB]" />
                   </div>
-                  <div className="text-[11px] uppercase tracking-widest text-rose-700" style={{ fontWeight: 700 }}>Flight Schools, Students &amp; Instructors</div>
+                  <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>Flight Schools, Students &amp; Instructors</div>
                 </div>
-                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 600 }}>
                   "I am a student and I need access to aircraft records, but I cannot get them easily."
                 </blockquote>
                 <p className="text-[13px] text-gray-600 leading-relaxed">
-                  <span className="text-rose-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}
+                  <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>myaircraft.us makes it easy.</span>{' '}
                   Controlled access to required aircraft records. Faster document access for students and instructors. A more organized, professional training environment.
                 </p>
               </div>
             </FadeIn>
             <FadeIn delay={0.06}>
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-6 h-full shadow-md">
+              <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all">
                 <div className="flex items-center gap-2 mb-4">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500 flex items-center justify-center">
-                    <BarChart3 className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
+                    <BarChart3 className="w-4 h-4 text-[#2563EB]" />
                   </div>
-                  <div className="text-[11px] uppercase tracking-widest text-amber-700" style={{ fontWeight: 700 }}>For Shops &amp; Fleets</div>
+                  <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Shops &amp; Fleets</div>
                 </div>
-                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 600 }}>
                   "We manage multiple aircraft, and nothing is centralized."
                 </blockquote>
                 <p className="text-[13px] text-gray-600 leading-relaxed">
-                  <span className="text-amber-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}
+                  <span className="text-[#2563EB]" style={{ fontWeight: 600 }}>myaircraft.us makes it easy.</span>{' '}
                   Centralize records across the fleet. Track squawks, maintenance, and status by aircraft. Stay audit-ready and operationally clear.
                 </p>
               </div>
@@ -1587,16 +1543,14 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
       </section>
 
       {/* ══════════════ TRUST ══════════════ */}
-      <section className="relative py-24 overflow-hidden bg-white border-t border-gray-100">
-        <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "30px 30px" }} />
+      <section className="relative py-24 bg-[#FAFBFD] border-t border-gray-100">
         <div className="relative max-w-5xl mx-auto px-6 text-center">
           <FadeIn>
-            <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-5">
+            <div className="inline-flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-1.5 mb-5">
               <Lock className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Trust &amp; integrity</span>
             </div>
-            <h2 className="text-[44px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 900 }}>
+            <h2 className="text-[44px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 800 }}>
               High-trust records deserve<br /><span className="text-[#2563EB]">a high-trust platform.</span>
             </h2>
             <p className="text-[17px] text-gray-500 max-w-2xl mx-auto mb-12 leading-relaxed">
@@ -1605,17 +1559,17 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           </FadeIn>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
             {[
-              { icon: Database, title: "Records preserved & organized", desc: "Logbooks, ADs, STCs, 337s — structured and indexed by aircraft.", color: "bg-blue-50 text-[#2563EB] border-blue-100" },
-              { icon: FileCheck, title: "Answers tied to documents", desc: "Every AI answer cites the actual page, entry, or file it came from.", color: "bg-emerald-50 text-emerald-600 border-emerald-100" },
-              { icon: MessageSquare, title: "Communication on the work", desc: "Updates, photos, and approvals stay attached to the work order.", color: "bg-violet-50 text-violet-600 border-violet-100" },
-              { icon: Plane, title: "History stays with the aircraft", desc: "Records follow the tail through ownership changes and prebuys.", color: "bg-amber-50 text-amber-600 border-amber-100" },
-              { icon: UserCheck, title: "Access you control", desc: "Role-based sharing for owners, mechanics, instructors, and shops.", color: "bg-rose-50 text-rose-500 border-rose-100" },
-              { icon: Shield, title: "Built for real aviation workflows", desc: "Designed by people who own aircraft and write logbook entries.", color: "bg-cyan-50 text-cyan-600 border-cyan-100" },
+              { icon: Database,      title: "Records preserved & organized", desc: "Logbooks, ADs, STCs, 337s — structured and indexed by aircraft." },
+              { icon: FileCheck,     title: "Answers tied to documents",     desc: "Every AI answer cites the actual page, entry, or file it came from." },
+              { icon: MessageSquare, title: "Communication on the work",     desc: "Updates, photos, and approvals stay attached to the work order." },
+              { icon: Plane,         title: "History stays with the aircraft",desc: "Records follow the tail through ownership changes and prebuys." },
+              { icon: UserCheck,     title: "Access you control",            desc: "Role-based sharing for owners, mechanics, instructors, and shops." },
+              { icon: Shield,        title: "Built for real aviation workflows", desc: "Designed by people who own aircraft and write logbook entries." },
             ].map((t, i) => (
               <FadeIn key={t.title} delay={i * 0.05}>
-                <div className={`flex gap-3 p-5 rounded-2xl border ${t.color.split(' ')[2]} bg-white hover:shadow-md transition-all h-full`}>
-                  <div className={`w-9 h-9 rounded-xl ${t.color.split(' ')[0]} ${t.color.split(' ')[1]} border ${t.color.split(' ')[2]} flex items-center justify-center shrink-0`}>
-                    <t.icon className="w-4 h-4" />
+                <div className="flex gap-4 p-6 rounded-2xl border border-gray-200 bg-white hover:border-[#2563EB]/30 hover:shadow-md transition-all h-full">
+                  <div className="w-10 h-10 rounded-xl bg-[#EFF6FF] flex items-center justify-center shrink-0">
+                    <t.icon className="w-4 h-4 text-[#2563EB]" />
                   </div>
                   <div>
                     <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{t.title}</div>
