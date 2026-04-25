@@ -582,27 +582,47 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             </motion.div>
 
             <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 }}
-              className="text-[52px] lg:text-[66px] text-[#0A1628] leading-[1.04] tracking-tight mb-3" style={{ fontWeight: 900 }}>
-              Your aircraft<br />records have<br />
-              <span className="text-[#2563EB]">
-                <Typewriter phrases={["a story to tell.", "been waiting.", "finally found AI.", "never been safer."]} />
-              </span>
+              className="text-[48px] lg:text-[60px] text-[#0A1628] leading-[1.04] tracking-tight mb-4" style={{ fontWeight: 900 }}>
+              Your aircraft records<br />should not live in<br />
+              <span className="text-[#2563EB]">a filing cabinet.</span>
             </motion.h1>
 
-            <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.25 }}
-              className="text-[17px] text-gray-500 leading-relaxed max-w-lg mb-8">
-              Logbooks get lost. Maintenance history gets buried. ADs slip through. <span className="text-[#0A1628]" style={{ fontWeight: 700 }}>myaircraft.us</span> brings your records, squawks, work orders, estimates, and AI search into one trusted platform — built for the people who actually deal with the paperwork.
+            <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.22 }}
+              className="text-[16px] text-gray-500 leading-relaxed max-w-lg mb-5">
+              Logbooks get lost. Maintenance history gets buried. Owners wait for updates. Mechanics get buried in paperwork.{' '}
+              <span className="text-[#0A1628]" style={{ fontWeight: 700 }}>myaircraft.us</span>{' '}
+              brings aircraft records, maintenance communication, squawks, work orders, and AI search into one trusted platform.
             </motion.p>
 
-            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.35 }}
-              className="flex flex-wrap gap-3 mb-10">
+            <motion.ul initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.3 }}
+              className="grid sm:grid-cols-2 gap-x-5 gap-y-2 max-w-lg mb-7">
+              {[
+                "Search old logbook entries in seconds",
+                "Track maintenance and compliance in one place",
+                "Secure access for owners, mechanics & instructors",
+                "Audit-, resale- and prebuy-ready records",
+              ].map(s => (
+                <li key={s} className="flex items-start gap-2 text-[13px] text-gray-600">
+                  <CheckCircle className="w-3.5 h-3.5 text-[#2563EB] mt-[3px] shrink-0" />
+                  <span>{s}</span>
+                </li>
+              ))}
+            </motion.ul>
+
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.38 }}
+              className="flex flex-wrap items-center gap-3 mb-4">
               <Link href="/signup?preview=1" className="inline-flex items-center gap-2 bg-gradient-to-r from-[#2563EB] to-[#1d4ed8] text-white px-7 py-3.5 rounded-xl hover:shadow-xl hover:shadow-blue-300/40 transition-all shadow-lg shadow-blue-200 text-[15px]" style={{ fontWeight: 600 }}>
                 Start for Free <ArrowRight className="w-4 h-4" />
               </Link>
               <Link href="/app" className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-7 py-3.5 rounded-xl hover:bg-[#EFF6FF] hover:border-[#2563EB]/30 transition-all text-[15px] shadow-sm" style={{ fontWeight: 500 }}>
-                <Play className="w-4 h-4 text-[#2563EB]" /> See It Live
+                <Play className="w-4 h-4 text-[#2563EB]" /> Book a Demo
               </Link>
             </motion.div>
+
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.55 }}
+              className="text-[13px] text-[#2563EB] mb-9" style={{ fontWeight: 600 }}>
+              Ask your aircraft anything. Get answers from your actual records.
+            </motion.p>
 
             {/* Trust signals */}
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
@@ -1423,47 +1443,185 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         </div>
       </section>
 
-      {/* ══════════════ TESTIMONIALS ══════════════ */}
-      <section className="py-24" style={{ background: "linear-gradient(180deg, #F8FBFF 0%, white 100%)" }}>
-        <div className="max-w-6xl mx-auto px-6">
+      {/* ══════════════ USE CASE STORIES ══════════════ */}
+      <section className="relative py-28 overflow-hidden" style={{ background: "linear-gradient(180deg, #F8FBFF 0%, white 100%)" }}>
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "26px 26px" }} />
+        <div className="absolute -top-32 right-0 w-[420px] h-[420px] rounded-full opacity-30 pointer-events-none"
+          style={{ background: "radial-gradient(circle, #93c5fd 0%, transparent 65%)" }} />
+
+        <div className="relative max-w-6xl mx-auto px-6">
           <FadeIn className="text-center mb-14">
             <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-full px-4 py-1.5 mb-4">
               <Star className="w-3.5 h-3.5 text-amber-500" />
               <span className="text-[12px] text-amber-700" style={{ fontWeight: 600 }}>Heard on the Ramp</span>
             </div>
-            <h2 className="text-[38px] text-[#0A1628] tracking-tight" style={{ fontWeight: 900 }}>
+            <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 900 }}>
               Real stories. Real aircraft. Real relief.
             </h2>
+            <p className="text-[16px] text-gray-500 max-w-2xl mx-auto">
+              The same things we keep hearing from owners, mechanics, and instructors — and exactly what myaircraft.us was built to fix.
+            </p>
           </FadeIn>
-          <div className="grid md:grid-cols-3 gap-8">
+
+          {/* OWNERS */}
+          <FadeIn>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shadow-md shadow-blue-200">
+                <Plane className="w-4 h-4 text-white" />
+              </div>
+              <div className="text-[11px] uppercase tracking-widest text-[#2563EB]" style={{ fontWeight: 700 }}>For Aircraft Owners</div>
+              <div className="flex-1 h-px bg-gradient-to-r from-[#2563EB]/30 to-transparent" />
+            </div>
+          </FadeIn>
+          <div className="grid md:grid-cols-2 gap-5 mb-14">
             {[
               {
-                quote: "I spent six years losing sleep over whether my logbooks were compliant. The first week on myaircraft.us, I found two AD compliance gaps I didn't know existed. It potentially saved my certificate.",
-                name: "Tom H.", role: "ATP · Fleet Owner of 8 Aircraft", stars: 5, abbr: "TH", color: "from-blue-50 to-[#EFF6FF]"
+                quote: "I own an aircraft, but my records are everywhere.",
+                blurb: "Store airframe, engine, propeller, and supporting records in one place. Search by plain English. Find inspections, AD compliance, and past work in seconds.",
               },
               {
-                quote: "The AI logbook entry generator alone is worth the subscription. What used to take me 20 minutes takes 45 seconds now. I've got my evenings back. My shop turned around 3 more jobs last month.",
-                name: "Mike R.", role: "A&P / IA · 18 Years Experience", stars: 5, abbr: "MR", color: "from-emerald-50 to-teal-50"
+                quote: "My logbooks are valuable. I do not want to risk losing them.",
+                blurb: "Digitize and protect your records. Preserve the value of your aircraft history. Prepare stronger resale and prebuy packets.",
               },
               {
-                quote: "My owners used to call 3-4 times a day asking for updates. Since switching to myaircraft.us, those calls dropped to almost zero. They see everything in the portal. It's changed every customer relationship.",
-                name: "Sarah W.", role: "Charter Ops Manager · 22 Aircraft Fleet", stars: 5, abbr: "SW", color: "from-violet-50 to-purple-50"
+                quote: "I am tired of calling the shop for updates.",
+                blurb: "See squawks, work orders, estimates, and approvals in one place. Approve work from your phone. No more phone tag.",
+              },
+              {
+                quote: "I want to share access without giving away everything.",
+                blurb: "Give secure access by role. Mechanics, instructors, and students see only what they need. Revoke access anytime.",
               },
             ].map((t, i) => (
-              <FadeIn key={i} delay={i * 0.1}>
-                <div className={`bg-gradient-to-br ${t.color} border border-white rounded-3xl p-7 hover:shadow-xl transition-all group shadow-md`}>
-                  <div className="flex gap-0.5 mb-4">
-                    {Array.from({ length: t.stars }).map((_, si) => (
-                      <Star key={si} className="w-4 h-4 text-amber-400 fill-amber-400" />
-                    ))}
+              <FadeIn key={t.quote} delay={i * 0.06}>
+                <div className="bg-gradient-to-br from-blue-50 to-[#EFF6FF] border border-[#2563EB]/15 rounded-3xl p-6 h-full hover:shadow-xl hover:-translate-y-0.5 transition-all group shadow-md">
+                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                    "{t.quote}"
+                  </blockquote>
+                  <p className="text-[13px] text-gray-600 leading-relaxed">
+                    <span className="text-[#2563EB]" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
+                  </p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+
+          {/* MECHANICS */}
+          <FadeIn>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-md shadow-emerald-200">
+                <Wrench className="w-4 h-4 text-white" />
+              </div>
+              <div className="text-[11px] uppercase tracking-widest text-emerald-700" style={{ fontWeight: 700 }}>For Mechanics</div>
+              <div className="flex-1 h-px bg-gradient-to-r from-emerald-500/30 to-transparent" />
+            </div>
+          </FadeIn>
+          <div className="grid md:grid-cols-2 gap-5 mb-14">
+            {[
+              {
+                quote: "I am a mechanic with 20 years of experience, and I am buried in paperwork.",
+                blurb: "Turn squawks into work orders. Send approvals digitally. Generate draft logbook entries faster. Keep records tied to the actual aircraft.",
+              },
+              {
+                quote: "It is hard to communicate with owners and keep everyone aligned.",
+                blurb: "Send updates inside the platform. Share photos, notes, and progress on the work order. Cleaner, more professional customer experience.",
+              },
+              {
+                quote: "Writing logbook entries and organizing records takes too much time.",
+                blurb: "Cleaner digital records. Faster draft entries. Less admin time so more goes into actual maintenance.",
+              },
+              {
+                quote: "I need the records and history before I start work.",
+                blurb: "Search past maintenance fast. Look up previous repairs and components. Make better decisions with better visibility.",
+              },
+            ].map((t, i) => (
+              <FadeIn key={t.quote} delay={i * 0.06}>
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-3xl p-6 h-full hover:shadow-xl hover:-translate-y-0.5 transition-all group shadow-md">
+                  <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                    "{t.quote}"
+                  </blockquote>
+                  <p className="text-[13px] text-gray-600 leading-relaxed">
+                    <span className="text-emerald-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}{t.blurb}
+                  </p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+
+          {/* SCHOOLS + FLEETS */}
+          <div className="grid md:grid-cols-2 gap-5">
+            <FadeIn>
+              <div className="bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200 rounded-3xl p-6 h-full shadow-md">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500 flex items-center justify-center">
+                    <BookOpen className="w-4 h-4 text-white" />
                   </div>
-                  <blockquote className="text-[14px] text-gray-600 leading-relaxed mb-6 italic">"{t.quote}"</blockquote>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center text-white text-[13px] shadow-md" style={{ fontWeight: 700 }}>{t.abbr}</div>
-                    <div>
-                      <div className="text-[13px] text-[#0A1628]" style={{ fontWeight: 700 }}>{t.name}</div>
-                      <div className="text-[11px] text-gray-400">{t.role}</div>
-                    </div>
+                  <div className="text-[11px] uppercase tracking-widest text-rose-700" style={{ fontWeight: 700 }}>Flight Schools, Students &amp; Instructors</div>
+                </div>
+                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                  "I am a student and I need access to aircraft records, but I cannot get them easily."
+                </blockquote>
+                <p className="text-[13px] text-gray-600 leading-relaxed">
+                  <span className="text-rose-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}
+                  Controlled access to required aircraft records. Faster document access for students and instructors. A more organized, professional training environment.
+                </p>
+              </div>
+            </FadeIn>
+            <FadeIn delay={0.06}>
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-3xl p-6 h-full shadow-md">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 flex items-center justify-center">
+                    <BarChart3 className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="text-[11px] uppercase tracking-widest text-amber-700" style={{ fontWeight: 700 }}>For Shops &amp; Fleets</div>
+                </div>
+                <blockquote className="text-[18px] text-[#0A1628] leading-snug mb-3" style={{ fontWeight: 800 }}>
+                  "We manage multiple aircraft, and nothing is centralized."
+                </blockquote>
+                <p className="text-[13px] text-gray-600 leading-relaxed">
+                  <span className="text-amber-700" style={{ fontWeight: 700 }}>myaircraft.us makes it easy.</span>{' '}
+                  Centralize records across the fleet. Track squawks, maintenance, and status by aircraft. Stay audit-ready and operationally clear.
+                </p>
+              </div>
+            </FadeIn>
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════ TRUST ══════════════ */}
+      <section className="relative py-24 overflow-hidden bg-white border-t border-gray-100">
+        <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+          style={{ backgroundImage: "radial-gradient(rgba(37,99,235,1) 1px, transparent 1px)", backgroundSize: "30px 30px" }} />
+        <div className="relative max-w-5xl mx-auto px-6 text-center">
+          <FadeIn>
+            <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-5">
+              <Lock className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Trust &amp; integrity</span>
+            </div>
+            <h2 className="text-[44px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 900 }}>
+              High-trust records deserve<br /><span className="text-[#2563EB]">a high-trust platform.</span>
+            </h2>
+            <p className="text-[17px] text-gray-500 max-w-2xl mx-auto mb-12 leading-relaxed">
+              Aircraft records are too important for guesswork. myaircraft.us is built for the way real aviation actually works.
+            </p>
+          </FadeIn>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
+            {[
+              { icon: Database, title: "Records preserved & organized", desc: "Logbooks, ADs, STCs, 337s — structured and indexed by aircraft.", color: "bg-blue-50 text-[#2563EB] border-blue-100" },
+              { icon: FileCheck, title: "Answers tied to documents", desc: "Every AI answer cites the actual page, entry, or file it came from.", color: "bg-emerald-50 text-emerald-600 border-emerald-100" },
+              { icon: MessageSquare, title: "Communication on the work", desc: "Updates, photos, and approvals stay attached to the work order.", color: "bg-violet-50 text-violet-600 border-violet-100" },
+              { icon: Plane, title: "History stays with the aircraft", desc: "Records follow the tail through ownership changes and prebuys.", color: "bg-amber-50 text-amber-600 border-amber-100" },
+              { icon: UserCheck, title: "Access you control", desc: "Role-based sharing for owners, mechanics, instructors, and shops.", color: "bg-rose-50 text-rose-500 border-rose-100" },
+              { icon: Shield, title: "Built for real aviation workflows", desc: "Designed by people who own aircraft and write logbook entries.", color: "bg-cyan-50 text-cyan-600 border-cyan-100" },
+            ].map((t, i) => (
+              <FadeIn key={t.title} delay={i * 0.05}>
+                <div className={`flex gap-3 p-5 rounded-2xl border ${t.color.split(' ')[2]} bg-white hover:shadow-md transition-all h-full`}>
+                  <div className={`w-9 h-9 rounded-xl ${t.color.split(' ')[0]} ${t.color.split(' ')[1]} border ${t.color.split(' ')[2]} flex items-center justify-center shrink-0`}>
+                    <t.icon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{t.title}</div>
+                    <div className="text-[12px] text-gray-500 leading-relaxed">{t.desc}</div>
                   </div>
                 </div>
               </FadeIn>
@@ -1706,7 +1864,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               Your aircraft records deserve<br />better than a filing cabinet.
             </h2>
             <p className="text-[19px] text-blue-100 mb-10 max-w-xl mx-auto leading-relaxed">
-              Join thousands of owners and mechanics who've moved their records, workflows, and intelligence to myaircraft.us — and never looked back.
+              Bring your aircraft records, maintenance workflow, and communication into one place — and turn fragmented paperwork into searchable aircraft intelligence.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4 mb-10">
               <Link href="/signup" className="inline-flex items-center gap-2 bg-white text-[#2563EB] px-9 py-4 rounded-2xl hover:bg-blue-50 transition-all shadow-2xl shadow-blue-900/30 text-[16px]" style={{ fontWeight: 700 }}>
