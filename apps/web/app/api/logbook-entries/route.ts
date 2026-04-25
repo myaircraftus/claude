@@ -2,36 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveRequestOrgContext } from "@/lib/auth/context";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { MECHANIC_AND_ABOVE } from "@/lib/roles";
-
-// Mirror of migration 016 CHECK constraint for logbook_entries.entry_type
-export const VALID_ENTRY_TYPES = [
-  "maintenance",
-  "annual",
-  "100hr",
-  "discrepancy",
-  "ad_compliance",
-  "sb_compliance",
-  "component_replacement",
-  "oil_change",
-  "return_to_service",
-  "major_repair",
-  "major_alteration",
-  "owner_preventive",
-] as const;
-
-// Mirror of migration 016 CHECK constraint for logbook_entries.status
-export const VALID_STATUSES = ["draft", "final", "signed", "amended"] as const;
-
-export const VALID_LOGBOOK_TYPES = [
-  "airframe",
-  "engine",
-  "prop",
-  "avionics",
-  "multiple",
-] as const;
-
-type EntryType = typeof VALID_ENTRY_TYPES[number];
-type EntryStatus = typeof VALID_STATUSES[number];
+import {
+  VALID_ENTRY_TYPES,
+  VALID_STATUSES,
+  VALID_LOGBOOK_TYPES,
+  type EntryType,
+  type EntryStatus,
+} from "@/lib/logbook/constants";
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req);

@@ -137,23 +137,38 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
           tax_amount: parseFloat(taxAmount) || 0,
         }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to save work order')
+        return
+      }
       setWo(prev => ({ ...prev, ...data }))
       setDirty(false)
+      toast.success('Saved')
+    } catch {
+      toast.error('Failed to save work order')
     } finally {
       setSaving(false)
     }
   }
 
   async function handleStatusChange(newStatus: WorkOrderStatus) {
-    const res = await fetch(`/api/work-orders/${wo.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    })
-    const data = await res.json()
-    setWo(prev => ({ ...prev, status: data.status, closed_at: data.closed_at }))
-    router.refresh()
+    try {
+      const res = await fetch(`/api/work-orders/${wo.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to change status')
+        return
+      }
+      setWo(prev => ({ ...prev, status: data.status, closed_at: data.closed_at }))
+      router.refresh()
+    } catch {
+      toast.error('Failed to change status')
+    }
   }
 
   async function handleApproval(action: 'approve' | 'reject') {
@@ -199,20 +214,28 @@ export function WorkOrderDetailClient({ workOrder, aircraft, userRole }: Props) 
           notes: newLine.notes || null,
         }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to add line item')
+        return
+      }
       setLines(prev => [...prev, data])
       // Refresh totals
       const woRes = await fetch(`/api/work-orders/${wo.id}`)
-      const woData = await woRes.json()
-      setWo(prev => ({
-        ...prev,
-        labor_total: woData.labor_total,
-        parts_total: woData.parts_total,
-        outside_services_total: woData.outside_services_total,
-        total: woData.total,
-      }))
+      const woData = await woRes.json().catch(() => ({}))
+      if (woRes.ok) {
+        setWo(prev => ({
+          ...prev,
+          labor_total: woData.labor_total,
+          parts_total: woData.parts_total,
+          outside_services_total: woData.outside_services_total,
+          total: woData.total,
+        }))
+      }
       setNewLine({ line_type: 'labor', description: '', quantity: '1', unit_price: '0', part_number: '', hours: '', rate: '', notes: '' })
       setShowAddLine(false)
+    } catch {
+      toast.error('Failed to add line item')
     } finally {
       setAddingLine(false)
     }

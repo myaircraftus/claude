@@ -297,11 +297,11 @@ export async function PUT(
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id: aircraft.organization_id,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: 'aircraft.updated',
-      target_type: 'aircraft',
-      target_id: params.id,
-      metadata: normalizedUpdate,
+      entity_type: 'aircraft',
+      entity_id: params.id,
+      metadata_json: normalizedUpdate,
     })
 
     return NextResponse.json(updated)
@@ -369,11 +369,11 @@ export async function DELETE(
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id: aircraft.organization_id,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: 'aircraft.archived',
-      target_type: 'aircraft',
-      target_id: params.id,
-      metadata: { tail_number: aircraft.tail_number },
+      entity_type: 'aircraft',
+      entity_id: params.id,
+      metadata_json: { tail_number: aircraft.tail_number },
     })
 
     return NextResponse.json({ success: true, archived: true })

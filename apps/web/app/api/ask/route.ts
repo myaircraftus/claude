@@ -142,7 +142,7 @@ async function dispatchTool(
         question: args.query,
         aircraft_id: args.aircraft_id,
         conversation_history: [],
-      })
+      }) as any
       return { result: data, citations: data?.citations ?? [], followUps: data?.follow_up_questions ?? [], confidence: data?.confidence }
     }
 

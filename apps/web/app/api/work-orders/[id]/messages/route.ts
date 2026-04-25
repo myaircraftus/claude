@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         customer_id: wo.customer_id,
         active_artifact_type: 'work_order',
         active_artifact_id: wo.id,
-        created_by: user.id,
+        created_by: ctx.user.id,
       })
       .select('id')
       .single()

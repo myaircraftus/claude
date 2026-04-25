@@ -619,7 +619,7 @@ export default async function AdminDashboardPage() {
                 </Link>
 
                 <Link
-                  href="/admin/audit"
+                  href="/admin/feedback"
                   className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
                 >
                   <div className="flex items-center gap-3">
@@ -627,8 +627,8 @@ export default async function AdminDashboardPage() {
                       <FileText className="h-4 w-4 text-amber-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">Audit Log</p>
-                      <p className="text-xs text-muted-foreground">Review system-wide audit events</p>
+                      <p className="text-sm font-medium text-foreground">Feedback &amp; Support</p>
+                      <p className="text-xs text-muted-foreground">Triage user-submitted feedback and tickets</p>
                     </div>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />

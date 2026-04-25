@@ -17,6 +17,7 @@ import { ensureTriggerSecretKey, isTriggerConfigured } from '@/lib/ingestion/tri
 import {
   annotateOcrPagesWithOpenAI,
   extractMetadataInline,
+  getUsableParserServiceUrl,
   type NativeExtractedEvent,
   type NativePageGeometryRegion,
   type OcrProgressUpdate,

@@ -155,21 +155,22 @@ export async function POST(req: NextRequest) {
     // TODO: wire Twilio here when TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM_NUMBER are set
   }
 
-  // e. Audit log
-  await supabase.from('audit_logs').insert({
+  // e. Audit log (best-effort)
+  const { error: auditErr } = await supabase.from('audit_logs').insert({
     organization_id: orgId,
-    actor_user_id: user.id,
+    user_id: user.id,
     action: 'mechanic.invited',
-    target_type: 'mechanic_invite',
-    target_id: invite.id,
-    metadata: {
+    entity_type: 'mechanic_invite',
+    entity_id: invite.id,
+    metadata_json: {
       mechanic_name,
       mechanic_email: mechanic_email ?? null,
       mechanic_phone: mechanic_phone ?? null,
       existing_user: !!existingUserId,
       email_sent: emailSent,
     },
-  }).catch(() => {}) // audit is best-effort
+  })
+  if (auditErr) console.warn('[audit] mechanic.invited insert failed', auditErr.message)
 
   return NextResponse.json({
     invite_id: invite.id,

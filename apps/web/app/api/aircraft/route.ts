@@ -349,11 +349,11 @@ export async function POST(req: NextRequest) {
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: existingAircraft?.is_archived ? 'aircraft.restored' : 'aircraft.created',
-      target_type: 'aircraft',
-      target_id: aircraft.id,
-      metadata: {
+      entity_type: 'aircraft',
+      entity_id: aircraft.id,
+      metadata_json: {
         tail_number: fields.tail_number,
         make: fields.make,
         model: fields.model,
