@@ -47,12 +47,11 @@ const AIRCRAFT_BRANDS = [
 ];
 
 const TECH_PARTNERS = [
-  { name: "OpenAI",              role: "ChatGPT Intelligence",   logoUrl: "/logos/openai.svg",     bg: "from-emerald-50 to-teal-50",  border: "border-emerald-200" },
-  { name: "Anthropic",           role: "Claude AI Reasoning",    logoUrl: "/logos/anthropic.svg",  bg: "from-orange-50 to-amber-50",  border: "border-orange-200" },
-  { name: "Google Cloud",        role: "Document AI · OCR",      logoUrl: "/logos/google.svg",     bg: "from-blue-50 to-sky-50",      border: "border-blue-200" },
-  { name: "AWS Textract",        role: "Intelligent Extraction", logoUrl: "/logos/aws.svg",        bg: "from-yellow-50 to-orange-50", border: "border-amber-200" },
-  { name: "Amazon Web Services", role: "Cloud Infrastructure",   logoUrl: "/logos/aws.svg",        bg: "from-amber-50 to-yellow-50",  border: "border-yellow-200" },
-  { name: "Figma",               role: "Design System · UI/UX",  logoUrl: "/logos/figma.svg",      bg: "from-red-50 to-pink-50",      border: "border-red-200" },
+  { name: "OpenAI",       role: "ChatGPT Intelligence",        logoUrl: "/logos/openai.svg" },
+  { name: "Anthropic",    role: "Claude AI Reasoning",         logoUrl: "/logos/anthropic.svg" },
+  { name: "Google Cloud", role: "Document AI · OCR",           logoUrl: "/logos/google.svg" },
+  { name: "AWS",          role: "Textract · Cloud",            logoUrl: "/logos/aws.svg" },
+  { name: "Figma",        role: "Design System",               logoUrl: "/logos/figma.svg" },
 ];
 
 /* ─── animation helpers ─────────────────────────────────────────── */
@@ -663,24 +662,23 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
       </section>
 
       {/* ══════════════ STATS TICKER ══════════════ */}
-      <div className="bg-gradient-to-r from-[#2563EB] via-[#1d4ed8] to-[#1e40af] py-4 overflow-hidden">
-        <motion.div className="flex gap-12 whitespace-nowrap" animate={{ x: ["0%", "-50%"] }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}>
-          {[
-            { icon: "✈️", t: "2.8M+ Records Processed" }, { icon: "🔧", t: "184K+ Work Orders" },
-            { icon: "📖", t: "38K+ Logbooks Digitized" }, { icon: "⏱️", t: "14 hrs Saved Per Week" },
-            { icon: "🛡️", t: "Zero Missed ADs" }, { icon: "📦", t: "2.1M+ Parts Indexed" },
-            { icon: "💳", t: "$99/mo · $79 annual" }, { icon: "♾️", t: "Unlimited Users Included" },
-            { icon: "✈️", t: "2.8M+ Records Processed" }, { icon: "🔧", t: "184K+ Work Orders" },
-            { icon: "📖", t: "38K+ Logbooks Digitized" }, { icon: "⏱️", t: "14 hrs Saved Per Week" },
-            { icon: "🛡️", t: "Zero Missed ADs" }, { icon: "📦", t: "2.1M+ Parts Indexed" },
-            { icon: "💳", t: "$99/mo · $79 annual" }, { icon: "♾️", t: "Unlimited Users Included" },
-          ].map((s, i) => (
-            <div key={i} className="flex items-center gap-2.5 text-white shrink-0">
-              <span>{s.icon}</span>
-              <span className="text-[13px]" style={{ fontWeight: 600 }}>{s.t}</span>
-              <span className="text-white/30 ml-4">◆</span>
+      <div className="bg-white border-y border-gray-100 py-5 overflow-hidden">
+        <motion.div className="flex gap-14 whitespace-nowrap" animate={{ x: ["0%", "-50%"] }} transition={{ duration: 40, repeat: Infinity, ease: "linear" }}>
+          {Array.from({ length: 2 }).flatMap((_, k) => [
+            "2.8M+ records processed",
+            "184K+ work orders",
+            "38K+ logbooks digitized",
+            "14 hours saved per week",
+            "Zero missed ADs",
+            "2.1M+ parts indexed",
+            "$99 / month",
+            "Unlimited users included",
+          ].map((t, i) => (
+            <div key={`${k}-${i}`} className="flex items-center gap-14 shrink-0">
+              <span className="text-[12px] text-gray-500 uppercase tracking-[0.18em]" style={{ fontWeight: 500 }}>{t}</span>
+              <span className="w-1 h-1 rounded-full bg-gray-300" />
             </div>
-          ))}
+          )))}
         </motion.div>
       </div>
 
@@ -852,17 +850,17 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             </p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5 mb-14">
             {TECH_PARTNERS.map((partner, i) => {
               const logoSrc = brandPartnerLogo(brandKit, partner.name, partner.logoUrl)
               return (
                 <FadeIn key={partner.name} delay={i * 0.08}>
-                  <div className={`bg-gradient-to-br ${partner.bg} border ${partner.border} rounded-2xl p-4 text-center hover:shadow-xl transition-all group cursor-default`}>
-                    <div className="flex items-center justify-center h-12 mb-3">
+                  <div className="bg-white border border-gray-200 rounded-2xl px-6 py-10 text-center hover:border-gray-300 hover:shadow-md transition-all group cursor-default flex flex-col items-center justify-center min-h-[180px]">
+                    <div className="flex items-center justify-center h-20 mb-5 w-full">
                       <img
                         src={logoSrc}
                         alt={partner.name}
-                        className="w-10 h-10 object-contain rounded-xl group-hover:scale-110 transition-transform"
+                        className="max-h-16 max-w-[140px] object-contain group-hover:scale-105 transition-transform"
                         onError={(e) => {
                           const t = e.currentTarget;
                           t.style.display = "none";
@@ -870,13 +868,13 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                           if (sibling) sibling.style.display = "flex";
                         }}
                       />
-                      <div className="w-10 h-10 rounded-xl bg-white/70 items-center justify-center text-[20px] hidden group-hover:scale-110 transition-transform"
-                        style={{ display: "none" }}>
+                      <div className="w-16 h-16 rounded-xl bg-gray-50 items-center justify-center text-[24px] text-[#0A1628] hidden"
+                        style={{ display: "none", fontWeight: 700 }}>
                         {partner.name.charAt(0)}
                       </div>
                     </div>
-                    <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>{partner.name}</div>
-                    <div className="text-[10px] text-gray-500" style={{ fontWeight: 500 }}>{partner.role}</div>
+                    <div className="text-[13px] text-[#0A1628] mb-1 tracking-tight" style={{ fontWeight: 600 }}>{partner.name}</div>
+                    <div className="text-[11px] text-gray-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>{partner.role}</div>
                   </div>
                 </FadeIn>
               )
