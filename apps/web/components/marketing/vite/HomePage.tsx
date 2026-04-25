@@ -17,6 +17,11 @@ import {
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { ImageWithFallback } from "./ImageWithFallback";
 import { MyAircraftLogo } from "./MyAircraftLogo";
+import {
+  MaPlane, MaWrench, MaStore, MaChart, MaBook, MaDatabase, MaFileCheck,
+  MaMessage, MaUserCheck, MaShield, MaUsers, MaLock, MaZap, MaStar,
+  MaSparkles, MaArrowRight, MaCheck, MaPlay, MaDollar,
+} from "../brand/MaIcon";
 
 /* ─── images ─────────────────────────────────────────────────────── */
 const IMG_HERO     = "https://images.unsplash.com/photo-1767532704240-65f516e6d97d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzbWFsbCUyMGFpcmNyYWZ0JTIwZmx5aW5nJTIwYmx1ZSUyMHNreSUyMGFlcmlhbHxlbnwxfHx8fDE3NzU5MTM5MTl8MA&ixlib=rb-4.1.0&q=80&w=1080";
@@ -122,98 +127,102 @@ function EpisodeBadge({ num, label }: { num: string; label: string }) {
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   AIRCRAFT BRAND LOGO MARKS (SVG — brand-accurate colors & shapes)
+   OEM AIRCRAFT BRAND MARKS — custom-drawn monograms in brand navy.
+   Designed as a single cohesive set (same canvas, same weight, same
+   color) so the ticker reads as our brand kit, not 12 mismatched logos.
 ──────────────────────────────────────────────────────────────────── */
-function AircraftBrandLogo({ mark, color }: { mark: string; color: string }) {
-  const logos: Record<string, React.ReactElement> = {
+function AircraftBrandLogo({ mark }: { mark: string; color?: string }) {
+  const c = "#0A1628";
+  const stroke = 2.6;
+  const common = { viewBox: "0 0 32 32", width: 28, height: 28, xmlns: "http://www.w3.org/2000/svg" } as const;
+
+  const marks: Record<string, React.ReactElement> = {
+    // Cessna — quiet open-C
     cessna: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Open-C arc — Cessna's iconic mark */}
-        <path d="M26 8 A13 13 0 1 0 26 24 L23 21 A9.2 9.2 0 1 1 23 11Z" fill={color}/>
+      <svg {...common}>
+        <path d="M26 9 A11 11 0 1 0 26 23" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
       </svg>
     ),
+    // Piper — refined P with rounded bowl
     piper: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Bold P letterform */}
-        <rect x="6" y="5" width="5" height="22" rx="1.5" fill={color}/>
-        <path d="M11 5 h5.5 a6.5 6.5 0 0 1 0 13 H11Z" fill={color}/>
+      <svg {...common}>
+        <path d="M9 5 V27" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
+        <path d="M9 5 H17 a6 6 0 0 1 0 12 H9" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Beechcraft — stylized "B" monogram
     beechcraft: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Diamond / beechnut rotated square */}
-        <polygon points="16,2 30,16 16,30 2,16" fill={color}/>
-        <polygon points="16,8.5 23.5,16 16,23.5 8.5,16" fill="white"/>
+      <svg {...common}>
+        <path d="M8 5 V27" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
+        <path d="M8 5 H17 a5 5 0 0 1 0 10 H8" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M8 15 H18 a6 6 0 0 1 0 12 H8" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Cirrus — single sweeping wing arc
     cirrus: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Swept wing swoosh */}
-        <path d="M2 22 Q16 6 30 15 L28 20 Q16 12 5 24Z" fill={color}/>
-        <path d="M2 26 Q16 10 30 19 L28 24 Q16 16 5 28Z" fill={color} opacity="0.35"/>
+      <svg {...common}>
+        <path d="M3 22 Q12 8 29 13" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
+        <path d="M22 11 L29 13 L26 19" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Diamond — outlined diamond
     diamond: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Diamond Aircraft diamond mark */}
-        <polygon points="16,2 30,16 16,30 2,16" fill={color}/>
-        <polygon points="16,9 23,16 16,23 9,16" fill="white"/>
-        <polygon points="16,13 19,16 16,19 13,16" fill={color}/>
+      <svg {...common}>
+        <path d="M16 3 L29 16 L16 29 L3 16 Z" fill="none" stroke={c} strokeWidth={stroke} strokeLinejoin="round"/>
+        <path d="M16 11 L21 16 L16 21 L11 16 Z" fill={c}/>
       </svg>
     ),
+    // Mooney — angled M, hand-drawn feel
     mooney: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Angular M letterform */}
-        <path d="M4 28 L4 6 L16 20 L28 6 L28 28 L25 28 L25 12 L16 24 L7 12 L7 28Z" fill={color}/>
+      <svg {...common}>
+        <path d="M4 27 V6 L16 19 L28 6 V27" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Gulfstream — circular G with horizontal cross
     gulfstream: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* G with horizontal bar — Gulfstream mark */}
-        <path d="M27 8 A13 13 0 1 0 27 24" fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round"/>
-        <path d="M17 16 L28 16" stroke={color} strokeWidth="3.5" strokeLinecap="round"/>
+      <svg {...common}>
+        <path d="M26 9 A10 10 0 1 0 26 23 V18 H19" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Embraer — clean E (no third-party blue swoosh)
     embraer: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* E letterform with blue swoosh accent */}
-        <path d="M5 5 L5 27 M5 5 L19 5 M5 16 L15 16 M5 27 L19 27"
-          fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M21 5 Q31 16 21 27" fill="none" stroke="#009FE3" strokeWidth="3" strokeLinecap="round"/>
+      <svg {...common}>
+        <path d="M27 6 H6 V26 H27 M6 16 H22" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
+    // Pilatus — abstract mountain peak
     pilatus: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Mountain / peak mark — Swiss-inspired */}
-        <polygon points="16,3 30,29 2,29" fill="none" stroke={color} strokeWidth="2.5"/>
-        <polygon points="16,11 24,29 8,29" fill={color}/>
+      <svg {...common}>
+        <path d="M3 27 L16 6 L29 27 Z" fill="none" stroke={c} strokeWidth={stroke} strokeLinejoin="round"/>
+        <path d="M11 18 L16 11 L21 18" fill={c}/>
       </svg>
     ),
+    // Daher — bold rounded D
     daher: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* Bold D — Daher wordmark initial */}
-        <path d="M7 5 h6 a12 12 0 0 1 0 22 H7Z" fill={color}/>
-        <path d="M7 9 h5 a8 8 0 0 1 0 14 H7Z" fill="white" opacity="0.22"/>
+      <svg {...common}>
+        <path d="M7 5 V27 H14 a11 11 0 0 0 0 -22 Z" fill="none" stroke={c} strokeWidth={stroke} strokeLinejoin="round"/>
       </svg>
     ),
+    // Textron — minimal T
     textron: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* T lettermark — Textron Aviation */}
-        <rect x="4" y="5" width="24" height="5" rx="2" fill={color}/>
-        <rect x="13.5" y="10" width="5" height="17" rx="2" fill={color}/>
+      <svg {...common}>
+        <path d="M4 7 H28 M16 7 V27" fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
       </svg>
     ),
+    // Socata — flowing S
     socata: (
-      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-        {/* S-curve — Socata / Daher-Socata */}
-        <path d="M26 10 Q26 5 16 5 Q6 5 6 11 Q6 17 26 17 Q26 23 16 27 Q6 27 6 23"
-          fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round"/>
+      <svg {...common}>
+        <path d="M25 9 Q22 5 16 5 Q9 5 9 11 Q9 16 23 16 Q25 16 25 21 Q25 27 16 27 Q9 27 7 23"
+          fill="none" stroke={c} strokeWidth={stroke} strokeLinecap="round"/>
       </svg>
     ),
   };
-  return logos[mark] ?? (
-    <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-      <text x="4" y="24" fill={color} fontSize="20" fontWeight="900">{mark[0].toUpperCase()}</text>
+
+  return marks[mark] ?? (
+    <svg {...common}>
+      <text x="16" y="22" textAnchor="middle" fill={c} fontSize="18" fontWeight="700" fontFamily="ui-sans-serif,system-ui,sans-serif">
+        {mark[0].toUpperCase()}
+      </text>
     </svg>
   );
 }
@@ -597,7 +606,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 "Audit-, resale- and prebuy-ready records",
               ].map(s => (
                 <li key={s} className="flex items-start gap-2 text-[13px] text-gray-600">
-                  <CheckCircle className="w-3.5 h-3.5 text-[#2563EB] mt-[3px] shrink-0" />
+                  <MaCheck className="w-3.5 h-3.5 text-[#2563EB] mt-[3px] shrink-0" />
                   <span>{s}</span>
                 </li>
               ))}
@@ -606,10 +615,10 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.38 }}
               className="flex flex-wrap items-center gap-3 mb-4">
               <Link href="/signup?preview=1" className="inline-flex items-center gap-2 bg-gradient-to-r from-[#2563EB] to-[#1d4ed8] text-white px-7 py-3.5 rounded-xl hover:shadow-xl hover:shadow-blue-300/40 transition-all shadow-lg shadow-blue-200 text-[15px]" style={{ fontWeight: 600 }}>
-                Start for Free <ArrowRight className="w-4 h-4" />
+                Start for Free <MaArrowRight className="w-4 h-4" />
               </Link>
               <Link href="/app" className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-7 py-3.5 rounded-xl hover:bg-[#EFF6FF] hover:border-[#2563EB]/30 transition-all text-[15px] shadow-sm" style={{ fontWeight: 500 }}>
-                <Play className="w-4 h-4 text-[#2563EB]" /> Book a Demo
+                <MaPlay className="w-4 h-4 text-[#2563EB]" /> Book a Demo
               </Link>
             </motion.div>
 
@@ -682,7 +691,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn className="text-center mb-10">
             <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4">
-              <Plane className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaPlane className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Universal Aircraft Compatibility</span>
             </div>
             <h2 className="text-[32px] text-[#0A1628] tracking-tight mb-2" style={{ fontWeight: 900 }}>
@@ -703,7 +712,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                       {customLogo ? (
                         <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
                       ) : (
-                        <AircraftBrandLogo mark={brand.mark} color="#0A1628" />
+                        <AircraftBrandLogo mark={brand.mark} />
                       )}
                     </div>
                     <div>
@@ -728,7 +737,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                       {customLogo ? (
                         <img src={customLogo} alt={brand.name} className="max-w-[28px] max-h-[28px] object-contain" />
                       ) : (
-                        <AircraftBrandLogo mark={brand.mark} color="#0A1628" />
+                        <AircraftBrandLogo mark={brand.mark} />
                       )}
                     </div>
                     <div>
@@ -756,7 +765,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="relative max-w-7xl mx-auto px-6">
           <FadeIn className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-white border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
-              <Users className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaUsers className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Who it's for</span>
             </div>
             <h2 className="text-[40px] text-[#0A1628] leading-tight tracking-tight mb-3" style={{ fontWeight: 900 }}>
@@ -769,11 +778,11 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {[
-              { icon: Plane,     tag: "Aircraft Owners",  quote: "I own an aircraft, but my records are everywhere.",          blurb: "One place for every logbook, AD, STC, and 337 form. Search any answer in plain English." },
-              { icon: Wrench,    tag: "A&P Mechanics",    quote: "I'm buried in paperwork I wasn't trained for.",                blurb: "AI drafts FAR 43.9 entries. Squawks, estimates, invoices flow in one portal." },
-              { icon: Store,     tag: "MRO Shops",        quote: "Seven tools to run one job — none of them talk.",              blurb: "Work-order lifecycle from squawk to signed logbook. Owners stay in the loop automatically." },
-              { icon: BarChart3, tag: "Fleet Operators",  quote: "I need to see status across every tail, right now.",           blurb: "Live compliance dashboard. ADs tracked by serial. Anomalies surfaced before they bite." },
-              { icon: BookOpen,  tag: "Flight Schools",   quote: "Instructors and renters need the same record, instantly.",     blurb: "Trainer fleet logbooks digitized and shared. Squawks routed to the right mechanic in one tap." },
+              { icon: MaPlane,  tag: "Aircraft Owners",  quote: "I own an aircraft, but my records are everywhere.",          blurb: "One place for every logbook, AD, STC, and 337 form. Search any answer in plain English." },
+              { icon: MaWrench, tag: "A&P Mechanics",    quote: "I'm buried in paperwork I wasn't trained for.",                blurb: "AI drafts FAR 43.9 entries. Squawks, estimates, invoices flow in one portal." },
+              { icon: MaStore,  tag: "MRO Shops",        quote: "Seven tools to run one job — none of them talk.",              blurb: "Work-order lifecycle from squawk to signed logbook. Owners stay in the loop automatically." },
+              { icon: MaChart,  tag: "Fleet Operators",  quote: "I need to see status across every tail, right now.",           blurb: "Live compliance dashboard. ADs tracked by serial. Anomalies surfaced before they bite." },
+              { icon: MaBook,   tag: "Flight Schools",   quote: "Instructors and renters need the same record, instantly.",     blurb: "Trainer fleet logbooks digitized and shared. Squawks routed to the right mechanic in one tap." },
             ].map((p, i) => (
               <FadeIn key={p.tag} delay={i * 0.06}>
                 <div className="bg-white border border-gray-200 rounded-3xl p-6 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all group cursor-default">
@@ -803,7 +812,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="max-w-6xl mx-auto px-6">
           <FadeIn className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-gradient-to-r from-[#EFF6FF] to-white border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
-              <Zap className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaZap className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Powered By Next-Gen AI Stack</span>
             </div>
             <h2 className="text-[38px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 900 }}>
@@ -886,7 +895,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <div className="relative max-w-6xl mx-auto px-6">
             <FadeIn className="text-center mb-10">
               <div className="inline-flex items-center gap-2 bg-white border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
-                <Play className="w-3.5 h-3.5 text-[#2563EB] fill-[#2563EB]" />
+                <MaPlay className="w-3.5 h-3.5 text-[#2563EB]" />
                 <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>See it in action</span>
               </div>
               <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 900 }}>
@@ -992,7 +1001,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 <motion.div animate={{ y: [4, -4, 4] }} transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
                   className="absolute -bottom-4 -right-4 bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] rounded-2xl shadow-2xl shadow-blue-300 p-4 max-w-[200px]">
                   <div className="flex items-center gap-2 mb-1.5">
-                    <BookOpen className="w-4 h-4 text-white" />
+                    <MaBook className="w-4 h-4 text-white" />
                     <span className="text-[12px] text-white" style={{ fontWeight: 700 }}>Logbook Secured</span>
                   </div>
                   <div className="text-[11px] text-blue-100">842 entries indexed, encrypted, and searchable forever.</div>
@@ -1022,7 +1031,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                       ))}
                     </div>
                     <div className="mt-2 flex items-center gap-2">
-                      <ArrowRight className="w-3.5 h-3.5 text-[#2563EB]" />
+                      <MaArrowRight className="w-3.5 h-3.5 text-[#2563EB]" />
                       <div className="text-[11px] text-[#2563EB]" style={{ fontWeight: 700 }}>7 disconnected tools → 1 unified platform</div>
                     </div>
                   </div>
@@ -1125,7 +1134,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="relative z-10 max-w-5xl mx-auto px-6 text-center">
           <FadeIn>
             <div className="inline-flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-[#2563EB]/25 rounded-full px-4 py-1.5 mb-6 shadow-lg shadow-blue-100">
-              <Sparkles className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaSparkles className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>The Answer to All of It</span>
             </div>
             <h2 className="text-[52px] text-[#0A1628] leading-[1.05] tracking-tight mb-6" style={{ fontWeight: 900 }}>
@@ -1160,7 +1169,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4">
-              <Plane className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaPlane className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>For Aircraft Owners</span>
             </div>
             <h2 className="text-[44px] text-[#0A1628] leading-tight tracking-tight mb-4" style={{ fontWeight: 900 }}>
@@ -1226,7 +1235,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="max-w-7xl mx-auto px-6">
           <FadeIn className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-white border border-[#1E3A5F]/20 rounded-full px-4 py-1.5 mb-4 shadow-sm">
-              <Wrench className="w-3.5 h-3.5 text-[#1E3A5F]" />
+              <MaWrench className="w-3.5 h-3.5 text-[#1E3A5F]" />
               <span className="text-[12px] text-[#1E3A5F]" style={{ fontWeight: 600 }}>For A&P Mechanics</span>
             </div>
             <h2 className="text-[44px] text-[#0A1628] leading-tight tracking-tight mb-4" style={{ fontWeight: 900 }}>
@@ -1293,7 +1302,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <FadeIn>
               <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-full px-3 py-1 mb-5">
-                <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                <MaBook className="w-3.5 h-3.5 text-emerald-600" />
                 <span className="text-[12px] text-emerald-700" style={{ fontWeight: 600 }}>The Logbook Intelligence Engine</span>
               </div>
               <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 900 }}>
@@ -1312,13 +1321,13 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                   <div key={ex.q} className="bg-gradient-to-r from-[#EFF6FF] to-white border border-[#2563EB]/15 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
                     <div className="flex items-start gap-2 mb-2.5">
                       <div className="w-5 h-5 rounded-md bg-[#2563EB] flex items-center justify-center shrink-0 mt-0.5">
-                        <MessageSquare className="w-3 h-3 text-white" />
+                        <MaMessage className="w-3 h-3 text-white" />
                       </div>
                       <div className="text-[13px] text-[#2563EB]" style={{ fontWeight: 500 }}>{ex.q}</div>
                     </div>
                     <div className="flex items-start gap-2">
                       <div className="w-5 h-5 rounded-md bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        <MaSparkles className="w-3 h-3 text-emerald-600" />
                       </div>
                       <div className="text-[12px] text-gray-600 leading-relaxed">{ex.a}</div>
                     </div>
@@ -1341,7 +1350,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                       {["OCR — 847 characters extracted", "Aircraft: N12345 — matched", "Entry: 100-Hour Inspection", "Date: Feb 8, 2026 — parsed", "IA Cert #3847512 — verified", "AD 2024-15-06 — marked compliant", "Embedding generated — indexed"].map((l, i) => (
                         <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.4, repeat: Infinity, repeatDelay: 4 }}
                           className="flex items-center gap-2 text-[11px] text-gray-500">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                          <MaCheck className="w-3 h-3 text-emerald-500 shrink-0" />
                           {l}
                         </motion.div>
                       ))}
@@ -1351,7 +1360,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               </div>
               <div className="mt-5 bg-gradient-to-r from-[#EFF6FF] to-[#dbeafe] border border-[#2563EB]/20 rounded-2xl p-5 flex items-start gap-3 shadow-md">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shrink-0 shadow-lg shadow-blue-200">
-                  <Lock className="w-4 h-4 text-white" />
+                  <MaLock className="w-4 h-4 text-white" />
                 </div>
                 <div>
                   <div className="text-[13px] text-[#0A1628] mb-1" style={{ fontWeight: 700 }}>Bank-Level Security & Redundancy</div>
@@ -1407,7 +1416,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="relative max-w-6xl mx-auto px-6">
           <FadeIn className="text-center mb-14">
             <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-4">
-              <Star className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaStar className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Heard on the Ramp</span>
             </div>
             <h2 className="text-[40px] text-[#0A1628] tracking-tight mb-3" style={{ fontWeight: 800 }}>
@@ -1422,7 +1431,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <FadeIn>
             <div className="flex items-center gap-3 mb-5">
               <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
-                <Plane className="w-4 h-4 text-[#2563EB]" />
+                <MaPlane className="w-4 h-4 text-[#2563EB]" />
               </div>
               <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Aircraft Owners</div>
               <div className="flex-1 h-px bg-gray-200" />
@@ -1464,7 +1473,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <FadeIn>
             <div className="flex items-center gap-3 mb-5">
               <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
-                <Wrench className="w-4 h-4 text-[#2563EB]" />
+                <MaWrench className="w-4 h-4 text-[#2563EB]" />
               </div>
               <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Mechanics</div>
               <div className="flex-1 h-px bg-gray-200" />
@@ -1508,7 +1517,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
-                    <BookOpen className="w-4 h-4 text-[#2563EB]" />
+                    <MaBook className="w-4 h-4 text-[#2563EB]" />
                   </div>
                   <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>Flight Schools, Students &amp; Instructors</div>
                 </div>
@@ -1525,7 +1534,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
               <div className="bg-white border border-gray-200 rounded-3xl p-7 h-full hover:border-[#2563EB]/30 hover:shadow-md transition-all">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
-                    <BarChart3 className="w-4 h-4 text-[#2563EB]" />
+                    <MaChart className="w-4 h-4 text-[#2563EB]" />
                   </div>
                   <div className="text-[11px] uppercase tracking-widest text-gray-500" style={{ fontWeight: 700 }}>For Shops &amp; Fleets</div>
                 </div>
@@ -1547,7 +1556,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="relative max-w-5xl mx-auto px-6 text-center">
           <FadeIn>
             <div className="inline-flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-1.5 mb-5">
-              <Lock className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaLock className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Trust &amp; integrity</span>
             </div>
             <h2 className="text-[44px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 800 }}>
@@ -1559,12 +1568,12 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           </FadeIn>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
             {[
-              { icon: Database,      title: "Records preserved & organized", desc: "Logbooks, ADs, STCs, 337s — structured and indexed by aircraft." },
-              { icon: FileCheck,     title: "Answers tied to documents",     desc: "Every AI answer cites the actual page, entry, or file it came from." },
-              { icon: MessageSquare, title: "Communication on the work",     desc: "Updates, photos, and approvals stay attached to the work order." },
-              { icon: Plane,         title: "History stays with the aircraft",desc: "Records follow the tail through ownership changes and prebuys." },
-              { icon: UserCheck,     title: "Access you control",            desc: "Role-based sharing for owners, mechanics, instructors, and shops." },
-              { icon: Shield,        title: "Built for real aviation workflows", desc: "Designed by people who own aircraft and write logbook entries." },
+              { icon: MaDatabase,  title: "Records preserved & organized", desc: "Logbooks, ADs, STCs, 337s — structured and indexed by aircraft." },
+              { icon: MaFileCheck, title: "Answers tied to documents",     desc: "Every AI answer cites the actual page, entry, or file it came from." },
+              { icon: MaMessage,   title: "Communication on the work",     desc: "Updates, photos, and approvals stay attached to the work order." },
+              { icon: MaPlane,     title: "History stays with the aircraft",desc: "Records follow the tail through ownership changes and prebuys." },
+              { icon: MaUserCheck, title: "Access you control",            desc: "Role-based sharing for owners, mechanics, instructors, and shops." },
+              { icon: MaShield,    title: "Built for real aviation workflows", desc: "Designed by people who own aircraft and write logbook entries." },
             ].map((t, i) => (
               <FadeIn key={t.title} delay={i * 0.05}>
                 <div className="flex gap-4 p-6 rounded-2xl border border-gray-200 bg-white hover:border-[#2563EB]/30 hover:shadow-md transition-all h-full">
@@ -1587,7 +1596,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         <div className="max-w-5xl mx-auto px-6">
           <FadeIn className="text-center mb-14">
             <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#2563EB]/20 rounded-full px-4 py-1.5 mb-5">
-              <DollarSign className="w-3.5 h-3.5 text-[#2563EB]" />
+              <MaDollar className="w-3.5 h-3.5 text-[#2563EB]" />
               <span className="text-[12px] text-[#2563EB]" style={{ fontWeight: 600 }}>Radically Simple Pricing</span>
             </div>
             <h2 className="text-[48px] text-[#0A1628] tracking-tight mb-4" style={{ fontWeight: 900 }}>
@@ -1607,7 +1616,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 <div className="relative">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#1d4ed8] flex items-center justify-center shadow-lg shadow-blue-300">
-                      <Plane className="w-6 h-6 text-white" />
+                      <MaPlane className="w-6 h-6 text-white" />
                     </div>
                     <div>
                       <div className="text-[12px] text-[#2563EB] uppercase tracking-widest" style={{ fontWeight: 700 }}>For Aircraft Owners</div>
@@ -1640,14 +1649,14 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                     ].map(f => (
                       <div key={f} className="flex items-center gap-3">
                         <div className="w-5 h-5 rounded-full bg-[#2563EB] flex items-center justify-center shrink-0">
-                          <CheckCircle className="w-3 h-3 text-white" />
+                          <MaCheck className="w-3 h-3 text-white" />
                         </div>
                         <span className="text-[13px] text-gray-600">{f}</span>
                       </div>
                     ))}
                   </div>
                   <Link href="/signup" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#2563EB] to-[#1d4ed8] text-white py-4 rounded-2xl hover:shadow-xl hover:shadow-blue-300/40 transition-all text-[15px] shadow-lg" style={{ fontWeight: 700 }}>
-                    Start Free 30-Day Trial <ArrowRight className="w-4 h-4" />
+                    Start Free 30-Day Trial <MaArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               </div>
@@ -1661,7 +1670,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 <div className="relative">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1E3A5F] to-[#0A1628] flex items-center justify-center shadow-lg shadow-slate-300">
-                      <Wrench className="w-6 h-6 text-white" />
+                      <MaWrench className="w-6 h-6 text-white" />
                     </div>
                     <div>
                       <div className="text-[12px] text-[#1E3A5F] uppercase tracking-widest" style={{ fontWeight: 700 }}>For A&P Mechanics</div>
@@ -1694,14 +1703,14 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                     ].map(f => (
                       <div key={f} className="flex items-center gap-3">
                         <div className="w-5 h-5 rounded-full bg-[#1E3A5F] flex items-center justify-center shrink-0">
-                          <CheckCircle className="w-3 h-3 text-white" />
+                          <MaCheck className="w-3 h-3 text-white" />
                         </div>
                         <span className="text-[13px] text-gray-600">{f}</span>
                       </div>
                     ))}
                   </div>
                   <Link href="/signup" className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#1E3A5F] to-[#0A1628] text-white py-4 rounded-2xl hover:shadow-xl hover:shadow-slate-300/40 transition-all text-[15px] shadow-lg" style={{ fontWeight: 700 }}>
-                    Start Free 30-Day Trial <ArrowRight className="w-4 h-4" />
+                    Start Free 30-Day Trial <MaArrowRight className="w-4 h-4" />
                   </Link>
                 </div>
               </div>
@@ -1713,7 +1722,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             <div className="flex flex-wrap items-center justify-center gap-6">
               {["30-day free trial", "No credit card required", "Cancel anytime", "On-site scanning — FREE"].map((t) => (
                 <div key={t} className="flex items-center gap-2 text-[13px] text-gray-500">
-                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <MaCheck className="w-4 h-4 text-emerald-500" />
                   {t}
                 </div>
               ))}
@@ -1728,7 +1737,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           <div className="grid md:grid-cols-2 gap-12 items-center">
             <FadeIn>
               <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-400/30 rounded-full px-4 py-1.5 mb-5">
-                <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                <MaShield className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-emerald-300 text-[11px]" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>ON-SITE · FREE · $100K INSURED</span>
               </div>
               <h2 className="text-[38px] text-white tracking-tight mb-4" style={{ fontWeight: 800, lineHeight: 1.1 }}>
@@ -1746,7 +1755,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                   { label: "24h Delivery", sub: "Records live fast" },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center gap-2.5 bg-white/5 rounded-xl p-3 border border-white/10">
-                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <MaCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                     <div>
                       <div className="text-white text-[12px]" style={{ fontWeight: 700 }}>{item.label}</div>
                       <div className="text-white/40 text-[10px]">{item.sub}</div>
@@ -1759,7 +1768,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white px-7 py-3.5 rounded-xl text-[15px] transition-colors shadow-lg shadow-emerald-900/30"
                 style={{ fontWeight: 700 }}
               >
-                Learn About Scanning <ArrowRight className="w-4 h-4" />
+                Learn About Scanning <MaArrowRight className="w-4 h-4" />
               </Link>
             </FadeIn>
             <FadeIn delay={0.15}>
@@ -1820,7 +1829,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4 mb-10">
               <Link href="/signup" className="inline-flex items-center gap-2 bg-white text-[#2563EB] px-9 py-4 rounded-2xl hover:bg-blue-50 transition-all shadow-2xl shadow-blue-900/30 text-[16px]" style={{ fontWeight: 700 }}>
-                Start Free — No Credit Card <ArrowRight className="w-4 h-4" />
+                Start Free — No Credit Card <MaArrowRight className="w-4 h-4" />
               </Link>
               <Link href="/pricing" className="inline-flex items-center gap-2 border-2 border-white/35 text-white px-9 py-4 rounded-2xl hover:bg-white/10 transition-all text-[15px]" style={{ fontWeight: 600 }}>
                 View Pricing
@@ -1829,7 +1838,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             <div className="flex flex-wrap items-center justify-center gap-6 text-[13px] text-blue-100">
               {["$99/aircraft/mo · $79 annual", "$99/mechanic/mo · $79 annual", "30-day free trial", "Cancel anytime"].map((t) => (
                 <div key={t} className="flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-300" />
+                  <MaCheck className="w-3.5 h-3.5 text-emerald-300" />
                   {t}
                 </div>
               ))}
