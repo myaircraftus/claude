@@ -317,8 +317,8 @@ export function AddAircraftModal({ onClose, onAdd }: AddAircraftModalProps) {
             {/* ── Step 1: Tail number ── */}
             {step === 1 && (
               <motion.div key="s1" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col min-h-[360px]">
-                <h2 className="text-[20px] text-foreground mb-1" style={{ fontWeight: 700 }}>Enter Tail Number</h2>
-                <p className="text-[13px] text-muted-foreground mb-7">We&apos;ll look up your aircraft in the FAA civil aircraft registry automatically.</p>
+                <h2 className="text-[20px] text-foreground mb-1" style={{ fontWeight: 700 }}>Enter your tail number</h2>
+                <p className="text-[13px] text-muted-foreground mb-7">This is your aircraft&apos;s registration (e.g. N12345). We&apos;ll look it up in the FAA registry and fill in make, model, and year for you.</p>
                 <div className="flex gap-3 mb-4">
                   <input
                     type="text"

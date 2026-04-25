@@ -43,7 +43,7 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
   const searchPlaceholder =
     _breadcrumbs.length > 0
       ? `Search ${_breadcrumbs[_breadcrumbs.length - 1].label}...`
-      : 'Search or ask your aircraft...'
+      : 'Search records or ask a question (e.g. "When was my last oil change?")'
 
   return (
     <header className="h-16 flex items-center justify-between px-6 border-b border-border bg-white flex-shrink-0">

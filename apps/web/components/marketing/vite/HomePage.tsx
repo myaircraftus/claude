@@ -581,7 +581,7 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
                 <span className="text-[11px] text-[#2563EB]" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>NOW STREAMING</span>
               </div>
               <Waveform bars={14} color="#2563EB" maxH={18} />
-              <span className="text-[11px] text-gray-500" style={{ fontWeight: 500 }}>Aircraft Records Revolution</span>
+              <span className="text-[11px] text-gray-500" style={{ fontWeight: 500 }}>For aircraft owners &amp; mechanics</span>
             </motion.div>
 
             <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 }}
@@ -615,10 +615,10 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.38 }}
               className="flex flex-wrap items-center gap-3 mb-4">
               <Link href="/signup?preview=1" className="inline-flex items-center gap-2 bg-gradient-to-r from-[#2563EB] to-[#1d4ed8] text-white px-7 py-3.5 rounded-xl hover:shadow-xl hover:shadow-blue-300/40 transition-all shadow-lg shadow-blue-200 text-[15px]" style={{ fontWeight: 600 }}>
-                Start for Free <MaArrowRight className="w-4 h-4" />
+                Start Free 30-Day Trial <MaArrowRight className="w-4 h-4" />
               </Link>
-              <Link href="/app" className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-7 py-3.5 rounded-xl hover:bg-[#EFF6FF] hover:border-[#2563EB]/30 transition-all text-[15px] shadow-sm" style={{ fontWeight: 500 }}>
-                <MaPlay className="w-4 h-4 text-[#2563EB]" /> Book a Demo
+              <Link href="/pricing" className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-7 py-3.5 rounded-xl hover:bg-[#EFF6FF] hover:border-[#2563EB]/30 transition-all text-[15px] shadow-sm" style={{ fontWeight: 500 }}>
+                <MaPlay className="w-4 h-4 text-[#2563EB]" /> See How It Works
               </Link>
             </motion.div>
 

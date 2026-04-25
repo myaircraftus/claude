@@ -140,8 +140,11 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
 
   const targetOrgId = (doc as any).organization_id ?? orgId
 
-  // ── 4. Reset status to 'queued', clear parse state ────────────────────────
-  const { error: updateError } = await serviceClient
+  // ── 4. Reset status to 'queued', clear parse state (atomic CAS) ───────────
+  // Guard against double-clicks / concurrent retries by requiring the row to
+  // still be in the same status we just observed. If another request beat us
+  // to the update, the WHERE clause matches zero rows and we return 409.
+  const { data: updatedRows, error: updateError } = await serviceClient
     .from('documents')
     .update({
       parsing_status: 'queued',
@@ -152,10 +155,19 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .eq('parsing_status', doc.parsing_status)
+    .select('id')
 
   if (updateError) {
     console.error('[retry] DB update error:', updateError)
     return NextResponse.json({ error: 'Failed to re-queue document' }, { status: 500 })
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json(
+      { error: 'This document is already being retried. Please wait a moment and refresh.' },
+      { status: 409 }
+    )
   }
 
   const ingestionResult = await queueDocumentIngestion(id, {

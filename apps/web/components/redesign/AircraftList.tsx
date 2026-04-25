@@ -23,6 +23,7 @@ export function AircraftList() {
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [aircraftData, setAircraftData] = useState<AircraftItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +36,8 @@ export function AircraftList() {
         setAircraftData(Array.isArray(payload) ? payload : []);
       } catch (err) {
         console.error("Failed to load aircraft", err);
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     }
     loadAircraft();
@@ -93,6 +96,37 @@ export function AircraftList() {
         )}
       </AnimatePresence>
 
+      {/* Empty state — first-time user */}
+      {!isLoading && aircraftData.length === 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-border p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-primary/8 flex items-center justify-center mx-auto mb-4">
+            <Plane className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-[18px] text-foreground mb-2" style={{ fontWeight: 600 }}>
+            Add your first aircraft to get started
+          </h2>
+          <p className="text-[14px] text-muted-foreground max-w-md mx-auto mb-6">
+            Enter your tail number (like N12345). We&rsquo;ll look it up in the FAA registry and pre-fill the rest for you.
+          </p>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 rounded-lg text-[14px] hover:bg-primary/90 transition-colors"
+            style={{ fontWeight: 500 }}
+          >
+            <Plus className="w-4 h-4" /> Add Your First Aircraft
+          </button>
+        </div>
+      )}
+
+      {/* No-search-result state */}
+      {!isLoading && aircraftData.length > 0 && filtered.length === 0 && (
+        <div className="bg-white rounded-xl border border-border p-8 text-center">
+          <p className="text-[14px] text-muted-foreground">
+            No aircraft match &ldquo;{search}&rdquo;. Try a different search.
+          </p>
+        </div>
+      )}
+
       {/* Aircraft cards */}
       <div className="space-y-3">
         {filtered.map((ac) => (
@@ -122,7 +156,7 @@ export function AircraftList() {
                 <div className="text-foreground" style={{ fontWeight: 500 }}>{[ac.engine_make, ac.engine_model].filter(Boolean).join(" ") || "—"}</div>
               </div>
               <div>
-                <div className="text-muted-foreground mb-0.5">TTAF</div>
+                <div className="text-muted-foreground mb-0.5" title="Total Time Airframe">Total Hours</div>
                 <div className="text-foreground" style={{ fontWeight: 500 }}>{ac.total_time_hours ? `${ac.total_time_hours} hrs` : "—"}</div>
               </div>
               <div>

@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { toast } from 'sonner'
 import { AlertCircle, CheckCircle2, Loader2, Plane, Search } from 'lucide-react'
 import { Topbar } from '@/components/shared/topbar'
 import { Button } from '@/components/ui/button'
@@ -191,9 +192,13 @@ export default function EditAircraftPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to update aircraft')
+      toast.success('Aircraft saved')
       router.push(`/aircraft/${params.id}`)
     } catch (error: any) {
-      setServerError(error.message ?? 'Failed to update aircraft')
+      const msg = error.message ?? 'Failed to update aircraft'
+      setServerError(msg)
+      toast.error(msg)
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
 
