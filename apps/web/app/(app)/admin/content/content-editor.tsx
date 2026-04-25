@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import type { ContentType } from '@/lib/marketing/content'
-import { toEmbedUrl } from '@/lib/marketing/content'
+import { toEmbedUrl } from '@/lib/marketing/embed'
 import type { ContentDefault } from '@/lib/marketing/defaults'
 
 interface ContentRow {

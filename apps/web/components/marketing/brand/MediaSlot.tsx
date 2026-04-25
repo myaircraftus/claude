@@ -1,4 +1,4 @@
-import { toEmbedUrl } from '@/lib/marketing/content'
+import { toEmbedUrl } from '@/lib/marketing/embed'
 
 type Props = {
   /** Direct URL (image, video file, or YouTube/Vimeo). */
