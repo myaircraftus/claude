@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { OWNER_STEPS, MECHANIC_STEPS, type TourStep } from "./onboardingSteps";
-import { getEffectivePathname } from "@/lib/auth/tenant-routing";
+import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 
 export type TourPersona = "owner" | "mechanic";
 
@@ -40,7 +40,7 @@ function detectPersonaFromPath(p: string): TourPersona {
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const effectivePathname = getEffectivePathname(pathname);
+  const effectivePathname = getDisplayPathname(pathname);
 
   const [tourActive, setTourActive] = useState(false);
   const [tourPersona, setTourPersona] = useState<TourPersona | null>(null);

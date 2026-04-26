@@ -293,7 +293,7 @@ export function LoginPage() {
           {/* Demo buttons */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             <Link
-              href="/app"
+              href="/demo/owner"
               className="flex items-center justify-center gap-2 h-12 rounded-xl border border-[rgba(15,23,42,0.12)] text-[#0A1628] hover:bg-[#f8f9fb] transition-colors text-[13px] bg-white"
               style={{ fontWeight: 600 }}
             >
@@ -301,7 +301,7 @@ export function LoginPage() {
               Owner Demo
             </Link>
             <Link
-              href="/app/mechanic"
+              href="/demo/mechanic"
               className="flex items-center justify-center gap-2 h-12 rounded-xl border border-[rgba(15,23,42,0.12)] text-[#0A1628] hover:bg-[#f8f9fb] transition-colors text-[13px] bg-white"
               style={{ fontWeight: 600 }}
             >

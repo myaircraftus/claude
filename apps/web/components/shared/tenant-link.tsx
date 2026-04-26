@@ -4,7 +4,11 @@ import NextLink from "next/link";
 import type { AnchorHTMLAttributes, PropsWithChildren } from "react";
 import type { LinkProps } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { getTenantSlugFromPathname, withTenantPrefix } from "@/lib/auth/tenant-routing";
+import {
+  getTenantSlugFromPathname,
+  isDemoPathname,
+  withRoutePrefix,
+} from "@/lib/auth/tenant-routing";
 
 type TenantLinkProps = PropsWithChildren<
   LinkProps & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof LinkProps>
@@ -12,27 +16,32 @@ type TenantLinkProps = PropsWithChildren<
 type RouterInstance = ReturnType<typeof useRouter>;
 type NavigateOptions = Parameters<RouterInstance["push"]>[1];
 
-export function useTenantHref<T extends LinkProps["href"]>(href: T): T {
+function useRouteContext() {
   const pathname = usePathname();
-  const tenantSlug = getTenantSlugFromPathname(pathname);
-  return withTenantPrefix(href, tenantSlug);
+  const demo = isDemoPathname(pathname);
+  const tenantSlug = demo ? null : getTenantSlugFromPathname(pathname);
+  return { tenantSlug, demo };
+}
+
+export function useTenantHref<T extends LinkProps["href"]>(href: T): T {
+  const ctx = useRouteContext();
+  return withRoutePrefix(href, ctx);
 }
 
 export function useTenantRouter() {
   const router = useRouter();
-  const pathname = usePathname();
-  const tenantSlug = getTenantSlugFromPathname(pathname);
+  const ctx = useRouteContext();
 
   return {
     ...router,
     push(href: Parameters<RouterInstance["push"]>[0], options?: NavigateOptions) {
-      return router.push(withTenantPrefix(href, tenantSlug), options);
+      return router.push(withRoutePrefix(href, ctx), options);
     },
     replace(href: Parameters<RouterInstance["replace"]>[0], options?: NavigateOptions) {
-      return router.replace(withTenantPrefix(href, tenantSlug), options);
+      return router.replace(withRoutePrefix(href, ctx), options);
     },
     prefetch(href: Parameters<RouterInstance["prefetch"]>[0], options?: Parameters<RouterInstance["prefetch"]>[1]) {
-      return router.prefetch(withTenantPrefix(href, tenantSlug), options);
+      return router.prefetch(withRoutePrefix(href, ctx), options);
     },
   };
 }

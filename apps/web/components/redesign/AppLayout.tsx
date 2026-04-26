@@ -19,7 +19,7 @@ import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { TourOverlay } from "./onboarding/TourOverlay";
-import { extractTenantPathname } from "@/lib/auth/tenant-routing";
+import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
 
 /* ─── Nav types ─────────────────────────────────────────────── */
@@ -127,8 +127,7 @@ function AppLayoutInner({
   const { persona, setPersona, team, activeMechanic, setActiveMechanic } = useAppContext();
   const { launchTour } = useOnboarding();
 
-  const tenantMatch = extractTenantPathname(pathname);
-  const effectivePathname = tenantMatch?.rewrittenPathname ?? pathname;
+  const effectivePathname = getDisplayPathname(pathname);
   const hideSidebarPersonaSwitcher = effectivePathname === "/ask" || effectivePathname.startsWith("/ask/");
 
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);

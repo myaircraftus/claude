@@ -12,6 +12,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'contact',
   'customers',
   'dashboard',
+  'demo',
   'documents',
   'estimates',
   'features',
@@ -141,4 +142,67 @@ export function withTenantPrefix<T extends string | { pathname?: string | null }
   }
 
   return href
+}
+
+export function isDemoPathname(pathname: string | null | undefined): boolean {
+  if (!pathname) return false
+  return pathname === '/demo' || pathname.startsWith('/demo/')
+}
+
+export function stripDemoPrefix(pathname: string | null | undefined): string {
+  if (!pathname) return '/'
+  if (!isDemoPathname(pathname)) return pathname
+  if (pathname === '/demo' || pathname === '/demo/') return '/dashboard'
+  const after = pathname.slice('/demo'.length)
+  if (after === '/owner' || after.startsWith('/owner/') || after.startsWith('/owner?') || after.startsWith('/owner#')) {
+    return '/dashboard' + after.slice('/owner'.length)
+  }
+  return after
+}
+
+export function getDisplayPathname(pathname: string | null | undefined): string {
+  if (!pathname) return '/'
+  if (isDemoPathname(pathname)) return stripDemoPrefix(pathname)
+  return getEffectivePathname(pathname)
+}
+
+const DEMO_OWNER_PATH = '/demo/owner'
+const DEMO_MECHANIC_PATH = '/demo/mechanic'
+
+function pathStartsWithPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`) || path.startsWith(`${prefix}#`)
+}
+
+function applyDemoPrefix(path: string): string {
+  if (!path.startsWith('/')) return path
+  if (pathStartsWithPrefix(path, '/demo')) return path
+  if (path === '/dashboard' || path.startsWith('/dashboard?') || path.startsWith('/dashboard#')) {
+    return path.replace('/dashboard', DEMO_OWNER_PATH)
+  }
+  if (path === '/mechanic' || path.startsWith('/mechanic?') || path.startsWith('/mechanic#')) {
+    return path.replace('/mechanic', DEMO_MECHANIC_PATH)
+  }
+  if (!isTenantScopedPath(path)) return path
+  return `/demo${path}`
+}
+
+export function withDemoPrefix<T extends string | { pathname?: string | null }>(href: T): T {
+  if (typeof href === 'string') {
+    return applyDemoPrefix(href) as T
+  }
+  if (href && typeof href === 'object' && typeof href.pathname === 'string') {
+    return {
+      ...href,
+      pathname: applyDemoPrefix(href.pathname),
+    } as T
+  }
+  return href
+}
+
+export function withRoutePrefix<T extends string | { pathname?: string | null }>(
+  href: T,
+  ctx: { tenantSlug: string | null | undefined; demo: boolean }
+): T {
+  if (ctx.demo) return withDemoPrefix(href)
+  return withTenantPrefix(href, ctx.tenantSlug)
 }
