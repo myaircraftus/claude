@@ -8,79 +8,85 @@ import { getEffectivePathname } from "@/lib/auth/tenant-routing";
 export type TourPersona = "owner" | "mechanic";
 
 interface OnboardingCtx {
-  /* ── Role-select flow ── */
-  flowActive:  boolean;
-  flowPhase:   "select-role" | "preview";
-
-  /* ── Live tour ── */
-  tourActive:   boolean;
-  tourPersona:  TourPersona | null;
-  tourStep:     number;
+  tourActive: boolean;
+  tourPersona: TourPersona | null;
+  tourStep: number;
   tourComplete: boolean;
-  steps:        TourStep[];
+  steps: TourStep[];
 
-  /* ── Actions ── */
-  launchFlow:    () => void;
-  dismissFlow:   () => void;
-  selectPersona: (p: TourPersona) => void;
-  startTour:     () => void;
-  nextStep:      () => void;
-  prevStep:      () => void;
-  skipTour:      () => void;
-  finishTour:    () => void;
-  restartTour:   () => void;
+  launchTour: (persona?: TourPersona) => void;
+  nextStep: () => void;
+  prevStep: () => void;
+  skipTour: () => void;
+  finishTour: () => void;
+  restartTour: () => void;
+  jumpToStep: (index: number) => void;
 }
 
 const Ctx = createContext<OnboardingCtx | null>(null);
 
+const STORAGE_KEY = "mau_onboarding_done_v2";
+
+function detectPersonaFromPath(p: string): TourPersona {
+  if (
+    p.startsWith("/mechanic") ||
+    p.startsWith("/workspace") ||
+    p.startsWith("/maintenance")
+  ) {
+    return "mechanic";
+  }
+  return "owner";
+}
+
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const effectivePathname = getEffectivePathname(pathname);
-  const [flowActive,   setFlowActive]   = useState(false);
-  const [flowPhase,    setFlowPhase]    = useState<"select-role" | "preview">("select-role");
-  const [tourActive,   setTourActive]   = useState(false);
-  const [tourPersona,  setTourPersona]  = useState<TourPersona | null>(null);
-  const [tourStep,     setTourStep]     = useState(0);
+
+  const [tourActive, setTourActive] = useState(false);
+  const [tourPersona, setTourPersona] = useState<TourPersona | null>(null);
+  const [tourStep, setTourStep] = useState(0);
   const [tourComplete, setTourComplete] = useState(false);
 
-  const steps = tourPersona === "owner" ? OWNER_STEPS : tourPersona === "mechanic" ? MECHANIC_STEPS : [];
+  const steps =
+    tourPersona === "owner"
+      ? OWNER_STEPS
+      : tourPersona === "mechanic"
+        ? MECHANIC_STEPS
+        : [];
 
-  /* Auto-launch on first visit */
+  const launchTour = useCallback(
+    (persona?: TourPersona) => {
+      const p = persona ?? detectPersonaFromPath(effectivePathname);
+      setTourPersona(p);
+      setTourStep(0);
+      setTourComplete(false);
+      setTourActive(true);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, "1");
+      }
+    },
+    [effectivePathname],
+  );
+
+  /* Auto-launch the tour the first time someone lands on the dashboard or mechanic
+     home — instead of the previous role-select modal. */
   useEffect(() => {
-    const canAutoLaunch = effectivePathname === "/dashboard" || effectivePathname === "/mechanic";
-    if (!canAutoLaunch) return;
+    if (typeof window === "undefined") return;
+    const isLandingPage =
+      effectivePathname === "/dashboard" || effectivePathname === "/mechanic";
+    if (!isLandingPage) return;
+    if (window.localStorage.getItem(STORAGE_KEY)) return;
 
-    const done = localStorage.getItem("mau_onboarding_done");
-    if (!done) setTimeout(() => setFlowActive(true), 900);
-  }, [effectivePathname]);
-
-  const launchFlow = useCallback(() => {
-    setFlowPhase("select-role");
-    setFlowActive(true);
-    setTourComplete(false);
-  }, []);
-
-  const dismissFlow = useCallback(() => {
-    setFlowActive(false);
-    localStorage.setItem("mau_onboarding_done", "1");
-  }, []);
-
-  const selectPersona = useCallback((p: TourPersona) => {
-    setTourPersona(p);
-    setFlowPhase("preview");
-  }, []);
-
-  const startTour = useCallback(() => {
-    setFlowActive(false);
-    setTourStep(0);
-    setTourActive(true);
-    localStorage.setItem("mau_onboarding_done", "1");
-  }, []);
+    const t = setTimeout(() => {
+      launchTour(detectPersonaFromPath(effectivePathname));
+    }, 900);
+    return () => clearTimeout(t);
+  }, [effectivePathname, launchTour]);
 
   const nextStep = useCallback(() => {
     const list = tourPersona === "owner" ? OWNER_STEPS : MECHANIC_STEPS;
     if (tourStep < list.length - 1) {
-      setTourStep(s => s + 1);
+      setTourStep((s) => s + 1);
     } else {
       setTourActive(false);
       setTourComplete(true);
@@ -88,7 +94,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, [tourStep, tourPersona]);
 
   const prevStep = useCallback(() => {
-    if (tourStep > 0) setTourStep(s => s - 1);
+    if (tourStep > 0) setTourStep((s) => s - 1);
   }, [tourStep]);
 
   const skipTour = useCallback(() => {
@@ -106,13 +112,31 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setTourActive(true);
   }, []);
 
+  const jumpToStep = useCallback(
+    (index: number) => {
+      const list = tourPersona === "owner" ? OWNER_STEPS : MECHANIC_STEPS;
+      if (index >= 0 && index < list.length) setTourStep(index);
+    },
+    [tourPersona],
+  );
+
   return (
-    <Ctx.Provider value={{
-      flowActive, flowPhase,
-      tourActive, tourPersona, tourStep, tourComplete, steps,
-      launchFlow, dismissFlow, selectPersona, startTour,
-      nextStep, prevStep, skipTour, finishTour, restartTour,
-    }}>
+    <Ctx.Provider
+      value={{
+        tourActive,
+        tourPersona,
+        tourStep,
+        tourComplete,
+        steps,
+        launchTour,
+        nextStep,
+        prevStep,
+        skipTour,
+        finishTour,
+        restartTour,
+        jumpToStep,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );

@@ -18,7 +18,6 @@ import { PartsStoreProvider } from "./workspace/PartsStore";
 import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
 import { MyAircraftLogo } from "./MyAircraftLogo";
-import { RoleSelectScreen } from "./onboarding/RoleSelectScreen";
 import { TourOverlay } from "./onboarding/TourOverlay";
 import { extractTenantPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
@@ -83,6 +82,11 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   return items;
 }
 
+/* ─── Tour key helper ────────────────────────────────────────── */
+function navKeyForLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 /* ─── Role badge colours ─────────────────────────────────────── */
 const roleBadgeColor: Record<string, string> = {
   "Lead Mechanic / IA":  "bg-blue-100 text-blue-700",
@@ -121,7 +125,7 @@ function AppLayoutInner({
   const searchParams = useSearchParams();
   const router = useTenantRouter();
   const { persona, setPersona, team, activeMechanic, setActiveMechanic } = useAppContext();
-  const { launchFlow } = useOnboarding();
+  const { launchTour } = useOnboarding();
 
   const tenantMatch = extractTenantPathname(pathname);
   const effectivePathname = tenantMatch?.rewrittenPathname ?? pathname;
@@ -289,10 +293,11 @@ function AppLayoutInner({
       style={layoutStyle}
     >
       {/* ── Sidebar ── */}
-      <aside className={`${collapsed ? "w-[68px]" : "w-[240px]"} bg-sidebar flex flex-col transition-all duration-200 shrink-0`}>
+      <aside data-tour="sidebar" className={`${collapsed ? "w-[68px]" : "w-[240px]"} bg-sidebar flex flex-col transition-all duration-200 shrink-0`}>
 
         {/* Logo row */}
         <div
+          data-tour="logo"
           className="h-16 flex items-center px-3 border-b border-sidebar-border shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
           onClick={() => setCollapsed((c) => !c)}
         >
@@ -301,7 +306,7 @@ function AppLayoutInner({
 
         {/* Persona switcher */}
         {!hideSidebarPersonaSwitcher && (
-        <div className={`${collapsed ? "px-1 py-2" : "px-3 py-3"} border-b border-sidebar-border shrink-0`}>
+        <div data-tour="persona-switcher" className={`${collapsed ? "px-1 py-2" : "px-3 py-3"} border-b border-sidebar-border shrink-0`}>
           {collapsed ? (
             <div className="flex flex-col items-center gap-1">
               <button
@@ -431,7 +436,7 @@ function AppLayoutInner({
 
         {/* Aircraft selector — owner only */}
         {persona === "owner" && !collapsed && (
-          <div className="mx-3 mt-3 mb-1 p-2.5 rounded-lg bg-sidebar-accent cursor-pointer hover:bg-white/10 transition-colors shrink-0">
+          <div data-tour="aircraft-selector" className="mx-3 mt-3 mb-1 p-2.5 rounded-lg bg-sidebar-accent cursor-pointer hover:bg-white/10 transition-colors shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[11px] text-white/50 uppercase tracking-wider" style={{ fontWeight: 600 }}>
@@ -447,11 +452,12 @@ function AppLayoutInner({
         )}
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-3 overflow-y-auto space-y-0.5">
+        <nav data-tour="nav" className="flex-1 px-2 py-3 overflow-y-auto space-y-0.5">
           {navItems.map((item) => {
             const hasChildren = !!item.children?.length;
             const isExpanded  = expandedItems.has(item.label);
             const isOnMechanic = effectivePathname.startsWith("/mechanic");
+            const navKey = navKeyForLabel(item.label);
 
             const parentActive = hasChildren
               ? isOnMechanic
@@ -463,7 +469,7 @@ function AppLayoutInner({
 
             if (hasChildren) {
               return (
-                <div key={item.label}>
+                <div key={item.label} data-tour={`nav-${navKey}`}>
                   <button
                     onClick={() => collapsed ? router.push(item.href!) : toggleExpand(item.label)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors ${
@@ -488,9 +494,11 @@ function AppLayoutInner({
                         const childActive = child.href
                           ? effectivePathname.startsWith(child.href)
                           : isOnMechanic && activeTab === child.tab;
+                        const childKey = navKeyForLabel(child.label);
                         return (
                           <Link
                             key={child.tab}
+                            data-tour={`nav-${childKey}`}
                             href={child.href ?? `/mechanic?tab=${child.tab}`}
                             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] transition-colors ${
                               childActive
@@ -519,6 +527,7 @@ function AppLayoutInner({
               return (
                 <Link
                   key={item.label}
+                  data-tour={`nav-${navKey}`}
                   href={`/mechanic?tab=${item.tab}`}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors ${
                     parentActive
@@ -536,6 +545,7 @@ function AppLayoutInner({
             return (
               <Link
                 key={item.href}
+                data-tour={`nav-${navKey}`}
                 href={item.href!}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors ${
                   parentActive
@@ -552,15 +562,15 @@ function AppLayoutInner({
         </nav>
 
         {/* FAR/AIM AI search — above Guided Tour, hidden when entitlement check fails */}
-        <div className={`${collapsed ? 'px-2' : 'px-2'} pb-1 shrink-0`}>
+        <div data-tour="faraim" className={`${collapsed ? 'px-2' : 'px-2'} pb-1 shrink-0`}>
           <FaraimButton variant="sidebar" collapsed={collapsed} />
         </div>
 
         {/* Guided Tour button — above user footer */}
         {!collapsed && (
-          <div className="px-2 pb-1 shrink-0">
+          <div data-tour="guided-tour" className="px-2 pb-1 shrink-0">
             <button
-              onClick={launchFlow}
+              onClick={() => launchTour()}
               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] transition-all group"
               style={{ color: "rgba(255,255,255,0.4)" }}
               onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "rgba(255,255,255,0.85)"; }}
@@ -589,7 +599,7 @@ function AppLayoutInner({
           const avatarBg = persona === "mechanic" ? activeMechanic.color : "bg-sidebar-accent";
 
           return collapsed ? (
-            <div className="p-3 border-t border-sidebar-border shrink-0 flex justify-center">
+            <div data-tour="user-footer" className="p-3 border-t border-sidebar-border shrink-0 flex justify-center">
               <Link
                 href="/settings"
                 title={`${name} · Settings`}
@@ -602,7 +612,7 @@ function AppLayoutInner({
               </Link>
             </div>
           ) : (
-            <div className="p-2 border-t border-sidebar-border shrink-0">
+            <div data-tour="user-footer" className="p-2 border-t border-sidebar-border shrink-0">
               <Link
                 href="/settings"
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all group ${
@@ -655,8 +665,7 @@ function AppLayoutInner({
 
       <Toaster position="top-right" richColors closeButton />
 
-      {/* ── Onboarding: role-select flow + live tour overlay ── */}
-      <RoleSelectScreen />
+      {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
 
     </div>
