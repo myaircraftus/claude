@@ -21,6 +21,7 @@ import { MyAircraftLogo } from "./MyAircraftLogo";
 import { RoleSelectScreen } from "./onboarding/RoleSelectScreen";
 import { TourOverlay } from "./onboarding/TourOverlay";
 import { extractTenantPathname } from "@/lib/auth/tenant-routing";
+import { FaraimButton } from "@/components/faraim/FaraimButton";
 
 /* ─── Nav types ─────────────────────────────────────────────── */
 type NavChild = { icon: any; label: string; tab: string; href?: string; badge?: number };
@@ -549,6 +550,11 @@ function AppLayoutInner({
             );
           })}
         </nav>
+
+        {/* FAR/AIM AI search — above Guided Tour, hidden when entitlement check fails */}
+        <div className={`${collapsed ? 'px-2' : 'px-2'} pb-1 shrink-0`}>
+          <FaraimButton variant="sidebar" collapsed={collapsed} />
+        </div>
 
         {/* Guided Tour button — above user footer */}
         {!collapsed && (
