@@ -13,6 +13,10 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { DataStoreProvider } from "./workspace/DataStore";
 import { AppProvider, useAppContext } from "./AppContext";
+import { BillingProvider, useBilling } from "@/components/billing/BillingProvider";
+import { BillingBanner } from "@/components/billing/BillingBanner";
+import { CrossPersonaUpsell } from "@/components/billing/CrossPersonaUpsell";
+import { PaywallScreen } from "@/components/billing/PaywallScreen";
 import type { MechanicPermissions, TeamMember } from "./AppContext";
 import { PartsStoreProvider } from "./workspace/PartsStore";
 import { Toaster } from "sonner";
@@ -105,11 +109,13 @@ export function AppLayout({
 }) {
   return (
     <AppProvider>
-      <OnboardingProvider>
-        <AppLayoutInner userName={userName}>
-          {children}
-        </AppLayoutInner>
-      </OnboardingProvider>
+      <BillingProvider>
+        <OnboardingProvider>
+          <AppLayoutInner userName={userName}>
+            {children}
+          </AppLayoutInner>
+        </OnboardingProvider>
+      </BillingProvider>
     </AppProvider>
   );
 }
@@ -125,6 +131,8 @@ function AppLayoutInner({
   const searchParams = useSearchParams();
   const router = useTenantRouter();
   const { persona, setPersona, team, activeMechanic, setActiveMechanic } = useAppContext();
+  const { status: billingStatus } = useBilling();
+  const [upsellPersona, setUpsellPersona] = useState<"owner" | "mechanic" | null>(null);
   const { launchTour } = useOnboarding();
 
   const effectivePathname = getDisplayPathname(pathname);
@@ -254,6 +262,15 @@ function AppLayoutInner({
     : buildMechanicNav(activeMechanic.permissions);
 
   function switchPersona(p: "owner" | "mechanic") {
+    // If the user doesn't have an active entitlement for the target persona,
+    // open the cross-persona upsell instead of navigating. canRead stays true
+    // for paywalled (read-only) personas so re-subscribers can browse.
+    const ent = billingStatus?.[p];
+    const hasNoEntitlement = ent && ent.state === "none";
+    if (hasNoEntitlement) {
+      setUpsellPersona(p);
+      return;
+    }
     setPersona(p);
     router.push(p === "owner" ? "/dashboard" : "/mechanic");
   }
@@ -645,6 +662,7 @@ function AppLayoutInner({
 
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
+        <BillingBanner persona={persona} />
         <main
           className={`flex-1 ${
             ["/workspace", "/maintenance", "/mechanic", "/invoices", "/ask", "/documents", "/settings"].includes(effectivePathname) ||
@@ -656,7 +674,20 @@ function AppLayoutInner({
         >
           <DataStoreProvider>
             <PartsStoreProvider>
-              {children}
+              {(() => {
+                // Hard paywall: when the current persona's entitlement is
+                // paywalled (trial expired, payment failed) or fully cancelled,
+                // replace the page content with the upgrade picker. Settings
+                // stays reachable so the user can update their card.
+                const ent = billingStatus?.[persona];
+                const isBillingScreen =
+                  effectivePathname === "/settings" ||
+                  effectivePathname.startsWith("/settings/");
+                if (ent && (ent.state === "paywalled" || ent.state === "cancelled" || ent.state === "past_due") && !isBillingScreen) {
+                  return <PaywallScreen persona={persona} readOnly={ent.state !== "cancelled"} />;
+                }
+                return children;
+              })()}
             </PartsStoreProvider>
           </DataStoreProvider>
         </main>
@@ -666,6 +697,19 @@ function AppLayoutInner({
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
+
+      {/* ── Cross-persona upsell ── */}
+      {upsellPersona && (
+        <CrossPersonaUpsell
+          persona={upsellPersona}
+          open
+          onClose={() => setUpsellPersona(null)}
+          onTrialStarted={() => {
+            setPersona(upsellPersona);
+            router.push(upsellPersona === "owner" ? "/dashboard" : "/mechanic");
+          }}
+        />
+      )}
 
     </div>
   );

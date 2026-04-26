@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
   if (!organizationId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
 
   try {
-    await requireActiveBilling(organizationId)
+    await requireActiveBilling(organizationId, 'mechanic')
   } catch (err) {
     if (err instanceof BillingBlockedError) {
       return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })

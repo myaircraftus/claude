@@ -2,28 +2,126 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { generateReport } from '@/lib/intelligence/generateReport'
+import { PRODUCTS, skuForPriceId } from '@/lib/billing/products'
+import type { Persona } from '@/lib/billing/gate'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-04-10' })
 
-const PLAN_LIMITS: Record<string, {
-  plan: string
-  aircraft: number
-  storage_gb: number
-  queries: number
-}> = {
-  starter: { plan: 'starter', aircraft: 1, storage_gb: 2, queries: 100 },
-  pro: { plan: 'pro', aircraft: 5, storage_gb: 20, queries: 1000 },
-  fleet: { plan: 'fleet', aircraft: 25, storage_gb: 100, queries: 10000 },
-  enterprise: { plan: 'enterprise', aircraft: 9999, storage_gb: 1000, queries: 999999 },
-  per_aircraft: { plan: 'per_aircraft', aircraft: 9999, storage_gb: 100, queries: 10000 },
+type StripeStatus = Stripe.Subscription.Status
+type EntitlementStatus = 'trial' | 'active' | 'paywalled' | 'cancelled' | 'past_due'
+
+function mapStripeStatus(s: StripeStatus): EntitlementStatus {
+  switch (s) {
+    case 'active':
+    case 'trialing':
+      return 'active'
+    case 'past_due':
+      return 'past_due'
+    case 'canceled':
+      return 'cancelled'
+    case 'unpaid':
+    case 'incomplete':
+    case 'incomplete_expired':
+      return 'paywalled'
+    default:
+      return 'paywalled'
+  }
 }
 
-// Map Stripe price IDs to plan names (configure in dashboard)
-const PRICE_TO_PLAN: Record<string, string> = {
-  [process.env.STRIPE_PRICE_STARTER ?? '']: 'starter',
-  [process.env.STRIPE_PRICE_PRO ?? '']: 'pro',
-  [process.env.STRIPE_PRICE_FLEET ?? '']: 'fleet',
-  [process.env.STRIPE_PRICE_ENTERPRISE ?? '']: 'enterprise',
+async function findOrgByCustomer(customerId: string): Promise<string | null> {
+  const supabase = createServiceSupabase()
+  const { data } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle()
+  return data?.id ?? null
+}
+
+async function applySubscriptionToEntitlements(sub: Stripe.Subscription, organizationId: string) {
+  const supabase = createServiceSupabase()
+  const status = mapStripeStatus(sub.status)
+  const priceId = sub.items.data[0]?.price.id ?? null
+  const sku = skuForPriceId(priceId)
+
+  if (!sku) {
+    // Unknown price ID — could be a legacy plan (starter/pro/fleet/enterprise).
+    // Update org-level fields for back-compat but don't touch entitlements.
+    await supabase
+      .from('organizations')
+      .update({
+        stripe_subscription_id: sub.id,
+        subscription_status: status === 'active' ? 'active' : 'paywalled',
+      })
+      .eq('id', organizationId)
+    return
+  }
+
+  const product = PRODUCTS[sku]
+  const grants: Persona[] = product.grants
+  const isBundle = sku === 'bundle'
+
+  // Upsert one entitlement row per granted persona
+  const rows = grants.map((persona) => ({
+    organization_id: organizationId,
+    persona,
+    status,
+    stripe_subscription_id: sub.id,
+    stripe_price_id: priceId,
+    bundle: isBundle,
+    paywalled_reason: status === 'paywalled' ? 'payment_failed'
+      : status === 'cancelled' ? 'cancelled'
+      : null,
+    // Don't clobber trial_ends_at if the sub is active — but if Stripe says
+    // it's trialing, sync the trial end date
+    ...(sub.trial_end ? { trial_ends_at: new Date(sub.trial_end * 1000).toISOString() } : {}),
+  }))
+
+  for (const row of rows) {
+    await supabase
+      .from('entitlements')
+      .upsert(row, { onConflict: 'organization_id,persona' })
+  }
+
+  // Mirror to legacy organizations.subscription_status for back-compat
+  await supabase
+    .from('organizations')
+    .update({
+      stripe_subscription_id: sub.id,
+      subscription_status: status === 'active' ? 'active' : status,
+    })
+    .eq('id', organizationId)
+}
+
+async function applyCancellation(sub: Stripe.Subscription, organizationId: string) {
+  const supabase = createServiceSupabase()
+  const priceId = sub.items.data[0]?.price.id ?? null
+  const sku = skuForPriceId(priceId)
+
+  if (!sku) {
+    await supabase
+      .from('organizations')
+      .update({
+        stripe_subscription_id: null,
+        subscription_status: 'cancelled',
+        paywalled_reason: 'cancelled',
+      })
+      .eq('id', organizationId)
+    return
+  }
+
+  const grants = PRODUCTS[sku].grants
+  for (const persona of grants) {
+    await supabase
+      .from('entitlements')
+      .update({
+        status: 'cancelled',
+        paywalled_reason: 'cancelled',
+      })
+      .eq('organization_id', organizationId)
+      .eq('persona', persona)
+      .eq('stripe_subscription_id', sub.id)
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -42,70 +140,81 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
-      case 'customer.subscription.updated':
-      case 'customer.subscription.created': {
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription
-        const customerId = sub.customer as string
-        const priceId = sub.items.data[0]?.price.id
-        const isPerAircraft = priceId === process.env.STRIPE_PRICE_PER_AIRCRAFT
-        const planName = PRICE_TO_PLAN[priceId] ?? (isPerAircraft ? 'per_aircraft' : 'starter')
-        const limits = PLAN_LIMITS[planName] ?? PLAN_LIMITS['pro']
-        const stripeStatus = sub.status
-        const mappedStatus =
-          stripeStatus === 'active' || stripeStatus === 'trialing' ? 'active'
-          : stripeStatus === 'past_due' ? 'past_due'
-          : stripeStatus === 'canceled' ? 'cancelled'
-          : 'paywalled'
-
-        await supabase
-          .from('organizations')
-          .update({
-            plan: limits.plan,
-            plan_aircraft_limit: limits.aircraft,
-            plan_storage_gb: limits.storage_gb,
-            plan_queries_monthly: limits.queries,
-            stripe_subscription_id: sub.id,
-            subscription_status: mappedStatus,
-            billing_model: isPerAircraft ? 'per_aircraft' : 'fixed',
-            paywalled_reason: mappedStatus === 'paywalled' ? 'payment_failed' : null,
-          })
-          .eq('stripe_customer_id', customerId)
+        const orgId = (sub.metadata?.organization_id as string | undefined)
+          ?? await findOrgByCustomer(sub.customer as string)
+        if (orgId) {
+          await applySubscriptionToEntitlements(sub, orgId)
+        }
         break
       }
 
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription
-        const customerId = sub.customer as string
-        const limits = PLAN_LIMITS['starter']
-
-        await supabase
-          .from('organizations')
-          .update({
-            plan: 'starter',
-            plan_aircraft_limit: limits.aircraft,
-            plan_storage_gb: limits.storage_gb,
-            plan_queries_monthly: limits.queries,
-            stripe_subscription_id: null,
-            subscription_status: 'cancelled',
-            paywalled_reason: 'subscription_cancelled',
-          })
-          .eq('stripe_customer_id', customerId)
+        const orgId = (sub.metadata?.organization_id as string | undefined)
+          ?? await findOrgByCustomer(sub.customer as string)
+        if (orgId) {
+          await applyCancellation(sub, orgId)
+        }
         break
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice
-        console.warn(`Payment failed for customer ${invoice.customer}`)
-        // TODO: Send notification email
+        console.warn(`Payment failed for customer ${invoice.customer} (invoice ${invoice.id})`)
+        // The subscription.updated event that follows will move the entitlement
+        // to past_due → paywalled, so no direct DB write needed here.
         break
       }
 
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-        const { aircraft_id, report_type, user_id, invoice_id } = session.metadata ?? {}
+        const { aircraft_id, report_type, user_id, invoice_id, organization_id } = session.metadata ?? {}
+
+        // Setup-mode session — payment method captured for an org. Persist the
+        // pm id + card fingerprint so anti-abuse trial-start checks can dedup.
+        if (session.mode === 'setup' && organization_id && session.setup_intent) {
+          try {
+            const setupIntentId =
+              typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent.id
+            const si = await stripe.setupIntents.retrieve(setupIntentId, {
+              expand: ['payment_method'],
+            })
+            const pm = typeof si.payment_method === 'string'
+              ? await stripe.paymentMethods.retrieve(si.payment_method)
+              : (si.payment_method as Stripe.PaymentMethod | null)
+
+            const fingerprint = pm?.card?.fingerprint ?? null
+            const pmId = pm?.id ?? null
+
+            await supabase
+              .from('organizations')
+              .update({
+                stripe_payment_method_id: pmId,
+                payment_method_card_fingerprint: fingerprint,
+                payment_method_added_at: new Date().toISOString(),
+                stripe_setup_intent_id: setupIntentId,
+              })
+              .eq('id', organization_id)
+
+            // Set this PM as the customer's default for off-session charges.
+            if (pmId && session.customer) {
+              const customerId =
+                typeof session.customer === 'string' ? session.customer : session.customer.id
+              await stripe.customers.update(customerId, {
+                invoice_settings: { default_payment_method: pmId },
+              })
+            }
+          } catch (err) {
+            console.error('[stripe webhook] setup-mode handler error', err)
+          }
+          break
+        }
 
         if (invoice_id) {
-          // Connect invoice payment completed — customer paid via "Pay Now" link
+          // Connect invoice payment completed
           await supabase
             .from('invoices')
             .update({

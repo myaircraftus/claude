@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    await requireActiveBilling(ctx.organizationId)
+    await requireActiveBilling(ctx.organizationId, 'mechanic')
   } catch (err) {
     if (err instanceof BillingBlockedError) {
       return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
