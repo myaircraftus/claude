@@ -29,21 +29,41 @@ export async function POST() {
     return NextResponse.json({ error: 'FAR/AIM is not configured' }, { status: 500 })
   }
 
-  const { data: membership } = await supabase
+  const { data: memberships } = await supabase
     .from('organization_memberships')
     .select('organization_id, role')
     .eq('user_id', user.id)
     .not('accepted_at', 'is', null)
-    .maybeSingle()
+    .limit(25)
 
-  if (!membership) {
+  if (!memberships || memberships.length === 0) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
-  const access = await evaluateFaraimAccess(supabase, {
-    userId: user.id,
-    organizationId: membership.organization_id,
-  })
+  // Evaluate every membership and pick the most permissive entitlement so a
+  // user who is paid/trial in one org can use FAR/AIM even while viewing
+  // another org where they're free-tier.
+  const evaluations = await Promise.all(
+    memberships.map(async (m) => ({
+      orgId: m.organization_id,
+      access: await evaluateFaraimAccess(supabase, {
+        userId: user.id,
+        organizationId: m.organization_id,
+      }),
+    }))
+  )
+  const priority: Record<string, number> = {
+    paid: 5,
+    trial: 4,
+    has_aircraft: 3,
+    free_quota: 2,
+    trial_expired_no_aircraft: 1,
+    free_quota_exhausted: 0,
+  }
+  const best = evaluations.reduce((acc, cur) =>
+    (priority[cur.access.reason] ?? -1) > (priority[acc.access.reason] ?? -1) ? cur : acc
+  )
+  const access = best.access
 
   if (!access.allowed) {
     return NextResponse.json(
