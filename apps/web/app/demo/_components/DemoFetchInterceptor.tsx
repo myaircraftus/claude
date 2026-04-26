@@ -196,6 +196,14 @@ async function handleApi(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   // ── Integrations ──────────────────────────────────────────────
   if (pathname === "/api/integrations") return json({ integrations: demoIntegrations });
+  if (pathname === "/api/integrations/registry") {
+    // In demo, pretend Google Drive + QuickBooks are wired up so the polished
+    // OAuth-ready state is visible without setting real env vars.
+    return json({ providers: { quickbooks: true, freshbooks: false, googledrive: true } });
+  }
+  if (pathname === "/api/integrations/google-drive") {
+    return json({ connected: false, email: null, connectedAt: null });
+  }
   if (pathname.startsWith("/api/integrations")) return ok();
 
   // ── Parts search ──────────────────────────────────────────────
