@@ -98,9 +98,11 @@ interface Props {
   squawkCounts: Record<string, number>
   workOrdersByAircraft: Record<string, WorkOrderSummary[]>
   invoices: InvoiceSummary[]
+  role?: 'owner' | 'admin' | 'mechanic' | 'pilot' | 'viewer' | 'auditor' | string
 }
 
-export function MyAircraftClient({ aircraft, squawkCounts, workOrdersByAircraft, invoices }: Props) {
+export function MyAircraftClient({ aircraft, squawkCounts, workOrdersByAircraft, invoices, role }: Props) {
+  const canSelfAdd = role === 'owner' || role === 'admin' || role === 'mechanic'
   const invoicesByAircraft: Record<string, InvoiceSummary[]> = {}
   for (const inv of invoices) {
     if (!invoicesByAircraft[inv.aircraft_id]) invoicesByAircraft[inv.aircraft_id] = []
@@ -118,11 +120,19 @@ export function MyAircraftClient({ aircraft, squawkCounts, workOrdersByAircraft,
           <Card>
             <CardContent className="py-16 text-center">
               <Plane className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-              <h3 className="font-semibold text-foreground mb-1">No aircraft assigned</h3>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                You don&apos;t have any aircraft assigned to your account yet.
-                Contact your maintenance shop to get set up.
+              <h3 className="font-semibold text-foreground mb-1">
+                {canSelfAdd ? 'No aircraft yet' : 'No aircraft assigned'}
+              </h3>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-4">
+                {canSelfAdd
+                  ? 'Add your first aircraft to start tracking maintenance, documents, and squawks.'
+                  : "You don't have any aircraft assigned to your account yet. Contact your maintenance shop to get set up."}
               </p>
+              {canSelfAdd && (
+                <Button asChild>
+                  <Link href="/aircraft">Add Your First Aircraft</Link>
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>

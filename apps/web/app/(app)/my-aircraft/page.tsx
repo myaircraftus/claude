@@ -79,7 +79,7 @@ export default async function MyAircraftPage() {
           profile={profile}
           breadcrumbs={[{ label: 'My Aircraft' }]}
         />
-        <MyAircraftClient aircraft={[]} squawkCounts={{}} workOrdersByAircraft={{}} invoices={[]} />
+        <MyAircraftClient aircraft={[]} squawkCounts={{}} workOrdersByAircraft={{}} invoices={[]} role={role} />
       </div>
     )
   }
@@ -143,6 +143,7 @@ export default async function MyAircraftPage() {
         squawkCounts={squawkCounts}
         workOrdersByAircraft={workOrdersByAircraft}
         invoices={(invoices ?? []) as any}
+        role={role}
       />
     </div>
   )
