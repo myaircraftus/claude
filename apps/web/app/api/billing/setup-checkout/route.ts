@@ -32,6 +32,10 @@ export async function POST(req: NextRequest) {
     const ctx = await resolveRequestOrgContext(req)
     if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    if (!['owner', 'admin'].includes(ctx.role)) {
+      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+    }
+
     const supabase = createServerSupabase()
     const service = createServiceSupabase()
 
@@ -81,7 +85,12 @@ export async function POST(req: NextRequest) {
 
     const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://myaircraft.us'
     const safeReturn =
-      returnPath && returnPath.startsWith('/') ? returnPath : '/settings/billing'
+      returnPath
+        && returnPath.startsWith('/')
+        && !returnPath.startsWith('//')
+        && !returnPath.startsWith('/\\')
+        ? returnPath
+        : '/settings/billing'
     const successUrl = `${origin}${safeReturn}${safeReturn.includes('?') ? '&' : '?'}setup=success&session_id={CHECKOUT_SESSION_ID}`
     const cancelUrl = `${origin}${safeReturn}${safeReturn.includes('?') ? '&' : '?'}setup=cancelled`
 

@@ -25,6 +25,18 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
     return NextResponse.json({ error: 'Invitation has already been consumed' }, { status: 409 })
   }
 
+  // Defense-in-depth on top of the unguessable token: the authenticated user's
+  // email must match the invited email. Prevents an intercepted token (e.g. a
+  // forwarded invitation link) from being redeemed by a different account.
+  const inviteEmail = invite.email?.trim().toLowerCase() ?? ''
+  const userEmail = user.email?.trim().toLowerCase() ?? ''
+  if (!inviteEmail || !userEmail || inviteEmail !== userEmail) {
+    return NextResponse.json(
+      { error: 'This invitation was sent to a different email address.' },
+      { status: 403 },
+    )
+  }
+
   const { data: updated, error: updateErr } = await service
     .from('customer_invitations')
     .update({

@@ -153,6 +153,15 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Prevent cross-tenant storage hijack: client-supplied storagePath must live
+  // under the caller's org prefix. Without this, an attacker could pass
+  // `<victim-org>/...` here and have a documents row in their own org point at
+  // a victim org's storage object — which the preview/download routes then
+  // hand back via service-role storage reads (bypassing storage RLS).
+  if (!storagePath.startsWith(`${orgId}/`) || storagePath.includes('..')) {
+    return NextResponse.json({ error: 'Invalid storage path.' }, { status: 400 })
+  }
+
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
     return NextResponse.json({ error: 'Invalid file size.' }, { status: 400 })
   }

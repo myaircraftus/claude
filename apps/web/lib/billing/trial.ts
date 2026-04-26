@@ -113,13 +113,15 @@ export async function startPersonaTrial(ctx: TrialStartContext): Promise<TrialSt
     }
   }
 
-  // 4. Email-level trial limit (cross-org)
+  // 4. Email-level trial limit (cross-org). Use exact case-insensitive match —
+  // not .ilike(), which would interpret `%` / `_` in the value as wildcards.
+  const normalizedEmail = ctx.userEmail.trim().toLowerCase()
   const yearAgo = new Date()
   yearAgo.setUTCFullYear(yearAgo.getUTCFullYear() - 1)
   const { count: emailTrialCount } = await service
     .from('signup_attempts')
     .select('id', { count: 'exact', head: true })
-    .ilike('email', ctx.userEmail)
+    .eq('email', normalizedEmail)
     .eq('outcome', 'succeeded')
     .gte('created_at', yearAgo.toISOString())
 
@@ -201,7 +203,7 @@ async function recordSignupAttempt(args: {
 }): Promise<void> {
   const service = createServiceSupabase()
   await service.from('signup_attempts').insert({
-    email: args.userEmail,
+    email: args.userEmail.trim().toLowerCase(),
     ip_address: args.ipAddress,
     user_agent: args.userAgent,
     card_fingerprint: args.cardFingerprint ?? null,

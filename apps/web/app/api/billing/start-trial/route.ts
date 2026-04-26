@@ -19,6 +19,10 @@ export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  if (!['owner', 'admin'].includes(ctx.role)) {
+    return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+  }
+
   const body = schema.safeParse(await req.json().catch(() => null))
   if (!body.success) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
