@@ -128,6 +128,13 @@ export function SignupPage() {
     setLoading(true);
     setError("");
 
+    // Sync the app-shell persona with the signup choice so the sidebar matches
+    // the persona once the user reaches the dashboard.
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("ui_persona", activePersona === "mechanic" ? "mechanic" : "owner");
+      window.localStorage.setItem("mau_login_persona", activePersona === "mechanic" ? "mechanic" : "owner");
+    }
+
     try {
       const supabase = createBrowserSupabase();
       const callbackNext = invite?.consumable
@@ -420,7 +427,7 @@ export function SignupPage() {
 
           <div className="grid grid-cols-2 gap-3 mb-6">
             <Link
-              href="/app"
+              href="/demo/owner"
               className="flex items-center justify-center gap-2 py-3 rounded-xl border border-[rgba(15,23,42,0.12)] text-[#0A1628] hover:bg-[#f8f9fb] transition-colors text-[13px] bg-white"
               style={{ fontWeight: 600 }}
             >
@@ -428,7 +435,7 @@ export function SignupPage() {
               Owner Demo
             </Link>
             <Link
-              href="/app/mechanic"
+              href="/demo/mechanic"
               className="flex items-center justify-center gap-2 py-3 rounded-xl border border-[rgba(15,23,42,0.12)] text-[#0A1628] hover:bg-[#f8f9fb] transition-colors text-[13px] bg-white"
               style={{ fontWeight: 600 }}
             >
@@ -439,7 +446,13 @@ export function SignupPage() {
 
           <p className="text-center text-[13px] text-[#64748b]">
             Already have an account?{" "}
-            <Link href="/login?preview=1" className="text-[#2563EB] hover:underline" style={{ fontWeight: 600 }}>Sign in</Link>
+            <Link
+              href={`/login?preview=1&as=${selectedPersona === "mechanic" ? "mechanic" : "owner"}`}
+              className="text-[#2563EB] hover:underline"
+              style={{ fontWeight: 600 }}
+            >
+              Sign in
+            </Link>
           </p>
 
           <div className="mt-6 pt-6 border-t border-[rgba(15,23,42,0.06)] flex items-center justify-center gap-2 text-[11px] text-[#94a3b8]">

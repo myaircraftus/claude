@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { MyAircraftLogo } from "./MyAircraftLogo";
-import { Plane, Lock, Eye, EyeOff, Wrench, Shield, Zap } from "lucide-react";
+import { Plane, Lock, Eye, EyeOff, Wrench, Shield, Zap, User } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
@@ -22,6 +22,14 @@ function GoogleIcon() {
   );
 }
 
+type SignInPersona = "owner" | "mechanic";
+
+const PERSONA_STORAGE_KEY = "mau_login_persona";
+
+function landingPathFor(persona: SignInPersona): string {
+  return persona === "mechanic" ? "/mechanic" : "/dashboard";
+}
+
 export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,7 +37,8 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [redirectTarget, setRedirectTarget] = useState("/dashboard");
+  const [persona, setPersona] = useState<SignInPersona>("owner");
+  const [explicitRedirect, setExplicitRedirect] = useState<string | null>(null);
   const [signupSuccess, setSignupSuccess] = useState(false);
 
   useEffect(() => {
@@ -38,8 +47,19 @@ export function LoginPage() {
     }
 
     const params = new URLSearchParams(window.location.search);
-    setRedirectTarget(params.get("redirect") || "/dashboard");
+    const paramRedirect = params.get("redirect");
+    setExplicitRedirect(paramRedirect && paramRedirect.startsWith("/") ? paramRedirect : null);
     setSignupSuccess(params.get("signup") === "success");
+
+    const paramPersona = params.get("as");
+    if (paramPersona === "mechanic" || paramPersona === "owner") {
+      setPersona(paramPersona);
+    } else {
+      const stored = window.localStorage.getItem(PERSONA_STORAGE_KEY);
+      if (stored === "mechanic" || stored === "owner") {
+        setPersona(stored);
+      }
+    }
 
     const prefilledEmail = params.get("email") || "";
     if (prefilledEmail && !email) {
@@ -47,10 +67,25 @@ export function LoginPage() {
     }
   }, [email]);
 
+  const redirectTarget = explicitRedirect ?? landingPathFor(persona);
+
+  const choosePersona = (p: SignInPersona) => {
+    setPersona(p);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PERSONA_STORAGE_KEY, p);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     setError("");
     try {
+      // Sync the app-shell persona with the login choice ahead of the redirect
+      // so the post-OAuth landing page renders the correct sidebar.
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("ui_persona", persona);
+        window.localStorage.setItem(PERSONA_STORAGE_KEY, persona);
+      }
       const supabase = createBrowserSupabase();
       const callbackUrl = new URL("/auth/callback", window.location.origin);
       if (redirectTarget && redirectTarget.startsWith("/")) {
@@ -93,6 +128,13 @@ export function LoginPage() {
         setError(data.error || "Sign in failed");
         setLoading(false);
         return;
+      }
+
+      // Sync the app-shell persona with the login choice so the sidebar
+      // matches the page we land on (no flash of the wrong nav).
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("ui_persona", persona);
+        window.localStorage.setItem(PERSONA_STORAGE_KEY, persona);
       }
 
       window.location.href = redirectTarget;
@@ -195,9 +237,51 @@ export function LoginPage() {
             </Link>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-[28px] tracking-tight text-[#0A1628] mb-1.5" style={{ fontWeight: 800 }}>Welcome back</h1>
             <p className="text-[14px] text-[#64748b]">Sign in to your aircraft records account</p>
+          </div>
+
+          {/* Persona selector — drives the post-login landing page */}
+          <div className="mb-5">
+            <label className="block text-[12px] uppercase tracking-wider text-[#64748b] mb-2" style={{ fontWeight: 700, letterSpacing: "0.08em" }}>
+              Sign in as
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[#f1f3f8] border border-[rgba(15,23,42,0.06)]">
+              <button
+                type="button"
+                onClick={() => choosePersona("owner")}
+                className={`flex items-center justify-center gap-2 h-10 rounded-lg text-[13px] transition-all ${
+                  persona === "owner"
+                    ? "bg-white shadow-sm text-[#0A1628]"
+                    : "text-[#64748b] hover:text-[#0A1628]"
+                }`}
+                style={{ fontWeight: persona === "owner" ? 700 : 500 }}
+              >
+                <User className={`w-4 h-4 ${persona === "owner" ? "text-[#2563EB]" : ""}`} />
+                Aircraft Owner
+              </button>
+              <button
+                type="button"
+                onClick={() => choosePersona("mechanic")}
+                className={`flex items-center justify-center gap-2 h-10 rounded-lg text-[13px] transition-all ${
+                  persona === "mechanic"
+                    ? "bg-white shadow-sm text-[#0A1628]"
+                    : "text-[#64748b] hover:text-[#0A1628]"
+                }`}
+                style={{ fontWeight: persona === "mechanic" ? 700 : 500 }}
+              >
+                <Wrench className={`w-4 h-4 ${persona === "mechanic" ? "text-[#1E3A5F]" : ""}`} />
+                A&amp;P Mechanic
+              </button>
+            </div>
+            {!explicitRedirect && (
+              <p className="text-[11px] text-[#94a3b8] mt-1.5">
+                {persona === "mechanic"
+                  ? "We'll take you straight to the Mechanic Portal."
+                  : "We'll take you straight to your Fleet Dashboard."}
+              </p>
+            )}
           </div>
 
           {signupSuccess && (
