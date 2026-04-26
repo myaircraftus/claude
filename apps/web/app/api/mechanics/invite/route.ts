@@ -148,11 +148,46 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // d. SMS: log as "would send" — Twilio not yet configured
-  const smsSent = false
-  if (mechanic_phone) {
-    console.log(`[mechanics/invite] SMS would send to ${mechanic_phone}: ${inviteUrl}`)
-    // TODO: wire Twilio here when TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM_NUMBER are set
+  // d. SMS via Twilio (only if credentials are configured)
+  let smsSent = false
+  if (mechanic_phone && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER) {
+    try {
+      const smsBody = existingUserId
+        ? `${mechanic_name}, an aircraft owner shared an estimate with you on myaircraft.us. View it: ${inviteUrl}`
+        : `${mechanic_name}, you've been invited to myaircraft.us with a free 30-day trial. Accept: ${inviteUrl}`
+
+      const twilioResp = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            From: process.env.TWILIO_FROM_NUMBER,
+            To: mechanic_phone,
+            Body: smsBody,
+          }).toString(),
+        },
+      )
+
+      if (twilioResp.ok) {
+        smsSent = true
+        await serviceSupabase
+          .from('mechanic_invites')
+          .update({ sms_sent_at: new Date().toISOString() })
+          .eq('id', invite.id)
+      } else {
+        const errText = await twilioResp.text().catch(() => '')
+        console.error(`[mechanics/invite] twilio ${twilioResp.status}`, errText)
+      }
+    } catch (smsErr: any) {
+      console.error('[mechanics/invite] twilio error', smsErr)
+      // Non-fatal — invite row still exists, owner can resend
+    }
+  } else if (mechanic_phone) {
+    console.log(`[mechanics/invite] SMS skipped (Twilio not configured) for ${mechanic_phone}: ${inviteUrl}`)
   }
 
   // e. Audit log (best-effort)
