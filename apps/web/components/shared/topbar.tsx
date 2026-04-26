@@ -15,6 +15,7 @@ import {
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import { FeedbackDialog } from '@/components/shared/feedback-dialog'
 import { SupportDialog } from '@/components/shared/support-dialog'
+import { FaraimButton } from '@/components/faraim/FaraimButton'
 import type { UserProfile } from '@/types'
 
 interface TopbarProps {
@@ -63,6 +64,8 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
 
       <div className="flex items-center gap-2">
         {actions}
+
+        <FaraimButton />
 
         <FeedbackDialog />
         <SupportDialog />
