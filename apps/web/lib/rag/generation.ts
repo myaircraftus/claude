@@ -135,14 +135,45 @@ export async function generateAnswer(
     ? parsed.cited_chunk_ids
     : [];
 
-  // 6. Build AnswerCitation objects from cited_chunk_ids
+  // 6. Build AnswerCitation objects from cited_chunk_ids.
+  //
+  // The system prompt asks the model to (a) use [N] index markers inline AND
+  // (b) return UUIDs in cited_chunk_ids. In practice GPT-4o frequently
+  // returns UUIDs that don't exactly match retrieved chunk IDs, which made
+  // the filter silently drop everything — citations: [] — and the [N]
+  // markers in the rendered answer became dead plain text in the UI.
+  //
+  // Defense in depth: try UUIDs first; if zero map, fall back to extracting
+  // the [N] markers from the answer text and resolving each one to
+  // chunks[N-1]. We also union the two sources so a partial-UUID return
+  // still gets the positionally referenced markers backfilled.
   const citationMap = new Map<string, RetrievedChunk>(
     chunks.map((c) => [c.chunk_id, c])
   );
 
-  const citations: AnswerCitation[] = citedChunkIds
+  const uuidCitations = citedChunkIds
     .filter((id) => citationMap.has(id))
-    .map((id) => buildAnswerCitationFromChunk(citationMap.get(id)!));
+    .map((id) => citationMap.get(id)!);
+
+  const answerText = typeof parsed.answer === 'string' ? parsed.answer : '';
+  const positionalIndices = Array.from(
+    new Set(
+      Array.from(answerText.matchAll(/\[(\d+)\]/g))
+        .map((m) => parseInt(m[1], 10))
+        .filter((n) => Number.isFinite(n) && n > 0 && n <= chunks.length)
+    )
+  ).sort((a, b) => a - b);
+
+  // Order results so citations[N-1] aligns with the [N] markers users see
+  // when the positional fallback kicks in.
+  const orderedChunks: RetrievedChunk[] =
+    uuidCitations.length > 0
+      ? uuidCitations
+      : positionalIndices.map((n) => chunks[n - 1]);
+
+  const citations: AnswerCitation[] = orderedChunks.map((chunk) =>
+    buildAnswerCitationFromChunk(chunk)
+  );
 
   // 7. Return complete AnswerResult
   return {

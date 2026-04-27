@@ -31,14 +31,20 @@ export function AnswerBlock({
   onFollowUp,
 }: AnswerBlockProps) {
   // Build the same deeplink the Sources pills use so cmd/ctrl-click
-  // opens the full-page viewer at the exact cited entry.
-  function buildHref(c: AnswerCitation): string {
+  // opens the full-page viewer at the exact cited entry. Returns null if the
+  // citation has no resolvable documentId — the caller falls back to the
+  // side-panel preview (or a no-op).
+  function buildHref(c: AnswerCitation): string | null {
+    if (!c.documentId) return null
     const p = new URLSearchParams()
-    p.set('page', String(c.pageNumber))
+    if (typeof c.pageNumber === 'number' && c.pageNumber > 0) {
+      p.set('page', String(c.pageNumber))
+    }
     if (c.chunkId) p.set('chunk', c.chunkId)
     const passage = c.quotedText ?? c.snippet ?? ''
     if (passage) p.set('snippet', passage.slice(0, 240))
-    return `/documents/${c.documentId}?${p.toString()}`
+    const qs = p.toString()
+    return qs ? `/documents/${c.documentId}?${qs}` : `/documents/${c.documentId}`
   }
 
   // Render answer text with clickable citation markers [N]
@@ -50,17 +56,34 @@ export function AnswerBlock({
         const num = parseInt(match[1])
         const citation = citations[num - 1]
         if (citation) {
+          const href = buildHref(citation)
+          const baseClass = 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition-colors mx-0.5 align-middle no-underline'
+          if (!href) {
+            // No document — still let the user open the side preview, but
+            // render a button (no dead /documents/undefined href).
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onCitationClick(citation)}
+                className={baseClass}
+                title={`${citation.documentTitle ?? 'Source'} p.${citation.pageNumber ?? '?'}`}
+              >
+                {num}
+              </button>
+            )
+          }
           return (
             <a
               key={i}
-              href={buildHref(citation)}
+              href={href}
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
                 e.preventDefault()
                 onCitationClick(citation)
               }}
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition-colors mx-0.5 align-middle no-underline"
-              title={`${citation.documentTitle} p.${citation.pageNumber} (⌘-click for new tab)`}
+              className={baseClass}
+              title={`${citation.documentTitle ?? 'Source'} p.${citation.pageNumber ?? '?'} (⌘-click for new tab)`}
             >
               {num}
             </a>

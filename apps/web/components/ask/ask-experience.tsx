@@ -114,9 +114,14 @@ type AskPersona = 'owner' | 'mechanic'
  * the citation and passes it to the same DocumentViewer the in-page side
  * panel uses — so the user lands on the exact entry, not the document start.
  */
-function buildCitationHref(c: AnswerCitation): string {
+function buildCitationHref(c: AnswerCitation): string | null {
+  // Defensive: if the citation has no documentId we cannot deeplink — the
+  // caller falls back to the in-page side panel preview only.
+  if (!c.documentId) return null
   const params = new URLSearchParams()
-  params.set('page', String(c.pageNumber))
+  if (typeof c.pageNumber === 'number' && c.pageNumber > 0) {
+    params.set('page', String(c.pageNumber))
+  }
   if (c.chunkId) params.set('chunk', c.chunkId)
   // Prefer quotedText (exact extracted span) over snippet (RAG context window)
   // — the PDF search plugin uses this to highlight the precise passage.
@@ -125,7 +130,8 @@ function buildCitationHref(c: AnswerCitation): string {
     // Cap to keep URLs short; the viewer only needs enough to anchor highlighting.
     params.set('snippet', passage.slice(0, 240))
   }
-  return `/documents/${c.documentId}?${params.toString()}`
+  const qs = params.toString()
+  return qs ? `/documents/${c.documentId}?${qs}` : `/documents/${c.documentId}`
 }
 
 const DocumentViewer = dynamic(
@@ -696,13 +702,18 @@ export function AskExperience() {
           <div className="flex items-center justify-between p-3 border-b border-border gap-3">
             <span className="text-sm font-semibold">Source Preview</span>
             <div className="flex items-center gap-3">
-              <a
-                href={buildCitationHref(activeCitation)}
-                className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-                style={{ fontWeight: 500 }}
-              >
-                <ExternalLink className="w-3 h-3" /> Open full page
-              </a>
+              {(() => {
+                const href = buildCitationHref(activeCitation)
+                return href ? (
+                  <a
+                    href={href}
+                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                    style={{ fontWeight: 500 }}
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open full page
+                  </a>
+                ) : null
+              })()}
               <button
                 onClick={() => setActiveCitation(null)}
                 className="p-1 rounded hover:bg-muted transition-colors"
@@ -849,26 +860,48 @@ export function AskExperience() {
                       {(msg.citations?.length ?? 0) > 0 && (
                         <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-border">
                           <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>Sources:</span>
-                          {msg.citations!.map((c, i) => (
-                            <a
-                              key={c.chunkId}
-                              href={buildCitationHref(c)}
-                              onClick={(e) => {
-                                // Plain left-click: preview in side panel.
-                                // Modifier-click / middle-click / right-click: let the browser
-                                // handle (new tab, copy link, etc.) using the real href.
-                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
-                                e.preventDefault()
-                                handleCitationSelect(c)
-                              }}
-                              className="inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full cursor-pointer hover:bg-primary/15 transition-colors"
-                              style={{ fontWeight: 500 }}
-                              title={`Open ${c.documentTitle} p.${c.pageNumber} (⌘-click for new tab)`}
-                            >
-                              <BookOpen className="w-3 h-3" />
-                              {i + 1}. {c.documentTitle}
-                            </a>
-                          ))}
+                          {msg.citations!.map((c, i) => {
+                            const href = buildCitationHref(c)
+                            const baseClass = 'inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full hover:bg-primary/15 transition-colors'
+                            // If the citation has no resolvable documentId we
+                            // can still open the side-panel preview, but we
+                            // render a button (no dead /documents/undefined href).
+                            if (!href) {
+                              return (
+                                <button
+                                  key={c.chunkId || `cite-${i}`}
+                                  type="button"
+                                  onClick={() => handleCitationSelect(c)}
+                                  className={`${baseClass} cursor-pointer`}
+                                  style={{ fontWeight: 500 }}
+                                  title={`${c.documentTitle ?? 'Source'} p.${c.pageNumber ?? '?'}`}
+                                >
+                                  <BookOpen className="w-3 h-3" />
+                                  {i + 1}. {c.documentTitle ?? 'Source'}
+                                </button>
+                              )
+                            }
+                            return (
+                              <a
+                                key={c.chunkId || `cite-${i}`}
+                                href={href}
+                                onClick={(e) => {
+                                  // Plain left-click: preview in side panel.
+                                  // Modifier-click / middle-click / right-click: let the browser
+                                  // handle (new tab, copy link, etc.) using the real href.
+                                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                                  e.preventDefault()
+                                  handleCitationSelect(c)
+                                }}
+                                className={`${baseClass} cursor-pointer`}
+                                style={{ fontWeight: 500 }}
+                                title={`Open ${c.documentTitle ?? 'source'} p.${c.pageNumber ?? '?'} (⌘-click for new tab)`}
+                              >
+                                <BookOpen className="w-3 h-3" />
+                                {i + 1}. {c.documentTitle ?? 'Source'}
+                              </a>
+                            )
+                          })}
                           {msg.confidence && (
                             <span className="text-[11px] bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
                               {msg.confidence === 'high' ? 'High' : msg.confidence === 'medium' ? 'Medium' : 'Low'} confidence
@@ -924,15 +957,20 @@ export function AskExperience() {
             <div className="p-4 border-b border-border flex items-center justify-between gap-2">
               <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
               <div className="flex items-center gap-3">
-                <a
-                  href={buildCitationHref(activeCitation)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-                  style={{ fontWeight: 500 }}
-                >
-                  <ExternalLink className="w-3 h-3" /> Open full page
-                </a>
+                {(() => {
+                  const href = buildCitationHref(activeCitation)
+                  return href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <ExternalLink className="w-3 h-3" /> Open full page
+                    </a>
+                  ) : null
+                })()}
                 <button
                   onClick={() => setActiveCitation(null)}
                   className="text-[11px] text-muted-foreground hover:text-foreground"
