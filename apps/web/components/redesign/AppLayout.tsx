@@ -57,6 +57,8 @@ const ownerNavItems: NavItem[] = [
 function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   const items: NavItem[] = [];
 
+  items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" });
+
   if (perm.aiCommandCenter) {
     items.push({ icon: Bot, label: "AI Command Center", href: "/workspace" });
   }
