@@ -30,6 +30,17 @@ export function AnswerBlock({
   onCitationClick,
   onFollowUp,
 }: AnswerBlockProps) {
+  // Build the same deeplink the Sources pills use so cmd/ctrl-click
+  // opens the full-page viewer at the exact cited entry.
+  function buildHref(c: AnswerCitation): string {
+    const p = new URLSearchParams()
+    p.set('page', String(c.pageNumber))
+    if (c.chunkId) p.set('chunk', c.chunkId)
+    const passage = c.quotedText ?? c.snippet ?? ''
+    if (passage) p.set('snippet', passage.slice(0, 240))
+    return `/documents/${c.documentId}?${p.toString()}`
+  }
+
   // Render answer text with clickable citation markers [N]
   function renderAnswerWithCitations(text: string) {
     const parts = text.split(/(\[\d+\])/g)
@@ -40,14 +51,19 @@ export function AnswerBlock({
         const citation = citations[num - 1]
         if (citation) {
           return (
-            <button
+            <a
               key={i}
-              onClick={() => onCitationClick(citation)}
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition-colors mx-0.5 align-middle"
-              title={`${citation.documentTitle} p.${citation.pageNumber}`}
+              href={buildHref(citation)}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                e.preventDefault()
+                onCitationClick(citation)
+              }}
+              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition-colors mx-0.5 align-middle no-underline"
+              title={`${citation.documentTitle} p.${citation.pageNumber} (⌘-click for new tab)`}
             >
               {num}
-            </button>
+            </a>
           )
         }
       }

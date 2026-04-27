@@ -105,6 +105,29 @@ const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
 type AskPersona = 'owner' | 'mechanic'
 
+/**
+ * Build a deeplink to the full-page document viewer that lands directly on
+ * the cited page with the cited passage highlighted. Used so citation pills
+ * support cmd-click → new tab and right-click → copy link.
+ *
+ * The query params are read by /documents/[id]/page.tsx, which reconstructs
+ * the citation and passes it to the same DocumentViewer the in-page side
+ * panel uses — so the user lands on the exact entry, not the document start.
+ */
+function buildCitationHref(c: AnswerCitation): string {
+  const params = new URLSearchParams()
+  params.set('page', String(c.pageNumber))
+  if (c.chunkId) params.set('chunk', c.chunkId)
+  // Prefer quotedText (exact extracted span) over snippet (RAG context window)
+  // — the PDF search plugin uses this to highlight the precise passage.
+  const passage = c.quotedText ?? c.snippet ?? ''
+  if (passage) {
+    // Cap to keep URLs short; the viewer only needs enough to anchor highlighting.
+    params.set('snippet', passage.slice(0, 240))
+  }
+  return `/documents/${c.documentId}?${params.toString()}`
+}
+
 const DocumentViewer = dynamic(
   () => import('@/components/ask/document-viewer').then((mod) => mod.DocumentViewer),
   {
@@ -550,15 +573,24 @@ export function AskExperience() {
       {/* ── Mobile citation modal (full-screen on small screens) ─────────────── */}
       {activeCitation && (
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-background">
-          <div className="flex items-center justify-between p-3 border-b border-border">
+          <div className="flex items-center justify-between p-3 border-b border-border gap-3">
             <span className="text-sm font-semibold">Source Preview</span>
-            <button
-              onClick={() => setActiveCitation(null)}
-              className="p-1 rounded hover:bg-muted transition-colors"
-              aria-label="Close citation viewer"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <a
+                href={buildCitationHref(activeCitation)}
+                className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                style={{ fontWeight: 500 }}
+              >
+                <ExternalLink className="w-3 h-3" /> Open full page
+              </a>
+              <button
+                onClick={() => setActiveCitation(null)}
+                className="p-1 rounded hover:bg-muted transition-colors"
+                aria-label="Close citation viewer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
             <DocumentViewerBoundary
@@ -698,15 +730,24 @@ export function AskExperience() {
                         <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-border">
                           <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>Sources:</span>
                           {msg.citations!.map((c, i) => (
-                            <button
+                            <a
                               key={c.chunkId}
-                              onClick={() => handleCitationSelect(c)}
+                              href={buildCitationHref(c)}
+                              onClick={(e) => {
+                                // Plain left-click: preview in side panel.
+                                // Modifier-click / middle-click / right-click: let the browser
+                                // handle (new tab, copy link, etc.) using the real href.
+                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                                e.preventDefault()
+                                handleCitationSelect(c)
+                              }}
                               className="inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full cursor-pointer hover:bg-primary/15 transition-colors"
                               style={{ fontWeight: 500 }}
+                              title={`Open ${c.documentTitle} p.${c.pageNumber} (⌘-click for new tab)`}
                             >
                               <BookOpen className="w-3 h-3" />
                               {i + 1}. {c.documentTitle}
-                            </button>
+                            </a>
                           ))}
                           {msg.confidence && (
                             <span className="text-[11px] bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
@@ -760,14 +801,25 @@ export function AskExperience() {
       <div className={`hidden lg:block border-l border-border bg-white transition-all duration-200 ${activeCitation ? 'w-[40%]' : 'w-[320px]'}`}>
         {activeCitation ? (
           <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="p-4 border-b border-border flex items-center justify-between gap-2">
               <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
-              <button
-                onClick={() => setActiveCitation(null)}
-                className="text-[11px] text-muted-foreground hover:text-foreground"
-              >
-                Clear
-              </button>
+              <div className="flex items-center gap-3">
+                <a
+                  href={buildCitationHref(activeCitation)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                  style={{ fontWeight: 500 }}
+                >
+                  <ExternalLink className="w-3 h-3" /> Open full page
+                </a>
+                <button
+                  onClick={() => setActiveCitation(null)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <DocumentViewerBoundary
