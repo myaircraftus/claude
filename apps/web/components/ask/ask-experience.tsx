@@ -196,6 +196,137 @@ function persistRecentQueries(
 
 // ── Artifact card renderer ────────────────────────────────────────────────────
 
+function formatLogbookDate(value: unknown): string {
+  if (!value) return 'Date unknown'
+  const d = typeof value === 'string' || typeof value === 'number' ? new Date(value) : null
+  if (!d || Number.isNaN(d.getTime())) return String(value)
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).format(d)
+}
+
+interface LogbookArtifactEntry {
+  id?: string
+  entry_date?: string
+  entry_text?: string
+  description?: string
+  entry_type?: string
+  logbook_type?: string
+  total_time_after?: number | string | null
+  total_time?: number | string | null
+  tach_time?: number | string | null
+  hobbs_time?: number | string | null
+  hobbs_out?: number | string | null
+  work_order_id?: string | null
+  work_order_ref?: string | null
+  aircraft?: { id?: string } | null
+  aircraft_id?: string
+}
+
+/**
+ * Renders the entries returned by the search_logbook tool as a list of
+ * individually clickable cards. Each card:
+ *  - shows the real entry text (entry_text alias, falling back to description)
+ *  - expands inline to reveal the full text + tach/total time + WO ref
+ *  - links to the aircraft detail page deep-anchored at the entry id
+ *    (#logbook-<id>) so the user lands on the specific entry, not a generic
+ *    profile page
+ *
+ * Replaces the previous design where every entry was a static <li> with a
+ * blank description (caused by reading e.description instead of the aliased
+ * e.entry_text) and the only navigation was a single "Use This" button that
+ * dumped the user on /aircraft/<id>.
+ */
+function LogbookEntriesArtifact({
+  entries,
+  aircraftId,
+}: {
+  entries: LogbookArtifactEntry[]
+  aircraftId?: string
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  if (!entries || entries.length === 0) {
+    return <p className="text-muted-foreground">No matching logbook entries found.</p>
+  }
+
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+      {entries.map((e, i) => {
+        const id = e.id ?? String(i)
+        const isOpen = expanded.has(id)
+        const text = e.entry_text ?? e.description ?? ''
+        const acId = aircraftId ?? e.aircraft?.id ?? e.aircraft_id
+        const tach = e.tach_time ?? null
+        const total = e.total_time_after ?? e.total_time ?? null
+        const hobbs = e.hobbs_time ?? e.hobbs_out ?? null
+        const woRef = e.work_order_ref ?? null
+        const sourceHref = acId ? `/aircraft/${acId}#logbook-${id}` : undefined
+
+        return (
+          <li key={id} className="border border-border/60 rounded-lg bg-white overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggle(id)}
+              className="w-full text-left px-3 py-2 hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-foreground">
+                  {formatLogbookDate(e.entry_date)}
+                </span>
+                {e.entry_type && (
+                  <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                    {e.entry_type}
+                  </span>
+                )}
+                {e.logbook_type && (
+                  <span className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
+                    {e.logbook_type}
+                  </span>
+                )}
+                {tach != null && (
+                  <span className="text-[10px] text-muted-foreground">tach {tach}</span>
+                )}
+                {total != null && (
+                  <span className="text-[10px] text-muted-foreground">tt {total}</span>
+                )}
+                <ChevronDown
+                  className={`w-3 h-3 ml-auto text-muted-foreground/60 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
+              </div>
+              <p className={`text-[11px] text-foreground/80 leading-relaxed ${isOpen ? '' : 'line-clamp-2'}`}>
+                {text || <span className="italic text-muted-foreground">(no description)</span>}
+              </p>
+            </button>
+            {isOpen && (
+              <div className="px-3 pb-2 pt-1 border-t border-border/60 bg-muted/20 flex items-center gap-3 flex-wrap text-[11px]">
+                {hobbs != null && <span className="text-muted-foreground">Hobbs {hobbs}</span>}
+                {woRef && <span className="text-muted-foreground">WO {woRef}</span>}
+                {sourceHref && (
+                  <a
+                    href={sourceHref}
+                    className="inline-flex items-center gap-1 text-primary hover:text-primary/80 ml-auto"
+                    style={{ fontWeight: 500 }}
+                  >
+                    Open entry <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: string) => void }) {
   const iconMap = {
     logbook_draft: <Sparkles className="w-4 h-4 text-primary" />,
@@ -206,6 +337,11 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 
   const data = artifact.data as any
 
+  // Logbook entries are addressable individually — hide the misleading
+  // top-level "Use This" CTA (which sent users to the aircraft profile page)
+  // and let the user click directly into a specific entry instead.
+  const showHeaderCta = artifact.action_url && artifact.type !== 'logbook_entries'
+
   return (
     <div className="mt-3 rounded-xl border border-primary/20 bg-primary/3 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-primary/10 bg-primary/5">
@@ -213,7 +349,7 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
           {iconMap[artifact.type]}
           <span className="text-[12px] font-semibold text-foreground">{artifact.title}</span>
         </div>
-        {artifact.action_url && (
+        {showHeaderCta && (
           <button
             onClick={() => onUse(artifact.action_url!)}
             className="flex items-center gap-1 text-[11px] text-primary font-semibold hover:underline"
@@ -285,25 +421,9 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
           </>
         )}
 
-        {/* Logbook entries */}
+        {/* Logbook entries — each entry is its own clickable link */}
         {artifact.type === 'logbook_entries' && (
-          <>
-            {Array.isArray(data?.entries) && data.entries.length > 0 ? (
-              <ul className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                {data.entries.map((e: any, i: number) => (
-                  <li key={i} className="border-b border-border/50 pb-1.5 last:border-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className="font-medium text-foreground">{e.entry_date ?? 'Date unknown'}</span>
-                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{e.entry_type}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">{e.description}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted-foreground">No matching logbook entries found.</p>
-            )}
-          </>
+          <LogbookEntriesArtifact entries={Array.isArray(data?.entries) ? data.entries : []} aircraftId={artifact.aircraft_id} />
         )}
       </div>
     </div>
