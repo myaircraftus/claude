@@ -120,26 +120,55 @@ async function dispatchTool(
     case 'search_logbook': {
       const params: Record<string, string> = {}
       if (args.aircraft_id) params.aircraft_id = String(args.aircraft_id)
-      const data = await callInternalGet(req, '/api/logbook-entries', params) as any
 
-      // Client-side keyword filter on the result set (simple contains)
-      const keyword = String(args.query ?? '').toLowerCase()
+      // Normalize the AI's free-form query so substrings like "latest 100-hour"
+      // actually match real entries (which read "100 Hour Inspection ...").
+      // - drop timeline qualifiers ("latest", "most recent", "find", etc.)
+      // - normalize hyphens to spaces ("100-hour" → "100 hour")
+      // - tokenize so we can match on terms, not the literal phrase
+      const rawQuery = String(args.query ?? '')
+      const QUALIFIERS = /\b(?:latest|last|most|recent|find|show|me|please|the|a|an|of|on|for|inspection|inspections|entry|entries|aircraft)\b/g
+      const normalized = rawQuery
+        .toLowerCase()
+        .replace(/-/g, ' ')
+        .replace(QUALIFIERS, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const terms = normalized.split(' ').filter((t) => t.length >= 2)
+
+      // Push the strongest single term to the API for DB-side ILIKE (uses
+      // existing index). Falls through to client-side AND-of-terms below.
+      const primaryTerm = terms.find((t) => /\d/.test(t)) ?? terms[0]
+      if (primaryTerm) params.search = primaryTerm
+
+      const data = await callInternalGet(req, '/api/logbook-entries', params) as any
       const entries = Array.isArray(data?.entries) ? data.entries : []
-      const filtered = keyword
-        ? entries.filter((e: any) =>
-            String(e.description ?? '').toLowerCase().includes(keyword) ||
-            String(e.entry_type ?? '').toLowerCase().includes(keyword)
-          )
+
+      // The API aliases `description` → `entry_text`. Filter on the actual
+      // returned shape and require all terms to appear (AND semantics).
+      const filtered = terms.length > 0
+        ? entries.filter((e: any) => {
+            const haystack = `${e.entry_text ?? e.description ?? ''} ${e.entry_type ?? ''} ${e.logbook_type ?? ''}`.toLowerCase()
+            return terms.every((t) => haystack.includes(t))
+          })
         : entries
+
+      // Entries already come back ordered by entry_date DESC; take the top 10
+      // so "latest" queries naturally surface the most recent matches first.
+      const limited = filtered.slice(0, 10)
 
       const artifact: Artifact = {
         type: 'logbook_entries',
-        title: `Logbook: "${args.query}"`,
-        data: { entries: filtered.slice(0, 10) },
+        title: rawQuery ? `Logbook: "${rawQuery}"` : 'Logbook entries',
+        data: { entries: limited },
         aircraft_id: args.aircraft_id as string | undefined,
-        action_url: `/maintenance${args.aircraft_id ? `?aircraft_id=${args.aircraft_id}` : ''}`,
+        // Send users to the aircraft detail page (where the logbook lives),
+        // not /maintenance which is dominated by work orders.
+        action_url: args.aircraft_id
+          ? `/aircraft/${args.aircraft_id}`
+          : '/aircraft',
       }
-      return { result: { entries: filtered.slice(0, 10) }, artifact }
+      return { result: { entries: limited }, artifact }
     }
 
     case 'search_documents': {
