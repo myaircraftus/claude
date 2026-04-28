@@ -165,7 +165,7 @@ async function runInlineIngestion(docId: string, fileName: string) {
     const mod = await import('../lib/ingestion/server')
     const result = await mod.ingestDocumentInline(docId)
     console.log(`  → ${result.status}${result.warning ? ` (${result.warning})` : ''}`)
-    return result.status === 'completed' || result.status === 'parsed'
+    return result.status === 'completed'
   } catch (err: any) {
     console.error(`  inline ingestion threw:`, err.message ?? err)
     await supabase
