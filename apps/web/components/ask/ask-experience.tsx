@@ -274,7 +274,12 @@ function LogbookEntriesArtifact({
         const total = e.total_time_after ?? e.total_time ?? null
         const hobbs = e.hobbs_time ?? e.hobbs_out ?? null
         const woRef = e.work_order_ref ?? null
-        const sourceHref = acId ? `/aircraft/${acId}#logbook-${id}` : undefined
+        // Per-entry deep link to the dedicated logbook entry detail page.
+        // This previously pointed at /aircraft/<id>#logbook-<entryId>, but
+        // the AircraftDetail page doesn't render those anchors so the
+        // browser just dumped users on the aircraft profile. The new
+        // /logbook-entries/[id] route opens the specific entry directly.
+        const sourceHref = e.id ? `/logbook-entries/${e.id}` : undefined
 
         return (
           <li key={id} className="border border-border/60 rounded-lg bg-white overflow-hidden">
