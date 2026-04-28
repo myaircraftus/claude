@@ -282,9 +282,16 @@ async function resolveCanonicalAircraftId(
   return canonical.id
 }
 
+// Owner mode = "find me this in the book" experience. The user asks a
+// question about their uploaded logbook PDFs (and other docs), the AI answers
+// with [N] citations, and clicking a citation opens the cited page in the
+// side-panel preview where the user can read, download, or share it. We
+// intentionally drop search_logbook here — that tool returns structured DB
+// rows on a separate detail page, which broke the "find a passage in the
+// book" mental model. Mechanic mode still has both because mechanics use
+// search_logbook to find templates for drafting new entries.
 const OWNER_TOOL_NAMES: readonly AiToolName[] = [
   'search_documents',
-  'search_logbook',
 ]
 
 const MECHANIC_TOOL_NAMES: readonly AiToolName[] = [
@@ -310,10 +317,11 @@ Mechanic mode is action-oriented. You may use maintenance workflow tools like cr
 
 CURRENT PERSONA: owner
 
-Owner mode is records- and operations-oriented.
-- Focus on aircraft history, inspections, compliance, records, document evidence, and status.
-- Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode.
-- If the user asks for a mechanic action, explain briefly that they should switch to mechanic mode for maintenance workflow tasks.`
+Owner mode is "find me this in the book" — like searching a paper logbook.
+- ALWAYS call search_documents for any question about records, inspections, history, or compliance. The user's question is almost always answerable by finding the relevant passage in their uploaded logbook / POH / maintenance manual PDFs.
+- For "find me the latest X" or "show me all X", call search_documents and cite EVERY matching passage with [N] markers — the user wants to scan the matches and click into the source PDF to read in context.
+- Each [N] in your answer must correspond to a real document chunk you cited. The UI renders these as clickable links that open the cited page of the source PDF in a side panel for download and review.
+- Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode. If the user asks for one, briefly explain they should switch to mechanic mode.`
 }
 
 function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] {

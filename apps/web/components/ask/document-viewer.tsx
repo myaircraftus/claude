@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Download, ExternalLink, FileText, Loader2, X } from 'lucide-react'
+import { Check, Download, ExternalLink, FileText, Loader2, Share2, X } from 'lucide-react'
 import {
   Worker,
   Viewer,
@@ -51,6 +51,42 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
   const previewUrl = useMemo(() => buildPreviewUrl(documentId), [documentId])
   const downloadUrl = useMemo(() => buildDownloadUrl(documentId), [documentId])
   const [isLoading, setIsLoading] = useState(true)
+  const [shareCopied, setShareCopied] = useState(false)
+
+  // Build the shareable deeplink the user gets when they hit "Share" — points
+  // at the full-page /documents/[id] viewer with the cited page + chunk
+  // pre-loaded so anyone with the link lands on the same passage.
+  const shareUrl = useMemo(() => {
+    if (!documentId || typeof window === 'undefined') return null
+    const params = new URLSearchParams()
+    if (citation?.pageNumber) params.set('page', String(citation.pageNumber))
+    if (citation?.chunkId) params.set('chunk', citation.chunkId)
+    const passage = citation?.quotedText ?? citation?.snippet ?? ''
+    if (passage) params.set('snippet', passage.slice(0, 240))
+    const qs = params.toString()
+    const path = qs ? `/documents/${documentId}?${qs}` : `/documents/${documentId}`
+    return `${window.location.origin}${path}`
+  }, [documentId, citation?.pageNumber, citation?.chunkId, citation?.quotedText, citation?.snippet])
+
+  const handleShare = async () => {
+    if (!shareUrl) return
+    try {
+      // Prefer the native share sheet on mobile/macOS where it's available.
+      if (typeof navigator !== 'undefined' && 'share' in navigator) {
+        await (navigator as any).share({
+          title: citation?.documentTitle ?? 'Aircraft document',
+          text: citation?.snippet ?? 'View this aircraft record',
+          url: shareUrl,
+        })
+        return
+      }
+      await (navigator as Navigator).clipboard.writeText(shareUrl)
+      setShareCopied(true)
+      setTimeout(() => setShareCopied(false), 2000)
+    } catch {
+      // user cancelled or clipboard failed — silently no-op
+    }
+  }
 
   const activePage = Math.max(citation?.pageNumber ?? 1, 1)
   const viewerKey = `${citation?.documentId ?? documentId}:${citation?.chunkId ?? 'document'}:${activePage}:${citation?.quotedText ?? ''}`
@@ -121,20 +157,36 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {shareUrl ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleShare}
+              title={shareCopied ? 'Link copied' : 'Share this page'}
+              aria-label="Share this page"
+            >
+              {shareCopied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-600" />
+              ) : (
+                <Share2 className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          ) : null}
           {downloadUrl ? (
-            <a href={downloadUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="ghost" size="icon" className="h-7 w-7">
+            <a href={downloadUrl} target="_blank" rel="noopener noreferrer" title="Download PDF">
+              <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Download PDF">
                 <Download className="h-3.5 w-3.5" />
               </Button>
             </a>
           ) : null}
-          <a href={`${previewUrl}#page=${activePage}`} target="_blank" rel="noopener noreferrer">
-            <Button variant="ghost" size="icon" className="h-7 w-7">
+          <a href={`${previewUrl}#page=${activePage}`} target="_blank" rel="noopener noreferrer" title="Open in new tab">
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Open in new tab">
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           </a>
           {onClose ? (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close">
               <X className="h-3.5 w-3.5" />
             </Button>
           ) : null}
