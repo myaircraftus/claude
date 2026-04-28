@@ -628,6 +628,15 @@ export function AskExperience() {
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, assistantMsg])
+
+      // Auto-open the first citation in the side preview so the user gets
+      // the cited PDF page immediately — they don't have to click a pill to
+      // see where the answer came from. If they want a different citation
+      // they can click any of the pills to swap the preview.
+      const firstCitation = (data.citations ?? []).find((c: AnswerCitation) => Boolean(c.documentId))
+      if (firstCitation) {
+        setActiveCitation(firstCitation)
+      }
       setPreviousQueries((prev) => {
         const next = [
           {
@@ -867,7 +876,10 @@ export function AskExperience() {
                           <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>Sources:</span>
                           {msg.citations!.map((c, i) => {
                             const href = buildCitationHref(c)
-                            const baseClass = 'inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full hover:bg-primary/15 transition-colors'
+                            const isActive = activeCitation?.chunkId === c.chunkId && !!c.chunkId
+                            const baseClass = isActive
+                              ? 'inline-flex items-center gap-1 text-[11px] bg-primary text-white px-2.5 py-1 rounded-full ring-2 ring-primary/40 transition-colors'
+                              : 'inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full hover:bg-primary/15 transition-colors'
                             // If the citation has no resolvable documentId we
                             // can still open the side-panel preview, but we
                             // render a button (no dead /documents/undefined href).
