@@ -90,7 +90,11 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
 
   const activePage = Math.max(citation?.pageNumber ?? 1, 1)
   const viewerKey = `${citation?.documentId ?? documentId}:${citation?.chunkId ?? 'document'}:${activePage}:${citation?.quotedText ?? ''}`
-  const workerUrl = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+  // Serve the PDF.js worker from our own /public so the viewer doesn't depend
+  // on a third-party CDN (unpkg) that ad-blockers, corporate proxies, or CSP
+  // can silently block — when the worker fetch fails the entire <Viewer>
+  // throws and the error boundary shows "Source preview unavailable".
+  const workerUrl = '/pdf.worker.min.js'
   const citationRegions = citation?.boundingRegions ?? []
 
   const searchPluginInstance = useMemo(() => {
