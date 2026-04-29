@@ -85,7 +85,7 @@ const MECHANIC_CHIPS: QuickChip[] = [
   { label: 'TCDS', groupId: 'airworthiness_and_certification', detailId: 'type_certificate_data_sheet_tcds' },
 ]
 
-const MAX_UPLOAD_FILE_SIZE_BYTES = 250 * 1024 * 1024
+const MAX_UPLOAD_FILE_SIZE_BYTES = 500 * 1024 * 1024
 const COMPACT_STAGE_ORDER = DOCUMENT_PROCESSING_STAGE_ORDER.filter((stage) => stage !== 'ocr_fallback')
 const COMPACT_STAGE_LABELS: Partial<Record<DocumentProcessingState['current_stage'], string>> = {
   uploaded: 'Uploaded',
@@ -182,7 +182,7 @@ function normalizeUploadErrorMessage(message: string) {
     lowered.includes('maximum allowed size') ||
     lowered.includes('object exceeded')
   ) {
-    return 'Storage rejected this upload as too large. The app is configured for files up to 250 MB, so if you still see this it is coming from the active storage provider limit or transport path.'
+    return 'Storage rejected this upload as too large. The app is configured for files up to 500 MB, so if you still see this it is coming from the active storage provider limit or transport path.'
   }
 
   return message
@@ -888,7 +888,7 @@ export function UploadDropzone({
       }
 
       if (hasSizeError) {
-        setDropError('This file is larger than the 250 MB upload limit.')
+        setDropError('This file is larger than the 500 MB upload limit.')
         return
       }
 
@@ -1280,9 +1280,31 @@ export function UploadDropzone({
 
     setIsUploading(true)
     try {
-      for (const item of pending) {
-        await uploadFile(item)
-      }
+      // Run uploads with bounded concurrency. Each uploadFile() does:
+      //   1. POST /api/upload/init    (small, fast)
+      //   2. PUT to Supabase Storage  (network-bound, file size dependent)
+      //   3. POST /api/upload/complete (small, returns immediately because
+      //      ingestion is fire-and-forget on the server now)
+      // Sequential was making "upload 11 logbooks" feel stuck — even though
+      // step 3 returns fast now, we want network parallelism on step 2.
+      const CONCURRENCY = 3
+      const queue = [...pending]
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        // Each worker pulls the next pending item until the queue drains.
+        // This way a slow upload can't block the others — a fresh worker
+        // grabs the next file as soon as any worker frees up.
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const item = queue.shift()
+          if (!item) return
+          try {
+            await uploadFile(item)
+          } catch (err) {
+            console.error('[upload-dropzone] worker upload failed', err)
+          }
+        }
+      })
+      await Promise.all(workers)
     } finally {
       setIsUploading(false)
     }

@@ -11,6 +11,7 @@ import {
   isDocumentDetailId,
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
 
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -305,7 +306,7 @@ export async function POST(req: NextRequest) {
       file_size_bytes: fileSize,
       mime_type: mimeType,
       checksum_sha256: checksumSha256,
-      parsing_status: 'queued',
+      parsing_status: 'pending',
       processing_state: buildInitialDocumentProcessingState(),
       source_provider: 'direct_upload',
       ocr_required: false,
@@ -364,11 +365,32 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Fire-and-forget ingestion. We deliberately don't await here:
+  //  - The browser client should get a fast 201 so the user can keep
+  //    uploading the next file (multi-upload UX was getting stuck waiting
+  //    for OCR to finish each file before the response returned).
+  //  - queueDocumentIngestion runs inline (Document AI / Textract / Tesseract
+  //    fallback). On Vercel this continues running in the background until
+  //    the function instance is reused or the 300s budget is exhausted.
+  //  - If the ingestion crashes or the function gets killed before chunks
+  //    land, the heal-ingestions cron picks it up within 10 minutes — the
+  //    doc was inserted with parsing_status: 'pending' which is in the
+  //    cron's STUCK_STATES list, so it auto-retries.
+  //
+  // Wrap in a Promise so an unhandled rejection in this background work
+  // doesn't take down the function instance.
+  void queueDocumentIngestion(documentId, {
+    preferBackground: true,
+    allowInlineFallback: true,
+  }).catch((err) => {
+    console.error(`[upload/complete] ingestion enqueue failed for ${documentId}:`, err)
+  })
+
   return NextResponse.json(
     {
       document_id: documentId,
-      status: 'queued',
-      ingestion_mode: 'deferred',
+      status: 'pending',
+      ingestion_mode: 'background',
       warning: null,
     },
     { status: 201 }

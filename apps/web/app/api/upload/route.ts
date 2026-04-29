@@ -18,7 +18,7 @@ import {
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
 
-const MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024 // 250 MB
+const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json(
-      { error: `File exceeds maximum size of 250 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
+      { error: `File exceeds maximum size of 500 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
       { status: 400 }
     )
   }

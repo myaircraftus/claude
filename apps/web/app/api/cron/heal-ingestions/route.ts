@@ -30,7 +30,7 @@ const HEAL_AFTER_MINUTES = 10
 // 10 other docs and timeout. The next tick picks up whatever's still stuck.
 const MAX_DOCS_PER_RUN = 3
 
-const STUCK_STATES = ['parsing', 'ocr_processing', 'embedding', 'pending']
+const STUCK_STATES = ['parsing', 'ocr_processing', 'embedding', 'pending', 'queued']
 
 interface StuckDoc {
   id: string
