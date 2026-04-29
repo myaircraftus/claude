@@ -1565,7 +1565,7 @@ export function UploadDropzone({
             <p className="text-sm font-medium text-foreground">
               {isDragActive ? 'Drop PDFs here' : 'Drag & drop PDFs, or click to browse'}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 250 MB per file</p>
+            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 500 MB per file</p>
           </div>
         </div>
       </div>

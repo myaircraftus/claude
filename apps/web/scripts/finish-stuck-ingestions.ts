@@ -151,7 +151,7 @@ async function runInlineIngestion(docId: string, fileName: string) {
   await supabase
     .from('documents')
     .update({
-      parsing_status: 'pending',
+      parsing_status: 'queued',
       parse_started_at: null,
       parse_completed_at: null,
       parse_error: null,
@@ -211,7 +211,13 @@ async function main() {
   for (const doc of stuckDocs) {
     if (doc.parsing_status === 'embedding') {
       await embedDocument(doc.id, doc.file_name)
-    } else if (doc.parsing_status === 'ocr_processing' || doc.parsing_status === 'parsing' || doc.parsing_status === 'pending') {
+    } else if (
+      doc.parsing_status === 'ocr_processing' ||
+      doc.parsing_status === 'parsing' ||
+      doc.parsing_status === 'queued' ||
+      doc.parsing_status === 'chunking' ||
+      doc.parsing_status === 'needs_ocr'
+    ) {
       // Also try to embed — the chunks may already exist if a previous run
       // got that far. embedDocument no-ops if there are no chunks.
       const { count } = await supabase

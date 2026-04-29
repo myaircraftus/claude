@@ -30,7 +30,11 @@ const HEAL_AFTER_MINUTES = 10
 // 10 other docs and timeout. The next tick picks up whatever's still stuck.
 const MAX_DOCS_PER_RUN = 3
 
-const STUCK_STATES = ['parsing', 'ocr_processing', 'embedding', 'pending', 'queued']
+// Match the actual parsing_status enum values:
+// {queued, parsing, chunking, embedding, completed, failed, needs_ocr, ocr_processing}.
+// "pending" was never a valid value — using it broke uploads with
+// "invalid input value for enum parsing_status".
+const STUCK_STATES = ['queued', 'parsing', 'chunking', 'ocr_processing', 'embedding', 'needs_ocr']
 
 interface StuckDoc {
   id: string
@@ -91,10 +95,12 @@ export async function GET(req: NextRequest) {
     try {
       // Reset row to fresh-start state so the inline pipeline doesn't trip on
       // half-written progress artifacts from the previous failed attempt.
+      // Use 'queued' (a valid enum value) — the inline ingestor flips this
+      // to 'parsing' / 'ocr_processing' / etc as it progresses.
       await supabase
         .from('documents')
         .update({
-          parsing_status: 'pending',
+          parsing_status: 'queued',
           parse_started_at: null,
           parse_completed_at: null,
           parse_error: null,

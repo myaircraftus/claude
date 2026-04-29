@@ -306,7 +306,7 @@ export async function POST(req: NextRequest) {
       file_size_bytes: fileSize,
       mime_type: mimeType,
       checksum_sha256: checksumSha256,
-      parsing_status: 'pending',
+      parsing_status: 'queued',
       processing_state: buildInitialDocumentProcessingState(),
       source_provider: 'direct_upload',
       ocr_required: false,
@@ -374,7 +374,7 @@ export async function POST(req: NextRequest) {
   //    the function instance is reused or the 300s budget is exhausted.
   //  - If the ingestion crashes or the function gets killed before chunks
   //    land, the heal-ingestions cron picks it up within 10 minutes — the
-  //    doc was inserted with parsing_status: 'pending' which is in the
+  //    doc was inserted with parsing_status: 'queued' which is in the
   //    cron's STUCK_STATES list, so it auto-retries.
   //
   // Wrap in a Promise so an unhandled rejection in this background work
@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       document_id: documentId,
-      status: 'pending',
+      status: 'queued',
       ingestion_mode: 'background',
       warning: null,
     },
