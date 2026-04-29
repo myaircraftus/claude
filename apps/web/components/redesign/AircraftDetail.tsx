@@ -528,6 +528,46 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const squawkSpeechRecognitionRef = useRef<any>(null);
   const squawkPhotoInputRef = useRef<HTMLInputElement>(null);
   const [reminderFilter, setReminderFilter] = useState("All");
+
+  // ── Real documents for the Documents tab ─────────────────────────────────
+  // Categories used to be hardcoded with mock counts (4, 18, 3, 2, 12, ...).
+  // Now we fetch this aircraft's real documents from /api/documents and group
+  // them by doc_type so the cards show actual counts and clicking a card
+  // filters the recent-documents list below.
+  type AircraftDoc = {
+    id: string
+    title: string | null
+    doc_type: string | null
+    parsing_status: string | null
+    page_count: number | null
+    file_size_bytes: number | null
+    uploaded_at: string | null
+    updated_at: string | null
+  }
+  const [aircraftDocs, setAircraftDocs] = useState<AircraftDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [activeDocCategory, setActiveDocCategory] = useState<string | null>(null);
+  const [docSearch, setDocSearch] = useState("");
+
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    async function loadDocs() {
+      setDocsLoading(true);
+      try {
+        const res = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+        setAircraftDocs(docs);
+      } finally {
+        if (!cancelled) setDocsLoading(false);
+      }
+    }
+    void loadDocs();
+    return () => { cancelled = true };
+  }, [aircraftId]);
   const [askInput, setAskInput] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [showInviteMechanic, setShowInviteMechanic] = useState(false);
@@ -2941,68 +2981,207 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   )}
                 </div>
 
-                {/* Document category grid */}
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {[
-                    { name: "Airworthiness & Registration", count: 4, complete: true, icon: Shield },
-                    { name: "Inspection Records", count: 18, complete: true, icon: CheckCircle },
-                    { name: "Engine Logbook", count: 3, complete: true, icon: BookOpen },
-                    { name: "Airframe Logbook", count: 2, complete: true, icon: BookOpen },
-                    { name: "Airworthiness Directives", count: 12, complete: false, icon: AlertTriangle },
-                    { name: "Avionics / Equipment", count: 6, complete: true, icon: Radio },
-                    { name: "Weight & Balance", count: 1, complete: ac.docCompleteness < 80, icon: Layers },
-                    { name: "Overhaul Records", count: 3, complete: true, icon: Wrench },
-                    { name: "Supplemental Type Certs", count: 2, complete: true, icon: FileText },
-                  ].map((cat) => (
-                    <button key={cat.name} className="bg-white rounded-xl border border-border p-4 text-left hover:shadow-sm hover:border-primary/20 transition-all group">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cat.complete ? "bg-emerald-50" : "bg-amber-50"}`}>
-                          <cat.icon className={`w-4 h-4 ${cat.complete ? "text-emerald-600" : "text-amber-600"}`} />
-                        </div>
-                        {!cat.complete && <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Incomplete</span>}
-                      </div>
-                      <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{cat.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{cat.count} document{cat.count !== 1 ? "s" : ""}</div>
-                    </button>
-                  ))}
-                </div>
+                {/* Document category grid — REAL counts from this aircraft's docs */}
+                {(() => {
+                  // Map app DocType values → display category card. Doc types
+                  // that don't fit a major bucket get rolled into "Other Records".
+                  const CATEGORY_DEFS: Array<{
+                    key: string
+                    name: string
+                    icon: any
+                    docTypes: string[]
+                  }> = [
+                    { key: 'airworthiness_registration', name: 'Airworthiness & Registration', icon: Shield, docTypes: ['compliance', 'lease_ownership', 'insurance'] },
+                    { key: 'inspection_records', name: 'Inspection Records', icon: CheckCircle, docTypes: ['inspection_report', 'form_337'] },
+                    { key: 'engine_logbook', name: 'Engine Logbook', icon: BookOpen, docTypes: [] }, // logbook + name match
+                    { key: 'airframe_logbook', name: 'Airframe Logbook', icon: BookOpen, docTypes: [] },
+                    { key: 'prop_logbook', name: 'Propeller Logbook', icon: BookOpen, docTypes: [] },
+                    { key: 'airworthiness_directives', name: 'Airworthiness Directives', icon: AlertTriangle, docTypes: ['airworthiness_directive', 'service_bulletin'] },
+                    { key: 'avionics_equipment', name: 'Avionics / Equipment', icon: Radio, docTypes: ['form_8130'] },
+                    { key: 'manuals', name: 'Manuals & POH', icon: BookOpen, docTypes: ['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'] },
+                    { key: 'work_orders', name: 'Work Orders', icon: Wrench, docTypes: ['work_order'] },
+                    { key: 'other', name: 'Other Records', icon: FileText, docTypes: ['miscellaneous'] },
+                  ]
 
-                {/* Recent documents */}
-                <div className="bg-white rounded-xl border border-border">
-                  <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                    <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Recent Documents</h3>
-                    <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
-                      <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                      <input type="text" placeholder="Search documents..." className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60" />
-                    </div>
-                  </div>
-                  <div className="divide-y divide-border">
-                    {[
-                      { name: "Annual Inspection Report 2026", type: "Inspection", pages: 12, status: "Indexed", date: "Mar 15, 2026" },
-                      { name: "Engine Logbook Pages 1-50", type: "Logbook", pages: 50, status: "Indexed", date: "Feb 20, 2026" },
-                      { name: "AD 2024-15-06 Compliance Record", type: "AD", pages: 3, status: "Needs Review", date: "Jan 10, 2026" },
-                      { name: "Propeller Overhaul Certificate", type: "Certificate", pages: 2, status: "Indexed", date: "Dec 5, 2025" },
-                    ].map((doc, i) => (
-                      <div key={i} className="px-5 py-3.5 flex items-center justify-between hover:bg-muted/20 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
-                            <FileText className="w-3.5 h-3.5 text-primary" />
-                          </div>
-                          <div>
-                            <div className="text-[13px] text-foreground" style={{ fontWeight: 500 }}>{doc.name}</div>
-                            <div className="text-[11px] text-muted-foreground">{doc.type} &middot; {doc.pages} pages &middot; {doc.date}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${doc.status === "Indexed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`} style={{ fontWeight: 600 }}>{doc.status}</span>
-                          <button className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                            <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                  // Logbooks split by tail/title keyword match.
+                  function categorize(doc: AircraftDoc): string {
+                    const dt = doc.doc_type ?? 'miscellaneous'
+                    const title = (doc.title ?? '').toLowerCase()
+                    if (dt === 'logbook') {
+                      if (/eng|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (/prop|propeller/.test(title)) return 'prop_logbook'
+                      if (/airframe|af_logbook|af logbook/.test(title)) return 'airframe_logbook'
+                      return 'airframe_logbook' // default logbook bucket
+                    }
+                    for (const cat of CATEGORY_DEFS) {
+                      if (cat.docTypes.includes(dt)) return cat.key
+                    }
+                    return 'other'
+                  }
+
+                  const counts = new Map<string, number>()
+                  for (const d of aircraftDocs) {
+                    const k = categorize(d)
+                    counts.set(k, (counts.get(k) ?? 0) + 1)
+                  }
+
+                  return (
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {CATEGORY_DEFS.map((cat) => {
+                        const count = counts.get(cat.key) ?? 0
+                        const isActive = activeDocCategory === cat.key
+                        return (
+                          <button
+                            key={cat.key}
+                            type="button"
+                            onClick={() => setActiveDocCategory(isActive ? null : cat.key)}
+                            className={`bg-white rounded-xl border p-4 text-left hover:shadow-sm transition-all group ${
+                              isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/30'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${count > 0 ? 'bg-emerald-50' : 'bg-muted'}`}>
+                                <cat.icon className={`w-4 h-4 ${count > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                              </div>
+                              {isActive && <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Filtering</span>}
+                            </div>
+                            <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{cat.name}</div>
+                            <div className="text-[11px] text-muted-foreground">{count} document{count === 1 ? '' : 's'}</div>
                           </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+
+                {/* Documents list — filtered by active category + search */}
+                {(() => {
+                  // Re-use the categorize helper above by recreating it inline.
+                  function categorize(doc: AircraftDoc): string {
+                    const dt = doc.doc_type ?? 'miscellaneous'
+                    const title = (doc.title ?? '').toLowerCase()
+                    if (dt === 'logbook') {
+                      if (/eng|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (/prop|propeller/.test(title)) return 'prop_logbook'
+                      return 'airframe_logbook'
+                    }
+                    if (['inspection_report', 'form_337'].includes(dt)) return 'inspection_records'
+                    if (['airworthiness_directive', 'service_bulletin'].includes(dt)) return 'airworthiness_directives'
+                    if (['compliance', 'lease_ownership', 'insurance'].includes(dt)) return 'airworthiness_registration'
+                    if (['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'].includes(dt)) return 'manuals'
+                    if (dt === 'form_8130') return 'avionics_equipment'
+                    if (dt === 'work_order') return 'work_orders'
+                    return 'other'
+                  }
+
+                  const search = docSearch.trim().toLowerCase()
+                  let filtered = aircraftDocs
+                  if (activeDocCategory) {
+                    filtered = filtered.filter((d) => categorize(d) === activeDocCategory)
+                  }
+                  if (search) {
+                    filtered = filtered.filter((d) => (d.title ?? '').toLowerCase().includes(search))
+                  }
+                  const sorted = [...filtered].sort((a, b) => {
+                    const ad = a.uploaded_at ?? a.updated_at ?? ''
+                    const bd = b.uploaded_at ?? b.updated_at ?? ''
+                    return bd.localeCompare(ad)
+                  })
+
+                  return (
+                    <div className="bg-white rounded-xl border border-border">
+                      <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
+                            {activeDocCategory ? 'Filtered Documents' : 'Recent Documents'}
+                          </h3>
+                          <span className="text-[11px] text-muted-foreground">{sorted.length} of {aircraftDocs.length}</span>
+                          {activeDocCategory && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveDocCategory(null)}
+                              className="text-[11px] text-primary hover:text-primary/80"
+                              style={{ fontWeight: 500 }}
+                            >
+                              Clear filter
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
+                          <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={docSearch}
+                            onChange={(e) => setDocSearch(e.target.value)}
+                            placeholder="Search documents..."
+                            className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60"
+                          />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <div className="divide-y divide-border">
+                        {docsLoading && aircraftDocs.length === 0 && (
+                          <div className="px-5 py-6 text-[12px] text-muted-foreground italic">Loading documents…</div>
+                        )}
+                        {!docsLoading && sorted.length === 0 && (
+                          <div className="px-5 py-6 text-[12px] text-muted-foreground italic">
+                            {activeDocCategory ? 'No documents in this category yet.' : 'No documents uploaded yet.'}
+                          </div>
+                        )}
+                        {sorted.slice(0, 50).map((doc) => {
+                          const isComplete = doc.parsing_status === 'completed'
+                          const dateLabel = doc.uploaded_at
+                            ? new Date(doc.uploaded_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                            : '—'
+                          return (
+                            <Link
+                              key={doc.id}
+                              href={`/documents/${doc.id}`}
+                              className="px-5 py-3.5 flex items-center justify-between hover:bg-muted/30 transition-colors"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center shrink-0">
+                                  <FileText className="w-3.5 h-3.5 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[13px] text-foreground truncate" style={{ fontWeight: 500 }}>{doc.title ?? 'Untitled'}</div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    {(doc.doc_type ?? 'document').replace(/_/g, ' ')}
+                                    {doc.page_count ? ` · ${doc.page_count} pages` : ''}
+                                    {' · '}{dateLabel}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                                  isComplete ? 'bg-emerald-50 text-emerald-700' :
+                                  doc.parsing_status === 'failed' ? 'bg-red-50 text-red-700' :
+                                  'bg-amber-50 text-amber-700'
+                                }`} style={{ fontWeight: 600 }}>
+                                  {isComplete ? 'Indexed' : doc.parsing_status === 'failed' ? 'Failed' : 'Processing'}
+                                </span>
+                                <a
+                                  href={`/api/documents/${doc.id}/preview?download=1`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                                  aria-label="Download"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                                </a>
+                              </div>
+                            </Link>
+                          )
+                        })}
+                        {sorted.length > 50 && (
+                          <div className="px-5 py-3 text-[11px] text-muted-foreground text-center">
+                            Showing first 50 of {sorted.length} — refine with search to find more.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
