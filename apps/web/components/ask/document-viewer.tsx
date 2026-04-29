@@ -47,17 +47,19 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
   const activePage = Math.max(citation?.pageNumber ?? 1, 1)
   const passage = citation?.quotedText ?? citation?.snippet ?? ''
 
-  // PDF Open Parameters fragment. `search=` highlights the first matching
-  // text on the cited page. We cap at the first ~80 chars to stay inside
-  // browser URL limits and to avoid passing entire OCR paragraphs.
+  // PDF Open Parameters fragment for #search=text (highlight passage). We
+  // intentionally do NOT put page=N in the fragment — iPad Safari ignores it,
+  // so we use the server-side ?page=N query param instead, which returns the
+  // single requested page as a standalone PDF. That way every iframe loads a
+  // unique resource and the right page renders on every browser.
   const pdfFragment = useMemo(() => {
-    const parts: string[] = [`page=${activePage}`]
     const trimmed = passage.replace(/\s+/g, ' ').trim().slice(0, 80)
-    if (trimmed) parts.push(`search=${encodeURIComponent(trimmed)}`)
-    return parts.join('&')
-  }, [activePage, passage])
+    return trimmed ? `search=${encodeURIComponent(trimmed)}` : ''
+  }, [passage])
 
-  const iframeSrc = previewUrl ? `${previewUrl}#${pdfFragment}` : null
+  const iframeSrc = previewUrl
+    ? `${previewUrl}?page=${activePage}${pdfFragment ? `#${pdfFragment}` : ''}`
+    : null
 
   const shareUrl = useMemo(() => {
     if (!documentId || typeof window === 'undefined') return null
@@ -150,7 +152,7 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
               </Button>
             </a>
           ) : null}
-          <a href={`${previewUrl}#${pdfFragment}`} target="_blank" rel="noopener noreferrer" title="Open in new tab">
+          <a href={iframeSrc ?? previewUrl ?? '#'} target="_blank" rel="noopener noreferrer" title="Open in new tab">
             <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Open in new tab">
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>

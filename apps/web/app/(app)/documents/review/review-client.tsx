@@ -613,8 +613,11 @@ function QueueItemCard({
       })),
     }
   }, [highlightRegions, job.document?.doc_type, job.document?.id, job.document?.title, job.ocr_raw_text, job.page_number])
+  // ?page=N (server-side single-page extract) instead of #page=N (browser hash
+  // — iPad Safari ignores it, so every iframe showed page 1 of the same PDF).
+  // The preview API returns just the requested page as a 1-page PDF.
   const fallbackPreviewUrl = fallbackCitation
-    ? `/api/documents/${fallbackCitation.documentId}/preview#page=${fallbackCitation.pageNumber}`
+    ? `/api/documents/${fallbackCitation.documentId}/preview?page=${fallbackCitation.pageNumber}`
     : null
 
   function update(key: keyof EditedFields, value: string) {
@@ -702,7 +705,7 @@ function QueueItemCard({
   const hasEngines = Array.isArray(job.engines_run) && job.engines_run.length > 0
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden scroll-mt-24" data-review-id={item.id}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           {/* Left: doc + page + tags */}
@@ -846,15 +849,30 @@ function QueueItemCard({
 
                   {!pageImageLoading && !pageImageUrl && fallbackCitation && (
                     <div className="rounded-md border border-border bg-white overflow-hidden">
-                      <div className="px-3 py-2 border-b border-border text-xs text-muted-foreground">
-                        PDF page preview fallback
+                      <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2 text-xs">
+                        <span className="text-muted-foreground">
+                          Page {fallbackCitation.pageNumber} preview
+                          {fallbackCitation.documentTitle ? ` · ${fallbackCitation.documentTitle}` : ''}
+                        </span>
+                        {fallbackPreviewUrl && (
+                          <a
+                            href={fallbackPreviewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-brand-600 hover:underline font-medium"
+                          >
+                            Open in new tab ↗
+                          </a>
+                        )}
                       </div>
-                      <div className="h-[420px]">
+                      <div className="h-[600px] bg-muted/20">
                         {fallbackPreviewUrl ? (
                           <iframe
                             src={fallbackPreviewUrl}
                             title={`Preview ${fallbackCitation.documentTitle} page ${fallbackCitation.pageNumber}`}
                             className="h-full w-full border-0 bg-white"
+                            // Same-origin iframe — preview API already sets
+                            // X-Frame-Options: SAMEORIGIN, no sandbox needed.
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -1524,7 +1542,22 @@ export default function ReviewQueueClient({
           throw new Error(payload?.error ?? 'Failed to update review item')
         }
       }
+      // Find the next item in the *currently filtered* list so we can scroll
+      // it into view — otherwise the user feels "stuck" on the same scroll
+      // position after Approve / Reject. Compute before we mutate the list.
+      const currentList = filtered
+      const idx = currentList.findIndex((i) => i.id === id)
+      const nextItem = idx >= 0 ? currentList[idx + 1] : null
+
       setItems((prev) => prev.filter((i) => i.id !== id))
+
+      if (nextItem && typeof window !== 'undefined') {
+        // Defer to next tick so the DOM has flushed the removed card.
+        requestAnimationFrame(() => {
+          const el = document.querySelector<HTMLElement>(`[data-review-id="${nextItem.id}"]`)
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Failed to update review item')
     } finally {
