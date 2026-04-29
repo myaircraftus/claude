@@ -1661,15 +1661,59 @@ export function UploadDropzone({
                     )}
                   </div>
 
-                  {item.status !== 'uploading' && (
-                    <button
-                      type="button"
-                      onClick={() => removeFile(item.id)}
-                      className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Retry button for failed items.
+                        - If the doc already has a documentId (upload + DB
+                          insert succeeded but ingestion later threw — e.g.
+                          OpenAI 429), we POST to /api/documents/[id]/retry
+                          and re-run the inline pipeline. No re-upload needed.
+                        - Otherwise the upload itself never reached the server,
+                          so we just flip status back to 'pending' and let the
+                          user click "Re-upload all" or run uploadFile directly. */}
+                    {item.status === 'error' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (item.documentId) {
+                            updateFile(item.id, { status: 'processing', error: undefined, progress: 5 })
+                            try {
+                              const res = await fetch(`/api/documents/${item.documentId}/retry`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ force: true }),
+                              })
+                              if (!res.ok) {
+                                const payload = await res.json().catch(() => ({}))
+                                throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                              }
+                              updateFile(item.id, { progress: 100 })
+                            } catch (err) {
+                              updateFile(item.id, {
+                                status: 'error',
+                                error: err instanceof Error ? err.message : 'Retry failed',
+                              })
+                            }
+                          } else {
+                            // Never made it to the server — try the whole upload again
+                            updateFile(item.id, { status: 'pending', error: undefined, progress: 0 })
+                            void uploadFile({ ...item, status: 'pending', error: undefined, progress: 0 })
+                          }
+                        }}
+                        className="text-xs text-primary hover:text-primary/80 font-medium"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    {item.status !== 'uploading' && (
+                      <button
+                        type="button"
+                        onClick={() => removeFile(item.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Form fields — only when pending or error */}
@@ -2021,10 +2065,61 @@ export function UploadDropzone({
                       />
                     )}
                     {item.status === 'error' && (
-                      <span className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="h-3 w-3" />
-                        {item.error ?? 'Error'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="h-3 w-3" />
+                          {item.error ?? 'Error'}
+                        </span>
+                        {/* Retry pulls from /api/documents/[id]/retry which
+                            re-runs ingestion in place — no re-upload needed.
+                            Useful when ingestion failed mid-pipeline (e.g.
+                            OpenAI 429 quota) and the user resolved the
+                            underlying cause but doesn't want to re-upload
+                            a 350MB PDF. */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setRecentUploads((prev) =>
+                              prev.map((r) =>
+                                r.id === item.id
+                                  ? { ...r, status: 'processing', error: undefined, progress: 5 }
+                                  : r,
+                              ),
+                            )
+                            try {
+                              const res = await fetch(
+                                `/api/documents/${item.documentId}/retry`,
+                                {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ force: true }),
+                                },
+                              )
+                              if (!res.ok) {
+                                const payload = await res.json().catch(() => ({}))
+                                throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                              }
+                              // Status will be picked up by the live polling
+                              // hook on the next tick — no manual update needed.
+                            } catch (err) {
+                              setRecentUploads((prev) =>
+                                prev.map((r) =>
+                                  r.id === item.id
+                                    ? {
+                                        ...r,
+                                        status: 'error',
+                                        error: err instanceof Error ? err.message : 'Retry failed',
+                                      }
+                                    : r,
+                                ),
+                              )
+                            }
+                          }}
+                          className="text-xs text-primary hover:text-primary/80 font-medium"
+                        >
+                          Retry
+                        </button>
+                      </div>
                     )}
                   </div>
 
