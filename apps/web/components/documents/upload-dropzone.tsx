@@ -3,7 +3,7 @@
 import Link from '@/components/shared/tenant-link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp } from 'lucide-react'
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -2006,11 +2006,65 @@ export function UploadDropzone({
 
       {recentUploads.length > 0 && (
         <div className="space-y-2">
-          <div>
-            <h3 className="text-sm font-medium text-foreground">Processing & recent uploads</h3>
-            <p className="text-xs text-muted-foreground">
-              Live status from the saved document rows. This section survives refresh.
-            </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Processing & recent uploads</h3>
+              <p className="text-xs text-muted-foreground">
+                Live status from the saved document rows. This section survives refresh.
+              </p>
+            </div>
+            {/* Bulk retry — tops-up the OpenAI quota then click once to retry
+                every failed doc instead of clicking each Retry button. */}
+            {recentUploads.some((r) => r.status === 'error' && r.documentId) && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const targets = recentUploads.filter((r) => r.status === 'error' && r.documentId)
+                  // Optimistically flip them all to processing so the user sees progress
+                  setRecentUploads((prev) =>
+                    prev.map((r) =>
+                      targets.find((t) => t.id === r.id)
+                        ? { ...r, status: 'processing', error: undefined, progress: 5 }
+                        : r,
+                    ),
+                  )
+                  await Promise.all(
+                    targets.map(async (r) => {
+                      try {
+                        const res = await fetch(`/api/documents/${r.documentId}/retry`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ force: true }),
+                        })
+                        if (!res.ok) {
+                          const payload = await res.json().catch(() => ({}))
+                          throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                        }
+                      } catch (err) {
+                        setRecentUploads((prev) =>
+                          prev.map((rr) =>
+                            rr.id === r.id
+                              ? {
+                                  ...rr,
+                                  status: 'error',
+                                  error: err instanceof Error ? err.message : 'Retry failed',
+                                }
+                              : rr,
+                          ),
+                        )
+                      }
+                    }),
+                  )
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs hover:bg-primary/90 transition-colors flex-shrink-0"
+                style={{ fontWeight: 500 }}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry all failed (
+                {recentUploads.filter((r) => r.status === 'error' && r.documentId).length}
+                )
+              </button>
+            )}
           </div>
           {recentUploads.map((item) => {
             const realtimeStatus = parsingStatuses[item.documentId]

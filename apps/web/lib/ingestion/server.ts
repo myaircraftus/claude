@@ -1874,6 +1874,18 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       },
     })
 
+    // Auto-classify with LLM so the doc lands in the right bucket on the
+    // Aircraft Documents tab without the user picking a category by hand.
+    // Fire-and-forget — never block completion on a 429 / classifier hiccup.
+    void (async () => {
+      try {
+        const { autoClassifyDocument } = await import('@/lib/documents/auto-classify')
+        await autoClassifyDocument(supabase as any, documentId)
+      } catch (err) {
+        console.warn(`[ingestion] auto-classify post-step failed for ${documentId}:`, err)
+      }
+    })()
+
     return { mode: 'inline', status: 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'

@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     .from('documents')
     .select(
       `
-      id, title, doc_type, document_group_id, document_detail_id, record_family,
+      id, title, doc_type, document_subtype, document_group_id, document_detail_id, record_family,
       truth_role, parsing_status, parse_error, page_count, file_size_bytes,
       uploaded_at, updated_at, aircraft_id, processing_state,
       aircraft:aircraft_id (id, tail_number, make, model)

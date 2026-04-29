@@ -538,6 +538,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     id: string
     title: string | null
     doc_type: string | null
+    document_subtype: string | null
     parsing_status: string | null
     page_count: number | null
     file_size_bytes: number | null
@@ -548,6 +549,8 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [docsLoading, setDocsLoading] = useState(false);
   const [activeDocCategory, setActiveDocCategory] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+  const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!aircraftId) return;
@@ -567,6 +570,60 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     }
     void loadDocs();
     return () => { cancelled = true };
+  }, [aircraftId]);
+
+  // Persist a doc_type/subtype change (drag-drop reclassification or
+  // "Reclassify with AI"). Optimistic update so the card moves into the
+  // new category immediately, then sync to the server.
+  const reclassifyDoc = useCallback(
+    async (docId: string, target: { doc_type: string; document_subtype: string | null }) => {
+      setAircraftDocs((prev) =>
+        prev.map((d) =>
+          d.id === docId ? { ...d, doc_type: target.doc_type, document_subtype: target.document_subtype } : d,
+        ),
+      );
+      try {
+        const res = await fetch(`/api/documents/${docId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            doc_type: target.doc_type,
+            document_subtype: target.document_subtype,
+          }),
+        });
+        if (!res.ok) throw new Error(`Reclassify failed (${res.status})`);
+      } catch (err) {
+        console.error("[reclassifyDoc]", err);
+        // Re-fetch to undo the optimistic update if the server rejected
+        if (aircraftId) {
+          const res = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+          if (res.ok) {
+            const json = await res.json();
+            const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+            setAircraftDocs(docs);
+          }
+        }
+      }
+    },
+    [aircraftId],
+  );
+
+  const aiReclassifyDoc = useCallback(async (docId: string) => {
+    try {
+      const res = await fetch(`/api/documents/${docId}/classify`, { method: "POST" });
+      if (!res.ok) return;
+      // Refresh the list — the classify endpoint already wrote the new doc_type
+      if (aircraftId) {
+        const list = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+        if (list.ok) {
+          const json = await list.json();
+          const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+          setAircraftDocs(docs);
+        }
+      }
+    } catch (err) {
+      console.error("[aiReclassifyDoc]", err);
+    }
   }, [aircraftId]);
   const [askInput, setAskInput] = useState("");
   const [showInvite, setShowInvite] = useState(false);
@@ -2981,37 +3038,46 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   )}
                 </div>
 
-                {/* Document category grid — REAL counts from this aircraft's docs */}
+                {/* Document category grid — REAL counts + drag-drop targets.
+                    Drag any document row onto a card to reclassify it. */}
                 {(() => {
-                  // Map app DocType values → display category card. Doc types
-                  // that don't fit a major bucket get rolled into "Other Records".
+                  // Each category maps to a (doc_type, document_subtype) target
+                  // that the drop handler writes to the doc row.
                   const CATEGORY_DEFS: Array<{
                     key: string
                     name: string
                     icon: any
+                    target: { doc_type: string; document_subtype: string | null }
                     docTypes: string[]
                   }> = [
-                    { key: 'airworthiness_registration', name: 'Airworthiness & Registration', icon: Shield, docTypes: ['compliance', 'lease_ownership', 'insurance'] },
-                    { key: 'inspection_records', name: 'Inspection Records', icon: CheckCircle, docTypes: ['inspection_report', 'form_337'] },
-                    { key: 'engine_logbook', name: 'Engine Logbook', icon: BookOpen, docTypes: [] }, // logbook + name match
-                    { key: 'airframe_logbook', name: 'Airframe Logbook', icon: BookOpen, docTypes: [] },
-                    { key: 'prop_logbook', name: 'Propeller Logbook', icon: BookOpen, docTypes: [] },
-                    { key: 'airworthiness_directives', name: 'Airworthiness Directives', icon: AlertTriangle, docTypes: ['airworthiness_directive', 'service_bulletin'] },
-                    { key: 'avionics_equipment', name: 'Avionics / Equipment', icon: Radio, docTypes: ['form_8130'] },
-                    { key: 'manuals', name: 'Manuals & POH', icon: BookOpen, docTypes: ['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'] },
-                    { key: 'work_orders', name: 'Work Orders', icon: Wrench, docTypes: ['work_order'] },
-                    { key: 'other', name: 'Other Records', icon: FileText, docTypes: ['miscellaneous'] },
+                    { key: 'airworthiness_registration', name: 'Airworthiness & Registration', icon: Shield, target: { doc_type: 'compliance', document_subtype: null }, docTypes: ['compliance', 'lease_ownership', 'insurance'] },
+                    { key: 'inspection_records', name: 'Inspection Records', icon: CheckCircle, target: { doc_type: 'inspection_report', document_subtype: null }, docTypes: ['inspection_report', 'form_337'] },
+                    { key: 'engine_logbook', name: 'Engine Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'engine_logbook' }, docTypes: [] },
+                    { key: 'airframe_logbook', name: 'Airframe Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'airframe_logbook' }, docTypes: [] },
+                    { key: 'prop_logbook', name: 'Propeller Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'prop_logbook' }, docTypes: [] },
+                    { key: 'airworthiness_directives', name: 'Airworthiness Directives', icon: AlertTriangle, target: { doc_type: 'airworthiness_directive', document_subtype: null }, docTypes: ['airworthiness_directive', 'service_bulletin'] },
+                    { key: 'avionics_equipment', name: 'Avionics / Equipment', icon: Radio, target: { doc_type: 'form_8130', document_subtype: null }, docTypes: ['form_8130'] },
+                    { key: 'manuals', name: 'Manuals & POH', icon: BookOpen, target: { doc_type: 'poh', document_subtype: null }, docTypes: ['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'] },
+                    { key: 'work_orders', name: 'Work Orders', icon: Wrench, target: { doc_type: 'work_order', document_subtype: null }, docTypes: ['work_order'] },
+                    { key: 'other', name: 'Other Records', icon: FileText, target: { doc_type: 'miscellaneous', document_subtype: null }, docTypes: ['miscellaneous'] },
                   ]
 
-                  // Logbooks split by tail/title keyword match.
+                  // Resolve a doc to its category. Prefer document_subtype for
+                  // engine/airframe/prop logbook splits (set by the AI
+                  // classifier or a previous drag-drop). Fall back to title
+                  // keywords for older docs that haven't been classified yet.
                   function categorize(doc: AircraftDoc): string {
                     const dt = doc.doc_type ?? 'miscellaneous'
+                    const sub = doc.document_subtype ?? ''
                     const title = (doc.title ?? '').toLowerCase()
                     if (dt === 'logbook') {
-                      if (/eng|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (sub === 'engine_logbook') return 'engine_logbook'
+                      if (sub === 'prop_logbook') return 'prop_logbook'
+                      if (sub === 'airframe_logbook') return 'airframe_logbook'
+                      // Title-keyword fallback for un-subtyped legacy logbooks
+                      if (/\beng\b|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
                       if (/prop|propeller/.test(title)) return 'prop_logbook'
-                      if (/airframe|af_logbook|af logbook/.test(title)) return 'airframe_logbook'
-                      return 'airframe_logbook' // default logbook bucket
+                      return 'airframe_logbook'
                     }
                     for (const cat of CATEGORY_DEFS) {
                       if (cat.docTypes.includes(dt)) return cat.key
@@ -3030,20 +3096,43 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                       {CATEGORY_DEFS.map((cat) => {
                         const count = counts.get(cat.key) ?? 0
                         const isActive = activeDocCategory === cat.key
+                        const isDragOver = dragOverCategory === cat.key
                         return (
                           <button
                             key={cat.key}
                             type="button"
                             onClick={() => setActiveDocCategory(isActive ? null : cat.key)}
+                            onDragOver={(e) => {
+                              if (draggingDocId) {
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = "move"
+                                if (dragOverCategory !== cat.key) setDragOverCategory(cat.key)
+                              }
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverCategory === cat.key) setDragOverCategory(null)
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              const docId = e.dataTransfer.getData("text/plain") || draggingDocId
+                              setDragOverCategory(null)
+                              setDraggingDocId(null)
+                              if (docId) void reclassifyDoc(docId, cat.target)
+                            }}
                             className={`bg-white rounded-xl border p-4 text-left hover:shadow-sm transition-all group ${
-                              isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/30'
+                              isDragOver
+                                ? 'border-primary ring-2 ring-primary/40 bg-primary/5'
+                                : isActive
+                                ? 'border-primary ring-2 ring-primary/20'
+                                : 'border-border hover:border-primary/30'
                             }`}
                           >
                             <div className="flex items-start justify-between mb-3">
                               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${count > 0 ? 'bg-emerald-50' : 'bg-muted'}`}>
                                 <cat.icon className={`w-4 h-4 ${count > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`} />
                               </div>
-                              {isActive && <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Filtering</span>}
+                              {isDragOver && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Drop here</span>}
+                              {!isDragOver && isActive && <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Filtering</span>}
                             </div>
                             <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{cat.name}</div>
                             <div className="text-[11px] text-muted-foreground">{count} document{count === 1 ? '' : 's'}</div>
@@ -3056,12 +3145,15 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
 
                 {/* Documents list — filtered by active category + search */}
                 {(() => {
-                  // Re-use the categorize helper above by recreating it inline.
                   function categorize(doc: AircraftDoc): string {
                     const dt = doc.doc_type ?? 'miscellaneous'
+                    const sub = doc.document_subtype ?? ''
                     const title = (doc.title ?? '').toLowerCase()
                     if (dt === 'logbook') {
-                      if (/eng|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (sub === 'engine_logbook') return 'engine_logbook'
+                      if (sub === 'prop_logbook') return 'prop_logbook'
+                      if (sub === 'airframe_logbook') return 'airframe_logbook'
+                      if (/\beng\b|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
                       if (/prop|propeller/.test(title)) return 'prop_logbook'
                       return 'airframe_logbook'
                     }
@@ -3106,6 +3198,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                               Clear filter
                             </button>
                           )}
+                          <span className="hidden md:inline text-[11px] text-muted-foreground/70 italic">
+                            · drag a row onto a category to reclassify
+                          </span>
                         </div>
                         <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
                           <Search className="w-3.5 h-3.5 text-muted-foreground" />
@@ -3129,28 +3224,47 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                         )}
                         {sorted.slice(0, 50).map((doc) => {
                           const isComplete = doc.parsing_status === 'completed'
+                          const isDragging = draggingDocId === doc.id
                           const dateLabel = doc.uploaded_at
                             ? new Date(doc.uploaded_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
                             : '—'
                           return (
-                            <Link
+                            <div
                               key={doc.id}
-                              href={`/documents/${doc.id}`}
-                              className="px-5 py-3.5 flex items-center justify-between hover:bg-muted/30 transition-colors"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.effectAllowed = "move"
+                                e.dataTransfer.setData("text/plain", doc.id)
+                                setDraggingDocId(doc.id)
+                              }}
+                              onDragEnd={() => {
+                                setDraggingDocId(null)
+                                setDragOverCategory(null)
+                              }}
+                              className={`group px-5 py-3.5 flex items-center justify-between transition-colors cursor-grab active:cursor-grabbing ${
+                                isDragging ? 'opacity-50 bg-muted/40' : 'hover:bg-muted/30'
+                              }`}
                             >
-                              <div className="flex items-center gap-3 min-w-0">
+                              <Link
+                                href={`/documents/${doc.id}`}
+                                className="flex items-center gap-3 min-w-0 flex-1"
+                                onClick={(e) => {
+                                  // Suppress click navigation if a drag was in progress
+                                  if (draggingDocId === doc.id) e.preventDefault()
+                                }}
+                              >
                                 <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center shrink-0">
                                   <FileText className="w-3.5 h-3.5 text-primary" />
                                 </div>
                                 <div className="min-w-0">
                                   <div className="text-[13px] text-foreground truncate" style={{ fontWeight: 500 }}>{doc.title ?? 'Untitled'}</div>
                                   <div className="text-[11px] text-muted-foreground">
-                                    {(doc.doc_type ?? 'document').replace(/_/g, ' ')}
+                                    {(doc.document_subtype ?? doc.doc_type ?? 'document').replace(/_/g, ' ')}
                                     {doc.page_count ? ` · ${doc.page_count} pages` : ''}
                                     {' · '}{dateLabel}
                                   </div>
                                 </div>
-                              </div>
+                              </Link>
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className={`text-[11px] px-2 py-0.5 rounded-full ${
                                   isComplete ? 'bg-emerald-50 text-emerald-700' :
@@ -3159,6 +3273,17 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                 }`} style={{ fontWeight: 600 }}>
                                   {isComplete ? 'Indexed' : doc.parsing_status === 'failed' ? 'Failed' : 'Processing'}
                                 </span>
+                                {isComplete && (
+                                  <button
+                                    type="button"
+                                    title="Reclassify with AI"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void aiReclassifyDoc(doc.id) }}
+                                    className="p-1.5 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                    aria-label="Reclassify with AI"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                  </button>
+                                )}
                                 <a
                                   href={`/api/documents/${doc.id}/preview?download=1`}
                                   onClick={(e) => e.stopPropagation()}
@@ -3170,7 +3295,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                   <Download className="w-3.5 h-3.5 text-muted-foreground" />
                                 </a>
                               </div>
-                            </Link>
+                            </div>
                           )
                         })}
                         {sorted.length > 50 && (
