@@ -12,6 +12,7 @@ import {
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import { personaCanUpload, buildPersonaRejection, type Persona } from '@/lib/documents/persona-scope'
 
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -114,6 +115,8 @@ export async function POST(req: NextRequest) {
     marketplaceInjectable?: boolean
     marketplacePreviewAvailable?: boolean
     checksumSha256?: string | null
+    /** Active UI persona at time of upload — drives the strict scope check. */
+    persona?: Persona
   }
 
   try {
@@ -186,16 +189,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
   }
 
-  // Role-scoped doc_type enforcement:
-  // Owner-only doc types (aircraft identity / ownership records) can only be uploaded by
-  // an organization owner/admin, OR a user with persona='owner' (dual role).
-  const OWNER_ONLY_DOC_TYPES: DocType[] = [
-    'logbook', 'poh', 'afm', 'afm_supplement', 'insurance', 'lease_ownership',
-  ]
-  if (OWNER_ONLY_DOC_TYPES.includes(docType as DocType)) {
-    const orgRole = requestContext.role
-    const isOrgOwnerOrAdmin = orgRole === 'owner' || orgRole === 'admin'
-    if (!isOrgOwnerOrAdmin) {
+  // ── Persona-scope enforcement ─────────────────────────────────────────────
+  // Strict rule from product: when a user is on the Mechanic persona they
+  // can only upload shop reference documentation (maintenance manuals,
+  // service manuals, parts catalogs, service bulletins) plus shared types
+  // like POH / AFM. Aircraft-specific records (logbooks, ADs, inspection
+  // reports, work orders, registration, insurance) belong to the Owner
+  // persona — even if the same user has both. The client sends the active
+  // UI persona; we trust it but still verify the org role allows owner-side
+  // uploads when persona='owner'.
+  const submittedPersona: Persona = body.persona === 'mechanic' ? 'mechanic' : 'owner'
+  if (!personaCanUpload(submittedPersona, docType as DocType)) {
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      {
+        error: buildPersonaRejection(docType as DocType),
+        code: 'PERSONA_SCOPE_BLOCKED',
+        persona: submittedPersona,
+        doc_type: docType,
+      },
+      { status: 403 }
+    )
+  }
+  // If they claim to be uploading as Owner, verify their org role actually
+  // allows owner-side ownership records. Mechanic-only org roles trying to
+  // pretend to be Owner via the body get bounced.
+  if (submittedPersona === 'owner') {
+    const ownerCapableRoles = ['owner', 'admin', 'pilot']
+    if (!ownerCapableRoles.includes(requestContext.role) && requestContext.role !== 'mechanic') {
+      // edge: viewer role
+      await serviceClient.storage.from('documents').remove([storagePath])
+      return NextResponse.json(
+        { error: 'This account does not have permission to upload owner records.' },
+        { status: 403 }
+      )
+    }
+    if (requestContext.role === 'mechanic') {
+      // Dual-role: mechanic in this org wants to upload as Owner. Allow only
+      // if their user profile has persona='owner' set (i.e. they actually
+      // own aircraft on the platform).
       const { data: uploaderPersonaRow } = await serviceClient
         .from('user_profiles')
         .select('persona')
@@ -207,9 +239,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              'Only aircraft owners can upload this document type. Mechanics must have an owner profile and active subscription to upload aircraft logbooks, POH/AFM, insurance, or ownership documents.',
-            code: 'OWNER_ROLE_REQUIRED',
-            doc_type: docType,
+              'You are signed in as a mechanic on this organization. Aircraft owner records (logbooks, registration, insurance) can only be uploaded by the owner. Ask the owner to upload it from their account, or switch to your owner profile if you have one.',
+            code: 'PERSONA_SCOPE_BLOCKED',
           },
           { status: 403 }
         )

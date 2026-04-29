@@ -297,6 +297,11 @@ export function AppProvider({
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("ui_persona", persona);
+    // Mirror the active persona to a cookie so server-rendered pages
+    // (e.g. /documents, the upload page) can scope queries without a
+    // round-trip. Same-site, 1-year, JS-readable so this same client can
+    // keep updating it.
+    document.cookie = `ui_persona=${persona}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
   }, [persona]);
 
   function setActiveMechanic(m: TeamMember) { setAMId(m.id); }

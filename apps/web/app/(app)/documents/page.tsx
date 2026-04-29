@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import Link from '@/components/shared/tenant-link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
 import { Topbar } from '@/components/shared/topbar'
 import { DocumentsTable } from '@/components/documents/documents-table'
 import { Button } from '@/components/ui/button'
@@ -414,6 +416,16 @@ export default async function DocumentsPage({
     )
     .eq('organization_id', orgId)
 
+  // Persona scope — the AppContext mirrors the active UI persona to a cookie
+  // (ui_persona). Mechanic persona only sees shop reference docs; owner sees
+  // everything. We default to owner if the cookie is missing so the page
+  // doesn't accidentally hide records on first load.
+  const personaCookie = cookies().get('ui_persona')?.value
+  const activePersona: Persona = personaCookie === 'mechanic' ? 'mechanic' : 'owner'
+  if (activePersona === 'mechanic') {
+    query = query.in('doc_type', docTypesForPersona('mechanic'))
+  }
+
   if (searchParams.aircraft) {
     query = query.eq('aircraft_id', searchParams.aircraft)
   }
@@ -473,6 +485,9 @@ export default async function DocumentsPage({
     .from('documents')
     .select('parsing_status, doc_type, document_group_id, document_detail_id, record_family, truth_role, reminder_relevance, ad_relevance')
     .eq('organization_id', orgId)
+  if (activePersona === 'mechanic') {
+    statsQuery = statsQuery.in('doc_type', docTypesForPersona('mechanic'))
+  }
   if (searchParams.aircraft) {
     statsQuery = statsQuery.eq('aircraft_id', searchParams.aircraft)
   }

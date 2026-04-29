@@ -4,6 +4,7 @@ import Link from '@/components/shared/tenant-link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { personaCanUpload, buildPersonaRejection } from '@/lib/documents/persona-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -1128,6 +1129,17 @@ export function UploadDropzone({
   }
 
   async function uploadFile(item: FileUploadItem): Promise<void> {
+    // Client-side persona-scope pre-check: skip the round-trip to storage if
+    // the user is on Mechanic persona and tries to upload an owner-only
+    // doc type. Saves them a 350MB upload that we'd just reject server-side.
+    if (!personaCanUpload(persona, item.docType)) {
+      updateFile(item.id, {
+        status: 'error',
+        error: buildPersonaRejection(item.docType),
+      })
+      return
+    }
+
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
     try {
@@ -1212,6 +1224,11 @@ export function UploadDropzone({
           manualAccess: isManualType(item.docType) ? item.manualAccess : null,
           price: isManualType(item.docType) && item.manualAccess === 'paid' ? item.price : null,
           attestation: isManualType(item.docType) ? item.attestation : false,
+          // Send the active UI persona so the server can enforce the strict
+          // scope rule: mechanics can't upload aircraft-specific records
+          // (logbook, registration, work_order, etc.) — server rejects with
+          // a clear PERSONA_SCOPE_BLOCKED error if the docType doesn't fit.
+          persona,
         }),
       })
 
