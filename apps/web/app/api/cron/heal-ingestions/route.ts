@@ -39,11 +39,15 @@ const HEAL_AFTER_MINUTES = 6
 // digital-text PDFs; the slow-OCR cases get re-stuck and picked up next tick).
 const MAX_DOCS_PER_RUN = 5
 
-// Match the actual parsing_status enum values:
-// {queued, parsing, chunking, embedding, completed, failed, needs_ocr, ocr_processing}.
-// "pending" was never a valid value — using it broke uploads with
-// "invalid input value for enum parsing_status".
-const STUCK_STATES = ['queued', 'parsing', 'chunking', 'ocr_processing', 'embedding', 'needs_ocr']
+// Active in-progress states. Anything in these states for >= HEAL_AFTER_MINUTES
+// is genuinely wedged and should be retried.
+//
+// NOTE: 'needs_ocr' is intentionally EXCLUDED. needs_ocr means the OCR run
+// completed but produced low-confidence content awaiting human review — the
+// chunks + embeddings are already in place. Re-running it would delete real
+// work and start over from scratch, which we did once by accident on N89114.
+// Users decide what to do with needs_ocr docs via the UI.
+const STUCK_STATES = ['queued', 'parsing', 'chunking', 'ocr_processing', 'embedding']
 
 interface StuckDoc {
   id: string
