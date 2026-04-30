@@ -156,5 +156,13 @@ $$;
 REVOKE ALL ON FUNCTION public.clear_document_derived_artifacts(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.clear_document_derived_artifacts(UUID) TO service_role;
 
+-- IMPORTANT: the PERFORM set_config('statement_timeout', '180s', true) inside
+-- the function body isn't enough on its own when PostgREST / service-role
+-- callers have their per-statement timeout already armed before the function
+-- runs. ALTER FUNCTION SET attaches the override directly to the function so
+-- PostgreSQL applies it BEFORE entering the body — guaranteed override even
+-- on connections that came in with a tight statement_timeout.
+ALTER FUNCTION public.clear_document_derived_artifacts(UUID) SET statement_timeout = '180s';
+
 COMMENT ON FUNCTION public.clear_document_derived_artifacts(UUID) IS
   'Atomically clears all derived artifacts for a document (OCR pages/segments/events, chunks, embeddings, pages, citations, canonical store) before re-ingestion. Bumps statement_timeout to 180s for the duration of the call so big logbook binders (1000+ segments, hundreds of pages) cannot be killed mid-cleanup by the default per-statement timeout.';
