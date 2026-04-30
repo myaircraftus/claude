@@ -15,6 +15,7 @@ import {
   CartesianGrid
 } from "recharts";
 import { useDataStore } from "./workspace/DataStore";
+import { FleetAnalyticsRow } from "./FleetAnalyticsRow";
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 const DASHBOARD_TIME_ZONE = "America/Los_Angeles";
@@ -651,6 +652,9 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Fleet Analytics rollup (org-wide) ── */}
+      <FleetAnalyticsRow />
 
       {/* ── Charts Row ── */}
       <div className="grid lg:grid-cols-3 gap-6">
