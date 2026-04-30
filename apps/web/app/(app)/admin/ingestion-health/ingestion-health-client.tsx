@@ -1,22 +1,48 @@
 'use client'
 
 /**
- * /admin/ingestion-health — top-of-funnel for keeping the ingestion
- * pipeline at zero failures. Surfaces:
- *   - 24h / 7d failure totals + recovery rate
- *   - Per-classifier-tag rollup (which categories of failure are happening)
- *   - List of "unknown" classifier rows (NEW patterns we haven't taught the
- *     auto-heal system about yet)
- *   - "Get AI suggestion" button per unknown — calls the LLM endpoint to
- *     propose a classification + regex + rationale for human review.
+ * /admin/ingestion-health — operator dashboard for the ingestion pipeline.
  *
- * Nothing on this page applies a fix automatically. The whole point of the
- * AI suggestion piece is to give the admin (and Claude) a high-confidence
- * starting point for a code change we then ship deliberately.
+ * Every classifier-tag row is expandable to show the actual failures behind
+ * it. Every individual failure row has:
+ *   - "Get AI suggestion" — sends the error to an LLM that proposes a
+ *     classification + regex + rationale. NOTHING auto-applies; the
+ *     suggestion is rendered in a card for human review.
+ *   - "Copy for chat" — copies a structured block to the clipboard with
+ *     the doc title, error, AI suggestion (if any), so the admin can
+ *     paste it straight into a chat with Claude or an engineer.
+ *
+ * The whole page is the safe path between "no visibility" and "AI rewrites
+ * prod code on its own" — operator stays in the loop, AI does the legwork.
  */
 
 import { useEffect, useState } from 'react'
-import { Loader2, AlertCircle, CheckCircle2, Sparkles, RefreshCw } from 'lucide-react'
+import {
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Sparkles,
+  RefreshCw,
+  ChevronRight,
+  ChevronDown,
+  Copy,
+  Check,
+} from 'lucide-react'
+
+interface EnrichedFailure {
+  id: string
+  classifier_tag: string
+  severity: string
+  outcome: string
+  occurred_at: string
+  document_id: string
+  error_message: string
+  pipeline_stage: string | null
+  attempt_number: number
+  document_title: string
+  aircraft_tail: string | null
+  current_doc_status: string
+}
 
 interface TagSummary {
   tag: string
@@ -27,14 +53,7 @@ interface TagSummary {
   failed_open: number
   gave_up: number
   last_occurred_at: string | null
-  sample_message: string | null
-}
-
-interface UnknownRow {
-  document_id: string
-  occurred_at: string
-  error_message: string
-  outcome: string
+  failures: EnrichedFailure[]
 }
 
 interface HealthResponse {
@@ -46,7 +65,7 @@ interface HealthResponse {
     unknown_patterns: number
   }
   by_tag: TagSummary[]
-  recent_unknowns: UnknownRow[]
+  recent_failures: EnrichedFailure[]
 }
 
 interface AISuggestion {
@@ -62,9 +81,11 @@ export function IngestionHealthClient() {
   const [data, setData] = useState<HealthResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [suggestionsByDoc, setSuggestionsByDoc] = useState<
+  const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set())
+  const [suggestions, setSuggestions] = useState<
     Record<string, { loading: boolean; result?: AISuggestion; error?: string }>
   >({})
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -77,6 +98,11 @@ export function IngestionHealthClient() {
       }
       const json = (await res.json()) as HealthResponse
       setData(json)
+      // Auto-expand the unknowns row if there are any — that's where the
+      // operator's attention should land first.
+      if (json.by_tag.some((t) => t.tag === 'unknown')) {
+        setExpandedTags((prev) => new Set(prev).add('unknown'))
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -88,29 +114,85 @@ export function IngestionHealthClient() {
     void load()
   }, [])
 
-  async function requestSuggestion(unknown: UnknownRow) {
-    const key = unknown.document_id + ':' + unknown.occurred_at
-    setSuggestionsByDoc((prev) => ({ ...prev, [key]: { loading: true } }))
+  function toggleTag(tag: string) {
+    setExpandedTags((prev) => {
+      const next = new Set(prev)
+      if (next.has(tag)) next.delete(tag)
+      else next.add(tag)
+      return next
+    })
+  }
+
+  async function requestSuggestion(failure: EnrichedFailure) {
+    setSuggestions((prev) => ({ ...prev, [failure.id]: { loading: true } }))
     try {
       const res = await fetch('/api/admin/ingestion-health/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          error_message: unknown.error_message,
-          document_id: unknown.document_id,
+          error_message: failure.error_message,
+          document_id: failure.document_id,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
-      setSuggestionsByDoc((prev) => ({
+      setSuggestions((prev) => ({
         ...prev,
-        [key]: { loading: false, result: json.suggestion as AISuggestion },
+        [failure.id]: { loading: false, result: json.suggestion as AISuggestion },
       }))
     } catch (err) {
-      setSuggestionsByDoc((prev) => ({
+      setSuggestions((prev) => ({
         ...prev,
-        [key]: { loading: false, error: err instanceof Error ? err.message : String(err) },
+        [failure.id]: {
+          loading: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
       }))
+    }
+  }
+
+  async function copyForChat(failure: EnrichedFailure) {
+    const sugg = suggestions[failure.id]?.result
+    const block = [
+      `Ingestion failure I want help with:`,
+      ``,
+      `Doc: ${failure.aircraft_tail ?? '—'} / ${failure.document_title}`,
+      `Doc ID: ${failure.document_id}`,
+      `Pipeline stage: ${failure.pipeline_stage ?? 'unknown'}`,
+      `Classifier tag: ${failure.classifier_tag} (${failure.severity})`,
+      `Outcome: ${failure.outcome}`,
+      `Occurred: ${new Date(failure.occurred_at).toLocaleString()}`,
+      `Current doc status: ${failure.current_doc_status}`,
+      ``,
+      `Error message:`,
+      '```',
+      failure.error_message,
+      '```',
+      ...(sugg
+        ? [
+            ``,
+            `AI suggestion:`,
+            `- classification: ${sugg.classification}`,
+            `- suggested tag: ${sugg.classifier_tag}`,
+            `- suggested regex: ${sugg.regex_pattern}`,
+            `- rationale: ${sugg.rationale}`,
+            `- needs_code_change: ${sugg.needs_code_change}`,
+            ...(sugg.code_change_summary
+              ? [`- code change: ${sugg.code_change_summary}`]
+              : []),
+          ]
+        : []),
+      ``,
+      `Please review and tell me what to ship.`,
+    ].join('\n')
+
+    try {
+      await navigator.clipboard.writeText(block)
+      setCopiedKey(failure.id)
+      window.setTimeout(() => setCopiedKey((k) => (k === failure.id ? null : k)), 2000)
+    } catch {
+      // Clipboard API may be blocked on http or in iframes — fall back to a prompt.
+      window.prompt('Copy this and paste into chat:', block)
     }
   }
 
@@ -120,8 +202,9 @@ export function IngestionHealthClient() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Ingestion Health</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Auto-recovery telemetry for the document ingestion pipeline. Use this to spot recurring patterns and convert
-            unknown failure modes into known auto-recoverable ones.
+            Click any failure category to expand. Use <strong>Get AI suggestion</strong> on a row to ask the LLM what
+            it thinks. Use <strong>Copy for chat</strong> to paste a structured summary into your chat with Claude (or
+            anyone debugging).
           </p>
         </div>
         <button
@@ -164,118 +247,157 @@ export function IngestionHealthClient() {
             />
           </div>
 
-          {/* Per-tag rollup */}
+          {/* Per-tag rollup with expandable failure rows */}
           <section className="rounded-xl border border-border bg-white">
             <div className="px-5 py-3 border-b border-border">
               <h2 className="text-base font-semibold text-foreground">Failure categories (last 7 days)</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Sorted by 24h volume. Anything in <code className="font-mono text-[11px]">unknown</code> needs a one-time fix
-                to add to the classifier.
+                Click a row to see individual failures. Each one has a <strong>Get AI suggestion</strong> button and a{' '}
+                <strong>Copy for chat</strong> button.
               </p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/30 border-b border-border">
-                  <tr className="text-left">
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide">Tag</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide">Severity</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide text-right">24h</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide text-right">7d</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide text-right">Recovered</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide text-right">Gave up</th>
-                    <th className="px-4 py-2 font-medium text-muted-foreground uppercase tracking-wide">Last seen</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {data.by_tag.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
-                        No failures in the last 7 days. Pipeline is healthy.
-                      </td>
-                    </tr>
-                  )}
-                  {data.by_tag.map((row) => (
-                    <tr key={row.tag} className={row.tag === 'unknown' ? 'bg-red-50/40' : ''}>
-                      <td className="px-4 py-2 font-mono text-[11px]">{row.tag}</td>
-                      <td className="px-4 py-2">
-                        <SeverityPill severity={row.severity} />
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums font-semibold">{row.last_24h}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{row.total_7d}</td>
-                      <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{row.recovered}</td>
-                      <td className="px-4 py-2 text-right tabular-nums text-red-700">{row.gave_up}</td>
-                      <td className="px-4 py-2 text-muted-foreground">
-                        {row.last_occurred_at ? new Date(row.last_occurred_at).toLocaleString() : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
 
-          {/* Unknowns — what to fix next */}
-          <section className="rounded-xl border border-border bg-white">
-            <div className="px-5 py-3 border-b border-border">
-              <h2 className="text-base font-semibold text-foreground">
-                Unknown patterns
-                {data.recent_unknowns.length > 0 && (
-                  <span className="ml-2 text-xs text-muted-foreground font-normal">
-                    ({data.recent_unknowns.length} most recent — review these to add new auto-recovery rules)
-                  </span>
-                )}
-              </h2>
-            </div>
+            {data.by_tag.length === 0 && (
+              <div className="px-5 py-8 text-center text-muted-foreground">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto mb-2" />
+                No failures in the last 7 days. Pipeline is healthy.
+              </div>
+            )}
+
             <div className="divide-y divide-border">
-              {data.recent_unknowns.length === 0 && (
-                <div className="px-5 py-6 text-sm text-muted-foreground text-center">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
-                  No unknown failure patterns. Every failure in the last 7 days matched a known category.
-                </div>
-              )}
-              {data.recent_unknowns.map((u) => {
-                const key = u.document_id + ':' + u.occurred_at
-                const sugg = suggestionsByDoc[key]
+              {data.by_tag.map((tag) => {
+                const expanded = expandedTags.has(tag.tag)
+                const isUnknown = tag.tag === 'unknown'
                 return (
-                  <div key={key} className="px-5 py-4 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs text-muted-foreground">
-                          Doc <code className="font-mono">{u.document_id.slice(0, 8)}…</code> ·{' '}
-                          {new Date(u.occurred_at).toLocaleString()} · outcome:{' '}
-                          <span className={u.outcome === 'recovered' ? 'text-emerald-700' : 'text-red-700'}>
-                            {u.outcome}
+                  <div key={tag.tag}>
+                    {/* Header row — clickable to toggle expand */}
+                    <button
+                      onClick={() => toggleTag(tag.tag)}
+                      className={`w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-muted/30 transition-colors ${
+                        isUnknown ? 'bg-red-50/40' : ''
+                      }`}
+                    >
+                      {expanded ? (
+                        <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      )}
+                      <code className="font-mono text-xs text-foreground">{tag.tag}</code>
+                      <SeverityPill severity={tag.severity} />
+                      <span className="text-xs text-muted-foreground ml-auto flex items-center gap-3">
+                        <span>
+                          24h: <strong className="text-foreground tabular-nums">{tag.last_24h}</strong>
+                        </span>
+                        <span>
+                          7d: <strong className="text-foreground tabular-nums">{tag.total_7d}</strong>
+                        </span>
+                        <span className="text-emerald-700">
+                          recovered <strong className="tabular-nums">{tag.recovered}</strong>
+                        </span>
+                        {tag.gave_up > 0 && (
+                          <span className="text-red-700">
+                            gave up <strong className="tabular-nums">{tag.gave_up}</strong>
                           </span>
-                        </div>
-                        <pre className="mt-1 text-[11px] bg-slate-50 border border-slate-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-                          {u.error_message}
-                        </pre>
-                      </div>
-                      <button
-                        onClick={() => void requestSuggestion(u)}
-                        disabled={sugg?.loading}
-                        className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0"
-                      >
-                        {sugg?.loading ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
                         )}
-                        Get AI suggestion
-                      </button>
-                    </div>
+                      </span>
+                    </button>
 
-                    {sugg?.error && (
-                      <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                        {sugg.error}
+                    {/* Expanded — list of failures inside this tag */}
+                    {expanded && (
+                      <div className="bg-slate-50/40 border-t border-slate-100 divide-y divide-slate-100">
+                        {tag.failures.map((failure) => {
+                          const sugg = suggestions[failure.id]
+                          const justCopied = copiedKey === failure.id
+                          return (
+                            <div key={failure.id} className="px-6 py-3 space-y-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="text-xs text-foreground font-medium">
+                                    {failure.aircraft_tail && (
+                                      <span className="font-mono text-primary">{failure.aircraft_tail}</span>
+                                    )}
+                                    {failure.aircraft_tail && ' · '}
+                                    {failure.document_title}
+                                    <span className="text-muted-foreground font-normal ml-2">
+                                      now: {failure.current_doc_status}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    {new Date(failure.occurred_at).toLocaleString()} · stage:{' '}
+                                    {failure.pipeline_stage ?? '—'} · attempt {failure.attempt_number} ·{' '}
+                                    <span className={failure.outcome === 'recovered' ? 'text-emerald-700' : ''}>
+                                      outcome: {failure.outcome}
+                                    </span>
+                                  </div>
+                                  <pre className="text-[11px] bg-white border border-slate-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+                                    {failure.error_message}
+                                  </pre>
+                                </div>
+                                <div className="flex flex-col gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => void requestSuggestion(failure)}
+                                    disabled={sugg?.loading}
+                                    className="inline-flex items-center gap-1.5 bg-primary text-white px-2.5 py-1 rounded-md text-[11px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                                  >
+                                    {sugg?.loading ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Sparkles className="w-3 h-3" />
+                                    )}
+                                    AI suggest
+                                  </button>
+                                  <button
+                                    onClick={() => void copyForChat(failure)}
+                                    className="inline-flex items-center gap-1.5 border border-border px-2.5 py-1 rounded-md text-[11px] hover:bg-muted/30 transition-colors"
+                                  >
+                                    {justCopied ? (
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                    {justCopied ? 'Copied!' : 'Copy for chat'}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {sugg?.error && (
+                                <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                                  {sugg.error}
+                                </div>
+                              )}
+
+                              {sugg?.result && <SuggestionCard suggestion={sugg.result} />}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
-
-                    {sugg?.result && <SuggestionCard suggestion={sugg.result} />}
                   </div>
                 )
               })}
             </div>
+          </section>
+
+          {/* Quick-help footer */}
+          <section className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 text-xs text-blue-900 leading-relaxed">
+            <strong className="block text-sm mb-1">How to use this page</strong>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>
+                <strong>Find an interesting row</strong> — usually <code className="font-mono">unknown</code> (red), or any
+                row where <em>gave up</em> &gt; 0.
+              </li>
+              <li>
+                <strong>Click the row</strong> to expand and see the actual failures behind it.
+              </li>
+              <li>
+                On any failure, click <strong>AI suggest</strong> — the LLM proposes a classification + regex + rationale.
+                Nothing ships automatically.
+              </li>
+              <li>
+                Click <strong>Copy for chat</strong> to grab a structured summary, then paste it into your chat with
+                Claude. We&rsquo;ll discuss and ship the actual classifier change as a normal commit.
+              </li>
+            </ol>
           </section>
         </>
       )}
@@ -358,10 +480,6 @@ function SuggestionCard({ suggestion }: { suggestion: AISuggestion }) {
           <p className="mt-1">{suggestion.code_change_summary}</p>
         </div>
       )}
-      <div className="text-[10px] text-muted-foreground italic pt-1 border-t border-slate-200">
-        Nothing has been applied. Discuss this with Claude (or your engineer) and ship the actual classifier change as a
-        normal commit — that&rsquo;s the safe path.
-      </div>
     </div>
   )
 }
