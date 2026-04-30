@@ -612,11 +612,13 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
         const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
         setAircraftDocs(docs);
 
-        // Auto-heal anything stuck. POST /api/documents/heal is org-scoped,
-        // fire-and-forget; if it kicks off retries we silently re-poll a
-        // few times so the user sees progress without having to click.
+        // Auto-heal anything stuck OR transient-failed. POST /api/documents/heal
+        // is org-scoped, fire-and-forget. Including 'failed' here means the
+        // moment the user opens this aircraft's Documents tab, any 429 /
+        // timeout / duplicate-key failures from the latest upload start
+        // auto-recovering — no Retry click needed.
         const stuckLocally = docs.filter((d) =>
-          ["parsing", "ocr_processing", "chunking", "embedding"].includes(
+          ["parsing", "ocr_processing", "chunking", "embedding", "failed"].includes(
             (d as any).parsing_status ?? "",
           ),
         );

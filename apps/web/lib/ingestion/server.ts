@@ -251,7 +251,13 @@ async function insertOcrPageJobsCompat(
 
     while (true) {
       const payload = batch.map((row) => omitKeys(row, omittedColumns))
-      const { error } = await supabase.from('ocr_page_jobs').insert(payload)
+      // Upsert (not insert) on (document_id, page_number) so a retry that
+      // races a still-running prior attempt wins idempotently instead of
+      // crashing with `ocr_page_jobs_document_id_page_number_key`. Same
+      // bug pattern as document_pages — fixed there earlier, fixing here too.
+      const { error } = await supabase
+        .from('ocr_page_jobs')
+        .upsert(payload, { onConflict: 'document_id,page_number' })
 
       if (!error) break
 

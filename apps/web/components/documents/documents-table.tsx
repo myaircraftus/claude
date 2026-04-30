@@ -202,15 +202,24 @@ export function DocumentsTable({
     )
   }
 
-  // Auto-heal: whenever there are docs in an in-progress state, fire the
-  // org-scoped heal endpoint. The endpoint is server-side gated to retry
-  // only docs that have been stuck >= 5 min, so calling it on every mount
-  // (and every 90s while any remain) is safe — it's a no-op when nothing's
-  // actually wedged. This is what makes "Stuck at OCR" disappear from the
-  // user's experience: by the time they look at the page, recovery has
-  // already started.
+  // Auto-heal: whenever there are docs in an in-progress state OR any docs
+  // that failed with a transient error, fire the org-scoped heal endpoint.
+  // The endpoint is server-side gated, so calling it on every mount (and
+  // every 90s while any remain) is safe — it's a no-op when nothing's
+  // actually recoverable. Adding `failed` rows here is what makes a 429 /
+  // timeout / duplicate-key failure auto-recover the moment the user
+  // opens the page, without them clicking Retry.
+  const recoverableDocs = useMemo(
+    () =>
+      localDocs.filter((doc) =>
+        ['queued', 'parsing', 'ocr_processing', 'chunking', 'embedding', 'failed'].includes(
+          doc.parsing_status,
+        ),
+      ),
+    [localDocs],
+  )
   useEffect(() => {
-    if (processingDocs.length === 0) return
+    if (recoverableDocs.length === 0) return
     let cancelled = false
     const fireHeal = () => {
       void fetch('/api/documents/heal', { method: 'POST' })
@@ -229,7 +238,7 @@ export function DocumentsTable({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [processingDocs.length, processingSignature])
+  }, [recoverableDocs.length, processingSignature])
 
   useEffect(() => {
     const processingIds = processingDocs.map((doc) => doc.id)

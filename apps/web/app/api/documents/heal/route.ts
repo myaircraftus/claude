@@ -44,6 +44,25 @@ const MAX_DOCS_PER_RUN = 6
 
 const STUCK_STATES = ['parsing', 'ocr_processing', 'chunking', 'embedding']
 
+// Same transient-error patterns the cron uses. If a doc landed in 'failed'
+// because of a 429 / timeout / duplicate-key / cleanup-timeout, we auto-
+// retry it the moment the user opens the documents surface — no clicking.
+const TRANSIENT_ERROR_PATTERNS: RegExp[] = [
+  /429/i,
+  /quota/i,
+  /rate[- ]?limit/i,
+  /timed out/i,
+  /timeout/i,
+  /canceling statement due to statement timeout/i,
+  /duplicate key value/i,
+  /Failed to download PDF .* (?:400|5\d\d)/,
+  /Failed to clear OCR entry segments/i,
+  /Failed to clear document chunks/i,
+  /503/,
+  /504/,
+  /ECONNRESET|ETIMEDOUT|EAI_AGAIN/,
+]
+
 export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -53,9 +72,9 @@ export async function POST(req: NextRequest) {
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
 
   // Find anything in this org that's been stuck.
-  const { data: stuck, error } = await service
+  const { data: stuckInProgress, error } = await service
     .from('documents')
-    .select('id, title, parsing_status, parse_started_at, updated_at')
+    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error')
     .eq('organization_id', orgId)
     .in('parsing_status', STUCK_STATES)
     .lt('updated_at', cutoff)
@@ -67,7 +86,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (!stuck || stuck.length === 0) {
+  // ALSO pick up docs that failed with a transient error pattern so the
+  // user doesn't have to click Retry. We use a tighter staleness window
+  // here (60s) since the user is actively staring at the page.
+  const failedCutoff = new Date(Date.now() - 60 * 1000).toISOString()
+  const { data: failedTransient } = await service
+    .from('documents')
+    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error')
+    .eq('organization_id', orgId)
+    .eq('parsing_status', 'failed')
+    .not('parse_error', 'is', null)
+    .lt('updated_at', failedCutoff)
+    .order('updated_at', { ascending: true })
+    .limit(MAX_DOCS_PER_RUN)
+
+  type DocRow = { id: string; title: string | null; parsing_status: string; parse_started_at: string | null; updated_at: string; parse_error?: string | null }
+  const stuck: DocRow[] = [...(((stuckInProgress as DocRow[] | null) ?? []))]
+  for (const doc of (failedTransient as DocRow[] | null) ?? []) {
+    if (!TRANSIENT_ERROR_PATTERNS.some((rx) => rx.test(doc.parse_error ?? ''))) continue
+    stuck.push(doc)
+    if (stuck.length >= MAX_DOCS_PER_RUN) break
+  }
+
+  if (stuck.length === 0) {
     return NextResponse.json({ ok: true, scanned: 0, recovered: [] })
   }
 
