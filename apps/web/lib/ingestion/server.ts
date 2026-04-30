@@ -1760,6 +1760,28 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       },
     }))
 
+    // Safety net: if the native-PDF probe declared the doc text-native but
+    // the resulting chunks are mostly empty/sparse, the probe was wrong (e.g.
+    // digital cover on top of scanned interior, or a malformed text layer
+    // that looked rich on a single sample page). Flag for human review so
+    // the user can hit "Re-OCR" instead of silently completing with garbage
+    // embeddings.
+    if (ingestData.is_text_native && chunkRows.length > 0) {
+      const SUBSTANTIVE_CHUNK_MIN_CHARS = 40
+      const substantiveChunks = chunkRows.filter(
+        (row) => (row.chunk_text ?? '').trim().length >= SUBSTANTIVE_CHUNK_MIN_CHARS,
+      ).length
+      const substantiveRatio = substantiveChunks / chunkRows.length
+      if (substantiveRatio < 0.5) {
+        console.warn(
+          `[ingestion] document ${documentId} declared text-native but only ` +
+            `${substantiveChunks}/${chunkRows.length} chunks have substantive text ` +
+            `(ratio=${substantiveRatio.toFixed(2)}). Routing to human review for re-OCR.`,
+        )
+        requiresHumanReview = true
+      }
+    }
+
     await batchInsert(supabase, 'document_chunks', chunkRows, 50)
 
     // PostgREST caps SELECT at 1000 rows by default — very large scanned docs
@@ -1868,7 +1890,7 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       documentId,
       state: processingState,
       patch: {
-        parsing_status: 'completed',
+        parsing_status: requiresHumanReview ? 'needs_ocr' : 'completed',
         parse_completed_at: completedAt,
         parse_error: null,
       },
@@ -1886,7 +1908,7 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       }
     })()
 
-    return { mode: 'inline', status: 'completed' }
+    return { mode: 'inline', status: requiresHumanReview ? 'needs_ocr' : 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'
     if (error instanceof OcrNotConfiguredError || (error as { name?: string })?.name === 'OcrNotConfiguredError') {

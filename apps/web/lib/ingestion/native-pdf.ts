@@ -29,8 +29,17 @@ const TEXTRACT_TIMEOUT_MS = 90_000
 const LOCAL_OCR_TIMEOUT_MS = 120_000
 const TARGET_CHUNK_TOKENS = 600
 const CHUNK_OVERLAP_TOKENS = 80
+// Per-page char threshold for "this page has a real text layer".
 const TEXT_NATIVE_MIN_CHARS = 100
-const TEXT_NATIVE_SAMPLE_PAGES = 3
+// How many pages we sample to decide is_text_native. We spread these across
+// the PDF (first/last/even spacing in between) so a digital cover page on top
+// of a scanned interior can't masquerade as a fully text-native document.
+const TEXT_NATIVE_SAMPLE_PAGES = 6
+// Fraction of sampled pages that must be text-rich for the doc to count as
+// text-native. 0.6 means 4 out of 6 — strong enough to tolerate one or two
+// blank/sparse pages but strict enough that a mostly-scanned binder with a
+// digital cover gets routed to OCR.
+const TEXT_NATIVE_RICH_RATIO = 0.6
 const GOOGLE_CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
 const OCR_CLASSIFICATIONS = new Set([
@@ -623,20 +632,44 @@ export async function parseTextNativePdf(args: {
 
   try {
     const pageCount = pdf.numPages
+    // Sample pages spread evenly across the PDF (first, last, and points in
+    // between) so a digital cover on top of scanned pages can't fool us into
+    // thinking the entire document is text-native. For short PDFs we just
+    // sample every page.
     const sampleCount = Math.min(TEXT_NATIVE_SAMPLE_PAGES, pageCount)
-    const sampleTexts: string[] = []
+    const samplePageNumbers: number[] = []
+    if (sampleCount >= pageCount) {
+      for (let i = 1; i <= pageCount; i += 1) samplePageNumbers.push(i)
+    } else if (sampleCount === 1) {
+      samplePageNumbers.push(1)
+    } else {
+      // Linear spread inclusive of both endpoints: 1 ... pageCount
+      for (let i = 0; i < sampleCount; i += 1) {
+        const fraction = i / (sampleCount - 1)
+        const pageNumber = Math.max(
+          1,
+          Math.min(pageCount, Math.round(1 + fraction * (pageCount - 1))),
+        )
+        if (!samplePageNumbers.includes(pageNumber)) {
+          samplePageNumbers.push(pageNumber)
+        }
+      }
+    }
+
+    const sampleTextByPage = new Map<number, string>()
     let textRichPages = 0
 
-    for (let pageNumber = 1; pageNumber <= sampleCount; pageNumber += 1) {
+    for (const pageNumber of samplePageNumbers) {
       const page = await pdf.getPage(pageNumber)
       const text = await extractPageText(page)
-      sampleTexts.push(text)
+      sampleTextByPage.set(pageNumber, text)
       if (text.trim().length >= TEXT_NATIVE_MIN_CHARS) {
         textRichPages += 1
       }
     }
 
-    const isTextNative = textRichPages > Math.floor(sampleCount / 2)
+    const richRatio = textRichPages / samplePageNumbers.length
+    const isTextNative = richRatio >= TEXT_NATIVE_RICH_RATIO
     if (!isTextNative) {
       return {
         is_text_native: false,
@@ -649,9 +682,9 @@ export async function parseTextNativePdf(args: {
     const pages: NativeParsedPage[] = []
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
+      const cached = sampleTextByPage.get(pageNumber)
       const text =
-        pageNumber <= sampleTexts.length ? sampleTexts[pageNumber - 1] : await extractPageText(page)
+        cached !== undefined ? cached : await extractPageText(await pdf.getPage(pageNumber))
 
       pages.push({
         page_number: pageNumber,
