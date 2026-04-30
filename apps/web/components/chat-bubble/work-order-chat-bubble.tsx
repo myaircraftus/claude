@@ -22,7 +22,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { MessageCircle, X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock } from 'lucide-react'
-import { ThreadPanel } from '@/components/portal/thread-panel'
+import { WorkOrderChatPanel } from './work-order-chat-panel'
 
 type Persona = 'owner' | 'mechanic'
 
@@ -123,6 +123,56 @@ export function WorkOrderChatBubble({
   const [selectedWoId, setSelectedWoId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const drawerRef = useRef<HTMLDivElement>(null)
+  const [hasUnread, setHasUnread] = useState(false)
+  const [unreadPreview, setUnreadPreview] = useState<{ work_order_id: string | null; aircraft_id: string | null; preview: string } | null>(null)
+
+  // Poll the unread roll-up every 12s so the bubble lights up when the
+  // counterpart sends a message. Cheap: one row, one indexed query.
+  useEffect(() => {
+    let cancelled = false
+    async function checkUnread() {
+      try {
+        const res = await fetch('/api/work-orders/messages-unread')
+        if (!res.ok) return
+        const json = await res.json()
+        if (cancelled) return
+        const latestIso = json?.latest?.created_at as string | undefined
+        if (!latestIso) {
+          setHasUnread(false)
+          setUnreadPreview(null)
+          return
+        }
+        // Compare against the highest last-seen across all per-WO last-seen
+        // entries the chat panel persists. If the latest message is newer
+        // than every "last seen", there's something new.
+        const lastSeenAll = (() => {
+          if (typeof window === 'undefined') return ''
+          let max = ''
+          for (let i = 0; i < window.localStorage.length; i++) {
+            const k = window.localStorage.key(i)
+            if (!k || !k.startsWith('wo-chat-last-seen:')) continue
+            const v = window.localStorage.getItem(k) ?? ''
+            if (v > max) max = v
+          }
+          return max
+        })()
+        if (latestIso > lastSeenAll) {
+          setHasUnread(true)
+          setUnreadPreview({
+            work_order_id: json.latest.work_order_id ?? null,
+            aircraft_id: json.latest.aircraft_id ?? null,
+            preview: json.latest.preview ?? '',
+          })
+        } else {
+          setHasUnread(false)
+          setUnreadPreview(null)
+        }
+      } catch { /* ignore */ }
+    }
+    void checkUnread()
+    const t = setInterval(checkUnread, 12000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
 
   // Hydrate aircraft list once when first opened
   useEffect(() => {
@@ -231,11 +281,22 @@ export function WorkOrderChatBubble({
       {!open && (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            // If there's an unread roll-up pointing at a specific WO, deeplink
+            // straight into it so the user lands on the latest activity.
+            if (unreadPreview?.aircraft_id && unreadPreview.work_order_id) {
+              setSelectedAircraftId(unreadPreview.aircraft_id)
+              setSelectedWoId(unreadPreview.work_order_id)
+            }
+            setOpen(true)
+          }}
           className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center group"
           aria-label="Open work order chat"
         >
           <MessageCircle className="w-6 h-6 group-hover:scale-110 transition-transform" />
+          {hasUnread && (
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse" aria-label="New messages" />
+          )}
         </button>
       )}
 
@@ -433,14 +494,22 @@ export function WorkOrderChatBubble({
                     </div>
                   )}
 
-                  {/* Chat panel — reuses the existing portal ThreadPanel */}
+                  {/* Rich chat panel — text, attachments, voice memos
+                      (Whisper-transcribed), time tracker, polled real-time */}
                   <div className="flex-1 min-h-0">
-                    <ThreadPanel
-                      apiBase="/api"
-                      threadId={selectedWo.thread_id}
-                      customerId={selectedWo.customer_id}
+                    <WorkOrderChatPanel
+                      workOrderId={selectedWo.id}
                       viewerRole={persona === 'mechanic' ? 'mechanic' : 'owner'}
-                      compact
+                      onMessageActivity={(iso) => {
+                        // Tell the bubble: messages this thread saw last at iso.
+                        // The unread sync hook below picks this up.
+                        if (typeof window !== 'undefined') {
+                          window.localStorage.setItem(
+                            `wo-chat-last-seen:${selectedWo.id}`,
+                            iso,
+                          )
+                        }
+                      }}
                     />
                   </div>
                 </div>
