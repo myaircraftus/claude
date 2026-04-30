@@ -5,7 +5,7 @@ import {
   User, Building2, Shield, CreditCard, Bell, Users, Mail, Phone, Plane,
   X, ChevronDown, Check, RotateCcw, Lock, Plus, Search, ExternalLink,
   CheckCircle, DollarSign, Edit3, Send, Wrench, HardHat, ClipboardList, FileText,
-  Eye, AlertTriangle, Briefcase, Zap, Upload, Trash2, Loader2,
+  Eye, AlertTriangle, Briefcase, Zap, Upload, Trash2, Loader2, LogOut,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppContext } from "./AppContext";
@@ -1000,6 +1000,33 @@ export function SettingsPage() {
                     </>
                   )}
                 </div>
+              </div>
+
+              {/* ── Account / Sign out card ── */}
+              <div className="bg-white rounded-xl border border-border p-6">
+                <h2 className="text-[16px] text-foreground mb-1" style={{ fontWeight: 600 }}>Account</h2>
+                <p className="text-[12px] text-muted-foreground mb-4">
+                  Sign out of this device. You&rsquo;ll need to sign back in with your email next time you visit.
+                </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const supabase = createBrowserSupabase();
+                      await supabase.auth.signOut();
+                    } catch {
+                      // even if local signout call fails, redirect anyway —
+                      // the server cookie is what matters and /login clears it.
+                    }
+                    if (typeof window !== "undefined") {
+                      window.location.href = "/login";
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-[13px] hover:bg-red-50 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
               </div>
             </div>
           )}

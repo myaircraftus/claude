@@ -6,8 +6,9 @@ import {
   Wrench, Settings, ChevronDown, User,
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
-  Sparkles, ShieldCheck,
+  Sparkles, ShieldCheck, LogOut,
 } from "lucide-react";
+import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
@@ -628,8 +629,23 @@ function AppLayoutInner({
             : <User className="w-4 h-4 text-white/70" />;
           const avatarBg = persona === "mechanic" ? activeMechanic.color : "bg-sidebar-accent";
 
+          async function handleSignOut() {
+            try {
+              const supabase = createBrowserSupabase();
+              await supabase.auth.signOut();
+            } catch {
+              // even if local signout call fails, force-redirect — the
+              // server cookie is what really matters and /login clears it.
+            }
+            // Hard navigation so all client state and React contexts get
+            // dropped, not just a soft router.push().
+            if (typeof window !== "undefined") {
+              window.location.href = "/login";
+            }
+          }
+
           return collapsed ? (
-            <div data-tour="user-footer" className="p-3 border-t border-sidebar-border shrink-0 flex justify-center">
+            <div data-tour="user-footer" className="p-3 border-t border-sidebar-border shrink-0 flex flex-col items-center gap-2">
               <Link
                 href="/settings"
                 title={`${name} · Settings`}
@@ -640,9 +656,16 @@ function AppLayoutInner({
               >
                 {avatar}
               </Link>
+              <button
+                onClick={handleSignOut}
+                title="Sign out"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           ) : (
-            <div data-tour="user-footer" className="p-2 border-t border-sidebar-border shrink-0">
+            <div data-tour="user-footer" className="p-2 border-t border-sidebar-border shrink-0 space-y-1">
               <Link
                 href="/settings"
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all group ${
@@ -669,6 +692,14 @@ function AppLayoutInner({
                   }`}
                 />
               </Link>
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] text-white/60 hover:text-white hover:bg-white/8 transition-colors"
+                style={{ fontWeight: 500 }}
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                <span>Sign out</span>
+              </button>
             </div>
           );
         })()}
