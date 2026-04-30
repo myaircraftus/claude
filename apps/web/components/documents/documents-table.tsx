@@ -119,6 +119,35 @@ export function DocumentsTable({
     )
   }
 
+  // Auto-heal: whenever there are docs in an in-progress state, fire the
+  // org-scoped heal endpoint. The endpoint is server-side gated to retry
+  // only docs that have been stuck >= 5 min, so calling it on every mount
+  // (and every 90s while any remain) is safe — it's a no-op when nothing's
+  // actually wedged. This is what makes "Stuck at OCR" disappear from the
+  // user's experience: by the time they look at the page, recovery has
+  // already started.
+  useEffect(() => {
+    if (processingDocs.length === 0) return
+    let cancelled = false
+    const fireHeal = () => {
+      void fetch('/api/documents/heal', { method: 'POST' })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then((json) => {
+          if (cancelled || !json?.recovered?.length) return
+          // Surface a quiet notice the first time we kick off heals so the
+          // user doesn't think the page is just hanging on their stuck doc.
+          // We rely on the existing 8s status poll to update the rows.
+        })
+    }
+    fireHeal()
+    const interval = window.setInterval(fireHeal, 90_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [processingDocs.length, processingSignature])
+
   useEffect(() => {
     const processingIds = processingDocs.map((doc) => doc.id)
 

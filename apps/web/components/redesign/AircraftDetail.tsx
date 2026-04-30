@@ -589,6 +589,35 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
         if (cancelled) return;
         const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
         setAircraftDocs(docs);
+
+        // Auto-heal anything stuck. POST /api/documents/heal is org-scoped,
+        // fire-and-forget; if it kicks off retries we silently re-poll a
+        // few times so the user sees progress without having to click.
+        const stuckLocally = docs.filter((d) =>
+          ["parsing", "ocr_processing", "chunking", "embedding"].includes(
+            (d as any).parsing_status ?? "",
+          ),
+        );
+        if (stuckLocally.length > 0 && !cancelled) {
+          void fetch("/api/documents/heal", { method: "POST" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then(async (heal) => {
+              if (!heal?.recovered?.length || cancelled) return;
+              // Poll again at 30s, 90s, 180s — that covers most recoveries
+              // without hammering the API.
+              for (const delay of [30_000, 60_000, 90_000]) {
+                await new Promise((r) => setTimeout(r, delay));
+                if (cancelled) return;
+                const res2 = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+                if (!res2.ok) continue;
+                const json2 = await res2.json();
+                if (!cancelled && Array.isArray(json2?.documents)) {
+                  setAircraftDocs(json2.documents as AircraftDoc[]);
+                }
+              }
+            })
+            .catch(() => { /* swallow — heal is best-effort */ });
+        }
       } finally {
         if (!cancelled) setDocsLoading(false);
       }

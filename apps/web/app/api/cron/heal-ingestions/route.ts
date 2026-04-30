@@ -25,10 +25,16 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // Vercel default; ingestion is bounded per-doc
 
-const HEAL_AFTER_MINUTES = 10
+// Aggressive: a doc that hasn't moved in 6 minutes is almost certainly
+// wedged. The user-side /api/documents/heal endpoint catches stuck docs
+// at the 5-minute mark when the user is actively looking; this cron is the
+// safety net for everyone else (e.g. uploaded right before a tab close).
+const HEAL_AFTER_MINUTES = 6
 // Limit per run so a single cron tick doesn't try to OCR a 400-page logbook +
 // 10 other docs and timeout. The next tick picks up whatever's still stuck.
-const MAX_DOCS_PER_RUN = 3
+// Bumped from 3 → 5 because retries run reasonably fast (1-3 min each on
+// digital-text PDFs; the slow-OCR cases get re-stuck and picked up next tick).
+const MAX_DOCS_PER_RUN = 5
 
 // Match the actual parsing_status enum values:
 // {queued, parsing, chunking, embedding, completed, failed, needs_ocr, ocr_processing}.
