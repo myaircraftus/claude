@@ -174,7 +174,17 @@ export function WorkOrderChatBubble({
     return () => { cancelled = true; clearInterval(t) }
   }, [])
 
-  // Hydrate aircraft list once when first opened
+  // Hydrate aircraft list once when first opened. Default selection priority
+  // (so the drawer never lands on an old aircraft with zero activity):
+  //   1. initialAircraftId prop (passed by parent)
+  //   2. URL pathname /aircraft/<id-or-tail> (when the bubble opens from an
+  //      aircraft detail page, jump straight to that aircraft)
+  //   3. localStorage owner_selected_aircraft_id (used everywhere else in the
+  //      app — Dashboard, Ask, etc.)
+  //   4. The aircraft with the most recent work-order activity (we re-rank
+  //      the server's created_at-desc list by opened_at after parallel
+  //      chat-summary probes — but only when none of the above match)
+  //   5. First in the server list as a final fallback
   useEffect(() => {
     if (!open || aircraftList.length > 0) return
     let cancelled = false
@@ -192,15 +202,72 @@ export function WorkOrderChatBubble({
           model: a.model,
         }))
         setAircraftList(mapped)
-        if (!selectedAircraftId && mapped[0]) {
-          setSelectedAircraftId(mapped[0].id)
+
+        if (selectedAircraftId) return // already set by props or earlier state
+
+        // (2) URL pathname check — only on /aircraft/<segment>
+        let urlAircraftId: string | null = null
+        if (typeof window !== 'undefined') {
+          const m = window.location.pathname.match(/\/aircraft\/([^/?#]+)/)
+          if (m) {
+            const seg = decodeURIComponent(m[1])
+            const hit = mapped.find((a) => a.id === seg || a.tail_number?.toUpperCase() === seg.toUpperCase())
+            if (hit) urlAircraftId = hit.id
+          }
         }
+
+        // (3) localStorage fallback used by other surfaces
+        const stored =
+          typeof window !== 'undefined'
+            ? window.localStorage.getItem('owner_selected_aircraft_id')
+            : null
+        const storedHit = stored && mapped.some((a) => a.id === stored) ? stored : null
+
+        const candidate = urlAircraftId ?? storedHit
+        if (candidate) {
+          setSelectedAircraftId(candidate)
+          return
+        }
+
+        // (4) Rank by latest activity — fan out chat-summary on the first 8
+        // aircraft (cheap; bounded concurrency) and pick the one whose top
+        // work order was opened most recently. Falls back to mapped[0] if
+        // every aircraft is empty.
+        const probeTargets = mapped.slice(0, 8)
+        const probes = await Promise.all(
+          probeTargets.map(async (a) => {
+            try {
+              const r = await fetch(`/api/aircraft/${a.id}/chat-summary`)
+              if (!r.ok) return null
+              const s = (await r.json()) as ChatSummary
+              const latest =
+                s.work_orders[0]?.opened_at ??
+                s.squawks[0]?.created_at ??
+                null
+              return { id: a.id, latest }
+            } catch {
+              return null
+            }
+          }),
+        )
+        if (cancelled) return
+        const ranked = probes
+          .filter((p): p is { id: string; latest: string | null } => Boolean(p?.latest))
+          .sort((a, b) => (b.latest ?? '').localeCompare(a.latest ?? ''))
+        const winner = ranked[0]?.id ?? mapped[0]?.id ?? null
+        if (winner) setSelectedAircraftId(winner)
       } catch (err) {
         console.warn('[chat-bubble] aircraft fetch failed', err)
       }
     })()
     return () => { cancelled = true }
   }, [open, aircraftList.length, selectedAircraftId])
+
+  // Persist the user's manual aircraft choice the same way Dashboard / Ask do
+  useEffect(() => {
+    if (!selectedAircraftId || typeof window === 'undefined') return
+    window.localStorage.setItem('owner_selected_aircraft_id', selectedAircraftId)
+  }, [selectedAircraftId])
 
   // Re-fetch chat summary when aircraft changes (or drawer opens)
   useEffect(() => {
@@ -377,9 +444,24 @@ export function WorkOrderChatBubble({
 
               {!loading && summary && !selectedWoId && (
                 <div className="px-4 py-3 space-y-2">
-                  {summary.work_orders.length === 0 && (
-                    <div className="text-[12px] text-muted-foreground italic">
-                      No work orders yet for this aircraft. As soon as one is opened it will appear here.
+                  {summary.work_orders.length === 0 && summary.squawks.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-6 text-center space-y-2">
+                      <Wrench className="w-6 h-6 mx-auto text-muted-foreground/40" />
+                      <div className="text-[12px] text-foreground" style={{ fontWeight: 500 }}>
+                        No work orders or squawks for {summary.aircraft.tail_number} yet
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Switch aircraft above, or open a work order from{' '}
+                        <a href={`/aircraft/${summary.aircraft.id}`} className="text-primary hover:underline">
+                          the aircraft page
+                        </a>{' '}
+                        to start a chat thread.
+                      </div>
+                    </div>
+                  )}
+                  {summary.work_orders.length === 0 && summary.squawks.length > 0 && (
+                    <div className="rounded-lg border border-dashed border-border bg-amber-50/30 px-3 py-3 text-[12px] text-foreground/80">
+                      No work orders open yet — but {summary.squawks.length} squawk{summary.squawks.length === 1 ? '' : 's'} reported below.
                     </div>
                   )}
                   {summary.work_orders.map((wo) => (
