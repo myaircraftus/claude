@@ -3,7 +3,7 @@
 import Link from '@/components/shared/tenant-link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp, RefreshCw, Sparkles } from 'lucide-react'
 import { personaCanUpload, buildPersonaRejection } from '@/lib/documents/persona-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1387,14 +1387,45 @@ export function UploadDropzone({
           </div>
         )}
 
-        {/* Quick-select category chips */}
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground">Category</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">{chipSectionLabel}</p>
+        {/* Category — AI auto-classify by default. Manual override is opt-in. */}
+        {!defaultDocumentDetailSelection ? (
+          // Default state: AI takes care of it. Show a calm callout with a
+          // single "Set manually" link for the rare case where the user wants
+          // to force a category up front.
+          <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3">
+            <div className="flex items-start gap-2">
+              <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                <Sparkles className="w-3.5 h-3.5 text-brand-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground">
+                  AI will auto-categorize from the file contents
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  We read the title and the first ~12 chunks after upload, then sort it into Engine /
+                  Airframe / Propeller logbook (or POH, work order, AD, etc.) automatically. You don&apos;t
+                  need to pick anything.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen(true)}
+                  className="mt-1.5 text-[11px] text-brand-700 hover:text-brand-800 transition-colors"
+                >
+                  Set category manually instead →
+                </button>
+              </div>
             </div>
-            {defaultDocumentDetailSelection && (
+          </div>
+        ) : (
+          // The user has explicitly picked a category. Show the chips so they
+          // can switch without scrolling, plus a clear "back to auto-classify"
+          // button so they're never stuck in manual mode.
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground">Category (manual)</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{chipSectionLabel}</p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -1402,37 +1433,34 @@ export function UploadDropzone({
                   setDefaultDocumentGroupSelection(DOCUMENT_TAXONOMY_GROUPS[0]?.id ?? '__none__')
                   setClassificationSearch('')
                 }}
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                className="text-[11px] text-brand-700 hover:text-brand-800 transition-colors"
               >
-                Clear
+                ← Back to AI auto-classify
               </button>
-            )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {quickChips.map((chip) => (
+                <button
+                  key={chip.detailId}
+                  type="button"
+                  onClick={() => {
+                    setDefaultDocumentGroupSelection(chip.groupId)
+                    setDefaultDocumentDetailSelection(chip.detailId)
+                    setClassificationSearch('')
+                  }}
+                  className={cn(
+                    'px-2.5 py-1 rounded-full text-xs border transition-colors',
+                    defaultDocumentDetailSelection === chip.detailId
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground',
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {quickChips.map((chip) => (
-              <button
-                key={chip.detailId}
-                type="button"
-                onClick={() => {
-                  setDefaultDocumentGroupSelection(chip.groupId)
-                  setDefaultDocumentDetailSelection(chip.detailId)
-                  setClassificationSearch('')
-                }}
-                className={cn(
-                  'px-2.5 py-1 rounded-full text-xs border transition-colors',
-                  defaultDocumentDetailSelection === chip.detailId
-                    ? 'bg-brand-600 text-white border-brand-600'
-                    : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground'
-                )}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Skip this and we&apos;ll use AI to categorize from the file&apos;s contents.
-          </p>
-        </div>
+        )}
 
         {/* Advanced options — collapsed by default */}
         <div className="border-t border-border pt-3">
