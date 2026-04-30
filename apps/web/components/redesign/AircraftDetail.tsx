@@ -20,7 +20,7 @@ import { useAppContext } from "./AppContext";
 import { InviteMechanicModal } from "./InviteMechanicModal";
 import { LiveTrackWidget } from "./LiveTrackWidget";
 import { useIntegrationStore } from "./integrationStore";
-import { ADSBManagerPanel } from "@/components/aircraft/ad-sb-manager";
+// ADSBManagerPanel moved to /work-orders/[id] — Mechanic flow only.
 
 /* ─── Aircraft DB ─────────────────────────────────────────────── */
 interface AircraftRecord {
@@ -509,7 +509,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
-  const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "ads" | "reminders" | "activity">("workorders");
+  // AD/SB compliance is a mechanic responsibility — surfaced inside the
+  // Work Order detail (AD/SB tab) instead of the owner's aircraft view.
+  const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "reminders" | "activity">("workorders");
 
   // Helpers for opening Maintenance sub-tabs (replaces direct setActiveTab for the
   // moved Squawks / Reminders / Activity top-level tabs).
@@ -1560,15 +1562,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               </div>
             )}
 
-            {/* ══════════════════════ AD / SB TAB ══════════════════════ */}
-            {activeTab === "Maintenance" && maintSubTab === "ads" && aircraftId && (
-              <div className="space-y-4 px-6 py-5">
-                <ADSBManagerPanel
-                  aircraftId={aircraftId}
-                  activeWorkOrderId={activeWorkOrderId}
-                />
-              </div>
-            )}
+            {/* AD/SB tab moved to the Work Order detail (AD/SB tab) — that's where
+                the mechanic decides what to add to a specific work order. The owner's
+                aircraft view stays focused on operational status, not compliance. */}
 
             {/* ══════════════════════ SQUAWKS TAB ══════════════════════ */}
             {(activeTab === "Squawks" || (activeTab === "Maintenance" && maintSubTab === "squawks")) && (
@@ -1924,7 +1920,6 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                 {([
                   { id: "workorders", label: "Work Orders" },
                   { id: "squawks", label: "Squawks" },
-                  { id: "ads", label: "AD / SB" },
                   { id: "reminders", label: "Reminders" },
                   { id: "activity", label: "Activity" },
                 ] as const).map((t) => (

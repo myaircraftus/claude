@@ -996,8 +996,25 @@ export function MechanicPortal() {
                       <AlertTriangle className="w-3.5 h-3.5" /> Squawks
                     </button>
                     <button onClick={() => { setSelectedSquawks(squawkQueue.filter((s) => s.tail === ac.tail).map((s) => s.id)); setShowEstCreator(true); }}
-                      className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                      className="flex items-center gap-1.5 border border-primary/30 text-primary px-3 py-2 rounded-lg text-[12px] hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
                       <Plus className="w-3.5 h-3.5" /> Create Estimate
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Pre-select this aircraft and open the WO list with the
+                        // inline new-WO form expanded.
+                        const matchingAircraft = aircraft.find(
+                          (a) => (a.tail_number ?? "").toUpperCase() === ac.tail.toUpperCase(),
+                        );
+                        if (matchingAircraft) setNewWOAircraftId(matchingAircraft.id);
+                        setSection("workorders");
+                        setSelectedWOId(null);
+                        setShowNewWOForm(true);
+                      }}
+                      className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors"
+                      style={{ fontWeight: 600 }}
+                    >
+                      <Wrench className="w-3.5 h-3.5" /> Generate Work Order
                     </button>
                   </div>
                 </div>
@@ -1015,6 +1032,118 @@ export function MechanicPortal() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Active Work Order — link straight into rich tabbed WO detail */}
+              {(() => {
+                // Pull anything we know about this tail's active WO from
+                // both the live + mocked sets so the click always goes
+                // somewhere useful.
+                const acLiveWO = liveWOs.find((w) => w.tail === ac.tail);
+                const ASSIGNED_MOCK_WOS = [
+                  { wo: "WO-2026-0047", tail: "N67890", desc: "Left brake caliper R&R — piston binding", status: "In Progress", progress: 45 },
+                  { wo: "WO-2026-0042", tail: "N12345", desc: "Nav light intermittent — wire repair at wing root", status: "Awaiting Approval", progress: 70 },
+                ] as const;
+                const acMockWO = ASSIGNED_MOCK_WOS.find((w) => w.tail === ac.tail);
+                const activeWo = acLiveWO ?? acMockWO ?? null;
+                if (!activeWo) {
+                  return (
+                    <div className="bg-white rounded-xl border border-dashed border-border p-5 text-center text-[12px] text-muted-foreground">
+                      No active work order. <span className="text-primary">Click &ldquo;Generate Work Order&rdquo; above to start one.</span>
+                    </div>
+                  );
+                }
+                const woProgress = "progress" in activeWo ? activeWo.progress : 0;
+                const woId = "id" in activeWo ? activeWo.id : null;
+                return (
+                  <div className="bg-white rounded-xl border border-border overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                      <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Active Work Order</h3>
+                      <Link
+                        href={woId ? `/work-orders/${woId}` : "#"}
+                        onClick={(e) => {
+                          if (!woId) {
+                            e.preventDefault();
+                            setSelectedWOId(activeWo.wo);
+                            setSection("workorders");
+                          }
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Open <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
+                        <span className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>{activeWo.wo}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" style={{ fontWeight: 600 }}>{activeWo.status}</span>
+                      </div>
+                      <p className="text-[12px] text-muted-foreground line-clamp-2">{activeWo.desc}</p>
+                      <div className="mt-2.5 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary transition-all" style={{ width: `${woProgress}%` }} />
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1 tabular-nums">{woProgress}% complete</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* History strip — last 12 months WO + invoice volume sparkline */}
+              <div className="bg-white rounded-xl border border-border p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>12-Month History</h3>
+                  <span className="text-[11px] text-muted-foreground">Work orders &amp; invoices</span>
+                </div>
+                {(() => {
+                  // Mock per-month rollup keyed off the tail so each aircraft
+                  // gets a different shape. Real data wires in via
+                  // /api/aircraft/[id]/history later — UI placeholder for now.
+                  const seed = ac.tail.charCodeAt(ac.tail.length - 1);
+                  const months = Array.from({ length: 12 }, (_, i) => {
+                    const wos = ((seed + i * 3) % 5) + (i === 11 ? 2 : 0);
+                    const inv = ((seed * 11 + i * 7) % 9000) + 200;
+                    const d = new Date();
+                    d.setMonth(d.getMonth() - (11 - i));
+                    return {
+                      key: d.toLocaleDateString("en-US", { month: "short" }),
+                      wos,
+                      inv,
+                    };
+                  });
+                  const maxWO = Math.max(1, ...months.map((m) => m.wos));
+                  const totalInv = months.reduce((s, m) => s + m.inv, 0);
+                  return (
+                    <div>
+                      <div className="grid grid-cols-12 gap-1 h-20 items-end">
+                        {months.map((m, i) => (
+                          <div key={i} className="flex flex-col items-center justify-end h-full">
+                            <div
+                              className={`w-full rounded-t ${i === 11 ? "bg-primary" : "bg-primary/30"}`}
+                              style={{ height: `${(m.wos / maxWO) * 100}%`, minHeight: m.wos > 0 ? 4 : 0 }}
+                              title={`${m.key}: ${m.wos} WO · $${m.inv.toLocaleString()}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-12 gap-1 mt-1.5">
+                        {months.map((m, i) => (
+                          <div key={i} className="text-center text-[9px] text-muted-foreground tabular-nums">
+                            {m.key}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between mt-3 pt-3 border-t border-border text-[11px]">
+                        <span className="text-muted-foreground">
+                          {months.reduce((s, m) => s + m.wos, 0)} work orders · last 12 mo
+                        </span>
+                        <span className="text-foreground tabular-nums" style={{ fontWeight: 600 }}>
+                          ${totalInv.toLocaleString()} invoiced
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
@@ -2735,10 +2864,14 @@ export function MechanicPortal() {
               </span>
               <span className="text-[11px] text-muted-foreground">{selectedWO.tail} · {selectedWO.customer}</span>
               <div className="ml-auto flex items-center gap-2">
-                <Link href="/maintenance"
+                {/* If this is a real (DB) work order, deep-link to the rich tabbed
+                    detail page. Mocked rows fall back to the maintenance hub. */}
+                <Link
+                  href={"id" in selectedWO && selectedWO.id ? `/work-orders/${selectedWO.id}` : "/maintenance"}
                   className="flex items-center gap-1.5 text-[11px] text-primary border border-primary/20 px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
-                  style={{ fontWeight: 500 }}>
-                  <ExternalLink className="w-3 h-3" /> Full WO
+                  style={{ fontWeight: 500 }}
+                >
+                  <ExternalLink className="w-3 h-3" /> Open Rich View
                 </Link>
                 <button onClick={() => setSelectedWOId(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
                   <X className="w-4 h-4 text-muted-foreground" />
