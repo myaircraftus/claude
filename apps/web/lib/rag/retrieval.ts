@@ -534,6 +534,63 @@ async function hydrateDocumentMetadata(chunks: RetrievedChunk[]) {
   })
 }
 
+// Returns true if the chunk text contains the formal Annual Inspection
+// signoff language a mechanic uses when certifying the inspection. We use
+// this for date-aware recency boosting on "latest annual" queries — only
+// the chunks that actually represent an annual inspection event count
+// when figuring out which year is "latest".
+function chunkLooksLikeAnnualSignoff(text: string) {
+  const t = text.toLowerCase()
+  return (
+    /\bannual\s+inspection\b/i.test(text) ||
+    /in\s+accordance\s+with\s+an\s+annual/i.test(text) ||
+    /for\s+an\s+annual\s+inspection/i.test(text) ||
+    /iaw\s+far\s+43.*annual/i.test(t)
+  )
+}
+
+// Extract the highest-resolution date we can find in the chunk. Returns
+// either a Date (when we found month/day/year) or just a year fallback.
+// Used to pin the most-recent ANNUAL chunk to the top.
+function extractMostRecentDate(text: string): { year: number; sortKey: number } | null {
+  // M/D/YYYY or MM/DD/YYYY
+  const slashDates = Array.from(text.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g))
+    .map((m) => {
+      const month = Number.parseInt(m[1], 10)
+      const day = Number.parseInt(m[2], 10)
+      const year = Number.parseInt(m[3], 10)
+      if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) return null
+      if (year < 1990 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31) return null
+      return { year, sortKey: year * 10000 + month * 100 + day }
+    })
+    .filter((d): d is { year: number; sortKey: number } => d != null)
+
+  // YYYY-MM-DD
+  const dashDates = Array.from(text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))
+    .map((m) => {
+      const year = Number.parseInt(m[1], 10)
+      const month = Number.parseInt(m[2], 10)
+      const day = Number.parseInt(m[3], 10)
+      if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) return null
+      if (year < 1990 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31) return null
+      return { year, sortKey: year * 10000 + month * 100 + day }
+    })
+    .filter((d): d is { year: number; sortKey: number } => d != null)
+
+  const all = [...slashDates, ...dashDates]
+  if (all.length === 0) {
+    // Fall back to bare 4-digit years.
+    const years = Array.from(text.matchAll(/\b(19[5-9]\d|20[0-3]\d)\b/g))
+      .map((m) => Number.parseInt(m[1], 10))
+      .filter((y) => Number.isFinite(y))
+    if (years.length === 0) return null
+    const maxYear = Math.max(...years)
+    return { year: maxYear, sortKey: maxYear * 10000 }
+  }
+
+  return all.reduce((best, d) => (d.sortKey > best.sortKey ? d : best), all[0])
+}
+
 function scoreRecencyPreference(chunks: RetrievedChunk[], queryText: string) {
   if (!prefersLatestInspectionRecord(queryText) || chunks.length === 0) {
     return chunks
@@ -566,6 +623,30 @@ function scoreRecencyPreference(chunks: RetrievedChunk[], queryText: string) {
     entry.year > latest ? entry.year : latest
   ), yearCandidates[0].year)
 
+  // SPECIAL CASE: "latest annual" / "most recent annual" queries.
+  // The general recency boost (+0.55 for latestYear) wasn't enough when an
+  // older annual chunk had stronger keyword/embedding signal. Here we pin
+  // the actual most-recent annual signoff chunk to the top with a dominant
+  // boost so it can't be outranked by older years.
+  let pinnedAnnualChunkId: string | null = null
+  if (isAnnualInspectionQuery(queryText)) {
+    const annualSignoffs = chunks
+      .map((chunk) => {
+        if (!chunkLooksLikeAnnualSignoff(chunk.chunk_text)) return null
+        const date = extractMostRecentDate(chunk.chunk_text)
+        if (!date) return null
+        return { chunk, date }
+      })
+      .filter((entry): entry is { chunk: RetrievedChunk; date: { year: number; sortKey: number } } => entry != null)
+
+    if (annualSignoffs.length > 0) {
+      const winner = annualSignoffs.reduce((best, entry) =>
+        entry.date.sortKey > best.date.sortKey ? entry : best,
+      )
+      pinnedAnnualChunkId = winner.chunk.chunk_id
+    }
+  }
+
   return chunks.map((chunk) => {
     const year = extractLatestYear(chunk)
     if (year == null) return chunk
@@ -583,6 +664,12 @@ function scoreRecencyPreference(chunks: RetrievedChunk[], queryText: string) {
 
     if (isMaintenanceHistoryQuery(queryText) && chunk.truth_role === 'source_of_truth') {
       bonus += 0.06
+    }
+
+    // Pinned-annual gets a dominant boost so it ALWAYS lands at the top of
+    // the retrieved set, in front of any older annuals or unrelated chunks.
+    if (pinnedAnnualChunkId && chunk.chunk_id === pinnedAnnualChunkId) {
+      bonus += 1.5
     }
 
     return {
