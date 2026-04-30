@@ -191,6 +191,23 @@ function isDeadlockError(error: unknown) {
   return /deadlock detected/i.test(error.message)
 }
 
+// Postgres returns "canceling statement due to statement timeout" when the
+// per-statement deadline is hit. This used to be a fatal error during
+// clearDerivedArtifacts on big OCR docs; with the RPC + smaller chunk size
+// it should be rare, but if it does happen the retry (with smaller chunks
+// next attempt) is the right move.
+function isStatementTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return (
+    /canceling statement due to statement timeout/i.test(error.message) ||
+    /statement timeout/i.test(error.message)
+  )
+}
+
+function isTransientCleanupError(error: unknown) {
+  return isDeadlockError(error) || isStatementTimeoutError(error)
+}
+
 async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -314,6 +331,42 @@ async function persistDocumentProcessingState(args: {
 }
 
 async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string) {
+  // Permanent fix path (migration 059): a single SECURITY DEFINER procedure
+  // that does the entire cleanup with a 180s local statement_timeout. Big
+  // logbook binders (1000+ segments + cascading review items) used to fail
+  // here with "canceling statement due to statement timeout" because the
+  // chunked-delete fallback below — even at 200 IDs per batch — couldn't
+  // beat the default per-statement timeout on heavily indexed tables.
+  //
+  // We TRY the RPC first. If it isn't deployed yet (older DB / local dev),
+  // or returns an unexpected error, we fall through to the chunked-delete
+  // path below so behavior degrades gracefully instead of erroring.
+  try {
+    const { error: rpcError } = await supabase.rpc(
+      'clear_document_derived_artifacts',
+      { p_document_id: documentId },
+    )
+    if (!rpcError) {
+      return
+    }
+    // Postgres "function does not exist" / 42883 / PGRST202 → fall through
+    // to the legacy chunked path. Anything else, log and still try the
+    // legacy path (it might succeed even if the RPC tripped on something).
+    const msg = rpcError.message ?? ''
+    const code = (rpcError as { code?: string }).code ?? ''
+    if (!/does not exist|PGRST202|42883/i.test(msg) && !/PGRST202|42883/i.test(code)) {
+      console.warn(
+        `[ingestion] clear_document_derived_artifacts RPC failed for ${documentId}, falling back to chunked deletes:`,
+        msg,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      `[ingestion] clear_document_derived_artifacts RPC threw for ${documentId}, falling back:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+
   async function runDelete(step: string, action: () => Promise<{ error: { message: string } | null }>) {
     const { error } = await action()
     if (error) {
@@ -324,7 +377,10 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
   // Postgres + PostgREST reject `IN (...)` filters whose URL-encoded list
   // grows too long — large OCR docs (200+ pages, thousands of segments) were
   // hitting HTTP 400 mid-cleanup. Chunk the IDs so each DELETE stays bounded.
-  const DELETE_IN_CHUNK_SIZE = 200
+  // Reduced 200 → 50 because even 200 was hitting the per-statement timeout
+  // on heavily indexed tables. The RPC above is the primary path now;
+  // 50-id chunks here are belt-and-suspenders for environments without it.
+  const DELETE_IN_CHUNK_SIZE = 50
   async function runChunkedDeleteIn<T extends string>(
     step: string,
     ids: T[],
@@ -437,18 +493,25 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
 }
 
 async function clearDerivedArtifactsWithRetry(supabase: ServiceClient, documentId: string) {
-  const maxAttempts = 4
+  // Up to 5 attempts with linear backoff. Retries fire on:
+  //   - Deadlocks (other session was cleaning up the same doc concurrently)
+  //   - Statement timeouts (rare now that the RPC handles cleanup, but keep
+  //     the fallback covered in case the RPC is unavailable)
+  // Anything else bubbles up immediately so we don't paper over real bugs.
+  const maxAttempts = 5
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await clearDerivedArtifacts(supabase, documentId)
       return
     } catch (error) {
-      if (!isDeadlockError(error) || attempt === maxAttempts) {
+      if (!isTransientCleanupError(error) || attempt === maxAttempts) {
         throw error
       }
-
-      await sleep(250 * attempt)
+      // Statement-timeout: longer pause so the DB has a moment to recover
+      // before the next attempt slams it again with the same workload.
+      const baseDelay = isStatementTimeoutError(error) ? 1000 : 250
+      await sleep(baseDelay * attempt)
     }
   }
 }
