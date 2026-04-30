@@ -21,8 +21,8 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { MessageCircle, X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock } from 'lucide-react'
-import { WorkOrderChatPanel } from './work-order-chat-panel'
+import { MessageCircle, X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock, ExternalLink } from 'lucide-react'
+import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 
 type Persona = 'owner' | 'mechanic'
 
@@ -610,23 +610,44 @@ export function WorkOrderChatBubble({
                     </div>
                   )}
 
-                  {/* Rich chat panel — text, attachments, voice memos
-                      (Whisper-transcribed), time tracker, polled real-time */}
-                  <div className="flex-1 min-h-0">
-                    <WorkOrderChatPanel
-                      workOrderId={selectedWo.id}
-                      viewerRole={persona === 'mechanic' ? 'mechanic' : 'owner'}
-                      onMessageActivity={(iso) => {
-                        // Tell the bubble: messages this thread saw last at iso.
-                        // The unread sync hook below picks this up.
-                        if (typeof window !== 'undefined') {
-                          window.localStorage.setItem(
-                            `wo-chat-last-seen:${selectedWo.id}`,
-                            iso,
-                          )
-                        }
-                      }}
-                    />
+                  {/* Rich timeline component — same one rendered on the
+                      full /work-orders/[id] page. Brings back Camera / Mic /
+                      Paperclip / Add Part / Add Labor toolbar inside the
+                      bubble. The simpler WorkOrderChatPanel was an
+                      intermediate version; users wanted the full toolbar. */}
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      <WoChatTimeline
+                        workOrderId={selectedWo.id}
+                        className="h-full"
+                        onAddPart={() => {
+                          // Add Part / Add Labor open the full WO page where
+                          // the line-item editor lives. Keeps the bubble
+                          // focused on chat + capture, the WO page handles
+                          // structured data entry.
+                          if (typeof window !== 'undefined') {
+                            window.location.href = `/work-orders/${selectedWo.id}?action=add-part`
+                          }
+                        }}
+                        onAddLabor={() => {
+                          if (typeof window !== 'undefined') {
+                            window.location.href = `/work-orders/${selectedWo.id}?action=add-labor`
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex-shrink-0 border-t border-border bg-muted/20 px-3 py-2 flex items-center justify-between text-[11px]">
+                      <span className="text-muted-foreground">
+                        Need the full checklist, ADs, owner approvals?
+                      </span>
+                      <a
+                        href={`/work-orders/${selectedWo.id}`}
+                        className="inline-flex items-center gap-1 text-primary hover:text-primary/80"
+                        style={{ fontWeight: 500 }}
+                      >
+                        Open full page <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   </div>
                 </div>
               )}
