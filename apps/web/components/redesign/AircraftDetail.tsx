@@ -20,6 +20,7 @@ import { useAppContext } from "./AppContext";
 import { InviteMechanicModal } from "./InviteMechanicModal";
 import { LiveTrackWidget } from "./LiveTrackWidget";
 import { useIntegrationStore } from "./integrationStore";
+import { ADSBManagerPanel } from "@/components/aircraft/ad-sb-manager";
 
 /* ─── Aircraft DB ─────────────────────────────────────────────── */
 interface AircraftRecord {
@@ -508,7 +509,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
-  const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "reminders" | "activity">("workorders");
+  const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "ads" | "reminders" | "activity">("workorders");
 
   // Helpers for opening Maintenance sub-tabs (replaces direct setActiveTab for the
   // moved Squawks / Reminders / Activity top-level tabs).
@@ -552,6 +553,27 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [docSearch, setDocSearch] = useState("");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
+
+  // Active work order id for the AD/SB Manager "Add to WO" affordance.
+  // Pulled from the same chat-summary endpoint the bubble uses so it stays
+  // consistent — first open WO wins.
+  const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/aircraft/${aircraftId}/chat-summary`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const wos = Array.isArray(json?.work_orders) ? json.work_orders : [];
+        const firstOpen = wos.find((w: any) => w.is_open) ?? wos[0] ?? null;
+        setActiveWorkOrderId(firstOpen?.id ?? null);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true };
+  }, [aircraftId]);
 
   useEffect(() => {
     if (!aircraftId) return;
@@ -1538,6 +1560,16 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
               </div>
             )}
 
+            {/* ══════════════════════ AD / SB TAB ══════════════════════ */}
+            {activeTab === "Maintenance" && maintSubTab === "ads" && aircraftId && (
+              <div className="space-y-4 px-6 py-5">
+                <ADSBManagerPanel
+                  aircraftId={aircraftId}
+                  activeWorkOrderId={activeWorkOrderId}
+                />
+              </div>
+            )}
+
             {/* ══════════════════════ SQUAWKS TAB ══════════════════════ */}
             {(activeTab === "Squawks" || (activeTab === "Maintenance" && maintSubTab === "squawks")) && (
               <div className="space-y-4 px-6 py-5">
@@ -1892,6 +1924,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                 {([
                   { id: "workorders", label: "Work Orders" },
                   { id: "squawks", label: "Squawks" },
+                  { id: "ads", label: "AD / SB" },
                   { id: "reminders", label: "Reminders" },
                   { id: "activity", label: "Activity" },
                 ] as const).map((t) => (
