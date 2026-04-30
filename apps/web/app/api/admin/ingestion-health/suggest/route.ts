@@ -109,6 +109,25 @@ const KNOWN_TAG_EXPLANATIONS: Record<
     code_change_summary:
       'Inspect the constraint name in the error message; if it recurs, switch the insert to upsert(onConflict=...).',
   },
+  extraction_runs_fk_race: {
+    classification: 'transient',
+    classifier_tag: 'extraction_runs_fk_race',
+    regex_pattern:
+      '/Failed to insert into extraction_runs.*foreign key constraint .extraction_runs_page_id_fkey/i',
+    rationale:
+      "A concurrent retry's cleanup_RPC deleted ocr_page_jobs rows while this attempt was building extraction_runs that referenced them. Same race family as duplicate_key_pages / duplicate_key_ocr_jobs. Already classified as transient — auto-heal will retry, and the next attempt sees a clean slate.",
+    needs_code_change: false,
+    code_change_summary: 'No action needed — auto-retry handles it.',
+  },
+  fk_violation_general: {
+    classification: 'transient',
+    classifier_tag: 'fk_violation_general',
+    regex_pattern: '/violates foreign key constraint/i',
+    rationale:
+      'A concurrent cleanup deleted the parent row this insert was referencing. Auto-retried.',
+    needs_code_change: false,
+    code_change_summary: 'No action needed — auto-retry handles it.',
+  },
   postgres_statement_timeout: {
     classification: 'transient',
     classifier_tag: 'postgres_statement_timeout',

@@ -94,6 +94,20 @@ const PATTERNS: FailurePattern[] = [
     description: 'Race between concurrent attempts on a unique index. Auto-retried.',
   },
   {
+    tag: 'extraction_runs_fk_race',
+    severity: 'transient',
+    match: /Failed to insert into extraction_runs.*foreign key constraint .extraction_runs_page_id_fkey/i,
+    description:
+      'extraction_runs FK violation — a concurrent retry cleared ocr_page_jobs while this attempt was mid-insert. Same race family as duplicate_key_pages / duplicate_key_ocr_jobs. Auto-retried.',
+  },
+  {
+    tag: 'fk_violation_general',
+    severity: 'transient',
+    match: /violates foreign key constraint/i,
+    description:
+      'A concurrent cleanup deleted the parent row this insert was referencing. Almost always a retry race; auto-retried.',
+  },
+  {
     tag: 'postgres_deadlock',
     severity: 'transient',
     match: /deadlock detected/i,
