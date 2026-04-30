@@ -1010,12 +1010,22 @@ export function SettingsPage() {
                 </p>
                 <button
                   onClick={async () => {
+                    // Server-side signout drops the HttpOnly auth cookie —
+                    // browser supabase.auth.signOut() alone does NOT, which is
+                    // why the page used to bounce right back to the dashboard.
+                    try {
+                      await fetch("/api/auth/signout", {
+                        method: "POST",
+                        credentials: "include",
+                      });
+                    } catch {
+                      // ignore — hard redirect below still recovers
+                    }
                     try {
                       const supabase = createBrowserSupabase();
                       await supabase.auth.signOut();
                     } catch {
-                      // even if local signout call fails, redirect anyway —
-                      // the server cookie is what matters and /login clears it.
+                      // ignore
                     }
                     if (typeof window !== "undefined") {
                       window.location.href = "/login";

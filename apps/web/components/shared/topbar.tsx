@@ -27,10 +27,27 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
   const router = useTenantRouter()
 
   async function handleSignOut() {
-    const supabase = createBrowserSupabase()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+    // Server-side signout clears the HttpOnly auth cookie that the
+    // browser-side supabase.auth.signOut() can't reach. Without it, the
+    // middleware re-establishes the session on the next request and the
+    // user lands right back where they were.
+    try {
+      await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // network error — proceed anyway
+    }
+    try {
+      const supabase = createBrowserSupabase()
+      await supabase.auth.signOut()
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login'
+    } else {
+      router.push('/login')
+      router.refresh()
+    }
   }
 
   const initials = profile.full_name

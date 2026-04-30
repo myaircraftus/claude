@@ -630,15 +630,30 @@ function AppLayoutInner({
           const avatarBg = persona === "mechanic" ? activeMechanic.color : "bg-sidebar-accent";
 
           async function handleSignOut() {
+            // POST to a server route so the HttpOnly auth cookies get cleared
+            // properly — calling supabase.auth.signOut() from the browser
+            // alone doesn't drop the SSR cookie, which is why the page would
+            // bounce right back to the dashboard.
+            try {
+              await fetch("/api/auth/signout", {
+                method: "POST",
+                credentials: "include",
+              });
+            } catch {
+              // network error — fall through to the hard redirect below.
+              // /login also re-checks the cookie server-side, so even if the
+              // cookie wasn't cleared we'll see the login form on next render.
+            }
+            // Also hit the browser-side signOut to clear in-memory token /
+            // localStorage, defense-in-depth.
             try {
               const supabase = createBrowserSupabase();
               await supabase.auth.signOut();
             } catch {
-              // even if local signout call fails, force-redirect — the
-              // server cookie is what really matters and /login clears it.
+              // ignore
             }
-            // Hard navigation so all client state and React contexts get
-            // dropped, not just a soft router.push().
+            // Hard navigation so every server component re-renders against
+            // the now-empty cookie and all client state is dropped.
             if (typeof window !== "undefined") {
               window.location.href = "/login";
             }
