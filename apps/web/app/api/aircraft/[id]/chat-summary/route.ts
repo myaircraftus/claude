@@ -44,14 +44,18 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     .maybeSingle()
   if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
 
-  // Work orders for this aircraft (open first, then closed by recency)
+  // Work orders for this aircraft (open first, then closed by recency).
+  // Schema note: column is `complaint` (not customer_complaint), `total_amount`
+  // (not total). work_order_lines uses `line_total` (not total). The earlier
+  // version used the wrong names — silently returned nothing on aircraft
+  // that genuinely had work orders.
   const { data: workOrders } = await service
     .from('work_orders')
     .select(`
-      id, work_order_number, status, service_type, customer_complaint, discrepancy,
-      labor_total, parts_total, outside_services_total, total, opened_at, closed_at,
-      assigned_mechanic_id, thread_id, customer_id, linked_invoice_id,
-      labor_lines:work_order_lines(id, description, hours, rate, total)
+      id, work_order_number, status, service_type, complaint, discrepancy,
+      labor_total, parts_total, outside_services_total, total_amount,
+      opened_at, closed_at, assigned_mechanic_id, thread_id, linked_invoice_id,
+      labor_lines:work_order_lines(id, description, hours, rate, line_total)
     `)
     .eq('organization_id', ctx.organizationId)
     .eq('aircraft_id', aircraftId)
@@ -85,17 +89,19 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
       work_order_number: wo.work_order_number,
       status: wo.status,
       service_type: wo.service_type,
-      customer_complaint: wo.customer_complaint,
+      // Output stays `customer_complaint` for the client API contract; we
+      // just read from the actual `complaint` column.
+      customer_complaint: wo.complaint,
       discrepancy: wo.discrepancy,
-      labor_total: wo.labor_total ?? 0,
-      parts_total: wo.parts_total ?? 0,
-      outside_services_total: wo.outside_services_total ?? 0,
-      total: wo.total ?? 0,
+      labor_total: Number(wo.labor_total ?? 0),
+      parts_total: Number(wo.parts_total ?? 0),
+      outside_services_total: Number(wo.outside_services_total ?? 0),
+      total: Number(wo.total_amount ?? 0),
       hours_logged: Math.round(hoursLogged * 10) / 10,
       opened_at: wo.opened_at,
       closed_at: wo.closed_at,
       thread_id: wo.thread_id,
-      customer_id: wo.customer_id,
+      customer_id: null, // schema doesn't carry customer_id on work_orders here
       linked_invoice_id: wo.linked_invoice_id,
       is_open: OPEN_WO_STATUSES.includes(String(wo.status ?? '').toLowerCase()),
     }
