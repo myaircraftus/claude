@@ -58,6 +58,13 @@ const PATTERNS: FailurePattern[] = [
 
   // ── Transient: Postgres / Supabase ──────────────────────────────────────
   {
+    tag: 'embeddings_insert_timeout',
+    severity: 'transient',
+    match: /Failed to insert document embeddings.*canceling statement due to statement timeout/i,
+    description:
+      'Bulk insert of pgvector embeddings hit the per-statement timeout. Fixed by chunking the insert into 100-row batches.',
+  },
+  {
     tag: 'postgres_statement_timeout',
     severity: 'transient',
     match: /canceling statement due to statement timeout/i,

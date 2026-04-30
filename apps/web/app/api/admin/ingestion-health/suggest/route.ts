@@ -146,6 +146,15 @@ const KNOWN_TAG_EXPLANATIONS: Record<
     needs_code_change: false,
     code_change_summary: 'No action needed — auto-retry handles it.',
   },
+  embeddings_insert_timeout: {
+    classification: 'transient',
+    classifier_tag: 'embeddings_insert_timeout',
+    regex_pattern: '/Failed to insert document embeddings.*canceling statement due to statement timeout/i',
+    rationale:
+      'A bulk insert of pgvector embeddings (1536-dim vectors × thousands of rows) hit the per-statement timeout. Fixed by chunking the insert into 100-row batches so each statement stays well under the timeout.',
+    needs_code_change: false,
+    code_change_summary: 'No code change needed — the chunking fix already shipped.',
+  },
   cleanup_ocr_segments_timeout: {
     classification: 'transient',
     classifier_tag: 'cleanup_ocr_segments_timeout',

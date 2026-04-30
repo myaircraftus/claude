@@ -642,21 +642,43 @@ async function insertEmbeddingsCompat(args: {
 
   if (rows.length === 0) return
 
-  const { error } = await args.supabase.from('document_embeddings').insert(rows)
-  if (!error) return
+  // CHUNKED INSERT — pgvector embeddings are 1536-dim each, and a 200-page
+  // logbook can produce 4000+ chunks. Inserting them all in a single
+  // statement was hitting the Postgres per-statement timeout
+  // ("canceling statement due to statement timeout") on the
+  // document_embeddings INSERT. Smaller batches stay well under the
+  // timeout, even on the slowest connection.
+  const EMBEDDING_BATCH_SIZE = 100
+  let isLegacyShape = false
 
-  if (isMissingColumnError(error, 'embedding_model')) {
-    const legacyRows = rows.map(({ embedding_model, ...row }) => ({
-      ...row,
-      model: embedding_model,
-    }))
+  for (let i = 0; i < rows.length; i += EMBEDDING_BATCH_SIZE) {
+    const batch = rows.slice(i, i + EMBEDDING_BATCH_SIZE)
+    const payload = isLegacyShape
+      ? batch.map(({ embedding_model, ...row }) => ({ ...row, model: embedding_model }))
+      : batch
+    const { error } = await args.supabase.from('document_embeddings').insert(payload)
+    if (!error) continue
 
-    const { error: legacyError } = await args.supabase.from('document_embeddings').insert(legacyRows)
-    if (!legacyError) return
-    throw new Error(`Failed to insert document embeddings: ${legacyError.message}`)
+    // Detect the older schema (model column instead of embedding_model)
+    // on the first batch — re-emit this batch with the legacy shape and
+    // continue with that shape for the rest of the run.
+    if (!isLegacyShape && isMissingColumnError(error, 'embedding_model')) {
+      isLegacyShape = true
+      const legacyBatch = batch.map(({ embedding_model, ...row }) => ({
+        ...row,
+        model: embedding_model,
+      }))
+      const { error: legacyError } = await args.supabase
+        .from('document_embeddings')
+        .insert(legacyBatch)
+      if (legacyError) {
+        throw new Error(`Failed to insert document embeddings: ${legacyError.message}`)
+      }
+      continue
+    }
+
+    throw new Error(`Failed to insert document embeddings: ${error.message}`)
   }
-
-  throw new Error(`Failed to insert document embeddings: ${error.message}`)
 }
 
 async function insertCanonicalEmbeddingsCompat(args: {
