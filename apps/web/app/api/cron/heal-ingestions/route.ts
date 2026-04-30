@@ -80,6 +80,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // KILL SWITCH — set INGESTION_AUTO_RETRY=off in env to make the cron a
+  // no-op. The user controls this from the admin settings page; it exists
+  // so we never burn OpenAI / Document AI credit on a runaway loop.
+  if ((process.env.INGESTION_AUTO_RETRY ?? 'on').toLowerCase() === 'off') {
+    return NextResponse.json({
+      ok: true,
+      paused: true,
+      reason: 'Auto-retry disabled via INGESTION_AUTO_RETRY=off',
+      scanned: 0,
+      healed: 0,
+    })
+  }
+
   const supabase = createServiceSupabase()
   const cutoffIso = new Date(Date.now() - HEAL_AFTER_MINUTES * 60 * 1000).toISOString()
 

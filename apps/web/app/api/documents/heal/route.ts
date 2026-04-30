@@ -52,6 +52,19 @@ export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // KILL SWITCH — same env-var gate as the cron. When INGESTION_AUTO_RETRY
+  // is 'off', this endpoint becomes a no-op and the documents page stops
+  // burning credits on background retries.
+  if ((process.env.INGESTION_AUTO_RETRY ?? 'on').toLowerCase() === 'off') {
+    return NextResponse.json({
+      ok: true,
+      paused: true,
+      reason: 'Auto-retry disabled. Use the Retry button on each doc to retry manually.',
+      scanned: 0,
+      recovered: [],
+    })
+  }
+
   const orgId = ctx.organizationId
   const service = createServiceSupabase()
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
