@@ -99,6 +99,15 @@ const KNOWN_TAG_EXPLANATIONS: Record<
     needs_code_change: false,
     code_change_summary: 'No code change needed — the fix already shipped.',
   },
+  duplicate_key_ocr_segments: {
+    classification: 'transient',
+    classifier_tag: 'duplicate_key_ocr_segments',
+    regex_pattern: '/duplicate key value .* ocr_entry_segments/i',
+    rationale:
+      'Same race family on the ocr_entry_segments table. Fixed by switching to upsert(onConflict="ocr_page_job_id,segment_index").',
+    needs_code_change: false,
+    code_change_summary: 'No code change needed — the fix already shipped.',
+  },
   duplicate_key_other: {
     classification: 'transient',
     classifier_tag: 'duplicate_key_other',

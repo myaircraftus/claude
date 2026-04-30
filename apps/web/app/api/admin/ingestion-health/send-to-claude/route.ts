@@ -50,14 +50,112 @@ export async function POST(req: NextRequest) {
   const auth = await requirePlatformAdmin()
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status })
 
-  let body: SendToClaudeBody
+  let body: SendToClaudeBody & { failure_ids?: string[]; bulk_all_failures?: boolean }
   try {
-    body = (await req.json()) as SendToClaudeBody
+    body = (await req.json()) as typeof body
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  // BULK PATH: queue every recent ingestion_failures row in one shot.
+  // Either pass an explicit array of failure_ids, OR pass bulk_all_failures
+  // to send everything from the last 7 days that isn't already recovered.
+  // De-dups against any pending/in_review rows already in the queue so we
+  // don't push the same failure twice.
   const service = createServiceSupabase()
+  if (body.bulk_all_failures || (Array.isArray(body.failure_ids) && body.failure_ids.length > 0)) {
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    let candidatesQuery = service
+      .from('ingestion_failures')
+      .select('id, document_id, organization_id, error_message, classifier_tag, severity, attempt_number, outcome, occurred_at, pipeline_stage')
+      .gte('occurred_at', since7d)
+
+    if (Array.isArray(body.failure_ids) && body.failure_ids.length > 0) {
+      candidatesQuery = candidatesQuery.in('id', body.failure_ids)
+    } else {
+      // bulk_all_failures: focus on actually-broken stuff (skip already-recovered).
+      candidatesQuery = candidatesQuery.neq('outcome', 'recovered')
+    }
+
+    const { data: candidates, error: candErr } = await candidatesQuery.limit(500)
+    if (candErr) return NextResponse.json({ error: candErr.message }, { status: 500 })
+
+    const candidateRows = (candidates ?? []) as Array<Record<string, any>>
+    if (candidateRows.length === 0) {
+      return NextResponse.json({ ok: true, queued: 0, skipped: 0, message: 'Nothing to queue.' })
+    }
+
+    // Skip failure_ids already pending or in_review.
+    const candidateIds = candidateRows.map((r) => r.id as string)
+    const { data: existing } = await service
+      .from('claude_review_requests')
+      .select('failure_id')
+      .in('failure_id', candidateIds)
+      .in('status', ['pending', 'in_review'])
+    const existingSet = new Set(((existing ?? []) as Array<{ failure_id: string }>).map((r) => r.failure_id))
+
+    // Hydrate doc titles + tails so the queue rows are self-contained.
+    const docIds = Array.from(new Set(candidateRows.map((r) => r.document_id))).filter(Boolean) as string[]
+    const docMeta = new Map<string, { title: string; tail: string | null; status: string }>()
+    if (docIds.length > 0) {
+      const { data: docs } = await service
+        .from('documents')
+        .select('id, title, parsing_status, aircraft:aircraft_id(tail_number)')
+        .in('id', docIds)
+      for (const d of docs ?? []) {
+        const tail = Array.isArray((d as any).aircraft)
+          ? (d as any).aircraft[0]?.tail_number ?? null
+          : (d as any).aircraft?.tail_number ?? null
+        docMeta.set(d.id as string, {
+          title: (d as any).title ?? 'Untitled',
+          tail,
+          status: (d as any).parsing_status ?? 'unknown',
+        })
+      }
+    }
+
+    const rowsToInsert = candidateRows
+      .filter((r) => !existingSet.has(r.id))
+      .map((r) => {
+        const meta = docMeta.get(r.document_id as string)
+        return {
+          requested_by_user_id: auth.user.id,
+          requested_by_email: auth.email,
+          request_type: 'ingestion_failure',
+          failure_id: r.id,
+          document_id: r.document_id,
+          organization_id: r.organization_id,
+          failure_snapshot: {
+            ...r,
+            document_title: meta?.title ?? null,
+            aircraft_tail: meta?.tail ?? null,
+            current_doc_status: meta?.status ?? null,
+          },
+          status: 'pending',
+        }
+      })
+
+    if (rowsToInsert.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        queued: 0,
+        skipped: candidateRows.length,
+        message: 'All matching failures are already in the queue.',
+      })
+    }
+
+    const { error: insertErr } = await service.from('claude_review_requests').insert(rowsToInsert)
+    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
+
+    return NextResponse.json({
+      ok: true,
+      queued: rowsToInsert.length,
+      skipped: candidateRows.length - rowsToInsert.length,
+      message: `Queued ${rowsToInsert.length} failures. ${candidateRows.length - rowsToInsert.length} were already in the queue.`,
+    })
+  }
+
+  // SINGLE-FAILURE PATH below — bulk path returned above.
 
   // Pull the full failure record + linked doc context so the queue row is
   // self-contained. Claude reads ONLY this snapshot — no follow-up DB

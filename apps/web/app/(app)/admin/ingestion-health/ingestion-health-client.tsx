@@ -141,6 +141,35 @@ export function IngestionHealthClient() {
     void loadQueue()
   }, [])
 
+  const [bulkSending, setBulkSending] = useState(false)
+  const [bulkResult, setBulkResult] = useState<string | null>(null)
+
+  async function sendAllToClaude() {
+    setBulkSending(true)
+    setBulkResult(null)
+    try {
+      const res = await fetch('/api/admin/ingestion-health/send-to-claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bulk_all_failures: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+      setBulkResult(
+        json.queued > 0
+          ? `✓ Queued ${json.queued} failures (${json.skipped ?? 0} already in queue). Tell Claude "check the queue" in chat.`
+          : `Nothing new to queue. ${json.skipped ?? 0} are already pending Claude review.`,
+      )
+      void loadQueue()
+      void load()
+    } catch (err) {
+      setBulkResult(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBulkSending(false)
+      window.setTimeout(() => setBulkResult(null), 8000)
+    }
+  }
+
   async function sendToClaude(failure: EnrichedFailure) {
     setQueueing((prev) => ({ ...prev, [failure.id]: 'sending' }))
     try {
@@ -253,14 +282,40 @@ export function IngestionHealthClient() {
             anyone debugging).
           </p>
         </div>
-        <button
-          onClick={() => void load()}
-          className="inline-flex items-center gap-1.5 border border-border px-3 py-1.5 rounded-lg text-xs hover:bg-muted/30 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void sendAllToClaude()}
+            disabled={bulkSending}
+            className="inline-flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors"
+            title="Queue every recent failure (last 7 days, not yet recovered) for Claude in one click"
+          >
+            {bulkSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            {bulkSending ? 'Queueing all…' : 'Send all to Claude'}
+          </button>
+          <button
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1.5 border border-border px-3 py-1.5 rounded-lg text-xs hover:bg-muted/30 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {bulkResult && (
+        <div
+          className={
+            'rounded-lg border px-4 py-2 text-xs ' +
+            (bulkResult.startsWith('✓')
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : bulkResult.startsWith('Failed')
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-slate-200 bg-slate-50 text-slate-800')
+          }
+        >
+          {bulkResult}
+        </div>
+      )}
 
       {loading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

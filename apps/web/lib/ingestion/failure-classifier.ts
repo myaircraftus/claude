@@ -88,6 +88,13 @@ const PATTERNS: FailurePattern[] = [
     description: 'Race between two ingestion attempts on ocr_page_jobs. Now upserts idempotently.',
   },
   {
+    tag: 'duplicate_key_ocr_segments',
+    severity: 'transient',
+    match: /duplicate key value .* ocr_entry_segments/i,
+    description:
+      'Race between two ingestion attempts on ocr_entry_segments. Now upserts idempotently on (ocr_page_job_id, segment_index).',
+  },
+  {
     tag: 'duplicate_key_other',
     severity: 'transient',
     match: /duplicate key value/i,

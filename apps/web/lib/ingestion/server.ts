@@ -1289,7 +1289,18 @@ async function persistOcrArtifacts(args: {
       }
     })
 
-    await batchInsert(args.supabase, 'ocr_entry_segments', segmentRows, 100)
+    // Upsert (not insert) on (ocr_page_job_id, segment_index) so a retry
+    // that races a still-running prior attempt wins idempotently.
+    // Without this, two concurrent ingestion attempts both insert their
+    // segments and the second hits the unique-index violation. Same race
+    // family as document_pages and ocr_page_jobs, fixed identically.
+    await batchUpsert(
+      args.supabase,
+      'ocr_entry_segments',
+      segmentRows,
+      'ocr_page_job_id,segment_index',
+      100,
+    )
   }
 
   // Page through all segments — avoid the PostgREST default 1000-row cap.
