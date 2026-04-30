@@ -45,11 +45,15 @@ type OwnerAircraftSummary = {
 };
 
 /* ─── Owner nav ─────────────────────────────────────────────── */
+// Owners no longer have a top-level "Documents" entry — uploading and
+// browsing aircraft records lives on the Aircraft → Documents tab so the
+// flow is "pick aircraft, then docs" instead of two parallel surfaces.
+// The Documents page remains for platform admins as a global monitoring
+// view (failed ingestions, who uploaded what, human-review queue).
 const ownerNavItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard",        href: "/dashboard" },
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
-  { icon: FileText,        label: "Documents",        href: "/documents" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
   { icon: UserRound,       label: "Users",            href: "/settings" },
 ];
@@ -64,14 +68,17 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
     items.push({ icon: Bot, label: "AI Command Center", href: "/workspace" });
   }
 
+  // Mechanic Portal sub-tabs: Squawks, Estimates, Work Orders, Invoices,
+  // and Logbook are intentionally NOT here at the top level. The mechanic
+  // workflow always starts from the aircraft — pick the tail, then create
+  // the squawk / estimate / work order / invoice from inside the Aircraft
+  // → Maintenance tab. Putting them in the sidebar makes the user pick
+  // an aircraft after the fact, which is the wrong order. Marketing site
+  // can still describe these capabilities; in-app they're per-aircraft.
   const children: NavChild[] = [];
   if (perm.dashboard)  children.push({ icon: LayoutDashboard, label: "Dashboard",   tab: "dashboard" });
   if (perm.aircraft)   children.push({ icon: Plane,           label: "Aircraft",    tab: "aircraft",   badge: 3 });
-  if (perm.squawks)    children.push({ icon: AlertTriangle,   label: "Squawks",     tab: "squawks",    badge: 4 });
-  if (perm.estimates)  children.push({ icon: FileText,        label: "Estimates",   tab: "estimates",  badge: 2 });
-  if (perm.workOrders) children.push({ icon: Wrench,          label: "Work Orders", tab: "workorders", href: "/maintenance", badge: 2 });
   children.push({ icon: Package, label: "Parts", tab: "parts" });
-  if (perm.invoices)   children.push({ icon: Receipt,         label: "Invoices",    tab: "invoices",   badge: 3 });
   if (perm.logbook)    children.push({ icon: BookOpen,        label: "Logbook",     tab: "logbook",    badge: 3 });
 
   if (children.length === 1) {
@@ -255,6 +262,10 @@ function AppLayoutInner({
   const ownerNav = isPlatformAdmin
     ? [
         ...ownerNavBase,
+        // Admin-only Documents view: monitors all uploads platform-wide,
+        // surfaces failed ingestions and the human-review queue across orgs.
+        // Owners reach their own docs via Aircraft → Documents tab.
+        { icon: FileText, label: "Documents", href: "/documents" },
         { icon: ShieldCheck, label: "Admin", href: "/admin" },
         { icon: FileText, label: "Marketing CMS", href: "/admin/content" },
       ]

@@ -269,6 +269,37 @@ export function WorkOrderChatBubble({
     window.localStorage.setItem('owner_selected_aircraft_id', selectedAircraftId)
   }, [selectedAircraftId])
 
+  // Close-on-click-outside that doesn't fire on iPad Safari's native select
+  // wheel picker dismissal. We listen at the document level for pointerdown
+  // and only close if the target is genuinely outside the drawer panel.
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(ev: PointerEvent) {
+      const target = ev.target as Node | null
+      if (!target) return
+      const drawer = drawerRef.current
+      if (drawer && drawer.contains(target)) return
+      // Also ignore clicks on the bubble button itself (it's the toggler)
+      if ((target as HTMLElement).closest?.('button[aria-label="Open work order chat"]')) return
+      setOpen(false)
+    }
+    // pointerdown fires *before* a select's bottom sheet animates open, so
+    // the user's tap on the select gets to the select before our handler
+    // sees it.
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  // Esc key closes the drawer (keyboard a11y)
+  useEffect(() => {
+    if (!open) return
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
+
   // Re-fetch chat summary when aircraft changes (or drawer opens)
   useEffect(() => {
     if (!open || !selectedAircraftId) return
@@ -370,11 +401,14 @@ export function WorkOrderChatBubble({
       {/* Drawer */}
       {open && (
         <div className="fixed inset-0 z-50 flex pointer-events-none">
-          {/* Click-outside dim */}
-          <div
-            className="absolute inset-0 bg-black/30 pointer-events-auto"
-            onClick={() => setOpen(false)}
-          />
+          {/*
+            Visual dim — pointer-events: none on purpose. We DON'T listen
+            for clicks here because iPad Safari's native <select> opens a
+            full-screen wheel picker, and dismiss-taps land on whatever's
+            behind it. The previous version had an onClick handler here
+            that closed the drawer the moment the user picked an aircraft.
+          */}
+          <div className="absolute inset-0 bg-black/30 pointer-events-none" />
           {/* Drawer panel */}
           <div
             ref={drawerRef}

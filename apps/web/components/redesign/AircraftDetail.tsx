@@ -540,6 +540,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     doc_type: string | null
     document_subtype: string | null
     parsing_status: string | null
+    parse_error: string | null
     page_count: number | null
     file_size_bytes: number | null
     uploaded_at: string | null
@@ -1518,27 +1519,18 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Quick Actions</h3>
                     <div className="space-y-2">
                       {[
+                        // "Upload Document" intentionally NOT here — it lives
+                        // on the Documents tab. Two upload buttons made the
+                        // surface confusing.
                         { label: "Add Squawk", icon: AlertTriangle, action: () => { openSquawksTab(); setShowAddSquawk(true); } },
                         { label: "Request Maintenance", icon: Wrench, action: () => setActiveTab("Maintenance") },
-                        { label: "Upload Document", icon: Upload, href: uploadHref },
+                        { label: "Open Documents", icon: FileText, action: () => setActiveTab("Documents") },
                         { label: "View Intelligence", icon: BarChart3, action: () => setActiveTab("Intelligence") },
                       ].map((qa) => (
-                        qa.href ? (
-                          <Link
-                            key={qa.label}
-                            href={qa.href}
-                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left"
-                            style={{ fontWeight: 500 }}
-                          >
-                            <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
-                            {qa.label}
-                          </Link>
-                        ) : (
-                          <button key={qa.label} onClick={qa.action} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left" style={{ fontWeight: 500 }}>
-                            <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
-                            {qa.label}
-                          </button>
-                        )
+                        <button key={qa.label} onClick={qa.action} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left" style={{ fontWeight: 500 }}>
+                          <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
+                          {qa.label}
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -3269,10 +3261,57 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                 <span className={`text-[11px] px-2 py-0.5 rounded-full ${
                                   isComplete ? 'bg-emerald-50 text-emerald-700' :
                                   doc.parsing_status === 'failed' ? 'bg-red-50 text-red-700' :
+                                  doc.parsing_status === 'needs_ocr' ? 'bg-amber-50 text-amber-700' :
                                   'bg-amber-50 text-amber-700'
-                                }`} style={{ fontWeight: 600 }}>
-                                  {isComplete ? 'Indexed' : doc.parsing_status === 'failed' ? 'Failed' : 'Processing'}
+                                }`} style={{ fontWeight: 600 }} title={doc.parse_error ?? undefined}>
+                                  {isComplete
+                                    ? 'Indexed'
+                                    : doc.parsing_status === 'failed'
+                                    ? 'Failed'
+                                    : doc.parsing_status === 'needs_ocr'
+                                    ? 'Needs review'
+                                    : (doc.parsing_status ?? 'Processing').replace(/_/g, ' ')}
                                 </span>
+                                {/* Failed → Retry triggers /api/documents/[id]/retry; replaces a
+                                    full-page reload after a quota top-up so the user keeps state. */}
+                                {doc.parsing_status === 'failed' && (
+                                  <button
+                                    type="button"
+                                    title={doc.parse_error ?? 'Retry processing'}
+                                    onClick={async (e) => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      try {
+                                        await fetch(`/api/documents/${doc.id}/retry`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ force: true }),
+                                        })
+                                        if (aircraftId) {
+                                          const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                          if (r.ok) {
+                                            const j = await r.json()
+                                            setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                          }
+                                        }
+                                      } catch {/* ignore — user can click again */}
+                                    }}
+                                    className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    Retry
+                                  </button>
+                                )}
+                                {/* Needs human review → jump to the OCR review queue */}
+                                {doc.parsing_status === 'needs_ocr' && (
+                                  <Link
+                                    href={`/documents/review?document=${doc.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    Review
+                                  </Link>
+                                )}
                                 {isComplete && (
                                   <button
                                     type="button"

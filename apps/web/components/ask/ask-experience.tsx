@@ -506,14 +506,14 @@ export function AskExperience() {
         if (cancelled) return
         setAircraft(dedupedRows)
 
-        const persistedAircraftId = loadPersistedAircraftSelection()
-        const fallbackSelection = aircraftParam || persistedAircraftId || dedupedRows[0]?.id || 'all'
-
-        if (!aircraftParam && fallbackSelection !== 'all') {
-          setSelectedAircraftId((current) => (current === fallbackSelection ? current : fallbackSelection))
-          const params = new URLSearchParams(searchParams.toString())
-          params.set('aircraft', fallbackSelection)
-          router.replace(`/ask?${params.toString()}`, { scroll: false })
+        // Default to "All Aircraft" on first load — previous behavior
+        // auto-redirected to the persisted aircraft id, which surprised
+        // users who expected the dropdown to show "All" by default and
+        // returned only one aircraft's results when they later clicked
+        // "All" (because the URL still carried the persisted aircraft).
+        // Persistence is now opt-in via the dropdown only.
+        if (!aircraftParam) {
+          setSelectedAircraftId('all')
           return
         }
 
