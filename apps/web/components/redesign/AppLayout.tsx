@@ -268,6 +268,7 @@ function AppLayoutInner({
         // Owners reach their own docs via Aircraft → Documents tab.
         { icon: FileText, label: "Documents", href: "/documents" },
         { icon: ShieldCheck, label: "Admin", href: "/admin" },
+        { icon: AlertTriangle, label: "Ingestion Health", href: "/admin/ingestion-health" },
         { icon: FileText, label: "Marketing CMS", href: "/admin/content" },
       ]
     : ownerNavBase;

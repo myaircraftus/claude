@@ -28,6 +28,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServiceSupabase } from '@/lib/supabase/server'
+import { isTransientIngestionFailure } from '@/lib/ingestion/failure-classifier'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,24 +45,8 @@ const MAX_DOCS_PER_RUN = 6
 
 const STUCK_STATES = ['parsing', 'ocr_processing', 'chunking', 'embedding']
 
-// Same transient-error patterns the cron uses. If a doc landed in 'failed'
-// because of a 429 / timeout / duplicate-key / cleanup-timeout, we auto-
-// retry it the moment the user opens the documents surface — no clicking.
-const TRANSIENT_ERROR_PATTERNS: RegExp[] = [
-  /429/i,
-  /quota/i,
-  /rate[- ]?limit/i,
-  /timed out/i,
-  /timeout/i,
-  /canceling statement due to statement timeout/i,
-  /duplicate key value/i,
-  /Failed to download PDF .* (?:400|5\d\d)/,
-  /Failed to clear OCR entry segments/i,
-  /Failed to clear document chunks/i,
-  /503/,
-  /504/,
-  /ECONNRESET|ETIMEDOUT|EAI_AGAIN/,
-]
+// Transient vs permanent decision lives in the shared classifier
+// (lib/ingestion/failure-classifier.ts).
 
 export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -103,7 +88,7 @@ export async function POST(req: NextRequest) {
   type DocRow = { id: string; title: string | null; parsing_status: string; parse_started_at: string | null; updated_at: string; parse_error?: string | null }
   const stuck: DocRow[] = [...(((stuckInProgress as DocRow[] | null) ?? []))]
   for (const doc of (failedTransient as DocRow[] | null) ?? []) {
-    if (!TRANSIENT_ERROR_PATTERNS.some((rx) => rx.test(doc.parse_error ?? ''))) continue
+    if (!isTransientIngestionFailure(doc.parse_error)) continue
     stuck.push(doc)
     if (stuck.length >= MAX_DOCS_PER_RUN) break
   }

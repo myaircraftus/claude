@@ -523,6 +523,42 @@ export function DocumentsTable({
                       <td className="px-4 py-3">
                         <div className="space-y-2">
                           <StatusBadge status={doc.parsing_status} />
+                          {(() => {
+                            // Per-doc heal-attempt chip: when the auto-heal layer
+                            // has retried this doc, show how many attempts so the
+                            // user knows recovery is happening (or has happened).
+                            const ps = doc.processing_state as { heal_attempts?: number } | null
+                            const attempts = typeof ps?.heal_attempts === 'number' ? ps.heal_attempts : 0
+                            if (attempts === 0) return null
+                            const isCompleted = doc.parsing_status === 'completed'
+                            const isFailed = doc.parsing_status === 'failed'
+                            return (
+                              <div
+                                className={
+                                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ' +
+                                  (isCompleted
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : isFailed
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200')
+                                }
+                                title={
+                                  isCompleted
+                                    ? `Auto-recovered after ${attempts} attempt${attempts === 1 ? '' : 's'}`
+                                    : isFailed
+                                      ? `Stopped after ${attempts} attempt${attempts === 1 ? '' : 's'} — review needed`
+                                      : `Auto-retry in progress (attempt ${attempts})`
+                                }
+                              >
+                                {isCompleted ? '↺' : isFailed ? '⚠' : '↻'}{' '}
+                                {isCompleted
+                                  ? `Auto-recovered (${attempts})`
+                                  : isFailed
+                                    ? `${attempts}/4 attempts`
+                                    : `Retry ${attempts}`}
+                              </div>
+                            )
+                          })()}
                           {TIMELINE_STATUSES.includes(doc.parsing_status) && (
                             <div onClick={(e) => e.stopPropagation()}>
                               <DocumentProcessingTimeline

@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { ingestDocumentInline } from '@/lib/ingestion/server'
+import { isTransientIngestionFailure } from '@/lib/ingestion/failure-classifier'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,26 +50,9 @@ const MAX_DOCS_PER_RUN = 5
 // Users decide what to do with needs_ocr docs via the UI.
 const STUCK_STATES = ['queued', 'parsing', 'chunking', 'ocr_processing', 'embedding']
 
-// Transient failure patterns the user shouldn't have to click "Retry" for.
-// We auto-recover any 'failed' row whose parse_error matches one of these,
-// up to TRANSIENT_FAILURE_RETRY_LIMIT total attempts. Hard-config errors
-// (invalid file, missing OCR keys, oversized PDF) deliberately don't match
-// here so we don't loop forever on a doc that genuinely can't be ingested.
-const TRANSIENT_ERROR_PATTERNS: RegExp[] = [
-  /429/i, // OpenAI rate limit / quota exhausted
-  /quota/i,
-  /rate[- ]?limit/i,
-  /timed out/i,
-  /timeout/i,
-  /canceling statement due to statement timeout/i,
-  /duplicate key value/i, // ocr_page_jobs / document_pages unique-violation race
-  /Failed to download PDF .* (?:400|5\d\d)/, // transient storage hiccup
-  /Failed to clear OCR entry segments/i,
-  /Failed to clear document chunks/i,
-  /503/, // service unavailable
-  /504/, // gateway timeout
-  /ECONNRESET|ETIMEDOUT|EAI_AGAIN/, // node fetch transient errors
-]
+// Transient vs permanent classification lives in the shared classifier
+// (lib/ingestion/failure-classifier.ts) so the cron, the UI heal endpoint,
+// and the ingestion-failures log all agree on what's recoverable.
 // Cap attempts via processing_state.heal_attempts so we don't bounce a
 // genuinely unfixable doc forever.
 const TRANSIENT_FAILURE_RETRY_LIMIT = 4
@@ -135,8 +119,7 @@ export async function GET(req: NextRequest) {
   const stuck: StuckDocPlus[] = [...((stuckInProgress as StuckDocPlus[] | null) ?? [])]
 
   for (const doc of (failedTransient as StuckDocPlus[] | null) ?? []) {
-    const err = doc.parse_error ?? ''
-    if (!TRANSIENT_ERROR_PATTERNS.some((rx) => rx.test(err))) continue
+    if (!isTransientIngestionFailure(doc.parse_error)) continue
     const attempts =
       (doc.processing_state &&
         typeof doc.processing_state === 'object' &&

@@ -909,6 +909,59 @@ async function markDocumentFailed(
       updated_at: now,
     },
   })
+
+  // Structured failure log — feeds /admin/ingestion-health so we can spot
+  // recurring patterns + surface unknown error categories for one-time fix
+  // instead of repeated firefighting.
+  try {
+    const { classifyIngestionFailure } = await import('./failure-classifier')
+    const classification = classifyIngestionFailure(errorMessage)
+    const attempt =
+      typeof (nextState as any)?.heal_attempts === 'number'
+        ? (nextState as any).heal_attempts + 1
+        : 1
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('organization_id')
+      .eq('id', documentId)
+      .maybeSingle()
+    if (doc?.organization_id) {
+      await supabase.from('ingestion_failures').insert({
+        document_id: documentId,
+        organization_id: doc.organization_id,
+        error_message: errorMessage.slice(0, 1000),
+        classifier_tag: classification.tag,
+        severity: classification.severity,
+        attempt_number: attempt,
+        outcome: 'failed',
+        pipeline_stage: nextState?.current_stage ?? null,
+      })
+    }
+  } catch (err) {
+    // Logging is best-effort. A failure to write the failure log must NOT
+    // mask the original ingestion error.
+    console.warn('[ingestion] failed to write ingestion_failures row:', err)
+  }
+}
+
+/**
+ * Called when an ingestion attempt SUCCEEDS for a document that has prior
+ * 'failed' rows in ingestion_failures. Marks them all as 'recovered' so the
+ * admin dashboard can show "X recovered automatically vs Y still failing".
+ */
+async function markPriorFailuresRecovered(
+  supabase: ServiceClient,
+  documentId: string,
+) {
+  try {
+    await supabase
+      .from('ingestion_failures')
+      .update({ outcome: 'recovered', recovered_at: new Date().toISOString() })
+      .eq('document_id', documentId)
+      .eq('outcome', 'failed')
+  } catch (err) {
+    console.warn('[ingestion] failed to mark prior failures recovered:', err)
+  }
 }
 
 async function markDocumentNeedsOcr(
@@ -1989,6 +2042,11 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         parse_error: null,
       },
     })
+
+    // Mark any prior failure log rows for this doc as recovered, so the
+    // admin dashboard can show "auto-recovered after N attempts" instead
+    // of leaving the failure dangling forever.
+    void markPriorFailuresRecovered(supabase, documentId)
 
     // Auto-classify with LLM so the doc lands in the right bucket on the
     // Aircraft Documents tab without the user picking a category by hand.
