@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Copy,
   Check,
+  Send,
 } from 'lucide-react'
 
 interface EnrichedFailure {
@@ -86,6 +87,19 @@ export function IngestionHealthClient() {
     Record<string, { loading: boolean; result?: AISuggestion; error?: string }>
   >({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [queueing, setQueueing] = useState<Record<string, 'idle' | 'sending' | 'queued' | 'error'>>({})
+  const [queue, setQueue] = useState<
+    Array<{
+      id: string
+      status: string
+      created_at: string
+      resolved_at: string | null
+      resolution_summary: string | null
+      failure_snapshot: { document_title?: string; aircraft_tail?: string | null; classifier_tag?: string }
+      operator_note?: string | null
+    }>
+  >([])
+  const [queueLoading, setQueueLoading] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -110,9 +124,41 @@ export function IngestionHealthClient() {
     }
   }
 
+  async function loadQueue() {
+    setQueueLoading(true)
+    try {
+      const res = await fetch('/api/admin/ingestion-health/send-to-claude', { cache: 'no-store' })
+      if (!res.ok) return
+      const json = await res.json()
+      setQueue(Array.isArray(json.requests) ? json.requests : [])
+    } finally {
+      setQueueLoading(false)
+    }
+  }
+
   useEffect(() => {
     void load()
+    void loadQueue()
   }, [])
+
+  async function sendToClaude(failure: EnrichedFailure) {
+    setQueueing((prev) => ({ ...prev, [failure.id]: 'sending' }))
+    try {
+      const res = await fetch('/api/admin/ingestion-health/send-to-claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          failure_id: failure.id,
+          document_id: failure.document_id,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setQueueing((prev) => ({ ...prev, [failure.id]: 'queued' }))
+      void loadQueue()
+    } catch {
+      setQueueing((prev) => ({ ...prev, [failure.id]: 'error' }))
+    }
+  }
 
   function toggleTag(tag: string) {
     setExpandedTags((prev) => {
@@ -335,6 +381,32 @@ export function IngestionHealthClient() {
                                 </div>
                                 <div className="flex flex-col gap-1.5 shrink-0">
                                   <button
+                                    onClick={() => void sendToClaude(failure)}
+                                    disabled={queueing[failure.id] === 'sending' || queueing[failure.id] === 'queued'}
+                                    className={
+                                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ' +
+                                      (queueing[failure.id] === 'queued'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50')
+                                    }
+                                    title="Queue this failure for Claude to read and fix automatically next time you're in chat"
+                                  >
+                                    {queueing[failure.id] === 'sending' ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : queueing[failure.id] === 'queued' ? (
+                                      <Check className="w-3 h-3" />
+                                    ) : (
+                                      <Send className="w-3 h-3" />
+                                    )}
+                                    {queueing[failure.id] === 'sending'
+                                      ? 'Queueing…'
+                                      : queueing[failure.id] === 'queued'
+                                        ? 'Sent to Claude'
+                                        : queueing[failure.id] === 'error'
+                                          ? 'Retry'
+                                          : 'Send to Claude'}
+                                  </button>
+                                  <button
                                     onClick={() => void requestSuggestion(failure)}
                                     disabled={sugg?.loading}
                                     className="inline-flex items-center gap-1.5 bg-primary text-white px-2.5 py-1 rounded-md text-[11px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
@@ -378,24 +450,106 @@ export function IngestionHealthClient() {
             </div>
           </section>
 
+          {/* Claude review queue */}
+          <section className="rounded-xl border border-violet-200 bg-violet-50/40">
+            <div className="px-5 py-3 border-b border-violet-200 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                  <Send className="w-4 h-4 text-violet-600" />
+                  Claude review queue
+                  <span className="text-xs text-muted-foreground font-normal">
+                    ({queue.filter((q) => q.status === 'pending').length} pending)
+                  </span>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Items sent here are read by Claude on the next chat session — no copy-paste needed. Just say{' '}
+                  <strong>&ldquo;check the queue&rdquo;</strong> in chat and Claude grabs everything pending in one
+                  pass.
+                </p>
+              </div>
+              <button
+                onClick={() => void loadQueue()}
+                disabled={queueLoading}
+                className="inline-flex items-center gap-1.5 border border-border px-2.5 py-1 rounded-md text-[11px] hover:bg-muted/30 transition-colors disabled:opacity-50"
+              >
+                {queueLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Refresh queue
+              </button>
+            </div>
+            <div className="divide-y divide-violet-100">
+              {queue.length === 0 && (
+                <div className="px-5 py-6 text-center text-xs text-muted-foreground">
+                  Queue is empty. Click <strong>Send to Claude</strong> on any failure above to add it.
+                </div>
+              )}
+              {queue.map((item) => {
+                const snap = item.failure_snapshot ?? {}
+                const tag = (snap as any).classifier_tag ?? '—'
+                const tail = (snap as any).aircraft_tail ?? ''
+                const title = (snap as any).document_title ?? '(unknown doc)'
+                return (
+                  <div key={item.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-foreground">
+                        {tail && <span className="font-mono text-primary">{tail} · </span>}
+                        {title}
+                        <span className="ml-2 text-muted-foreground">
+                          tag: <code className="font-mono">{tag}</code>
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        Queued {new Date(item.created_at).toLocaleString()}
+                        {item.resolved_at &&
+                          ` · resolved ${new Date(item.resolved_at).toLocaleString()}`}
+                      </div>
+                      {item.resolution_summary && (
+                        <div className="text-[11px] text-foreground mt-1 italic">
+                          Claude&rsquo;s note: {item.resolution_summary}
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={
+                        'shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ' +
+                        (item.status === 'pending'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : item.status === 'in_review'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : item.status === 'resolved'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-100 text-slate-700 border-slate-300')
+                      }
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
           {/* Quick-help footer */}
           <section className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 text-xs text-blue-900 leading-relaxed">
             <strong className="block text-sm mb-1">How to use this page</strong>
             <ol className="list-decimal pl-5 space-y-1">
               <li>
-                <strong>Find an interesting row</strong> — usually <code className="font-mono">unknown</code> (red), or any
-                row where <em>gave up</em> &gt; 0.
+                <strong>Find an interesting row</strong> — usually <code className="font-mono">unknown</code> (red), any
+                row where <em>gave up</em> &gt; 0, or any row that keeps recurring.
               </li>
               <li>
                 <strong>Click the row</strong> to expand and see the actual failures behind it.
               </li>
               <li>
-                On any failure, click <strong>AI suggest</strong> — the LLM proposes a classification + regex + rationale.
-                Nothing ships automatically.
+                <strong>Send to Claude</strong> (purple button) is the one-click path: it queues the failure for review
+                in the panel above. Next time you open chat with Claude, just say <em>&ldquo;check the queue&rdquo;</em>{' '}
+                — Claude reads everything, ships the fix, and marks the row resolved. Zero copy-paste.
               </li>
               <li>
-                Click <strong>Copy for chat</strong> to grab a structured summary, then paste it into your chat with
-                Claude. We&rsquo;ll discuss and ship the actual classifier change as a normal commit.
+                <strong>AI suggest</strong> gives an inline LLM-proposed classification + regex on this page, without
+                shipping anything. For known patterns it returns instantly from a local catalog (no LLM call burned).
+              </li>
+              <li>
+                <strong>Copy for chat</strong> is the manual fallback if you want to ask in chat directly.
               </li>
             </ol>
           </section>
