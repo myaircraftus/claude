@@ -23,6 +23,7 @@ import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { TourOverlay } from "./onboarding/TourOverlay";
+import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
 
@@ -696,6 +697,13 @@ function AppLayoutInner({
       </div>
 
       <Toaster position="top-right" richColors closeButton />
+
+      {/* ── Floating work-order chat bubble ──
+          Visible on every (app) page for both personas. Tap → drawer with
+          aircraft picker → active work orders → timeline + chat thread.
+          Uses the existing portal_threads / thread_messages infra so
+          messages flow between owner and mechanic in real time. */}
+      <WorkOrderChatBubble persona={persona} />
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
