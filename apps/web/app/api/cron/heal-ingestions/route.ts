@@ -23,7 +23,10 @@ import { ingestDocumentInline } from '@/lib/ingestion/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300 // Vercel default; ingestion is bounded per-doc
+// 800s is the Pro-plan ceiling on Vercel Fluid Compute. We need this for the
+// occasional 200+ page handwritten binder that goes through 25-30 OCR batches
+// — anything less and the cron repeatedly times out and the doc stays stuck.
+export const maxDuration = 800
 
 // Aggressive: a doc that hasn't moved in 6 minutes is almost certainly
 // wedged. The user-side /api/documents/heal endpoint catches stuck docs
