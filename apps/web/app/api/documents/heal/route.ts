@@ -52,10 +52,12 @@ export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // KILL SWITCH — same env-var gate as the cron. When INGESTION_AUTO_RETRY
-  // is 'off', this endpoint becomes a no-op and the documents page stops
-  // burning credits on background retries.
-  if ((process.env.INGESTION_AUTO_RETRY ?? 'on').toLowerCase() === 'off') {
+  const service = createServiceSupabase()
+
+  // KILL SWITCH — read auto-retry mode from app_settings (UI-toggleable),
+  // env var INGESTION_AUTO_RETRY=off forces a kill regardless. When off,
+  // this endpoint is a no-op so the documents page stops burning credits.
+  if ((process.env.INGESTION_AUTO_RETRY ?? '').toLowerCase() === 'off') {
     return NextResponse.json({
       ok: true,
       paused: true,
@@ -64,18 +66,42 @@ export async function POST(req: NextRequest) {
       recovered: [],
     })
   }
+  const { data: settingRow } = await service
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'ingestion_auto_retry')
+    .maybeSingle()
+  const mode = settingRow?.value === 'on' || settingRow?.value === 'smart_once' ? settingRow.value : 'off'
+  if (mode === 'off') {
+    return NextResponse.json({
+      ok: true,
+      paused: true,
+      reason: 'Auto-retry mode is OFF in /admin/settings. Use the Retry button on each doc to retry manually.',
+      scanned: 0,
+      recovered: [],
+    })
+  }
+  const { data: limitRow } = await service
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'ingestion_auto_retry_limit')
+    .maybeSingle()
+  const retryLimit =
+    typeof limitRow?.value === 'number' ? Math.max(0, Math.min(10, limitRow.value)) : 1
 
   const orgId = ctx.organizationId
-  const service = createServiceSupabase()
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString()
 
-  // Find anything in this org that's been stuck.
+  // Find anything in this org that's been stuck. Already-tried docs
+  // (heal_attempt_count >= retryLimit) are excluded at the SQL level so
+  // we never bounce a bad doc forever.
   const { data: stuckInProgress, error } = await service
     .from('documents')
-    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error')
+    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error, heal_attempt_count')
     .eq('organization_id', orgId)
     .in('parsing_status', STUCK_STATES)
     .lt('updated_at', cutoff)
+    .lt('heal_attempt_count', retryLimit)
     .order('updated_at', { ascending: true }) // oldest first
     .limit(MAX_DOCS_PER_RUN)
 
@@ -84,21 +110,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // ALSO pick up docs that failed with a transient error pattern so the
-  // user doesn't have to click Retry. We use a tighter staleness window
-  // here (60s) since the user is actively staring at the page.
+  // Failed-with-transient pickup, with the same hard cap.
   const failedCutoff = new Date(Date.now() - 60 * 1000).toISOString()
   const { data: failedTransient } = await service
     .from('documents')
-    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error')
+    .select('id, title, parsing_status, parse_started_at, updated_at, parse_error, heal_attempt_count')
     .eq('organization_id', orgId)
     .eq('parsing_status', 'failed')
     .not('parse_error', 'is', null)
     .lt('updated_at', failedCutoff)
+    .lt('heal_attempt_count', retryLimit)
     .order('updated_at', { ascending: true })
     .limit(MAX_DOCS_PER_RUN)
 
-  type DocRow = { id: string; title: string | null; parsing_status: string; parse_started_at: string | null; updated_at: string; parse_error?: string | null }
+  type DocRow = {
+    id: string
+    title: string | null
+    parsing_status: string
+    parse_started_at: string | null
+    updated_at: string
+    parse_error?: string | null
+    heal_attempt_count?: number | null
+  }
   const stuck: DocRow[] = [...(((stuckInProgress as DocRow[] | null) ?? []))]
   for (const doc of (failedTransient as DocRow[] | null) ?? []) {
     if (!isTransientIngestionFailure(doc.parse_error)) continue
@@ -131,6 +164,17 @@ export async function POST(req: NextRequest) {
 
   const origin = req.nextUrl.origin
   for (const doc of stuck) {
+    // BUMP heal_attempt_count BEFORE firing the retry so the cap is enforced
+    // even if the retry takes minutes to complete and the next heal call
+    // arrives in the meantime.
+    await service
+      .from('documents')
+      .update({
+        heal_attempt_count: (doc.heal_attempt_count ?? 0) + 1,
+        heal_last_attempt_at: new Date().toISOString(),
+      })
+      .eq('id', doc.id)
+
     // Fire the retry without awaiting it — the retry endpoint runs inline
     // ingestion which can take minutes.
     void fetch(`${origin}/api/documents/${doc.id}/retry`, {

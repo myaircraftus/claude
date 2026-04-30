@@ -160,6 +160,20 @@ const PATTERNS: FailurePattern[] = [
     description: 'A pipeline step hit its timeout. Auto-retried.',
   },
 
+  // ── Manual-retry only ───────────────────────────────────────────────────
+  // These ARE recoverable in principle, but auto-retrying burns money for
+  // little benefit. The user should explicitly click Retry once the
+  // underlying condition is improved (e.g. uploaded a fresh file, configured
+  // PARSER_SERVICE_URL, OpenAI quota topped up). Classified as 'permanent'
+  // so the auto-heal layer leaves them alone.
+  {
+    tag: 'background_ocr_never_started',
+    severity: 'permanent',
+    match: /Background OCR\/indexing never started/i,
+    description:
+      'Background queue (PARSER_SERVICE_URL) is not configured, so the doc was marked failed without retry. Click the Retry button on the doc and inline ingestion will run — that path works fine, we just don\'t auto-loop on it because it would burn credit on every attempt.',
+  },
+
   // ── Permanent: file-level / config errors ───────────────────────────────
   {
     tag: 'pdf_download_404',

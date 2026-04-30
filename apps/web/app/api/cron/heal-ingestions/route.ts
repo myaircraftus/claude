@@ -53,9 +53,29 @@ const STUCK_STATES = ['queued', 'parsing', 'chunking', 'ocr_processing', 'embedd
 // Transient vs permanent classification lives in the shared classifier
 // (lib/ingestion/failure-classifier.ts) so the cron, the UI heal endpoint,
 // and the ingestion-failures log all agree on what's recoverable.
-// Cap attempts via processing_state.heal_attempts so we don't bounce a
-// genuinely unfixable doc forever.
-const TRANSIENT_FAILURE_RETRY_LIMIT = 4
+//
+// The retry CAP is now read from the app_settings table so the operator
+// can change it from /admin/settings without a redeploy. Default = 1
+// (smart_once) so we never burn double-credit on a bad doc by accident.
+const DEFAULT_RETRY_LIMIT = 1
+
+async function loadAutoRetrySettings(supabase: any) {
+  // Env var ALWAYS wins as a hard kill switch (operator can flip without
+  // touching the DB). Otherwise read the runtime setting.
+  if ((process.env.INGESTION_AUTO_RETRY ?? '').toLowerCase() === 'off') {
+    return { mode: 'off' as const, limit: 0 }
+  }
+  const { data } = await supabase
+    .from('app_settings')
+    .select('key, value')
+    .in('key', ['ingestion_auto_retry', 'ingestion_auto_retry_limit'])
+  const byKey = new Map<string, any>(((data ?? []) as Array<{ key: string; value: any }>).map((r) => [r.key, r.value]))
+  const rawMode = byKey.get('ingestion_auto_retry')
+  const rawLimit = byKey.get('ingestion_auto_retry_limit')
+  const mode = rawMode === 'on' || rawMode === 'smart_once' ? rawMode : 'off'
+  const limit = typeof rawLimit === 'number' ? Math.max(0, Math.min(10, rawLimit)) : DEFAULT_RETRY_LIMIT
+  return { mode, limit }
+}
 
 interface StuckDoc {
   id: string
@@ -80,28 +100,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // KILL SWITCH — set INGESTION_AUTO_RETRY=off in env to make the cron a
-  // no-op. The user controls this from the admin settings page; it exists
-  // so we never burn OpenAI / Document AI credit on a runaway loop.
-  if ((process.env.INGESTION_AUTO_RETRY ?? 'on').toLowerCase() === 'off') {
+  const supabase = createServiceSupabase()
+
+  // KILL SWITCH — read from app_settings (UI-toggleable) with env-var
+  // override. When off, the cron becomes a no-op so we never burn
+  // OpenAI / Document AI credit on a runaway loop.
+  const autoRetry = await loadAutoRetrySettings(supabase)
+  if (autoRetry.mode === 'off') {
     return NextResponse.json({
       ok: true,
       paused: true,
-      reason: 'Auto-retry disabled via INGESTION_AUTO_RETRY=off',
+      reason: 'Auto-retry is OFF (set in /admin/settings or via INGESTION_AUTO_RETRY env var)',
+      mode: autoRetry.mode,
       scanned: 0,
       healed: 0,
     })
   }
-
-  const supabase = createServiceSupabase()
+  const TRANSIENT_FAILURE_RETRY_LIMIT = autoRetry.limit
   const cutoffIso = new Date(Date.now() - HEAL_AFTER_MINUTES * 60 * 1000).toISOString()
 
-  // Pull stuck (in-progress) docs older than the cutoff.
+  // Pull stuck (in-progress) docs older than the cutoff. Already-tried
+  // docs (heal_attempt_count >= limit) are excluded at the SQL level so
+  // we can't accidentally bounce a bad doc forever.
   const { data: stuckInProgress, error: stuckErr } = await supabase
     .from('documents')
-    .select('id, file_name, parsing_status, organization_id, parse_started_at, updated_at, parse_error, processing_state')
+    .select('id, file_name, parsing_status, organization_id, parse_started_at, updated_at, parse_error, processing_state, heal_attempt_count')
     .in('parsing_status', STUCK_STATES)
     .lt('updated_at', cutoffIso)
+    .lt('heal_attempt_count', TRANSIENT_FAILURE_RETRY_LIMIT)
     .order('page_count', { ascending: true, nullsFirst: false })
     .limit(MAX_DOCS_PER_RUN)
 
@@ -117,10 +143,11 @@ export async function GET(req: NextRequest) {
   // so a genuinely unfixable doc doesn't loop forever.
   const { data: failedTransient, error: failedErr } = await supabase
     .from('documents')
-    .select('id, file_name, parsing_status, organization_id, parse_started_at, updated_at, parse_error, processing_state')
+    .select('id, file_name, parsing_status, organization_id, parse_started_at, updated_at, parse_error, processing_state, heal_attempt_count')
     .eq('parsing_status', 'failed')
     .not('parse_error', 'is', null)
     .lt('updated_at', cutoffIso)
+    .lt('heal_attempt_count', TRANSIENT_FAILURE_RETRY_LIMIT)
     .order('updated_at', { ascending: true })
     .limit(MAX_DOCS_PER_RUN * 2)
 
@@ -128,18 +155,17 @@ export async function GET(req: NextRequest) {
     console.error('[cron/heal-ingestions] list error (failed)', failedErr)
   }
 
-  type StuckDocPlus = StuckDoc & { parse_error?: string | null; processing_state?: any }
+  type StuckDocPlus = StuckDoc & {
+    parse_error?: string | null
+    processing_state?: any
+    heal_attempt_count?: number | null
+  }
   const stuck: StuckDocPlus[] = [...((stuckInProgress as StuckDocPlus[] | null) ?? [])]
 
   for (const doc of (failedTransient as StuckDocPlus[] | null) ?? []) {
     if (!isTransientIngestionFailure(doc.parse_error)) continue
-    const attempts =
-      (doc.processing_state &&
-        typeof doc.processing_state === 'object' &&
-        typeof (doc.processing_state as any).heal_attempts === 'number')
-        ? (doc.processing_state as any).heal_attempts
-        : 0
-    if (attempts >= TRANSIENT_FAILURE_RETRY_LIMIT) continue
+    // SQL filter already excluded heal_attempt_count >= limit, so we
+    // don't need a second check here.
     stuck.push(doc)
     if (stuck.length >= MAX_DOCS_PER_RUN) break
   }
@@ -159,17 +185,11 @@ export async function GET(req: NextRequest) {
   }> = []
 
   for (const doc of stuck) {
-    const previousState =
-      doc.processing_state && typeof doc.processing_state === 'object'
-        ? (doc.processing_state as Record<string, any>)
-        : {}
-    const previousAttempts =
-      typeof previousState.heal_attempts === 'number' ? previousState.heal_attempts : 0
-
     try {
-      // Reset row to fresh-start state but track heal_attempts in
-      // processing_state so we can give up after TRANSIENT_FAILURE_RETRY_LIMIT
-      // tries on a genuinely-broken doc.
+      // BUMP heal_attempt_count via dedicated column (NOT processing_state JSON,
+      // which gets rebuilt by markDocumentProcessingFailed and was wiping our
+      // counter). This column is service-role only and ingestion code never
+      // touches it.
       await supabase
         .from('documents')
         .update({
@@ -177,11 +197,8 @@ export async function GET(req: NextRequest) {
           parse_started_at: null,
           parse_completed_at: null,
           parse_error: null,
-          processing_state: {
-            ...previousState,
-            heal_attempts: previousAttempts + 1,
-            last_heal_at: new Date().toISOString(),
-          },
+          heal_attempt_count: (doc.heal_attempt_count ?? 0) + 1,
+          heal_last_attempt_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', doc.id)

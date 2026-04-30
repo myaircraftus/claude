@@ -139,10 +139,63 @@ export function IngestionHealthClient() {
   useEffect(() => {
     void load()
     void loadQueue()
+    void loadSettings()
   }, [])
 
   const [bulkSending, setBulkSending] = useState(false)
   const [bulkResult, setBulkResult] = useState<string | null>(null)
+
+  // Auto-retry mode toggle. 'off' (manual retries only — DEFAULT, safest),
+  // 'smart_once' (cron retries each doc at most ONCE), 'on' (cron retries
+  // up to ingestion_auto_retry_limit which the operator also sets here).
+  type RetryMode = 'off' | 'smart_once' | 'on'
+  const [retryMode, setRetryMode] = useState<RetryMode | null>(null)
+  const [retryLimit, setRetryLimit] = useState<number>(1)
+  const [envOverride, setEnvOverride] = useState<string | null>(null)
+  const [savingMode, setSavingMode] = useState(false)
+
+  async function loadSettings() {
+    try {
+      const res = await fetch('/api/admin/settings', { cache: 'no-store' })
+      if (!res.ok) return
+      const json = await res.json()
+      const mode = json.settings?.ingestion_auto_retry as RetryMode | undefined
+      setRetryMode(mode === 'on' || mode === 'smart_once' || mode === 'off' ? mode : 'off')
+      const limit = json.settings?.ingestion_auto_retry_limit
+      setRetryLimit(typeof limit === 'number' ? limit : 1)
+      setEnvOverride(typeof json.env_override === 'string' ? json.env_override : null)
+    } catch {
+      // ignore — toggle just won't render until next refresh
+    }
+  }
+
+  async function saveRetryMode(next: RetryMode) {
+    setSavingMode(true)
+    setRetryMode(next) // optimistic
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'ingestion_auto_retry', value: next }),
+      })
+    } finally {
+      setSavingMode(false)
+    }
+  }
+
+  async function saveRetryLimit(next: number) {
+    setSavingMode(true)
+    setRetryLimit(next)
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'ingestion_auto_retry_limit', value: next }),
+      })
+    } finally {
+      setSavingMode(false)
+    }
+  }
 
   async function sendAllToClaude() {
     setBulkSending(true)
@@ -316,6 +369,97 @@ export function IngestionHealthClient() {
           {bulkResult}
         </div>
       )}
+
+      {/* Auto-retry mode toggle — controls whether the cron + UI heal layers
+          fire automatic retries. Default OFF for cost predictability. */}
+      <section className="rounded-xl border border-border bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-foreground">Auto-retry mode</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Controls whether the cron healer + Documents-page heal endpoint automatically retry failed
+              documents. Inline retries inside a single ingestion run (4× PDF download, 6× OpenAI 429 backoff)
+              still happen regardless — those are safe and bounded.
+            </p>
+          </div>
+        </div>
+
+        {envOverride && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <strong>Env override active:</strong> {envOverride}
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {(
+            [
+              {
+                value: 'off' as const,
+                label: 'Manual only',
+                tone: 'emerald',
+                blurb:
+                  'No automatic retries. You click Retry on each failed doc when you want. Safest for predictable costs.',
+              },
+              {
+                value: 'smart_once' as const,
+                label: 'Smart-retry once',
+                tone: 'amber',
+                blurb:
+                  'Cron retries each doc at most once after a transient failure. Catches genuine blips (OpenAI 429s, signed-URL hiccups) without runaway loops.',
+              },
+              {
+                value: 'on' as const,
+                label: 'Auto-retry full',
+                tone: 'red',
+                blurb:
+                  'Cron retries up to the limit below. Highest recovery rate but also highest risk of double-billing on a misclassified permanent error.',
+              },
+            ] as const
+          ).map((opt) => {
+            const active = retryMode === opt.value
+            const toneRing: Record<typeof opt.tone, string> = {
+              emerald: 'ring-emerald-500 border-emerald-300 bg-emerald-50/40',
+              amber: 'ring-amber-500 border-amber-300 bg-amber-50/40',
+              red: 'ring-red-500 border-red-300 bg-red-50/40',
+            }
+            return (
+              <button
+                key={opt.value}
+                onClick={() => void saveRetryMode(opt.value)}
+                disabled={savingMode}
+                className={
+                  'text-left rounded-lg border px-3 py-3 transition-all disabled:opacity-60 ' +
+                  (active ? `ring-2 ${toneRing[opt.tone]}` : 'border-border hover:border-primary/40')
+                }
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-semibold">{opt.label}</span>
+                  {active && <span className="text-[10px] font-bold uppercase tracking-wide">Active</span>}
+                </div>
+                <p className="text-xs text-muted-foreground">{opt.blurb}</p>
+              </button>
+            )
+          })}
+        </div>
+
+        {retryMode === 'on' && (
+          <div className="mt-3 flex items-center gap-2 text-xs">
+            <label className="font-medium text-foreground">Retry limit per doc:</label>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={retryLimit}
+              onChange={(e) => {
+                const n = Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1))
+                void saveRetryLimit(n)
+              }}
+              className="w-16 px-2 py-1 border border-border rounded-md text-sm"
+            />
+            <span className="text-muted-foreground">attempts (1-10)</span>
+          </div>
+        )}
+      </section>
 
       {loading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
