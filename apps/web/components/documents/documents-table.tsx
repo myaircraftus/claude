@@ -3,10 +3,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { DocumentDetailSlideover } from '@/components/documents/document-detail-slideover'
+import { DocumentProcessingTimeline } from '@/components/documents/processing-timeline'
 import { cn, formatBytes, formatDate, PARSING_STATUS_LABELS } from '@/lib/utils'
 import { resolveStoredDocumentClassification } from '@/lib/documents/taxonomy'
-import { FileText, Plane, Lock, Unlock, Download } from 'lucide-react'
+import { coerceDocumentProcessingState } from '@/lib/documents/processing-state'
+import { FileText, Plane, Lock, Unlock, Download, RotateCcw, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type { Document, ParsingStatus } from '@/types'
+
+// Statuses where the row should also show the step-by-step processing timeline
+// — same look as the upload dropzone — so the user knows exactly where each
+// retry/queue is in the pipeline.
+const TIMELINE_STATUSES: ParsingStatus[] = [
+  'queued',
+  'parsing',
+  'ocr_processing',
+  'chunking',
+  'embedding',
+]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +72,75 @@ export function DocumentsTable({
   const [selected, setSelected] = useState<DocumentRow | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [localDocs, setLocalDocs] = useState(documents)
+  const [bulkRetrying, setBulkRetrying] = useState(false)
+
+  // Fire `/api/documents/[id]/retry` against every selected row in parallel.
+  // The retry endpoint is single-user, so we kick them all off concurrently
+  // and let the auto-poll already in this component refresh statuses live as
+  // each one progresses through the pipeline.
+  async function handleBulkRetry() {
+    const ids = Array.from(checkedIds)
+    if (ids.length === 0) return
+    setBulkRetrying(true)
+    let queued = 0
+    let failed = 0
+    try {
+      // Optimistic — flip every selected row to 'queued' immediately so the
+      // step timeline appears under each one without waiting for the network
+      // round-trip.
+      setLocalDocs((prev) =>
+        prev.map((d) => {
+          if (!checkedIds.has(d.id)) return d
+          if (!['failed', 'needs_ocr', 'queued'].includes(d.parsing_status)) return d
+          // Spread + cast to keep DocumentRow narrow (parse_error is
+          // `string | undefined`, not `string | null`).
+          return { ...d, parsing_status: 'queued' as ParsingStatus, parse_error: undefined } as DocumentRow
+        }),
+      )
+
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await fetch(`/api/documents/${id}/retry`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ force: true }),
+            })
+            if (res.ok) queued += 1
+            else failed += 1
+          } catch {
+            failed += 1
+          }
+        }),
+      )
+
+      if (queued > 0 && failed === 0) {
+        toast.success(`Re-queued ${queued} document${queued === 1 ? '' : 's'}`, {
+          description: 'Steps will appear in each row as processing progresses.',
+        })
+      } else if (queued > 0 && failed > 0) {
+        toast.message(`${queued} re-queued, ${failed} failed`, {
+          description: 'Try the failed ones individually for a specific error message.',
+        })
+      } else if (failed > 0) {
+        toast.error(`Could not re-queue ${failed} document${failed === 1 ? '' : 's'}`)
+      }
+    } finally {
+      setBulkRetrying(false)
+      setCheckedIds(new Set())
+    }
+  }
+
+  const retryableSelectionCount = useMemo(() => {
+    let count = 0
+    for (const doc of localDocs) {
+      if (!checkedIds.has(doc.id)) continue
+      if (['failed', 'needs_ocr', 'queued', 'parsing', 'ocr_processing', 'chunking', 'embedding'].includes(doc.parsing_status)) {
+        count += 1
+      }
+    }
+    return count
+  }, [localDocs, checkedIds])
 
   async function toggleAllowDownload(doc: DocumentRow, e: React.MouseEvent) {
     e.stopPropagation()
@@ -277,6 +360,38 @@ export function DocumentsTable({
 
   return (
     <>
+      {/* Bulk-action toolbar — appears whenever rows are checked. */}
+      {checkedIds.size > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
+          <div className="text-xs text-foreground">
+            <span className="font-semibold">{checkedIds.size}</span> selected
+            {retryableSelectionCount > 0 && retryableSelectionCount !== checkedIds.size && (
+              <span className="text-muted-foreground"> · {retryableSelectionCount} retryable</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCheckedIds(new Set())}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handleBulkRetry}
+              disabled={bulkRetrying || retryableSelectionCount === 0}
+              className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {bulkRetrying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              {bulkRetrying ? 'Re-queueing…' : `Re-run all selected${retryableSelectionCount > 0 ? ` (${retryableSelectionCount})` : ''}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -395,9 +510,30 @@ export function DocumentsTable({
                         {doc.page_count != null ? doc.page_count.toLocaleString() : '—'}
                       </td>
 
-                      {/* Status */}
+                      {/* Status — shows step-by-step pipeline timeline for in-progress docs */}
                       <td className="px-4 py-3">
-                        <StatusBadge status={doc.parsing_status} />
+                        <div className="space-y-2">
+                          <StatusBadge status={doc.parsing_status} />
+                          {TIMELINE_STATUSES.includes(doc.parsing_status) && (
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <DocumentProcessingTimeline
+                                state={
+                                  doc.processing_state
+                                    ? coerceDocumentProcessingState(doc.processing_state, doc.uploaded_at, {
+                                        status: doc.parsing_status,
+                                        pageCount: doc.page_count,
+                                        parseError: doc.parse_error,
+                                        ocrRequired: doc.ocr_required,
+                                        isTextNative: doc.is_text_native,
+                                      })
+                                    : null
+                                }
+                                fallbackStatus={doc.parsing_status}
+                                size="compact"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Size */}

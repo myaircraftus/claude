@@ -21,6 +21,27 @@ import { InviteMechanicModal } from "./InviteMechanicModal";
 import { LiveTrackWidget } from "./LiveTrackWidget";
 import { useIntegrationStore } from "./integrationStore";
 // ADSBManagerPanel moved to /work-orders/[id] — Mechanic flow only.
+import { DocumentProcessingTimeline } from "@/components/documents/processing-timeline";
+import { coerceDocumentProcessingState } from "@/lib/documents/processing-state";
+import { toast } from "sonner";
+
+const TIMELINE_STATUSES_DOCS = new Set([
+  "queued",
+  "parsing",
+  "ocr_processing",
+  "chunking",
+  "embedding",
+]);
+
+const RETRYABLE_STATUSES_DOCS = new Set([
+  "failed",
+  "needs_ocr",
+  "queued",
+  "parsing",
+  "ocr_processing",
+  "chunking",
+  "embedding",
+]);
 
 /* ─── Aircraft DB ─────────────────────────────────────────────── */
 interface AircraftRecord {
@@ -553,6 +574,7 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [docsLoading, setDocsLoading] = useState(false);
   const [activeDocCategory, setActiveDocCategory] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
+  const [docBulkRetrying, setDocBulkRetrying] = useState(false);
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
 
@@ -3229,6 +3251,67 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     return bd.localeCompare(ad)
                   })
 
+                  // Count of currently-visible (filtered) docs that can be retried.
+                  // The bulk button below acts on this set so the user's filter
+                  // chip selection IS the selection.
+                  const retryableCount = sorted.filter((d) =>
+                    RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
+                  ).length
+
+                  async function handleDocsBulkRetry() {
+                    const targets = sorted.filter((d) =>
+                      RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
+                    )
+                    if (targets.length === 0) return
+                    setDocBulkRetrying(true)
+                    // Optimistic flip so each row's timeline starts redrawing
+                    // immediately while the network calls are in flight.
+                    setAircraftDocs((prev) =>
+                      prev.map((d) =>
+                        targets.find((t) => t.id === d.id)
+                          ? { ...d, parsing_status: 'queued' as any, parse_error: null }
+                          : d,
+                      ),
+                    )
+                    let queued = 0
+                    let failed = 0
+                    await Promise.all(
+                      targets.map(async (t) => {
+                        try {
+                          const r = await fetch(`/api/documents/${t.id}/retry`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ force: true }),
+                          })
+                          if (r.ok) queued += 1
+                          else failed += 1
+                        } catch {
+                          failed += 1
+                        }
+                      }),
+                    )
+                    setDocBulkRetrying(false)
+                    if (queued > 0 && failed === 0) {
+                      toast.success(`Re-queued ${queued} document${queued === 1 ? '' : 's'}`, {
+                        description: 'Watch the steps fill in under each row as processing progresses.',
+                      })
+                    } else if (failed > 0 && queued > 0) {
+                      toast.message(`${queued} re-queued, ${failed} failed`)
+                    } else if (failed > 0) {
+                      toast.error(`Could not re-queue ${failed} document${failed === 1 ? '' : 's'}`)
+                    }
+                    // Refresh the list to pick up server-side state.
+                    if (aircraftId) {
+                      try {
+                        const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                        if (r.ok) {
+                          const j = await r.json()
+                          setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                        }
+                      } catch { /* best-effort */ }
+                    }
+                  }
+
                   return (
                     <div className="bg-white rounded-xl border border-border">
                       <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
@@ -3251,15 +3334,33 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                             · drag a row onto a category to reclassify
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
-                          <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                          <input
-                            type="text"
-                            value={docSearch}
-                            onChange={(e) => setDocSearch(e.target.value)}
-                            placeholder="Search documents..."
-                            className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60"
-                          />
+                        <div className="flex items-center gap-2">
+                          {retryableCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleDocsBulkRetry}
+                              disabled={docBulkRetrying}
+                              className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-1.5 rounded-lg text-[12px] hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                              style={{ fontWeight: 600 }}
+                            >
+                              {docBulkRetrying ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                              {docBulkRetrying ? 'Re-queueing…' : `Re-run all (${retryableCount})`}
+                            </button>
+                          )}
+                          <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
+                            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                            <input
+                              type="text"
+                              value={docSearch}
+                              onChange={(e) => setDocSearch(e.target.value)}
+                              placeholder="Search documents..."
+                              className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60"
+                            />
+                          </div>
                         </div>
                       </div>
                       <div className="divide-y divide-border">
@@ -3274,6 +3375,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                         {sorted.slice(0, 50).map((doc) => {
                           const isComplete = doc.parsing_status === 'completed'
                           const isDragging = draggingDocId === doc.id
+                          const showTimeline =
+                            doc.parsing_status != null &&
+                            TIMELINE_STATUSES_DOCS.has(doc.parsing_status)
                           const dateLabel = doc.uploaded_at
                             ? new Date(doc.uploaded_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
                             : '—'
@@ -3290,10 +3394,11 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                 setDraggingDocId(null)
                                 setDragOverCategory(null)
                               }}
-                              className={`group px-5 py-3.5 flex items-center justify-between transition-colors cursor-grab active:cursor-grabbing ${
+                              className={`group px-5 py-3.5 flex flex-col gap-2 transition-colors cursor-grab active:cursor-grabbing ${
                                 isDragging ? 'opacity-50 bg-muted/40' : 'hover:bg-muted/30'
                               }`}
                             >
+                              <div className="flex items-center justify-between">
                               <Link
                                 href={`/documents/${doc.id}`}
                                 className="flex items-center gap-3 min-w-0 flex-1"
@@ -3358,16 +3463,45 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                     Retry
                                   </button>
                                 )}
-                                {/* Needs human review → jump to the OCR review queue */}
+                                {/* Needs human review → jump to the OCR review queue, OR
+                                    re-run the OCR pipeline from scratch with the new RPC-backed
+                                    cleanup path. */}
                                 {doc.parsing_status === 'needs_ocr' && (
-                                  <Link
-                                    href={`/documents/review?document=${doc.id}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200"
-                                    style={{ fontWeight: 600 }}
-                                  >
-                                    Review
-                                  </Link>
+                                  <>
+                                    <Link
+                                      href={`/documents/review?document=${doc.id}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200"
+                                      style={{ fontWeight: 600 }}
+                                    >
+                                      Review
+                                    </Link>
+                                    <button
+                                      type="button"
+                                      title="Re-run OCR from scratch"
+                                      onClick={async (e) => {
+                                        e.preventDefault(); e.stopPropagation()
+                                        try {
+                                          await fetch(`/api/documents/${doc.id}/retry`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ force: true }),
+                                          })
+                                          if (aircraftId) {
+                                            const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                            if (r.ok) {
+                                              const j = await r.json()
+                                              setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                            }
+                                          }
+                                        } catch { /* ignore */ }
+                                      }}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
+                                      style={{ fontWeight: 600 }}
+                                    >
+                                      Re-run
+                                    </button>
+                                  </>
                                 )}
                                 {isComplete && (
                                   <button
@@ -3391,6 +3525,29 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                   <Download className="w-3.5 h-3.5 text-muted-foreground" />
                                 </a>
                               </div>
+                              </div>
+                              {/* Inline step-by-step processing timeline — same look as the
+                                  upload dropzone so the user knows exactly where each retry/queue
+                                  is in the pipeline. */}
+                              {showTimeline && (
+                                <div className="pl-11" onClick={(e) => e.stopPropagation()}>
+                                  <DocumentProcessingTimeline
+                                    state={
+                                      (doc as any).processing_state
+                                        ? coerceDocumentProcessingState((doc as any).processing_state, (doc as any).uploaded_at, {
+                                            status: doc.parsing_status as any,
+                                            pageCount: doc.page_count ?? null,
+                                            parseError: (doc as any).parse_error ?? null,
+                                            ocrRequired: (doc as any).ocr_required ?? null,
+                                            isTextNative: (doc as any).is_text_native ?? null,
+                                          })
+                                        : null
+                                    }
+                                    fallbackStatus={doc.parsing_status as any}
+                                    size="compact"
+                                  />
+                                </div>
+                              )}
                             </div>
                           )
                         })}
