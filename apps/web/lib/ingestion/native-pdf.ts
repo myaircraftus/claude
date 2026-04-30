@@ -22,7 +22,11 @@ const DOCUMENT_AI_MAX_ONLINE_FILE_BYTES = 40 * 1024 * 1024
 const DOCUMENT_AI_TARGET_BATCH_BYTES = 38 * 1024 * 1024
 const DOCUMENT_AI_BATCH_MAX_RETRIES = 2
 const DOCUMENT_AI_BATCH_RETRY_DELAY_MS = 3_000
-const OCR_TEXT_ENRICH_TIMEOUT_MS = 45_000
+// Bumped 45 → 120s. The annotation step does a structured-JSON LLM call on
+// up to 8 OCR'd pages of dense logbook text per batch; 45s was too tight on
+// big pages and routinely killed retries even though the actual OCR /
+// chunking / embedding had already succeeded.
+const OCR_TEXT_ENRICH_TIMEOUT_MS = 120_000
 const OPENAI_OCR_BATCH_TIMEOUT_MS = 75_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
 const TEXTRACT_TIMEOUT_MS = 90_000
@@ -429,12 +433,31 @@ export function getUsableParserServiceUrl(url = process.env.PARSER_SERVICE_URL):
 }
 
 async function downloadPdfBytes(fileUrl: string) {
-  const response = await fetch(fileUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+  // Retry transient failures. Most "Failed to download PDF: 400" errors we
+  // hit come from Supabase storage briefly returning 400 on a fresh signed
+  // URL during heavy concurrent uploads — a quick retry almost always
+  // succeeds. 5xx responses are also retried, with linear backoff.
+  let lastErr: Error | null = null
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const response = await fetch(fileUrl)
+      if (response.ok) {
+        return new Uint8Array(await response.arrayBuffer())
+      }
+      // Non-retryable client errors (auth, not found) — fail fast.
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        throw new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+      }
+      lastErr = new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err))
+      if (/^Failed to download PDF for inline parsing: (401|403|404)$/.test(lastErr.message)) {
+        throw lastErr
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500 * attempt))
   }
-
-  return new Uint8Array(await response.arrayBuffer())
+  throw lastErr ?? new Error('Failed to download PDF for inline parsing: unknown error')
 }
 
 async function loadPdfJs() {
@@ -1064,7 +1087,16 @@ export async function annotateOcrPagesWithOpenAI(args: {
       )
       .join('\n\n---\n\n')
 
-    const response = await withTimeout(getOpenAI().responses.create({
+    // Best-effort: timeouts / OpenAI errors / 429s on this annotation step
+    // must NOT fail the whole ingestion. The OCR text + chunks + embeddings
+    // are already produced — annotation only adds structured-field metadata
+    // (page_classification, extracted_event) which is nice-to-have, not
+    // required for RAG. If a batch fails, we log and continue with the
+    // un-annotated pages; later we still return the pages with default
+    // classifications so the doc completes successfully.
+    let response: Awaited<ReturnType<ReturnType<typeof getOpenAI>['responses']['create']>> | null = null
+    try {
+      response = await withTimeout(getOpenAI().responses.create({
       model: process.env.OPENAI_OCR_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
       temperature: 0,
       max_output_tokens: OCR_MAX_OUTPUT_TOKENS,
@@ -1186,13 +1218,33 @@ export async function annotateOcrPagesWithOpenAI(args: {
     }),
     OCR_TEXT_ENRICH_TIMEOUT_MS,
     `OpenAI OCR annotation timed out after ${Math.round(OCR_TEXT_ENRICH_TIMEOUT_MS / 1000)}s`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(
+        `[ingestion] OCR annotation batch ${startIndex}-${startIndex + batch.length} failed (continuing without enrichment):`,
+        msg,
+      )
+      // Skip this batch — remaining batches still get a chance, and the
+      // pages will fall back to default classifications below.
+      continue
+    }
 
+    if (!response) continue
     const raw = response.output_text?.trim()
     if (!raw) continue
 
-    const parsed = parseOpenAiJsonOutput<{ pages?: OcrTextAnnotationPage[] }>(raw)
-    for (const entry of parsed.pages ?? []) {
-      annotations.set(entry.page_number, entry)
+    try {
+      const parsed = parseOpenAiJsonOutput<{ pages?: OcrTextAnnotationPage[] }>(raw)
+      for (const entry of parsed.pages ?? []) {
+        annotations.set(entry.page_number, entry)
+      }
+    } catch (err) {
+      // JSON parse failure on the LLM's response — also non-fatal, just
+      // skip this batch's annotations.
+      console.warn(
+        `[ingestion] OCR annotation JSON parse failed (continuing without enrichment):`,
+        err instanceof Error ? err.message : err,
+      )
     }
   }
 

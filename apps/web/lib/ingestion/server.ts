@@ -164,6 +164,27 @@ async function batchInsert<T extends Record<string, unknown>>(
   }
 }
 
+// Same as batchInsert but uses upsert with explicit onConflict — for tables
+// where a retry can hit the same (document_id, page_number) pair as a
+// previous half-finished run. Without this, a retry that races a still-
+// running prior attempt fails with `duplicate key value violates unique
+// constraint`. Upsert lets the second writer win idempotently.
+async function batchUpsert<T extends Record<string, unknown>>(
+  supabase: ServiceClient,
+  table: string,
+  rows: T[],
+  onConflict: string,
+  batchSize = 50
+) {
+  for (let index = 0; index < rows.length; index += batchSize) {
+    const batch = rows.slice(index, index + batchSize)
+    const { error } = await supabase.from(table).upsert(batch, { onConflict })
+    if (error) {
+      throw new Error(`Failed to upsert into ${table}: ${error.message}`)
+    }
+  }
+}
+
 function omitKeys<T extends Record<string, unknown>>(row: T, keys: Set<string>) {
   if (keys.size === 0) return row
 
@@ -1790,7 +1811,11 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         char_count: page.char_count ?? page.text.length,
       }))
 
-      await batchInsert(supabase, 'document_pages', pageRows, 50)
+      // Upsert (not insert) so a retry that races a still-running prior
+      // attempt doesn't fail with the document_pages_document_id_page_number_key
+      // unique constraint. Same (document_id, page_number) writes the new
+      // text instead of erroring.
+      await batchUpsert(supabase, 'document_pages', pageRows, 'document_id,page_number', 50)
     }
 
     let requiresHumanReview = false
