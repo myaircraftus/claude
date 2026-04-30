@@ -78,8 +78,16 @@ function buildQueryAliases(queryText: string) {
     aliases.add('100-HOUR')
   }
 
-  if (/ANNUAL/.test(normalized) && /INSPECTION/.test(normalized)) {
+  // Match "annual" alone (most common form in real queries) so chunks that
+  // contain "Annual Inspection" get the keyword-score boost even when the
+  // user's query is just "last annual" / "when's the annual due" etc.
+  if (/\bANNUAL\b/.test(normalized) &&
+      !/\bANNUAL\s+(COST|REPORT|FEE|REVENUE|BUDGET|RATE|SUBSCRIPTION)\b/.test(normalized)) {
     aliases.add('ANNUAL INSPECTION')
+    aliases.add('ANNUAL')
+    // Also bias toward the formal certification language a mechanic writes.
+    aliases.add('IN ACCORDANCE WITH AN ANNUAL')
+    aliases.add('ANNUAL INSPECTION AND FOUND')
   }
 
   return Array.from(aliases)
@@ -90,7 +98,17 @@ function isMaintenanceHistoryQuery(queryText: string) {
 }
 
 function isAnnualInspectionQuery(queryText: string) {
-  return /ANNUAL/i.test(queryText) && /INSPECTION/i.test(queryText)
+  // In aircraft-maintenance context, "annual" almost always refers to the
+  // FAR 91.409 annual inspection. Used to require both "ANNUAL" AND
+  // "INSPECTION", which missed natural queries like "last annual",
+  // "when was the annual", "annual due" — letting the LLM drown those
+  // queries in 100-hour and ELT chunks for tails whose engine logbook
+  // contains many recent 100-hour entries (e.g. N757VB).
+  // We accept ANNUAL alone, but exclude false-positive contexts like
+  // "annual cost" / "annual report" / "annual fee".
+  if (!/\bANNUAL\b/i.test(queryText)) return false
+  if (/\bANNUAL\s+(COST|REPORT|FEE|REVENUE|BUDGET|REPORT|RATE|SUBSCRIPTION)\b/i.test(queryText)) return false
+  return true
 }
 
 function isOverhaulQuery(queryText: string) {
