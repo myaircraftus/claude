@@ -22,6 +22,7 @@ import { LiveTrackWidget } from "./LiveTrackWidget";
 import { useIntegrationStore } from "./integrationStore";
 // ADSBManagerPanel moved to /work-orders/[id] — Mechanic flow only.
 import { DocumentProcessingTimeline } from "@/components/documents/processing-timeline";
+import { MoveCategoryMenu } from "@/components/documents/move-category-menu";
 import { coerceDocumentProcessingState } from "@/lib/documents/processing-state";
 import { toast } from "sonner";
 
@@ -575,6 +576,8 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [activeDocCategory, setActiveDocCategory] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState("");
   const [docBulkRetrying, setDocBulkRetrying] = useState(false);
+  const [classifyBackfilling, setClassifyBackfilling] = useState(false);
+  const [classifyToast, setClassifyToast] = useState<string | null>(null);
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
 
@@ -3260,6 +3263,14 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
                   ).length
 
+                  // Count of docs in this aircraft that are sitting in the
+                  // catch-all "Other documents" bucket (uncategorized). Drives
+                  // the "Sort into folders" button below.
+                  const uncategorizedCount = sorted.filter((d) => {
+                    const did = (d as any).document_detail_id
+                    return !did || did === 'master_document_register'
+                  }).length
+
                   async function handleDocsBulkRetry() {
                     const targets = sorted.filter((d) =>
                       RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
@@ -3337,6 +3348,49 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
+                          {uncategorizedCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setClassifyBackfilling(true)
+                                setClassifyToast('AI is classifying — this can take 30-60s for 25 docs.')
+                                try {
+                                  const res = await fetch('/api/admin/classify-backfill', { method: 'POST' })
+                                  const json = await res.json()
+                                  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+                                  setClassifyToast(
+                                    `✓ Sorted ${json.classified} doc${json.classified === 1 ? '' : 's'} into specific folders. ${json.remaining} remaining ${
+                                      json.remaining > 0 ? '— click again to continue.' : 'across all aircraft.'
+                                    }`,
+                                  )
+                                  // Refresh the doc list so categories update
+                                  if (aircraftId) {
+                                    const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                    if (r.ok) {
+                                      const j = await r.json()
+                                      setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                    }
+                                  }
+                                } catch (err) {
+                                  setClassifyToast(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+                                } finally {
+                                  setClassifyBackfilling(false)
+                                  window.setTimeout(() => setClassifyToast(null), 8000)
+                                }
+                              }}
+                              disabled={classifyBackfilling}
+                              className="inline-flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-[12px] hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                              style={{ fontWeight: 600 }}
+                              title="AI classifies each uncategorized doc into a specific bucket (engine logbook, AD compliance, etc.)"
+                            >
+                              {classifyBackfilling ? (
+                                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5" />
+                              )}
+                              {classifyBackfilling ? 'Sorting…' : `Sort into folders (${uncategorizedCount})`}
+                            </button>
+                          )}
                           {retryableCount > 0 && (
                             <button
                               type="button"
@@ -3365,6 +3419,20 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                           </div>
                         </div>
                       </div>
+                      {classifyToast && (
+                        <div
+                          className={
+                            'px-5 py-2 text-[12px] border-b border-border ' +
+                            (classifyToast.startsWith('✓')
+                              ? 'bg-emerald-50 text-emerald-800'
+                              : classifyToast.startsWith('Failed')
+                                ? 'bg-red-50 text-red-800'
+                                : 'bg-violet-50 text-violet-800')
+                          }
+                        >
+                          {classifyToast}
+                        </div>
+                      )}
                       <div className="divide-y divide-border">
                         {docsLoading && aircraftDocs.length === 0 && (
                           <div className="px-5 py-6 text-[12px] text-muted-foreground italic">Loading documents…</div>
@@ -3506,15 +3574,38 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                   </>
                                 )}
                                 {isComplete && (
-                                  <button
-                                    type="button"
-                                    title="Reclassify with AI"
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void aiReclassifyDoc(doc.id) }}
-                                    className="p-1.5 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                    aria-label="Reclassify with AI"
-                                  >
-                                    <Sparkles className="w-3.5 h-3.5 text-primary" />
-                                  </button>
+                                  <>
+                                    {/* Move-to-category menu — fix-up tool when AI picks the
+                                        wrong bucket. Always visible for completed docs so the
+                                        user can see at a glance that moving is one click away. */}
+                                    <MoveCategoryMenu
+                                      documentId={doc.id}
+                                      currentDetailId={(doc as any).document_detail_id ?? null}
+                                      onMoved={({ groupId, detailId, docType }) => {
+                                        setAircraftDocs((prev) =>
+                                          prev.map((d) =>
+                                            d.id === doc.id
+                                              ? {
+                                                  ...d,
+                                                  document_group_id: groupId,
+                                                  document_detail_id: detailId,
+                                                  doc_type: docType,
+                                                } as any
+                                              : d,
+                                          ),
+                                        )
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      title="Reclassify with AI"
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void aiReclassifyDoc(doc.id) }}
+                                      className="p-1.5 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                      aria-label="Reclassify with AI"
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                    </button>
+                                  </>
                                 )}
                                 <a
                                   href={`/api/documents/${doc.id}/preview?download=1`}

@@ -14,6 +14,7 @@
 import OpenAI from 'openai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DocType } from '@/types'
+import { inferLegacyClassification } from '@/lib/documents/taxonomy'
 
 const VALID_DOC_TYPES: ReadonlyArray<DocType> = [
   'logbook',
@@ -126,11 +127,26 @@ export async function autoClassifyDocument(
       ? (parsed.subtype as LogbookSubtype)
       : null
 
+  // Map doc_type → (group_id, detail_id) so the doc actually lands in a
+  // specific bucket on the Aircraft Documents tab instead of the catch-all
+  // "Other documents" bin (master_document_register). For logbooks, the
+  // subtype overrides the default detail_id so engine vs airframe vs prop
+  // each get their own bucket.
+  const { groupId, detailId: baseDetailId } = inferLegacyClassification(docType)
+  let detailId = baseDetailId
+  if (docType === 'logbook' && subtype) {
+    if (subtype === 'engine_logbook') detailId = 'engine_logbooks'
+    else if (subtype === 'airframe_logbook') detailId = 'airframe_logbooks'
+    else if (subtype === 'prop_logbook') detailId = 'propeller_logbooks'
+  }
+
   await supabase
     .from('documents')
     .update({
       doc_type: docType,
       document_subtype: subtype,
+      document_group_id: groupId,
+      document_detail_id: detailId,
       updated_at: new Date().toISOString(),
     })
     .eq('id', documentId)
