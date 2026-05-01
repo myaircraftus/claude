@@ -2065,16 +2065,39 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           now: completedAt,
         })
 
+    // Doc is fully ingested either way — chunks + embeddings exist.
+    // requiresHumanReview just means the OCR confidence was low (typically
+    // handwriting). We now land everything as 'completed' and use the
+    // dedicated needs_human_review flag for the UI hint, so the user has
+    // a clean inbox of "docs to manually verify" without polluting the
+    // pipeline status.
     await persistDocumentProcessingState({
       supabase,
       documentId,
       state: processingState,
       patch: {
-        parsing_status: requiresHumanReview ? 'needs_ocr' : 'completed',
+        parsing_status: 'completed',
         parse_completed_at: completedAt,
         parse_error: null,
       },
     })
+    if (requiresHumanReview) {
+      await supabase
+        .from('documents')
+        .update({
+          needs_human_review: true,
+          human_review_reason: 'Low-confidence or handwritten OCR — verify accuracy.',
+          updated_at: completedAt,
+        })
+        .eq('id', documentId)
+    } else {
+      // Clear the flag if a fresh successful OCR run replaces an older
+      // low-confidence one.
+      await supabase
+        .from('documents')
+        .update({ needs_human_review: false, human_review_reason: null })
+        .eq('id', documentId)
+    }
 
     // Mark any prior failure log rows for this doc as recovered, so the
     // admin dashboard can show "auto-recovered after N attempts" instead
@@ -2093,7 +2116,7 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       }
     })()
 
-    return { mode: 'inline', status: requiresHumanReview ? 'needs_ocr' : 'completed' }
+    return { mode: 'inline', status: 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'
     if (error instanceof OcrNotConfiguredError || (error as { name?: string })?.name === 'OcrNotConfiguredError') {

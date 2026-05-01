@@ -570,6 +570,9 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
     file_size_bytes: number | null
     uploaded_at: string | null
     updated_at: string | null
+    needs_human_review?: boolean | null
+    human_review_reason?: string | null
+    human_reviewed_at?: string | null
   }
   const [aircraftDocs, setAircraftDocs] = useState<AircraftDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -3493,17 +3496,52 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                                 <span className={`text-[11px] px-2 py-0.5 rounded-full ${
                                   isComplete ? 'bg-emerald-50 text-emerald-700' :
                                   doc.parsing_status === 'failed' ? 'bg-red-50 text-red-700' :
-                                  doc.parsing_status === 'needs_ocr' ? 'bg-amber-50 text-amber-700' :
                                   'bg-amber-50 text-amber-700'
                                 }`} style={{ fontWeight: 600 }} title={doc.parse_error ?? undefined}>
                                   {isComplete
                                     ? 'Indexed'
                                     : doc.parsing_status === 'failed'
                                     ? 'Failed'
-                                    : doc.parsing_status === 'needs_ocr'
-                                    ? 'Needs review'
                                     : (doc.parsing_status ?? 'Processing').replace(/_/g, ' ')}
                                 </span>
+                                {/* Human-review badge — separate from pipeline status. Shows when
+                                    OCR finished with low confidence (handwriting). One click clears
+                                    it and records who/when reviewed via PATCH. */}
+                                {doc.needs_human_review && (
+                                  <button
+                                    type="button"
+                                    title={doc.human_review_reason ?? 'Click after manually verifying the OCR text accuracy'}
+                                    onClick={async (e) => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      // Optimistic update.
+                                      setAircraftDocs((prev) =>
+                                        prev.map((d) =>
+                                          d.id === doc.id
+                                            ? { ...d, needs_human_review: false, human_reviewed_at: new Date().toISOString() }
+                                            : d,
+                                        ),
+                                      )
+                                      try {
+                                        await fetch(`/api/documents/${doc.id}`, {
+                                          method: 'PATCH',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ needs_human_review: false }),
+                                        })
+                                      } catch {
+                                        // revert on error
+                                        setAircraftDocs((prev) =>
+                                          prev.map((d) =>
+                                            d.id === doc.id ? { ...d, needs_human_review: true } : d,
+                                          ),
+                                        )
+                                      }
+                                    }}
+                                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 inline-flex items-center gap-1"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    <Eye className="w-3 h-3" /> Needs review
+                                  </button>
+                                )}
                                 {/* Failed → Retry triggers /api/documents/[id]/retry; replaces a
                                     full-page reload after a quota top-up so the user keeps state. */}
                                 {doc.parsing_status === 'failed' && (
