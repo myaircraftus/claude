@@ -30,6 +30,7 @@ import type {
   ActionCardCategory,
   ActionCardPriority,
 } from './types'
+import { sendNotification } from '@/lib/notifications/dispatch'
 
 /* ─── Rule type ──────────────────────────────────────────────────────── */
 
@@ -223,7 +224,7 @@ export async function tickOrchestrator(
       }
     }
 
-    const { error: insErr } = await supabase
+    const { data: inserted, error: insErr } = await supabase
       .from('ai_action_cards')
       .insert({
         organization_id: card.organization_id,
@@ -239,8 +240,37 @@ export async function tickOrchestrator(
         dedupe_key: card.dedupe_key ?? null,
         source_signal_id: card.source_signal_id ?? null,
       })
-    if (insErr) result.errors.push(`insert card: ${insErr.message}`)
-    else result.cards_emitted += 1
+      .select('id')
+      .single()
+    if (insErr) {
+      result.errors.push(`insert card: ${insErr.message}`)
+      continue
+    }
+    result.cards_emitted += 1
+
+    // Spec 0.4 cross-wire: every newly-inserted urgent/high card also fires
+    // a notification through the unified dispatcher. Lower-priority cards
+    // (normal/low) live in the AI Inbox without paging the user. Failures
+    // here do NOT block the orchestrator — they're collected as warnings.
+    const shouldPage = card.priority === 'urgent' || card.priority === 'high'
+    if (shouldPage) {
+      try {
+        const dispatch = await sendNotification(supabase, {
+          organization_id: card.organization_id,
+          user_id: 'all-org-members',
+          category: card.category,
+          title: card.title,
+          body: card.body,
+          link: '/inbox',
+          source_card_id: (inserted as { id: string }).id,
+          source_kind: 'ai_action_card',
+          source_id: (inserted as { id: string }).id,
+        })
+        result.errors.push(...dispatch.errors)
+      } catch (e: any) {
+        result.errors.push(`notify card: ${e?.message ?? e}`)
+      }
+    }
   }
 
   // 4. Mark signals processed

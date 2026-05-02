@@ -1,7 +1,7 @@
 'use client'
 
 import Link, { useTenantRouter } from '@/components/shared/tenant-link'
-import { Bell, LogOut, Search, User } from 'lucide-react'
+import { LogOut, Search, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
@@ -15,6 +15,7 @@ import {
 import { createBrowserSupabase } from '@/lib/supabase/browser'
 import { FeedbackDialog } from '@/components/shared/feedback-dialog'
 import { SupportDialog } from '@/components/shared/support-dialog'
+import { NotificationBell } from '@/components/notifications/notification-bell'
 import type { UserProfile } from '@/types'
 
 interface TopbarProps {
@@ -67,9 +68,7 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
         <FeedbackDialog />
         <SupportDialog />
 
-        <Button variant="ghost" size="icon" className="text-muted-foreground">
-          <Bell className="h-4 w-4" />
-        </Button>
+        <NotificationBell />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
