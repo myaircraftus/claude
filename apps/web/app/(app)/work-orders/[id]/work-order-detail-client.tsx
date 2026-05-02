@@ -31,6 +31,7 @@ import { ESignatureModal, SignatureBlock, type SignatureResult } from '@/compone
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import { ADSBManagerPanel } from '@/components/aircraft/ad-sb-manager'
+import { WoToolsPanel } from '@/components/work-orders/wo-tools-panel'
 import type { WorkOrder, WorkOrderLine, WorkOrderLineType, WorkOrderStatus } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ type TabId =
   | 'aisummary'
   | 'ownerview'
   | 'adsb'
+  | 'tools'
   | 'logbook'
   | 'invoice'
 
@@ -100,6 +102,7 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
   { id: 'aisummary', label: 'AI Summary', icon: Bot },
   { id: 'ownerview', label: 'Owner View', icon: Eye },
   { id: 'adsb', label: 'AD / SB', icon: ShieldCheck },
+  { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'logbook', label: 'Logbook', icon: BookOpen },
   { id: 'invoice', label: 'Invoice', icon: Receipt },
 ]
@@ -1374,6 +1377,14 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                 Link an aircraft to this work order to manage AD / SB compliance.
               </div>
             )}
+          </div>
+        )}
+
+        {/* Tools used — sprint 2.6.1 cross-wire. Adding an overdue tool is
+            blocked server-side at /api/work-orders/[id]/tools (returns 409). */}
+        {tab === 'tools' && (
+          <div className="p-6 max-w-3xl mx-auto">
+            <WoToolsPanel workOrderId={wo.id} />
           </div>
         )}
 

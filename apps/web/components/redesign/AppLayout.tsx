@@ -70,6 +70,7 @@ const ownerNavItems: NavItem[] = [
   { icon: Package,         label: "Parts",            href: "/parts" },
   { icon: ShoppingCart,    label: "Purchase orders",  href: "/purchase-orders" },
   { icon: Truck,           label: "Vendors",          href: "/vendors" },
+  { icon: Wrench,          label: "Tools",            href: "/tools" },
   { icon: Timer,           label: "Time clock",       href: "/time-clock" },
   // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
   { icon: CalendarDays,    label: "Scheduler",        href: "/scheduler" },
@@ -132,6 +133,7 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
     items.push({ icon: Package,        label: "Parts",       href: "/parts" });
     items.push({ icon: ShoppingCart,   label: "Purchase orders", href: "/purchase-orders" });
     items.push({ icon: Truck,          label: "Vendors",     href: "/vendors" });
+    items.push({ icon: Wrench,         label: "Tools",       href: "/tools" });
     items.push({ icon: Timer,          label: "Time clock",  href: "/time-clock" });
     // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
     items.push({ icon: CalendarDays,   label: "Scheduler",   href: "/scheduler" });

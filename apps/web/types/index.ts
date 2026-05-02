@@ -1180,6 +1180,85 @@ export type ShiftCoverStatus = 'open' | 'claimed' | 'approved' | 'rejected'
  *   3. Manager approves/rejects → status flips to 'approved' (also flips the
  *      original Shift.status to 'swapped' + reassigns) or 'rejected'.
  */
+/* ─── Tool Management & Calibration (Spec 2.6.1) ─────────────────────────── */
+
+export type ToolCategory = 'torque' | 'measuring' | 'test-equipment' | 'jig' | 'lift' | 'borescope' | 'other'
+export type ToolStatus = 'in-use' | 'available' | 'out-for-calibration' | 'out-of-service' | 'lost' | 'retired'
+export type CalibrationResult = 'pass' | 'fail' | 'adjusted'
+export type ToolReturnCondition = 'ok' | 'damaged' | 'needs-recalibration'
+
+export interface Tool {
+  id: string
+  organization_id: string
+  location_id?: string | null
+  serial_number: string
+  name: string
+  category: ToolCategory
+  manufacturer?: string | null
+  model?: string | null
+  purchase_date?: string | null
+  purchase_cost?: number | null
+  storage_location?: string | null
+  status: ToolStatus
+  calibration_required: boolean
+  calibration_interval_months?: number | null
+  calibration_interval_uses?: number | null
+  tolerance_days: number
+  last_calibration_date?: string | null
+  last_calibration_by?: string | null
+  last_calibration_cert_number?: string | null
+  next_calibration_date?: string | null
+  checked_out_by?: string | null
+  checked_out_at?: string | null
+  checked_out_to_work_order?: string | null
+  certificate_urls: string[]
+  manual_url?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CalibrationEvent {
+  id: string
+  organization_id: string
+  tool_id: string
+  performed_at: string
+  performed_by: string
+  certificate_number?: string | null
+  result: CalibrationResult
+  cost?: number | null
+  notes?: string | null
+  certificate_url?: string | null
+  next_due_date: string
+  logged_by: string
+  created_at: string
+}
+
+export interface ToolCheckout {
+  id: string
+  organization_id: string
+  tool_id: string
+  user_id: string
+  work_order_id?: string | null
+  checked_out_at: string
+  returned_at?: string | null
+  condition_at_return?: ToolReturnCondition | null
+  notes?: string | null
+  created_at: string
+}
+
+export interface WorkOrderToolUse {
+  id: string
+  organization_id: string
+  work_order_id: string
+  tool_id: string
+  was_overdue: boolean
+  used_at: string
+  used_by: string
+  notes?: string | null
+  created_at: string
+}
+
 /* ─── Daily Clock In/Out (Spec 2.5.3) ─────────────────────────────────────── */
 
 export type ClockEventStatus = 'clocked-in' | 'on-break' | 'clocked-out'
