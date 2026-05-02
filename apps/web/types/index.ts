@@ -878,3 +878,39 @@ export interface InspectionResult {
   created_at: string
   updated_at: string
 }
+
+/* ─── Continued Items / Deferred Maintenance (Spec 1.4) ──────────────────── */
+
+export type ContinuedItemStatus = 'open' | 'in-progress' | 'completed' | 'wont-fix'
+
+export type ContinuedItemPriority = 'low' | 'medium' | 'high' | 'urgent'
+
+/**
+ * Found-but-deferred maintenance work. Discovered during one work order,
+ * resolved (often) on a different one. The item follows the *aircraft*,
+ * not the WO — `discovered_on_work_order` and `resolved_on_work_order`
+ * are both nullable FKs with ON DELETE SET NULL so deleting old WOs
+ * doesn't wipe the deferred item history.
+ *
+ * `related_compliance_item` optionally bridges to Sprint 1.2 (e.g. a
+ * deferred AD compliance item that the operator is choosing to delay).
+ */
+export interface ContinuedItem {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  description: string
+  discovered_on_work_order?: string | null
+  discovered_date: string
+  discovered_by?: string | null
+  status: ContinuedItemStatus
+  priority: ContinuedItemPriority
+  resolved_on_work_order?: string | null
+  resolved_at?: string | null
+  resolved_by?: string | null
+  related_compliance_item?: string | null
+  notes?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
