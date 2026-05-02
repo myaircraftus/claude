@@ -3,6 +3,7 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
 import type { UserProfile } from '@/types'
 import { CustomerDetail } from './customer-detail'
+import { ThreadPanel } from '@/components/portal/thread-panel'
 
 export default async function CustomerDetailPage({
   params,
@@ -104,6 +105,12 @@ export default async function CustomerDetailPage({
             invoiceCount={invoiceCount}
             invoiceTotal={invoiceTotal}
             orgAircraft={orgAircraft ?? []}
+          />
+          <ThreadPanel
+            apiBase="/api"
+            customerId={customer.id}
+            viewerRole="mechanic"
+            heading={`Messages with ${customer.name}`}
           />
         </div>
       </main>

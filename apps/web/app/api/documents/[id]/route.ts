@@ -228,6 +228,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     'document_subtype',
     'revision',
     'allow_download',
+    'needs_human_review',
     'community_listing',
     'manual_access',
     'marketplace_downloadable',
@@ -244,6 +245,21 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       const rawValue = body[field]
       patch[field] =
         typeof rawValue === 'string' ? (rawValue.trim() === '' ? null : rawValue.trim()) : rawValue
+    }
+  }
+
+  // When the user marks the doc as reviewed (flips needs_human_review=false),
+  // capture WHO and WHEN so we can show "reviewed by Andy on 2026-04-30" on
+  // the doc row. When they re-flag it (true), clear the prior reviewed_at
+  // so the next reviewer's signoff is recorded fresh.
+  if ('needs_human_review' in patch) {
+    if (patch.needs_human_review === false) {
+      patch.human_reviewed_at = new Date().toISOString()
+      patch.human_reviewed_by_user_id = user.id
+      patch.human_review_reason = null
+    } else if (patch.needs_human_review === true) {
+      patch.human_reviewed_at = null
+      patch.human_reviewed_by_user_id = null
     }
   }
 

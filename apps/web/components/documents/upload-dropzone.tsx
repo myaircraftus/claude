@@ -3,7 +3,8 @@
 import Link from '@/components/shared/tenant-link'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp } from 'lucide-react'
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Loader2, Lock, Users, ChevronDown, ChevronUp, RefreshCw, Sparkles } from 'lucide-react'
+import { personaCanUpload, buildPersonaRejection } from '@/lib/documents/persona-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -85,7 +86,7 @@ const MECHANIC_CHIPS: QuickChip[] = [
   { label: 'TCDS', groupId: 'airworthiness_and_certification', detailId: 'type_certificate_data_sheet_tcds' },
 ]
 
-const MAX_UPLOAD_FILE_SIZE_BYTES = 250 * 1024 * 1024
+const MAX_UPLOAD_FILE_SIZE_BYTES = 500 * 1024 * 1024
 const COMPACT_STAGE_ORDER = DOCUMENT_PROCESSING_STAGE_ORDER.filter((stage) => stage !== 'ocr_fallback')
 const COMPACT_STAGE_LABELS: Partial<Record<DocumentProcessingState['current_stage'], string>> = {
   uploaded: 'Uploaded',
@@ -182,7 +183,7 @@ function normalizeUploadErrorMessage(message: string) {
     lowered.includes('maximum allowed size') ||
     lowered.includes('object exceeded')
   ) {
-    return 'Storage rejected this upload as too large. The app is configured for files up to 250 MB, so if you still see this it is coming from the active storage provider limit or transport path.'
+    return 'Storage rejected this upload as too large. The app is configured for files up to 500 MB, so if you still see this it is coming from the active storage provider limit or transport path.'
   }
 
   return message
@@ -205,10 +206,9 @@ function readPersistedRecentUploads(): RecentUploadItem[] {
         fileName: typeof item.fileName === 'string' ? item.fileName : 'Uploaded document',
         fileSize: typeof item.fileSize === 'number' ? item.fileSize : 0,
         aircraftId: typeof item.aircraftId === 'string' ? item.aircraftId : undefined,
-        status:
-          item.status === 'completed' || item.status === 'error'
-            ? item.status
-            : 'processing',
+        status: (item.status === 'completed' || item.status === 'error'
+          ? item.status
+          : 'processing') as RecentUploadItem['status'],
         progress: typeof item.progress === 'number' ? item.progress : 0,
         error: typeof item.error === 'string' ? item.error : undefined,
         processingState: (item.processingState as DocumentProcessingState | null | undefined) ?? null,
@@ -889,7 +889,7 @@ export function UploadDropzone({
       }
 
       if (hasSizeError) {
-        setDropError('This file is larger than the 250 MB upload limit.')
+        setDropError('This file is larger than the 500 MB upload limit.')
         return
       }
 
@@ -1129,6 +1129,17 @@ export function UploadDropzone({
   }
 
   async function uploadFile(item: FileUploadItem): Promise<void> {
+    // Client-side persona-scope pre-check: skip the round-trip to storage if
+    // the user is on Mechanic persona and tries to upload an owner-only
+    // doc type. Saves them a 350MB upload that we'd just reject server-side.
+    if (!personaCanUpload(persona, item.docType)) {
+      updateFile(item.id, {
+        status: 'error',
+        error: buildPersonaRejection(item.docType),
+      })
+      return
+    }
+
     updateFile(item.id, { status: 'uploading', progress: 0 })
 
     try {
@@ -1213,6 +1224,11 @@ export function UploadDropzone({
           manualAccess: isManualType(item.docType) ? item.manualAccess : null,
           price: isManualType(item.docType) && item.manualAccess === 'paid' ? item.price : null,
           attestation: isManualType(item.docType) ? item.attestation : false,
+          // Send the active UI persona so the server can enforce the strict
+          // scope rule: mechanics can't upload aircraft-specific records
+          // (logbook, registration, work_order, etc.) — server rejects with
+          // a clear PERSONA_SCOPE_BLOCKED error if the docType doesn't fit.
+          persona,
         }),
       })
 
@@ -1224,11 +1240,12 @@ export function UploadDropzone({
       if (!completeResponse.ok || !completePayload.document_id) {
         throw new Error(completePayload.error || `Upload failed (${completeResponse.status})`)
       }
+      const documentId: string = completePayload.document_id
 
       updateFile(item.id, {
         status: 'processing',
         progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
-        documentId: completePayload.document_id,
+        documentId,
         error: undefined,
         processingState: buildInitialDocumentProcessingState(),
       })
@@ -1237,19 +1254,19 @@ export function UploadDropzone({
         [
           {
             id: item.id,
-            documentId: completePayload.document_id,
+            documentId,
             fileName: item.file.name,
             fileSize: item.file.size,
             aircraftId: item.aircraftId,
-            status: 'processing',
+            status: 'processing' as const,
             progress: getDocumentProcessingProgress(buildInitialDocumentProcessingState(), 'queued'),
             processingState: buildInitialDocumentProcessingState(),
           },
-          ...prev.filter((candidate) => candidate.documentId !== completePayload.document_id),
+          ...prev.filter((candidate) => candidate.documentId !== documentId),
         ].slice(0, 20)
       )
 
-      void kickOffDocumentProcessing(completePayload.document_id, item.id)
+      void kickOffDocumentProcessing(documentId, item.id)
     } catch (err) {
       updateFile(item.id, {
         status: 'error',
@@ -1280,9 +1297,31 @@ export function UploadDropzone({
 
     setIsUploading(true)
     try {
-      for (const item of pending) {
-        await uploadFile(item)
-      }
+      // Run uploads with bounded concurrency. Each uploadFile() does:
+      //   1. POST /api/upload/init    (small, fast)
+      //   2. PUT to Supabase Storage  (network-bound, file size dependent)
+      //   3. POST /api/upload/complete (small, returns immediately because
+      //      ingestion is fire-and-forget on the server now)
+      // Sequential was making "upload 11 logbooks" feel stuck — even though
+      // step 3 returns fast now, we want network parallelism on step 2.
+      const CONCURRENCY = 3
+      const queue = [...pending]
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        // Each worker pulls the next pending item until the queue drains.
+        // This way a slow upload can't block the others — a fresh worker
+        // grabs the next file as soon as any worker frees up.
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const item = queue.shift()
+          if (!item) return
+          try {
+            await uploadFile(item)
+          } catch (err) {
+            console.error('[upload-dropzone] worker upload failed', err)
+          }
+        }
+      })
+      await Promise.all(workers)
     } finally {
       setIsUploading(false)
     }
@@ -1348,14 +1387,45 @@ export function UploadDropzone({
           </div>
         )}
 
-        {/* Quick-select category chips */}
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <Label className="text-xs font-medium text-muted-foreground">Category</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">{chipSectionLabel}</p>
+        {/* Category — AI auto-classify by default. Manual override is opt-in. */}
+        {!defaultDocumentDetailSelection ? (
+          // Default state: AI takes care of it. Show a calm callout with a
+          // single "Set manually" link for the rare case where the user wants
+          // to force a category up front.
+          <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3">
+            <div className="flex items-start gap-2">
+              <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                <Sparkles className="w-3.5 h-3.5 text-brand-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground">
+                  AI will auto-categorize from the file contents
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  We read the title and the first ~12 chunks after upload, then sort it into Engine /
+                  Airframe / Propeller logbook (or POH, work order, AD, etc.) automatically. You don&apos;t
+                  need to pick anything.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen(true)}
+                  className="mt-1.5 text-[11px] text-brand-700 hover:text-brand-800 transition-colors"
+                >
+                  Set category manually instead →
+                </button>
+              </div>
             </div>
-            {defaultDocumentDetailSelection && (
+          </div>
+        ) : (
+          // The user has explicitly picked a category. Show the chips so they
+          // can switch without scrolling, plus a clear "back to auto-classify"
+          // button so they're never stuck in manual mode.
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground">Category (manual)</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{chipSectionLabel}</p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -1363,37 +1433,34 @@ export function UploadDropzone({
                   setDefaultDocumentGroupSelection(DOCUMENT_TAXONOMY_GROUPS[0]?.id ?? '__none__')
                   setClassificationSearch('')
                 }}
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                className="text-[11px] text-brand-700 hover:text-brand-800 transition-colors"
               >
-                Clear
+                ← Back to AI auto-classify
               </button>
-            )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {quickChips.map((chip) => (
+                <button
+                  key={chip.detailId}
+                  type="button"
+                  onClick={() => {
+                    setDefaultDocumentGroupSelection(chip.groupId)
+                    setDefaultDocumentDetailSelection(chip.detailId)
+                    setClassificationSearch('')
+                  }}
+                  className={cn(
+                    'px-2.5 py-1 rounded-full text-xs border transition-colors',
+                    defaultDocumentDetailSelection === chip.detailId
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground',
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {quickChips.map((chip) => (
-              <button
-                key={chip.detailId}
-                type="button"
-                onClick={() => {
-                  setDefaultDocumentGroupSelection(chip.groupId)
-                  setDefaultDocumentDetailSelection(chip.detailId)
-                  setClassificationSearch('')
-                }}
-                className={cn(
-                  'px-2.5 py-1 rounded-full text-xs border transition-colors',
-                  defaultDocumentDetailSelection === chip.detailId
-                    ? 'bg-brand-600 text-white border-brand-600'
-                    : 'bg-background text-muted-foreground border-border hover:border-brand-300 hover:text-foreground'
-                )}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Skip this and we&apos;ll use AI to categorize from the file&apos;s contents.
-          </p>
-        </div>
+        )}
 
         {/* Advanced options — collapsed by default */}
         <div className="border-t border-border pt-3">
@@ -1543,7 +1610,7 @@ export function UploadDropzone({
             <p className="text-sm font-medium text-foreground">
               {isDragActive ? 'Drop PDFs here' : 'Drag & drop PDFs, or click to browse'}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 250 MB per file</p>
+            <p className="text-xs text-muted-foreground mt-1">PDF only · Max 500 MB per file</p>
           </div>
         </div>
       </div>
@@ -1639,15 +1706,59 @@ export function UploadDropzone({
                     )}
                   </div>
 
-                  {item.status !== 'uploading' && (
-                    <button
-                      type="button"
-                      onClick={() => removeFile(item.id)}
-                      className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Retry button for failed items.
+                        - If the doc already has a documentId (upload + DB
+                          insert succeeded but ingestion later threw — e.g.
+                          OpenAI 429), we POST to /api/documents/[id]/retry
+                          and re-run the inline pipeline. No re-upload needed.
+                        - Otherwise the upload itself never reached the server,
+                          so we just flip status back to 'pending' and let the
+                          user click "Re-upload all" or run uploadFile directly. */}
+                    {item.status === 'error' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (item.documentId) {
+                            updateFile(item.id, { status: 'processing', error: undefined, progress: 5 })
+                            try {
+                              const res = await fetch(`/api/documents/${item.documentId}/retry`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ force: true }),
+                              })
+                              if (!res.ok) {
+                                const payload = await res.json().catch(() => ({}))
+                                throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                              }
+                              updateFile(item.id, { progress: 100 })
+                            } catch (err) {
+                              updateFile(item.id, {
+                                status: 'error',
+                                error: err instanceof Error ? err.message : 'Retry failed',
+                              })
+                            }
+                          } else {
+                            // Never made it to the server — try the whole upload again
+                            updateFile(item.id, { status: 'pending', error: undefined, progress: 0 })
+                            void uploadFile({ ...item, status: 'pending', error: undefined, progress: 0 })
+                          }
+                        }}
+                        className="text-xs text-primary hover:text-primary/80 font-medium"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    {item.status !== 'uploading' && (
+                      <button
+                        type="button"
+                        onClick={() => removeFile(item.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Form fields — only when pending or error */}
@@ -1940,11 +2051,65 @@ export function UploadDropzone({
 
       {recentUploads.length > 0 && (
         <div className="space-y-2">
-          <div>
-            <h3 className="text-sm font-medium text-foreground">Processing & recent uploads</h3>
-            <p className="text-xs text-muted-foreground">
-              Live status from the saved document rows. This section survives refresh.
-            </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Processing & recent uploads</h3>
+              <p className="text-xs text-muted-foreground">
+                Live status from the saved document rows. This section survives refresh.
+              </p>
+            </div>
+            {/* Bulk retry — tops-up the OpenAI quota then click once to retry
+                every failed doc instead of clicking each Retry button. */}
+            {recentUploads.some((r) => r.status === 'error' && r.documentId) && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const targets = recentUploads.filter((r) => r.status === 'error' && r.documentId)
+                  // Optimistically flip them all to processing so the user sees progress
+                  setRecentUploads((prev) =>
+                    prev.map((r) =>
+                      targets.find((t) => t.id === r.id)
+                        ? { ...r, status: 'processing', error: undefined, progress: 5 }
+                        : r,
+                    ),
+                  )
+                  await Promise.all(
+                    targets.map(async (r) => {
+                      try {
+                        const res = await fetch(`/api/documents/${r.documentId}/retry`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ force: true }),
+                        })
+                        if (!res.ok) {
+                          const payload = await res.json().catch(() => ({}))
+                          throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                        }
+                      } catch (err) {
+                        setRecentUploads((prev) =>
+                          prev.map((rr) =>
+                            rr.id === r.id
+                              ? {
+                                  ...rr,
+                                  status: 'error',
+                                  error: err instanceof Error ? err.message : 'Retry failed',
+                                }
+                              : rr,
+                          ),
+                        )
+                      }
+                    }),
+                  )
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs hover:bg-primary/90 transition-colors flex-shrink-0"
+                style={{ fontWeight: 500 }}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry all failed (
+                {recentUploads.filter((r) => r.status === 'error' && r.documentId).length}
+                )
+              </button>
+            )}
           </div>
           {recentUploads.map((item) => {
             const realtimeStatus = parsingStatuses[item.documentId]
@@ -1999,10 +2164,61 @@ export function UploadDropzone({
                       />
                     )}
                     {item.status === 'error' && (
-                      <span className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="h-3 w-3" />
-                        {item.error ?? 'Error'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="h-3 w-3" />
+                          {item.error ?? 'Error'}
+                        </span>
+                        {/* Retry pulls from /api/documents/[id]/retry which
+                            re-runs ingestion in place — no re-upload needed.
+                            Useful when ingestion failed mid-pipeline (e.g.
+                            OpenAI 429 quota) and the user resolved the
+                            underlying cause but doesn't want to re-upload
+                            a 350MB PDF. */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setRecentUploads((prev) =>
+                              prev.map((r) =>
+                                r.id === item.id
+                                  ? { ...r, status: 'processing', error: undefined, progress: 5 }
+                                  : r,
+                              ),
+                            )
+                            try {
+                              const res = await fetch(
+                                `/api/documents/${item.documentId}/retry`,
+                                {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ force: true }),
+                                },
+                              )
+                              if (!res.ok) {
+                                const payload = await res.json().catch(() => ({}))
+                                throw new Error(payload?.error ?? `Retry failed (${res.status})`)
+                              }
+                              // Status will be picked up by the live polling
+                              // hook on the next tick — no manual update needed.
+                            } catch (err) {
+                              setRecentUploads((prev) =>
+                                prev.map((r) =>
+                                  r.id === item.id
+                                    ? {
+                                        ...r,
+                                        status: 'error',
+                                        error: err instanceof Error ? err.message : 'Retry failed',
+                                      }
+                                    : r,
+                                ),
+                              )
+                            }
+                          }}
+                          className="text-xs text-primary hover:text-primary/80 font-medium"
+                        >
+                          Retry
+                        </button>
+                      </div>
                     )}
                   </div>
 

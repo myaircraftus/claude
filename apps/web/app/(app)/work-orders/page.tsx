@@ -1,10 +1,9 @@
-import { WorkOrdersPage } from '@/components/redesign/WorkOrdersPage'
-import { requireAppServerSession } from '@/lib/auth/server-app'
+import { WorkOrdersEmptyState } from './work-orders-shell'
 
 export const metadata = { title: 'Work Orders' }
 
-export default async function WorkOrdersRoute() {
-  await requireAppServerSession()
-
-  return <WorkOrdersPage />
+// Right pane when no work order is selected. The layout (work-orders/layout.tsx)
+// owns the list panel + page chrome.
+export default function WorkOrdersIndexPage() {
+  return <WorkOrdersEmptyState />
 }

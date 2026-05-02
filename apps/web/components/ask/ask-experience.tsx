@@ -105,6 +105,35 @@ const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
 type AskPersona = 'owner' | 'mechanic'
 
+/**
+ * Build a deeplink to the full-page document viewer that lands directly on
+ * the cited page with the cited passage highlighted. Used so citation pills
+ * support cmd-click → new tab and right-click → copy link.
+ *
+ * The query params are read by /documents/[id]/page.tsx, which reconstructs
+ * the citation and passes it to the same DocumentViewer the in-page side
+ * panel uses — so the user lands on the exact entry, not the document start.
+ */
+function buildCitationHref(c: AnswerCitation): string | null {
+  // Defensive: if the citation has no documentId we cannot deeplink — the
+  // caller falls back to the in-page side panel preview only.
+  if (!c.documentId) return null
+  const params = new URLSearchParams()
+  if (typeof c.pageNumber === 'number' && c.pageNumber > 0) {
+    params.set('page', String(c.pageNumber))
+  }
+  if (c.chunkId) params.set('chunk', c.chunkId)
+  // Prefer quotedText (exact extracted span) over snippet (RAG context window)
+  // — the PDF search plugin uses this to highlight the precise passage.
+  const passage = c.quotedText ?? c.snippet ?? ''
+  if (passage) {
+    // Cap to keep URLs short; the viewer only needs enough to anchor highlighting.
+    params.set('snippet', passage.slice(0, 240))
+  }
+  const qs = params.toString()
+  return qs ? `/documents/${c.documentId}?${qs}` : `/documents/${c.documentId}`
+}
+
 const DocumentViewer = dynamic(
   () => import('@/components/ask/document-viewer').then((mod) => mod.DocumentViewer),
   {
@@ -173,6 +202,142 @@ function persistRecentQueries(
 
 // ── Artifact card renderer ────────────────────────────────────────────────────
 
+function formatLogbookDate(value: unknown): string {
+  if (!value) return 'Date unknown'
+  const d = typeof value === 'string' || typeof value === 'number' ? new Date(value) : null
+  if (!d || Number.isNaN(d.getTime())) return String(value)
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).format(d)
+}
+
+interface LogbookArtifactEntry {
+  id?: string
+  entry_date?: string
+  entry_text?: string
+  description?: string
+  entry_type?: string
+  logbook_type?: string
+  total_time_after?: number | string | null
+  total_time?: number | string | null
+  tach_time?: number | string | null
+  hobbs_time?: number | string | null
+  hobbs_out?: number | string | null
+  work_order_id?: string | null
+  work_order_ref?: string | null
+  aircraft?: { id?: string } | null
+  aircraft_id?: string
+}
+
+/**
+ * Renders the entries returned by the search_logbook tool as a list of
+ * individually clickable cards. Each card:
+ *  - shows the real entry text (entry_text alias, falling back to description)
+ *  - expands inline to reveal the full text + tach/total time + WO ref
+ *  - links to the aircraft detail page deep-anchored at the entry id
+ *    (#logbook-<id>) so the user lands on the specific entry, not a generic
+ *    profile page
+ *
+ * Replaces the previous design where every entry was a static <li> with a
+ * blank description (caused by reading e.description instead of the aliased
+ * e.entry_text) and the only navigation was a single "Use This" button that
+ * dumped the user on /aircraft/<id>.
+ */
+function LogbookEntriesArtifact({
+  entries,
+  aircraftId,
+}: {
+  entries: LogbookArtifactEntry[]
+  aircraftId?: string
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  if (!entries || entries.length === 0) {
+    return <p className="text-muted-foreground">No matching logbook entries found.</p>
+  }
+
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+      {entries.map((e, i) => {
+        const id = e.id ?? String(i)
+        const isOpen = expanded.has(id)
+        const text = e.entry_text ?? e.description ?? ''
+        const acId = aircraftId ?? e.aircraft?.id ?? e.aircraft_id
+        const tach = e.tach_time ?? null
+        const total = e.total_time_after ?? e.total_time ?? null
+        const hobbs = e.hobbs_time ?? e.hobbs_out ?? null
+        const woRef = e.work_order_ref ?? null
+        // Per-entry deep link to the dedicated logbook entry detail page.
+        // This previously pointed at /aircraft/<id>#logbook-<entryId>, but
+        // the AircraftDetail page doesn't render those anchors so the
+        // browser just dumped users on the aircraft profile. The new
+        // /logbook-entries/[id] route opens the specific entry directly.
+        const sourceHref = e.id ? `/logbook-entries/${e.id}` : undefined
+
+        return (
+          <li key={id} className="border border-border/60 rounded-lg bg-white overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggle(id)}
+              className="w-full text-left px-3 py-2 hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-foreground">
+                  {formatLogbookDate(e.entry_date)}
+                </span>
+                {e.entry_type && (
+                  <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                    {e.entry_type}
+                  </span>
+                )}
+                {e.logbook_type && (
+                  <span className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
+                    {e.logbook_type}
+                  </span>
+                )}
+                {tach != null && (
+                  <span className="text-[10px] text-muted-foreground">tach {tach}</span>
+                )}
+                {total != null && (
+                  <span className="text-[10px] text-muted-foreground">tt {total}</span>
+                )}
+                <ChevronDown
+                  className={`w-3 h-3 ml-auto text-muted-foreground/60 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
+              </div>
+              <p className={`text-[11px] text-foreground/80 leading-relaxed ${isOpen ? '' : 'line-clamp-2'}`}>
+                {text || <span className="italic text-muted-foreground">(no description)</span>}
+              </p>
+            </button>
+            {isOpen && (
+              <div className="px-3 pb-2 pt-1 border-t border-border/60 bg-muted/20 flex items-center gap-3 flex-wrap text-[11px]">
+                {hobbs != null && <span className="text-muted-foreground">Hobbs {hobbs}</span>}
+                {woRef && <span className="text-muted-foreground">WO {woRef}</span>}
+                {sourceHref && (
+                  <a
+                    href={sourceHref}
+                    className="inline-flex items-center gap-1 text-primary hover:text-primary/80 ml-auto"
+                    style={{ fontWeight: 500 }}
+                  >
+                    Open entry <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: string) => void }) {
   const iconMap = {
     logbook_draft: <Sparkles className="w-4 h-4 text-primary" />,
@@ -183,6 +348,11 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 
   const data = artifact.data as any
 
+  // Logbook entries are addressable individually — hide the misleading
+  // top-level "Use This" CTA (which sent users to the aircraft profile page)
+  // and let the user click directly into a specific entry instead.
+  const showHeaderCta = artifact.action_url && artifact.type !== 'logbook_entries'
+
   return (
     <div className="mt-3 rounded-xl border border-primary/20 bg-primary/3 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-primary/10 bg-primary/5">
@@ -190,7 +360,7 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
           {iconMap[artifact.type]}
           <span className="text-[12px] font-semibold text-foreground">{artifact.title}</span>
         </div>
-        {artifact.action_url && (
+        {showHeaderCta && (
           <button
             onClick={() => onUse(artifact.action_url!)}
             className="flex items-center gap-1 text-[11px] text-primary font-semibold hover:underline"
@@ -262,25 +432,9 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
           </>
         )}
 
-        {/* Logbook entries */}
+        {/* Logbook entries — each entry is its own clickable link */}
         {artifact.type === 'logbook_entries' && (
-          <>
-            {Array.isArray(data?.entries) && data.entries.length > 0 ? (
-              <ul className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                {data.entries.map((e: any, i: number) => (
-                  <li key={i} className="border-b border-border/50 pb-1.5 last:border-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className="font-medium text-foreground">{e.entry_date ?? 'Date unknown'}</span>
-                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{e.entry_type}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">{e.description}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted-foreground">No matching logbook entries found.</p>
-            )}
-          </>
+          <LogbookEntriesArtifact entries={Array.isArray(data?.entries) ? data.entries : []} aircraftId={artifact.aircraft_id} />
         )}
       </div>
     </div>
@@ -352,14 +506,14 @@ export function AskExperience() {
         if (cancelled) return
         setAircraft(dedupedRows)
 
-        const persistedAircraftId = loadPersistedAircraftSelection()
-        const fallbackSelection = aircraftParam || persistedAircraftId || dedupedRows[0]?.id || 'all'
-
-        if (!aircraftParam && fallbackSelection !== 'all') {
-          setSelectedAircraftId((current) => (current === fallbackSelection ? current : fallbackSelection))
-          const params = new URLSearchParams(searchParams.toString())
-          params.set('aircraft', fallbackSelection)
-          router.replace(`/ask?${params.toString()}`, { scroll: false })
+        // Default to "All Aircraft" on first load — previous behavior
+        // auto-redirected to the persisted aircraft id, which surprised
+        // users who expected the dropdown to show "All" by default and
+        // returned only one aircraft's results when they later clicked
+        // "All" (because the URL still carried the persisted aircraft).
+        // Persistence is now opt-in via the dropdown only.
+        if (!aircraftParam) {
+          setSelectedAircraftId('all')
           return
         }
 
@@ -412,7 +566,10 @@ export function AskExperience() {
     setQuestion('')
     setActiveCitation(null)
     autoAskedQueryRef.current = null
-    setPreviousQueries(loadRecentQueries(persona))
+    // Admin persona doesn't have its own Ask history bucket — admins
+    // viewing /ask reuse the owner storage key.
+    const askKeyPersona: AskPersona = persona === 'admin' ? 'owner' : (persona as AskPersona)
+    setPreviousQueries(loadRecentQueries(askKeyPersona))
   }, [persona])
 
   const handleAsk = useCallback(async (questionText?: string) => {
@@ -474,6 +631,15 @@ export function AskExperience() {
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, assistantMsg])
+
+      // Auto-open the first citation in the side preview so the user gets
+      // the cited PDF page immediately — they don't have to click a pill to
+      // see where the answer came from. If they want a different citation
+      // they can click any of the pills to swap the preview.
+      const firstCitation = (data.citations ?? []).find((c: AnswerCitation) => Boolean(c.documentId))
+      if (firstCitation) {
+        setActiveCitation(firstCitation)
+      }
       setPreviousQueries((prev) => {
         const next = [
           {
@@ -485,7 +651,7 @@ export function AskExperience() {
         ]
 
         const trimmed = next.slice(0, 20)
-        persistRecentQueries(persona, trimmed)
+        persistRecentQueries(persona === 'admin' ? 'owner' : (persona as AskPersona), trimmed)
         return trimmed
       })
     } catch {
@@ -550,15 +716,29 @@ export function AskExperience() {
       {/* ── Mobile citation modal (full-screen on small screens) ─────────────── */}
       {activeCitation && (
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-background">
-          <div className="flex items-center justify-between p-3 border-b border-border">
+          <div className="flex items-center justify-between p-3 border-b border-border gap-3">
             <span className="text-sm font-semibold">Source Preview</span>
-            <button
-              onClick={() => setActiveCitation(null)}
-              className="p-1 rounded hover:bg-muted transition-colors"
-              aria-label="Close citation viewer"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              {(() => {
+                const href = buildCitationHref(activeCitation)
+                return href ? (
+                  <a
+                    href={href}
+                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                    style={{ fontWeight: 500 }}
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open full page
+                  </a>
+                ) : null
+              })()}
+              <button
+                onClick={() => setActiveCitation(null)}
+                className="p-1 rounded hover:bg-muted transition-colors"
+                aria-label="Close citation viewer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
             <DocumentViewerBoundary
@@ -697,17 +877,51 @@ export function AskExperience() {
                       {(msg.citations?.length ?? 0) > 0 && (
                         <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-border">
                           <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>Sources:</span>
-                          {msg.citations!.map((c, i) => (
-                            <button
-                              key={c.chunkId}
-                              onClick={() => handleCitationSelect(c)}
-                              className="inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full cursor-pointer hover:bg-primary/15 transition-colors"
-                              style={{ fontWeight: 500 }}
-                            >
-                              <BookOpen className="w-3 h-3" />
-                              {i + 1}. {c.documentTitle}
-                            </button>
-                          ))}
+                          {msg.citations!.map((c, i) => {
+                            const href = buildCitationHref(c)
+                            const isActive = activeCitation?.chunkId === c.chunkId && !!c.chunkId
+                            const baseClass = isActive
+                              ? 'inline-flex items-center gap-1 text-[11px] bg-primary text-white px-2.5 py-1 rounded-full ring-2 ring-primary/40 transition-colors'
+                              : 'inline-flex items-center gap-1 text-[11px] bg-primary/8 text-primary px-2.5 py-1 rounded-full hover:bg-primary/15 transition-colors'
+                            // If the citation has no resolvable documentId we
+                            // can still open the side-panel preview, but we
+                            // render a button (no dead /documents/undefined href).
+                            if (!href) {
+                              return (
+                                <button
+                                  key={c.chunkId || `cite-${i}`}
+                                  type="button"
+                                  onClick={() => handleCitationSelect(c)}
+                                  className={`${baseClass} cursor-pointer`}
+                                  style={{ fontWeight: 500 }}
+                                  title={`${c.documentTitle ?? 'Source'} p.${c.pageNumber ?? '?'}`}
+                                >
+                                  <BookOpen className="w-3 h-3" />
+                                  {i + 1}. {c.documentTitle ?? 'Source'}
+                                </button>
+                              )
+                            }
+                            return (
+                              <a
+                                key={c.chunkId || `cite-${i}`}
+                                href={href}
+                                onClick={(e) => {
+                                  // Plain left-click: preview in side panel.
+                                  // Modifier-click / middle-click / right-click: let the browser
+                                  // handle (new tab, copy link, etc.) using the real href.
+                                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                                  e.preventDefault()
+                                  handleCitationSelect(c)
+                                }}
+                                className={`${baseClass} cursor-pointer`}
+                                style={{ fontWeight: 500 }}
+                                title={`Open ${c.documentTitle ?? 'source'} p.${c.pageNumber ?? '?'} (⌘-click for new tab)`}
+                              >
+                                <BookOpen className="w-3 h-3" />
+                                {i + 1}. {c.documentTitle ?? 'Source'}
+                              </a>
+                            )
+                          })}
                           {msg.confidence && (
                             <span className="text-[11px] bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
                               {msg.confidence === 'high' ? 'High' : msg.confidence === 'medium' ? 'Medium' : 'Low'} confidence
@@ -760,14 +974,30 @@ export function AskExperience() {
       <div className={`hidden lg:block border-l border-border bg-white transition-all duration-200 ${activeCitation ? 'w-[40%]' : 'w-[320px]'}`}>
         {activeCitation ? (
           <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="p-4 border-b border-border flex items-center justify-between gap-2">
               <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
-              <button
-                onClick={() => setActiveCitation(null)}
-                className="text-[11px] text-muted-foreground hover:text-foreground"
-              >
-                Clear
-              </button>
+              <div className="flex items-center gap-3">
+                {(() => {
+                  const href = buildCitationHref(activeCitation)
+                  return href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <ExternalLink className="w-3 h-3" /> Open full page
+                    </a>
+                  ) : null
+                })()}
+                <button
+                  onClick={() => setActiveCitation(null)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <DocumentViewerBoundary

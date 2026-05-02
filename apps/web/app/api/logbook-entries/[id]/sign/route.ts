@@ -25,6 +25,8 @@ export async function POST(
     mechanic_name?: string;
     mechanic_cert_number?: string;
     cert_type?: CertType;
+    /** Full ESignatureModal SignatureResult — persisted for legal audit. */
+    signature_audit?: Record<string, unknown>;
   };
   try {
     body = await req.json();
@@ -35,6 +37,7 @@ export async function POST(
   const mechanic_name = (body.mechanic_name ?? "").trim();
   const mechanic_cert_number = (body.mechanic_cert_number ?? "").trim();
   const cert_type = body.cert_type;
+  const signature_audit = body.signature_audit ?? null;
 
   if (!mechanic_name) {
     return NextResponse.json({ error: "mechanic_name is required" }, { status: 400 });
@@ -69,24 +72,27 @@ export async function POST(
 
   const nowIso = new Date().toISOString();
 
+  const updates: Record<string, unknown> = {
+    status: "signed",
+    signed_at: nowIso,
+    signed_by: user.id,
+    mechanic_name,
+    mechanic_cert_number,
+    cert_type,
+    updated_at: nowIso,
+  };
+  if (signature_audit) updates.signature_audit = signature_audit;
+
   const { data, error } = await supabase
     .from("logbook_entries")
-    .update({
-      status: "signed",
-      signed_at: nowIso,
-      signed_by: user.id,
-      mechanic_name,
-      mechanic_cert_number,
-      cert_type,
-      updated_at: nowIso,
-    })
+    .update(updates)
     .eq("id", params.id)
     .eq("organization_id", orgId)
     .select(`
       id, aircraft_id, work_order_id, entry_type, entry_date, description,
       total_time, hobbs_in, hobbs_out, tach_time, status, signed_at, signed_by,
       logbook_type, mechanic_name, mechanic_cert_number, cert_type,
-      parts_used, references_used, ad_numbers, work_order_ref,
+      parts_used, references_used, ad_numbers, work_order_ref, signature_audit,
       created_at, updated_at
     `)
     .single();

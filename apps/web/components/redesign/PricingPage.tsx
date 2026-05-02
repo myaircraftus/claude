@@ -115,7 +115,7 @@ const faqs = [
   },
   {
     q: "Is there a free trial?",
-    a: "Yes — 14 days free with one aircraft. No credit card required to start. You'll have full access to all features during the trial period."
+    a: "Yes — 30 days free with unlimited aircraft. No credit card required to start. You'll have full access to all features during the trial period."
   },
   {
     q: "Does the scanning service really cost nothing?",
@@ -187,7 +187,7 @@ export function PricingPage() {
               No hidden fees. No per-user charges. No per-page limits. Just powerful aircraft records intelligence at a flat rate.
             </p>
             <div className="flex items-center justify-center gap-6 text-white/50 text-[13px]">
-              <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-400" /> 14-day free trial</span>
+              <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-400" /> 30-day free trial</span>
               <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-400" /> No credit card required</span>
               <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-400" /> Cancel anytime</span>
             </div>
@@ -422,7 +422,7 @@ export function PricingPage() {
           {/* Compare note */}
           <FadeIn delay={0.3}>
             <div className="mt-5 text-center">
-              <p className="text-[13px] text-[#64748b]">Both plans include the same 14-day free trial. No credit card required. <Link href="/signup" className="text-[#2563EB] hover:underline" style={{ fontWeight: 500 }}>Get started free →</Link></p>
+              <p className="text-[13px] text-[#64748b]">Both plans include the same 30-day free trial. No credit card required. <Link href="/signup" className="text-[#2563EB] hover:underline" style={{ fontWeight: 500 }}>Get started free →</Link></p>
             </div>
           </FadeIn>
         </div>

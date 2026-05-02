@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { MECHANIC_AND_ABOVE } from "@/lib/roles";
-import { VALID_ENTRY_TYPES, VALID_LOGBOOK_TYPES } from "../route";
+import { VALID_ENTRY_TYPES, VALID_LOGBOOK_TYPES } from "@/lib/logbook/constants";
 
 type DraftRow = {
   id: string;

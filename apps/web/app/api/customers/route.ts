@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies, headers } from 'next/headers'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { inviteCustomerOwner } from '@/lib/invitations/customer'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 
 interface OrganizationRecord {
   id: string
@@ -97,11 +99,14 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '100', 10)
   const offset = parseInt(searchParams.get('offset') ?? '0', 10)
 
+  // DB column is preferred_communication; expose as preferred_contact for UI compat.
   let query = supabase
     .from('customers')
     .select(`
       id, name, company, email, phone, secondary_email, secondary_phone,
-      billing_address, notes, preferred_contact, tags, portal_access,
+      billing_address, notes,
+      preferred_contact:preferred_communication,
+      tags, portal_access,
       imported_at, import_source, created_at, updated_at,
       aircraft_customer_assignments (
         id, aircraft_id, relationship, is_primary,
@@ -130,6 +135,15 @@ export async function POST(req: NextRequest) {
   const { organizationId, error: orgError } = await resolveOrganizationId(supabase, user.id)
   if (orgError) return NextResponse.json({ error: orgError.message }, { status: 500 })
   if (!organizationId) return NextResponse.json({ error: 'No organization' }, { status: 403 })
+
+  try {
+    await requireActiveBilling(organizationId, 'mechanic')
+  } catch (err) {
+    if (err instanceof BillingBlockedError) {
+      return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+    }
+    throw err
+  }
 
   const body = await req.json()
 
@@ -184,5 +198,28 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Auto-invite the owner to coordinate on myaircraft — fire-and-forget, never blocks the response
+  const customerEmail = (body.email ?? '').trim()
+  if (customerEmail && data?.id) {
+    const service = createServiceSupabase()
+    const [{ data: orgRow }, { data: profileRow }] = await Promise.all([
+      service.from('organizations').select('name').eq('id', organizationId).maybeSingle(),
+      service.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle(),
+    ])
+
+    inviteCustomerOwner({
+      customerId: data.id,
+      customerName: data.name ?? body.name.trim(),
+      customerEmail,
+      invitedByOrgId: organizationId,
+      invitedByUserId: user.id,
+      orgDisplayName: orgRow?.name ?? null,
+      inviterDisplayName: profileRow?.full_name ?? null,
+    }).catch((err) => {
+      console.error('[customers.POST] auto-invite failed', err)
+    })
+  }
+
   return NextResponse.json(data, { status: 201 })
 }

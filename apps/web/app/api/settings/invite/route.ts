@@ -151,11 +151,11 @@ export async function POST(req: NextRequest) {
     // 4. Write audit log
     await supabase.from('audit_logs').insert({
       organization_id: orgId,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: status === 'invited' ? 'member.invited' : 'member.added',
-      target_type: 'user',
-      target_id: existingProfile?.id ?? null,
-      metadata: {
+      entity_type: 'user',
+      entity_id: existingProfile?.id ?? null,
+      metadata_json: {
         email,
         role,
         status,

@@ -1,0 +1,5 @@
+# Figma plugin export — kept locally as a reference tree but not
+# committed. The handoff docs (DEVELOPER_HANDOUT.md, SCREENS_MANIFEST.md)
+# are the canonical artifacts in the repo; the raw TSX export lives in
+# Figma and re-exporting produces fresh content rather than stale.
+app/

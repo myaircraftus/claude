@@ -1,9 +1,11 @@
 import { notFound } from 'next/navigation'
 import { requireAppServerSession } from '@/lib/auth/server-app'
-import { Topbar } from '@/components/shared/topbar'
 import { WorkOrderDetailClient } from './work-order-detail-client'
 import type { WorkOrder } from '@/types'
 
+// Right pane of the master-detail layout. The page chrome (Topbar + WO list
+// panel) is owned by app/(app)/work-orders/layout.tsx — this component
+// just renders the WO detail itself.
 export default async function WorkOrderDetailPage({ params }: { params: { id: string } }) {
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
@@ -35,19 +37,11 @@ export default async function WorkOrderDetailPage({ params }: { params: { id: st
     .order('tail_number')
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <Topbar
-        profile={profile}
-        breadcrumbs={[
-          { label: 'Work Orders', href: '/maintenance?tab=work-orders' },
-          { label: wo.work_order_number },
-        ]}
-      />
-      <WorkOrderDetailClient
-        workOrder={wo as WorkOrder}
-        aircraft={aircraft ?? []}
-        userRole={membership.role}
-      />
-    </div>
+    <WorkOrderDetailClient
+      workOrder={wo as WorkOrder}
+      aircraft={aircraft ?? []}
+      userRole={membership.role}
+      profile={profile as any}
+    />
   )
 }

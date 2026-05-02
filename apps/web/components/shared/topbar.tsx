@@ -27,10 +27,27 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
   const router = useTenantRouter()
 
   async function handleSignOut() {
-    const supabase = createBrowserSupabase()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+    // Server-side signout clears the HttpOnly auth cookie that the
+    // browser-side supabase.auth.signOut() can't reach. Without it, the
+    // middleware re-establishes the session on the next request and the
+    // user lands right back where they were.
+    try {
+      await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // network error — proceed anyway
+    }
+    try {
+      const supabase = createBrowserSupabase()
+      await supabase.auth.signOut()
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login'
+    } else {
+      router.push('/login')
+      router.refresh()
+    }
   }
 
   const initials = profile.full_name
@@ -43,7 +60,7 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
   const searchPlaceholder =
     _breadcrumbs.length > 0
       ? `Search ${_breadcrumbs[_breadcrumbs.length - 1].label}...`
-      : 'Search or ask your aircraft...'
+      : 'Search records or ask a question (e.g. "When was my last oil change?")'
 
   return (
     <header className="h-16 flex items-center justify-between px-6 border-b border-border bg-white flex-shrink-0">

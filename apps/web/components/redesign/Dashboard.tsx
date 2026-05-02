@@ -6,14 +6,16 @@ import { motion } from "motion/react";
 import {
   Plane, FileText, AlertTriangle, Clock, CheckCircle, ArrowRight,
   MessageSquare, Upload, Sparkles, Wrench, Receipt, DollarSign, Shield, Cpu,
-  ChevronRight, Bell, Eye
+  ChevronRight, Bell, Eye, ChevronDown, BookOpen, Bot, Plus
 } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import {
   AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid
 } from "recharts";
 import { useDataStore } from "./workspace/DataStore";
+import { FleetAnalyticsRow } from "./FleetAnalyticsRow";
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 const DASHBOARD_TIME_ZONE = "America/Los_Angeles";
@@ -78,6 +80,23 @@ export function Dashboard() {
   const { aircraft, workOrders, invoices } = useDataStore();
   const [period] = useState("7d");
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>(null);
+  const [expandedTails, setExpandedTails] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (tail: string) => {
+    setExpandedTails((prev) => {
+      const next = new Set(prev);
+      if (next.has(tail)) next.delete(tail); else next.add(tail);
+      return next;
+    });
+  };
+
+  const woStatusColor = (status: string) => {
+    if (status === "In Progress") return "bg-blue-50 text-blue-700 border-blue-200";
+    if (status === "Awaiting Approval") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (status === "Awaiting Parts") return "bg-violet-50 text-violet-700 border-violet-200";
+    if (status === "Closed" || status === "Invoice Paid") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -116,7 +135,7 @@ export function Dashboard() {
       : aircraft[0]?.id ?? null;
 
   const askHref = currentAircraftId ? `/ask?aircraft=${encodeURIComponent(currentAircraftId)}` : "/ask";
-  const workspaceHref = currentAircraftId ? `/workspace?aircraft=${encodeURIComponent(currentAircraftId)}` : "/workspace";
+  // workspaceHref retired with /workspace (AI Command Center).
 
   const openWorkOrders = useMemo(() => {
     return workOrders.filter((wo) => !["Closed", "Invoice Paid", "Archived"].includes(wo.status));
@@ -135,6 +154,7 @@ export function Dashboard() {
     const actions: Array<{
       type: "workorder" | "invoice";
       id: string;
+      dbId: string;
       label: string;
       aircraft: string;
       amount: string | null;
@@ -146,6 +166,7 @@ export function Dashboard() {
       actions.push({
         type: "workorder",
         id: wo.woNumber || wo.id.slice(0, 8).toUpperCase(),
+        dbId: wo.id,
         label: wo.squawk || "Work Order Awaiting Approval",
         aircraft: wo.aircraft || "Unassigned aircraft",
         amount: formatCurrency(wo.grandTotal) ?? null,
@@ -158,6 +179,7 @@ export function Dashboard() {
       actions.push({
         type: "invoice",
         id: inv.invoiceNumber || inv.id.slice(0, 8).toUpperCase(),
+        dbId: inv.id,
         label: inv.status === "Overdue" ? "Overdue Invoice" : "Invoice awaiting action",
         aircraft: inv.aircraft || "Unassigned aircraft",
         amount: formatCurrency(inv.total) ?? null,
@@ -229,6 +251,17 @@ export function Dashboard() {
   const docValue = docCountTotal > 0 ? docCountTotal.toLocaleString() : "—";
   const spendValue = invoices.length > 0 ? (formatCurrency(totalSpend) ?? "$0") : "—";
   const hasSpendData = monthlySpend.some((d) => d.v > 0);
+  const spendTrend = useMemo(() => {
+    const n = monthlySpend.length;
+    if (n < 2) return null;
+    const current = monthlySpend[n - 1].v;
+    const prior = monthlySpend[n - 2].v;
+    if (current === 0 && prior === 0) return null;
+    if (prior === 0) return { direction: "up" as const, pct: null };
+    const pct = Math.round(((current - prior) / prior) * 100);
+    if (pct === 0) return { direction: "flat" as const, pct: 0 };
+    return { direction: pct > 0 ? ("up" as const) : ("down" as const), pct: Math.abs(pct) };
+  }, [monthlySpend]);
   const hasWorkOrderHistory = monthlyWorkOrders.some((d) => d.wo > 0);
 
   const workOrderStatusDist = useMemo(() => {
@@ -302,10 +335,10 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link href={workspaceHref}
+          <Link href="/workflow"
             className="inline-flex items-center gap-2 bg-gradient-to-r from-primary to-primary/80 text-white px-5 py-2.5 rounded-xl hover:opacity-90 transition-all shadow-lg shadow-primary/20 text-[13px]"
             style={{ fontWeight: 600 }}>
-            <Cpu className="w-4 h-4" /> AI Command Center
+            <Cpu className="w-4 h-4" /> Workflow
           </Link>
           <Link href={askHref}
             className="inline-flex items-center gap-2 border border-border text-foreground px-5 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
@@ -333,6 +366,7 @@ export function Dashboard() {
             icon: AlertTriangle,
             color: "text-amber-600 bg-amber-50",
             trend: null,
+            href: "/work-orders",
           },
           {
             label: "Documents",
@@ -366,25 +400,37 @@ export function Dashboard() {
             color: "text-violet-600 bg-violet-50",
             trend: null,
           },
-        ].map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.4 }}
-            className="bg-white rounded-2xl border border-border p-4 hover:shadow-md hover:shadow-primary/5 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.color}`}>
-                <s.icon className="w-[17px] h-[17px]" />
+        ].map((s, i) => {
+          const card = (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.color}`}>
+                  <s.icon className="w-[17px] h-[17px]" />
+                </div>
+                {s.trend && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.trend.startsWith("+") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`} style={{ fontWeight: 600 }}>
+                    {s.trend}
+                  </span>
+                )}
               </div>
-              {s.trend && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.trend.startsWith("+") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`} style={{ fontWeight: 600 }}>
-                  {s.trend}
-                </span>
+              <div className="text-[26px] text-foreground tracking-tight leading-none mb-1" style={{ fontWeight: 800 }}>{s.value}</div>
+              <div className="text-[11px] text-muted-foreground">{s.label}</div>
+              <div className="text-[10px] text-muted-foreground/60 mt-0.5">{s.sub}</div>
+            </>
+          );
+          const baseClass = "bg-white rounded-2xl border border-border p-4 hover:shadow-md hover:shadow-primary/5 transition-all";
+          return (
+            <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.4 }}>
+              {(s as any).href ? (
+                <Link href={(s as any).href} className={`block ${baseClass} hover:border-primary/30 cursor-pointer`}>
+                  {card}
+                </Link>
+              ) : (
+                <div className={baseClass}>{card}</div>
               )}
-            </div>
-            <div className="text-[26px] text-foreground tracking-tight leading-none mb-1" style={{ fontWeight: 800 }}>{s.value}</div>
-            <div className="text-[11px] text-muted-foreground">{s.label}</div>
-            <div className="text-[10px] text-muted-foreground/60 mt-0.5">{s.sub}</div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {/* ── Main Grid Row 2 ── */}
@@ -398,11 +444,20 @@ export function Dashboard() {
               View all <ChevronRight className="w-3.5 h-3.5" />
             </Link>
           </div>
-          {fleet.map((ac, i) => (
+          {fleet.map((ac, i) => {
+            const isExpanded = expandedTails.has(ac.tail);
+            const tailWorkOrders = workOrders.filter((wo) => wo.aircraft === ac.tail);
+            const askForAircraft = `/ask?aircraft=${encodeURIComponent(ac.id)}`;
+            return (
             <motion.div key={ac.tail} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 + i * 0.08 }}>
-              <Link href={`/aircraft/${ac.tail}`}
-                className="block bg-white rounded-2xl border border-border p-5 hover:shadow-lg hover:shadow-primary/8 transition-all group">
+              transition={{ delay: 0.2 + i * 0.08 }}
+              className="bg-white rounded-2xl border border-border overflow-hidden hover:shadow-lg hover:shadow-primary/8 transition-shadow">
+              <button
+                type="button"
+                onClick={() => toggleExpanded(ac.tail)}
+                aria-expanded={isExpanded}
+                className="w-full text-left p-5 group"
+              >
                 <div className="flex items-center gap-4">
                   {/* Health ring */}
                   <div className="relative shrink-0">
@@ -430,6 +485,11 @@ export function Dashboard() {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>{ac.tail}</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border ${ac.statusColor}`} style={{ fontWeight: 600 }}>{ac.status}</span>
+                      {tailWorkOrders.length > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200" style={{ fontWeight: 600 }}>
+                          {tailWorkOrders.length} WO
+                        </span>
+                      )}
                     </div>
                     <div className="text-[12px] text-muted-foreground">
                       {ac.model || "Aircraft details pending"}{ac.year ? ` · ${ac.year}` : ""}
@@ -440,7 +500,7 @@ export function Dashboard() {
                     {[
                       { label: "Year", val: ac.year ? String(ac.year) : "—" },
                       { label: "Documents", val: ac.docs ? `${ac.docs}` : "—" },
-                      { label: "Status", val: ac.status },
+                      { label: "Work Orders", val: tailWorkOrders.length > 0 ? String(tailWorkOrders.length) : "—" },
                     ].map(d => (
                       <div key={d.label}>
                         <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5" style={{ fontWeight: 600 }}>{d.label}</div>
@@ -449,7 +509,9 @@ export function Dashboard() {
                     ))}
                   </div>
 
-                  <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-primary transition-colors shrink-0" />
+                  <ChevronDown
+                    className={`w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-all shrink-0 ${isExpanded ? "rotate-180" : ""}`}
+                  />
                 </div>
 
                 {/* Health bar */}
@@ -468,9 +530,90 @@ export function Dashboard() {
                     />
                   </div>
                 </div>
-              </Link>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isExpanded && (
+                  <motion.div
+                    key="expansion"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="overflow-hidden border-t border-border bg-slate-50/50"
+                  >
+                    <div className="p-5 space-y-4">
+                      {/* Quick action grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <Link href={`/aircraft/${ac.tail}`} className="flex items-center gap-2 px-3 py-2 bg-white border border-border rounded-lg text-[12px] hover:border-primary hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                          <Plane className="w-3.5 h-3.5 text-primary" /> Aircraft detail
+                        </Link>
+                        <Link href={`/documents?aircraft=${encodeURIComponent(ac.id)}`} className="flex items-center gap-2 px-3 py-2 bg-white border border-border rounded-lg text-[12px] hover:border-primary hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                          <FileText className="w-3.5 h-3.5 text-primary" /> Documents <span className="text-muted-foreground">({ac.docs})</span>
+                        </Link>
+                        <Link href={`/aircraft/${ac.tail}/logbook`} className="flex items-center gap-2 px-3 py-2 bg-white border border-border rounded-lg text-[12px] hover:border-primary hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                          <BookOpen className="w-3.5 h-3.5 text-primary" /> Logbook
+                        </Link>
+                        <Link href={askForAircraft} className="flex items-center gap-2 px-3 py-2 bg-white border border-border rounded-lg text-[12px] hover:border-primary hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                          <Bot className="w-3.5 h-3.5 text-primary" /> Ask AI
+                        </Link>
+                      </div>
+
+                      {/* Work orders list */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-[11px] text-muted-foreground uppercase tracking-wide" style={{ fontWeight: 600 }}>
+                            Work orders
+                          </div>
+                          <Link href={`/work-orders/new?aircraft=${encodeURIComponent(ac.id)}`} className="text-[11px] text-primary flex items-center gap-1" style={{ fontWeight: 500 }}>
+                            <Plus className="w-3 h-3" /> New
+                          </Link>
+                        </div>
+                        {tailWorkOrders.length === 0 ? (
+                          <div className="text-[12px] text-muted-foreground bg-white border border-border rounded-lg px-3 py-3">
+                            No work orders for this aircraft.
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {tailWorkOrders.slice(0, 6).map((wo) => (
+                              <Link
+                                key={wo.id}
+                                href={`/work-orders/${wo.id}`}
+                                className="flex items-center gap-3 px-3 py-2 bg-white border border-border rounded-lg hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                              >
+                                <Wrench className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[12px] text-foreground" style={{ fontWeight: 600 }}>{wo.woNumber}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${woStatusColor(wo.status)}`} style={{ fontWeight: 600 }}>{wo.status}</span>
+                                  </div>
+                                  {wo.squawk && (
+                                    <div className="text-[11px] text-muted-foreground truncate">{wo.squawk}</div>
+                                  )}
+                                </div>
+                                {wo.grandTotal > 0 && (
+                                  <span className="text-[11px] text-foreground shrink-0" style={{ fontWeight: 600 }}>
+                                    {formatCurrency(wo.grandTotal)}
+                                  </span>
+                                )}
+                                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                              </Link>
+                            ))}
+                            {tailWorkOrders.length > 6 && (
+                              <Link href={`/work-orders?aircraft=${encodeURIComponent(ac.id)}`} className="block text-center text-[11px] text-primary py-1" style={{ fontWeight: 500 }}>
+                                View all {tailWorkOrders.length} work orders →
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Pending Actions Panel */}
@@ -491,8 +634,10 @@ export function Dashboard() {
               const Icon = icons[item.type];
               return (
                 <motion.div key={item.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.08 }}>
-                  <Link href="/workspace"
-                    className={`block bg-white border rounded-2xl p-4 hover:shadow-md transition-all border-l-4 ${item.urgency === "high" ? "border-l-red-400 hover:border-l-red-500" : "border-l-amber-400 hover:border-l-amber-500"} border-border`}>
+                  <Link
+                    href={item.type === "workorder" ? `/work-orders/${item.dbId}` : `/invoices/${item.dbId}`}
+                    className={`block bg-white border rounded-2xl p-4 hover:shadow-md transition-all border-l-4 ${item.urgency === "high" ? "border-l-red-400 hover:border-l-red-500" : "border-l-amber-400 hover:border-l-amber-500"} border-border`}
+                  >
                     <div className="flex items-start gap-3">
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${colors[item.type]}`}>
                         <Icon className="w-4 h-4" />
@@ -526,6 +671,9 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* ── Fleet Analytics rollup (org-wide) ── */}
+      <FleetAnalyticsRow />
+
       {/* ── Charts Row ── */}
       <div className="grid lg:grid-cols-3 gap-6">
 
@@ -538,7 +686,15 @@ export function Dashboard() {
             </div>
             <div className="text-right">
               <div className="text-[22px] text-foreground tracking-tight" style={{ fontWeight: 800 }}>${(totalSpend / 1000).toFixed(1)}K</div>
-              <div className="text-[11px] text-emerald-600" style={{ fontWeight: 500 }}>↓ 8% vs last period</div>
+              {spendTrend && (
+                <div
+                  className={`text-[11px] ${spendTrend.direction === "up" ? "text-amber-600" : spendTrend.direction === "down" ? "text-emerald-600" : "text-muted-foreground"}`}
+                  style={{ fontWeight: 500 }}
+                >
+                  {spendTrend.direction === "up" ? "↑" : spendTrend.direction === "down" ? "↓" : "→"}{" "}
+                  {spendTrend.pct === null ? "new spend" : `${spendTrend.pct}% vs prior month`}
+                </div>
+              )}
             </div>
           </div>
           {hasSpendData ? (
@@ -661,7 +817,7 @@ export function Dashboard() {
               {[
                 { icon: Upload,       label: "Upload Docs",    href: "/documents" },
                 { icon: MessageSquare,label: "Ask Aircraft",   href: askHref },
-                { icon: Cpu,          label: "Command AI",     href: workspaceHref },
+                { icon: Cpu,          label: "Workflow",       href: "/workflow" },
                 { icon: Eye,          label: "Review Queue",   href: "/documents" },
               ].map(a => (
                 <Link key={a.label} href={a.href}
@@ -675,29 +831,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* ── AI Teaser Banner ── */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
-        <Link href={workspaceHref}
-          className="block bg-gradient-to-r from-[#0A1628] to-[#1E3A5F] rounded-2xl p-6 hover:opacity-95 transition-opacity group">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
-                <Sparkles className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <div className="text-[15px] text-white mb-1" style={{ fontWeight: 700 }}>AircraftDesk AI Command Center</div>
-                <div className="text-[13px] text-white/50">
-                  Type <span className="text-primary font-mono text-[12px]">"approve estimate EST-2026-0018"</span> or <span className="text-primary font-mono text-[12px]">"what needs my attention today?"</span> — AI understands plain English
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-white/60 group-hover:text-white transition-colors shrink-0">
-              <span className="text-[13px]" style={{ fontWeight: 500 }}>Open</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
-          </div>
-        </Link>
-      </motion.div>
     </div>
   );
 }

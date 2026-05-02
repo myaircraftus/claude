@@ -38,8 +38,8 @@ describe('diagnoseStaleDocumentProcessing', () => {
       {
         id: 'doc-ocr',
         parsing_status: 'ocr_processing',
-        parse_started_at: '2026-04-12T10:20:00.000Z',
-        updated_at: '2026-04-12T10:20:30.000Z',
+        parse_started_at: '2026-04-12T10:00:00.000Z',
+        updated_at: '2026-04-12T10:00:30.000Z',
       },
       now
     )

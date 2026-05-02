@@ -6,6 +6,41 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { searchParts } from '@/lib/parts/search'
 import type { AircraftContext } from '@/lib/parts/ai-resolve'
+import type {
+  ConditionFilter,
+  ShippingFilter,
+  VendorBucketFilter,
+  SortMode,
+  PartsSearchFilters,
+} from '@/lib/parts/types'
+
+// ─── Filter validation ─────────────────────────────────────────────────────
+const VALID_CONDITION: ConditionFilter[] = ['any', 'new', 'pma', 'overhauled', 'serviceable', 'used']
+const VALID_SHIPPING: ShippingFilter[] = ['any', 'in_stock', 'next_day', 'two_day', 'this_week']
+const VALID_VENDOR_BUCKET: VendorBucketFilter[] = ['any', 'aviation_trusted']
+const VALID_SORT: SortMode[] = ['best_fit', 'price_asc', 'price_desc', 'fastest', 'highest_rated']
+
+function parseFilters(raw: any): PartsSearchFilters | null {
+  if (!raw || typeof raw !== 'object') return null
+  const out: PartsSearchFilters = {}
+  if (typeof raw.condition === 'string' && (VALID_CONDITION as string[]).includes(raw.condition)) {
+    out.condition = raw.condition as ConditionFilter
+  }
+  if (typeof raw.priceMin === 'number' && Number.isFinite(raw.priceMin)) out.priceMin = raw.priceMin
+  if (typeof raw.priceMax === 'number' && Number.isFinite(raw.priceMax)) out.priceMax = raw.priceMax
+  if (typeof raw.shipping === 'string' && (VALID_SHIPPING as string[]).includes(raw.shipping)) {
+    out.shipping = raw.shipping as ShippingFilter
+  }
+  if (typeof raw.vendorBucket === 'string' && (VALID_VENDOR_BUCKET as string[]).includes(raw.vendorBucket)) {
+    out.vendorBucket = raw.vendorBucket as VendorBucketFilter
+  }
+  if (typeof raw.brand === 'string') out.brand = raw.brand.slice(0, 64)
+  if (typeof raw.partNumber === 'string') out.partNumber = raw.partNumber.slice(0, 64).toUpperCase()
+  if (typeof raw.sortBy === 'string' && (VALID_SORT as string[]).includes(raw.sortBy)) {
+    out.sortBy = raw.sortBy as SortMode
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
 
 export const maxDuration = 30
 
@@ -96,6 +131,7 @@ export async function POST(req: NextRequest) {
       engineModel,
       aircraftContext,
       maxResults: typeof body.limit === 'number' ? Math.min(body.limit, 50) : 30,
+      filters: parseFilters(body.filters),
     })
     return NextResponse.json(result)
   } catch (err: any) {

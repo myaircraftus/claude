@@ -13,19 +13,37 @@ const OCR_BATCH_SIZE = 6
 const OCR_MAX_OUTPUT_TOKENS = 12000
 const OCR_TEXT_ENRICH_BATCH_SIZE = 8
 const OCR_TEXT_ENRICH_MAX_CHARS = 12000
-const DOCUMENT_AI_TIMEOUT_MS = 90_000
-const DOCUMENT_AI_MAX_PAGES_PER_REQUEST = 15
+// Handwritten multi-page batches (esp. logbook scans) regularly blow past 90s.
+// 180s per batch + 10 pages/batch keeps each call well under the Document AI
+// sync-processing ceiling while giving slow handwritten pages real headroom.
+const DOCUMENT_AI_TIMEOUT_MS = 180_000
+const DOCUMENT_AI_MAX_PAGES_PER_REQUEST = 10
 const DOCUMENT_AI_MAX_ONLINE_FILE_BYTES = 40 * 1024 * 1024
 const DOCUMENT_AI_TARGET_BATCH_BYTES = 38 * 1024 * 1024
-const OCR_TEXT_ENRICH_TIMEOUT_MS = 45_000
+const DOCUMENT_AI_BATCH_MAX_RETRIES = 2
+const DOCUMENT_AI_BATCH_RETRY_DELAY_MS = 3_000
+// Bumped 45 → 120s. The annotation step does a structured-JSON LLM call on
+// up to 8 OCR'd pages of dense logbook text per batch; 45s was too tight on
+// big pages and routinely killed retries even though the actual OCR /
+// chunking / embedding had already succeeded.
+const OCR_TEXT_ENRICH_TIMEOUT_MS = 120_000
 const OPENAI_OCR_BATCH_TIMEOUT_MS = 75_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
 const TEXTRACT_TIMEOUT_MS = 90_000
 const LOCAL_OCR_TIMEOUT_MS = 120_000
 const TARGET_CHUNK_TOKENS = 600
 const CHUNK_OVERLAP_TOKENS = 80
+// Per-page char threshold for "this page has a real text layer".
 const TEXT_NATIVE_MIN_CHARS = 100
-const TEXT_NATIVE_SAMPLE_PAGES = 3
+// How many pages we sample to decide is_text_native. We spread these across
+// the PDF (first/last/even spacing in between) so a digital cover page on top
+// of a scanned interior can't masquerade as a fully text-native document.
+const TEXT_NATIVE_SAMPLE_PAGES = 6
+// Fraction of sampled pages that must be text-rich for the doc to count as
+// text-native. 0.6 means 4 out of 6 — strong enough to tolerate one or two
+// blank/sparse pages but strict enough that a mostly-scanned binder with a
+// digital cover gets routed to OCR.
+const TEXT_NATIVE_RICH_RATIO = 0.6
 const GOOGLE_CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
 const OCR_CLASSIFICATIONS = new Set([
@@ -415,12 +433,31 @@ export function getUsableParserServiceUrl(url = process.env.PARSER_SERVICE_URL):
 }
 
 async function downloadPdfBytes(fileUrl: string) {
-  const response = await fetch(fileUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+  // Retry transient failures. Most "Failed to download PDF: 400" errors we
+  // hit come from Supabase storage briefly returning 400 on a fresh signed
+  // URL during heavy concurrent uploads — a quick retry almost always
+  // succeeds. 5xx responses are also retried, with linear backoff.
+  let lastErr: Error | null = null
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const response = await fetch(fileUrl)
+      if (response.ok) {
+        return new Uint8Array(await response.arrayBuffer())
+      }
+      // Non-retryable client errors (auth, not found) — fail fast.
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        throw new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+      }
+      lastErr = new Error(`Failed to download PDF for inline parsing: ${response.status}`)
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err))
+      if (/^Failed to download PDF for inline parsing: (401|403|404)$/.test(lastErr.message)) {
+        throw lastErr
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500 * attempt))
   }
-
-  return new Uint8Array(await response.arrayBuffer())
+  throw lastErr ?? new Error('Failed to download PDF for inline parsing: unknown error')
 }
 
 async function loadPdfJs() {
@@ -618,20 +655,44 @@ export async function parseTextNativePdf(args: {
 
   try {
     const pageCount = pdf.numPages
+    // Sample pages spread evenly across the PDF (first, last, and points in
+    // between) so a digital cover on top of scanned pages can't fool us into
+    // thinking the entire document is text-native. For short PDFs we just
+    // sample every page.
     const sampleCount = Math.min(TEXT_NATIVE_SAMPLE_PAGES, pageCount)
-    const sampleTexts: string[] = []
+    const samplePageNumbers: number[] = []
+    if (sampleCount >= pageCount) {
+      for (let i = 1; i <= pageCount; i += 1) samplePageNumbers.push(i)
+    } else if (sampleCount === 1) {
+      samplePageNumbers.push(1)
+    } else {
+      // Linear spread inclusive of both endpoints: 1 ... pageCount
+      for (let i = 0; i < sampleCount; i += 1) {
+        const fraction = i / (sampleCount - 1)
+        const pageNumber = Math.max(
+          1,
+          Math.min(pageCount, Math.round(1 + fraction * (pageCount - 1))),
+        )
+        if (!samplePageNumbers.includes(pageNumber)) {
+          samplePageNumbers.push(pageNumber)
+        }
+      }
+    }
+
+    const sampleTextByPage = new Map<number, string>()
     let textRichPages = 0
 
-    for (let pageNumber = 1; pageNumber <= sampleCount; pageNumber += 1) {
+    for (const pageNumber of samplePageNumbers) {
       const page = await pdf.getPage(pageNumber)
       const text = await extractPageText(page)
-      sampleTexts.push(text)
+      sampleTextByPage.set(pageNumber, text)
       if (text.trim().length >= TEXT_NATIVE_MIN_CHARS) {
         textRichPages += 1
       }
     }
 
-    const isTextNative = textRichPages > Math.floor(sampleCount / 2)
+    const richRatio = textRichPages / samplePageNumbers.length
+    const isTextNative = richRatio >= TEXT_NATIVE_RICH_RATIO
     if (!isTextNative) {
       return {
         is_text_native: false,
@@ -644,9 +705,9 @@ export async function parseTextNativePdf(args: {
     const pages: NativeParsedPage[] = []
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
+      const cached = sampleTextByPage.get(pageNumber)
       const text =
-        pageNumber <= sampleTexts.length ? sampleTexts[pageNumber - 1] : await extractPageText(page)
+        cached !== undefined ? cached : await extractPageText(await pdf.getPage(pageNumber))
 
       pages.push({
         page_number: pageNumber,
@@ -1026,7 +1087,16 @@ export async function annotateOcrPagesWithOpenAI(args: {
       )
       .join('\n\n---\n\n')
 
-    const response = await withTimeout(getOpenAI().responses.create({
+    // Best-effort: timeouts / OpenAI errors / 429s on this annotation step
+    // must NOT fail the whole ingestion. The OCR text + chunks + embeddings
+    // are already produced — annotation only adds structured-field metadata
+    // (page_classification, extracted_event) which is nice-to-have, not
+    // required for RAG. If a batch fails, we log and continue with the
+    // un-annotated pages; later we still return the pages with default
+    // classifications so the doc completes successfully.
+    let response: Awaited<ReturnType<ReturnType<typeof getOpenAI>['responses']['create']>> | null = null
+    try {
+      response = await withTimeout(getOpenAI().responses.create({
       model: process.env.OPENAI_OCR_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
       temperature: 0,
       max_output_tokens: OCR_MAX_OUTPUT_TOKENS,
@@ -1148,13 +1218,33 @@ export async function annotateOcrPagesWithOpenAI(args: {
     }),
     OCR_TEXT_ENRICH_TIMEOUT_MS,
     `OpenAI OCR annotation timed out after ${Math.round(OCR_TEXT_ENRICH_TIMEOUT_MS / 1000)}s`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(
+        `[ingestion] OCR annotation batch ${startIndex}-${startIndex + batch.length} failed (continuing without enrichment):`,
+        msg,
+      )
+      // Skip this batch — remaining batches still get a chance, and the
+      // pages will fall back to default classifications below.
+      continue
+    }
 
+    if (!response) continue
     const raw = response.output_text?.trim()
     if (!raw) continue
 
-    const parsed = parseOpenAiJsonOutput<{ pages?: OcrTextAnnotationPage[] }>(raw)
-    for (const entry of parsed.pages ?? []) {
-      annotations.set(entry.page_number, entry)
+    try {
+      const parsed = parseOpenAiJsonOutput<{ pages?: OcrTextAnnotationPage[] }>(raw)
+      for (const entry of parsed.pages ?? []) {
+        annotations.set(entry.page_number, entry)
+      }
+    } catch (err) {
+      // JSON parse failure on the LLM's response — also non-fatal, just
+      // skip this batch's annotations.
+      console.warn(
+        `[ingestion] OCR annotation JSON parse failed (continuing without enrichment):`,
+        err instanceof Error ? err.message : err,
+      )
     }
   }
 
@@ -1370,8 +1460,44 @@ async function parseScannedPdfWithDocumentAi(args: {
       return (await response.json()) as DocumentAiProcessResponse
     }
 
+    // Document AI sync processing is flaky on dense handwritten batches — a
+    // single transient 5xx or per-batch timeout would otherwise kill the entire
+    // document. Retry a few times with a short backoff before giving up.
+    const runWithRetries = async (includeSchemaOverride: boolean) => {
+      let lastError: unknown = null
+      for (let attempt = 0; attempt <= DOCUMENT_AI_BATCH_MAX_RETRIES; attempt += 1) {
+        try {
+          return await runProcessRequest(includeSchemaOverride)
+        } catch (error) {
+          lastError = error
+          const message = error instanceof Error ? error.message : String(error)
+          const name = error instanceof Error ? error.name : ''
+          const retryable =
+            name === 'TimeoutError' ||
+            name === 'AbortError' ||
+            /timeout|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(message) ||
+            /returned 5\d\d/.test(message) ||
+            /returned 429/.test(message)
+          if (!retryable || attempt === DOCUMENT_AI_BATCH_MAX_RETRIES) {
+            throw error
+          }
+          console.warn('[ingestion] Document AI batch transient failure, retrying', {
+            batch: chunkContext.currentBatch,
+            totalBatches: chunkContext.totalBatches,
+            attempt: attempt + 1,
+            maxAttempts: DOCUMENT_AI_BATCH_MAX_RETRIES + 1,
+            error: message,
+          })
+          await new Promise((resolve) =>
+            setTimeout(resolve, DOCUMENT_AI_BATCH_RETRY_DELAY_MS * (attempt + 1))
+          )
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError))
+    }
+
     try {
-      return await runProcessRequest(Boolean(schemaOverride))
+      return await runWithRetries(Boolean(schemaOverride))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (schemaOverride && isUnsupportedDocumentAiSchemaOverrideMessage(message)) {
@@ -1382,7 +1508,7 @@ async function parseScannedPdfWithDocumentAi(args: {
             totalBatches: chunkContext.totalBatches,
           }
         )
-        return runProcessRequest(false)
+        return runWithRetries(false)
       }
       throw error
     }

@@ -52,7 +52,11 @@ async function callInternal(
     },
     body: JSON.stringify(body),
   })
-  return res.json()
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    return { error: `${path} returned ${res.status}`, detail: errText.slice(0, 200) }
+  }
+  return res.json().catch(() => ({ error: `${path} returned non-JSON` }))
 }
 
 /** GET variant for logbook search */
@@ -66,7 +70,11 @@ async function callInternalGet(
   const res = await fetch(url.toString(), {
     headers: { cookie: req.headers.get('cookie') || '' },
   })
-  return res.json()
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    return { error: `${path} returned ${res.status}`, detail: errText.slice(0, 200) }
+  }
+  return res.json().catch(() => ({ error: `${path} returned non-JSON` }))
 }
 
 // ── Tool dispatcher ────────────────────────────────────────────────────────────
@@ -112,26 +120,55 @@ async function dispatchTool(
     case 'search_logbook': {
       const params: Record<string, string> = {}
       if (args.aircraft_id) params.aircraft_id = String(args.aircraft_id)
-      const data = await callInternalGet(req, '/api/logbook-entries', params) as any
 
-      // Client-side keyword filter on the result set (simple contains)
-      const keyword = String(args.query ?? '').toLowerCase()
+      // Normalize the AI's free-form query so substrings like "latest 100-hour"
+      // actually match real entries (which read "100 Hour Inspection ...").
+      // - drop timeline qualifiers ("latest", "most recent", "find", etc.)
+      // - normalize hyphens to spaces ("100-hour" → "100 hour")
+      // - tokenize so we can match on terms, not the literal phrase
+      const rawQuery = String(args.query ?? '')
+      const QUALIFIERS = /\b(?:latest|last|most|recent|find|show|me|please|the|a|an|of|on|for|inspection|inspections|entry|entries|aircraft)\b/g
+      const normalized = rawQuery
+        .toLowerCase()
+        .replace(/-/g, ' ')
+        .replace(QUALIFIERS, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const terms = normalized.split(' ').filter((t) => t.length >= 2)
+
+      // Push the strongest single term to the API for DB-side ILIKE (uses
+      // existing index). Falls through to client-side AND-of-terms below.
+      const primaryTerm = terms.find((t) => /\d/.test(t)) ?? terms[0]
+      if (primaryTerm) params.search = primaryTerm
+
+      const data = await callInternalGet(req, '/api/logbook-entries', params) as any
       const entries = Array.isArray(data?.entries) ? data.entries : []
-      const filtered = keyword
-        ? entries.filter((e: any) =>
-            String(e.description ?? '').toLowerCase().includes(keyword) ||
-            String(e.entry_type ?? '').toLowerCase().includes(keyword)
-          )
+
+      // The API aliases `description` → `entry_text`. Filter on the actual
+      // returned shape and require all terms to appear (AND semantics).
+      const filtered = terms.length > 0
+        ? entries.filter((e: any) => {
+            const haystack = `${e.entry_text ?? e.description ?? ''} ${e.entry_type ?? ''} ${e.logbook_type ?? ''}`.toLowerCase()
+            return terms.every((t) => haystack.includes(t))
+          })
         : entries
+
+      // Entries already come back ordered by entry_date DESC; take the top 10
+      // so "latest" queries naturally surface the most recent matches first.
+      const limited = filtered.slice(0, 10)
 
       const artifact: Artifact = {
         type: 'logbook_entries',
-        title: `Logbook: "${args.query}"`,
-        data: { entries: filtered.slice(0, 10) },
+        title: rawQuery ? `Logbook: "${rawQuery}"` : 'Logbook entries',
+        data: { entries: limited },
         aircraft_id: args.aircraft_id as string | undefined,
-        action_url: `/maintenance${args.aircraft_id ? `?aircraft_id=${args.aircraft_id}` : ''}`,
+        // Send users to the aircraft detail page (where the logbook lives),
+        // not /maintenance which is dominated by work orders.
+        action_url: args.aircraft_id
+          ? `/aircraft/${args.aircraft_id}`
+          : '/aircraft',
       }
-      return { result: { entries: filtered.slice(0, 10) }, artifact }
+      return { result: { entries: limited }, artifact }
     }
 
     case 'search_documents': {
@@ -142,7 +179,7 @@ async function dispatchTool(
         question: args.query,
         aircraft_id: args.aircraft_id,
         conversation_history: [],
-      })
+      }) as any
       return { result: data, citations: data?.citations ?? [], followUps: data?.follow_up_questions ?? [], confidence: data?.confidence }
     }
 
@@ -245,9 +282,16 @@ async function resolveCanonicalAircraftId(
   return canonical.id
 }
 
+// Owner mode = "find me this in the book" experience. The user asks a
+// question about their uploaded logbook PDFs (and other docs), the AI answers
+// with [N] citations, and clicking a citation opens the cited page in the
+// side-panel preview where the user can read, download, or share it. We
+// intentionally drop search_logbook here — that tool returns structured DB
+// rows on a separate detail page, which broke the "find a passage in the
+// book" mental model. Mechanic mode still has both because mechanics use
+// search_logbook to find templates for drafting new entries.
 const OWNER_TOOL_NAMES: readonly AiToolName[] = [
   'search_documents',
-  'search_logbook',
 ]
 
 const MECHANIC_TOOL_NAMES: readonly AiToolName[] = [
@@ -273,10 +317,11 @@ Mechanic mode is action-oriented. You may use maintenance workflow tools like cr
 
 CURRENT PERSONA: owner
 
-Owner mode is records- and operations-oriented.
-- Focus on aircraft history, inspections, compliance, records, document evidence, and status.
-- Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode.
-- If the user asks for a mechanic action, explain briefly that they should switch to mechanic mode for maintenance workflow tasks.`
+Owner mode is "find me this in the book" — like searching a paper logbook.
+- ALWAYS call search_documents for any question about records, inspections, history, or compliance. The user's question is almost always answerable by finding the relevant passage in their uploaded logbook / POH / maintenance manual PDFs.
+- For "find me the latest X" or "show me all X", call search_documents and cite EVERY matching passage with [N] markers — the user wants to scan the matches and click into the source PDF to read in context.
+- Each [N] in your answer must correspond to a real document chunk you cited. The UI renders these as clickable links that open the cited page of the source PDF in a side panel for download and review.
+- Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode. If the user asks for one, briefly explain they should switch to mechanic mode.`
 }
 
 function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] {

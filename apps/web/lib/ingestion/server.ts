@@ -17,6 +17,7 @@ import { ensureTriggerSecretKey, isTriggerConfigured } from '@/lib/ingestion/tri
 import {
   annotateOcrPagesWithOpenAI,
   extractMetadataInline,
+  getUsableParserServiceUrl,
   type NativeExtractedEvent,
   type NativePageGeometryRegion,
   type OcrProgressUpdate,
@@ -163,6 +164,27 @@ async function batchInsert<T extends Record<string, unknown>>(
   }
 }
 
+// Same as batchInsert but uses upsert with explicit onConflict — for tables
+// where a retry can hit the same (document_id, page_number) pair as a
+// previous half-finished run. Without this, a retry that races a still-
+// running prior attempt fails with `duplicate key value violates unique
+// constraint`. Upsert lets the second writer win idempotently.
+async function batchUpsert<T extends Record<string, unknown>>(
+  supabase: ServiceClient,
+  table: string,
+  rows: T[],
+  onConflict: string,
+  batchSize = 50
+) {
+  for (let index = 0; index < rows.length; index += batchSize) {
+    const batch = rows.slice(index, index + batchSize)
+    const { error } = await supabase.from(table).upsert(batch, { onConflict })
+    if (error) {
+      throw new Error(`Failed to upsert into ${table}: ${error.message}`)
+    }
+  }
+}
+
 function omitKeys<T extends Record<string, unknown>>(row: T, keys: Set<string>) {
   if (keys.size === 0) return row
 
@@ -173,12 +195,38 @@ function omitKeys<T extends Record<string, unknown>>(row: T, keys: Set<string>) 
 
 function normalizeValidatedDate(value: string | null | undefined) {
   const normalized = validateOcrField('entry_date', value ?? null).normalized ?? null
-  return normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null
+  const [y, m, d] = normalized.split('-').map(Number)
+  // Reject impossible calendar dates (e.g. OCR reading "1975-02-30"). Postgres
+  // would reject these on INSERT and abort the entire document's ingestion, so
+  // we drop the date — the event still lands in the review queue for a human.
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return null
+  }
+  return normalized
 }
 
 function isDeadlockError(error: unknown) {
   if (!(error instanceof Error)) return false
   return /deadlock detected/i.test(error.message)
+}
+
+// Postgres returns "canceling statement due to statement timeout" when the
+// per-statement deadline is hit. This used to be a fatal error during
+// clearDerivedArtifacts on big OCR docs; with the RPC + smaller chunk size
+// it should be rare, but if it does happen the retry (with smaller chunks
+// next attempt) is the right move.
+function isStatementTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return (
+    /canceling statement due to statement timeout/i.test(error.message) ||
+    /statement timeout/i.test(error.message)
+  )
+}
+
+function isTransientCleanupError(error: unknown) {
+  return isDeadlockError(error) || isStatementTimeoutError(error)
 }
 
 async function sleep(ms: number) {
@@ -203,7 +251,13 @@ async function insertOcrPageJobsCompat(
 
     while (true) {
       const payload = batch.map((row) => omitKeys(row, omittedColumns))
-      const { error } = await supabase.from('ocr_page_jobs').insert(payload)
+      // Upsert (not insert) on (document_id, page_number) so a retry that
+      // races a still-running prior attempt wins idempotently instead of
+      // crashing with `ocr_page_jobs_document_id_page_number_key`. Same
+      // bug pattern as document_pages — fixed there earlier, fixing here too.
+      const { error } = await supabase
+        .from('ocr_page_jobs')
+        .upsert(payload, { onConflict: 'document_id,page_number' })
 
       if (!error) break
 
@@ -304,6 +358,42 @@ async function persistDocumentProcessingState(args: {
 }
 
 async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string) {
+  // Permanent fix path (migration 059): a single SECURITY DEFINER procedure
+  // that does the entire cleanup with a 180s local statement_timeout. Big
+  // logbook binders (1000+ segments + cascading review items) used to fail
+  // here with "canceling statement due to statement timeout" because the
+  // chunked-delete fallback below — even at 200 IDs per batch — couldn't
+  // beat the default per-statement timeout on heavily indexed tables.
+  //
+  // We TRY the RPC first. If it isn't deployed yet (older DB / local dev),
+  // or returns an unexpected error, we fall through to the chunked-delete
+  // path below so behavior degrades gracefully instead of erroring.
+  try {
+    const { error: rpcError } = await supabase.rpc(
+      'clear_document_derived_artifacts',
+      { p_document_id: documentId },
+    )
+    if (!rpcError) {
+      return
+    }
+    // Postgres "function does not exist" / 42883 / PGRST202 → fall through
+    // to the legacy chunked path. Anything else, log and still try the
+    // legacy path (it might succeed even if the RPC tripped on something).
+    const msg = rpcError.message ?? ''
+    const code = (rpcError as { code?: string }).code ?? ''
+    if (!/does not exist|PGRST202|42883/i.test(msg) && !/PGRST202|42883/i.test(code)) {
+      console.warn(
+        `[ingestion] clear_document_derived_artifacts RPC failed for ${documentId}, falling back to chunked deletes:`,
+        msg,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      `[ingestion] clear_document_derived_artifacts RPC threw for ${documentId}, falling back:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+
   async function runDelete(step: string, action: () => Promise<{ error: { message: string } | null }>) {
     const { error } = await action()
     if (error) {
@@ -311,81 +401,92 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
     }
   }
 
-  const { data: pageJobs, error: pageJobsError } = await supabase
-    .from('ocr_page_jobs')
-    .select('id')
-    .eq('document_id', documentId)
-
-  if (pageJobsError) {
-    throw new Error(`Failed to load OCR page jobs for cleanup: ${pageJobsError.message}`)
-  }
-
-  const pageJobIds = (pageJobs as Array<{ id: string }> | null)?.map((page) => page.id) ?? []
-
-  if (pageJobIds.length > 0) {
-    const [
-      { data: extractedEvents, error: extractedEventsError },
-      { data: segments, error: segmentsError },
-    ] = await Promise.all([
-      supabase
-        .from('ocr_extracted_events')
-        .select('id')
-        .in('ocr_page_job_id', pageJobIds),
-      supabase
-        .from('ocr_entry_segments')
-        .select('id')
-        .in('ocr_page_job_id', pageJobIds),
-    ])
-
-    if (extractedEventsError) {
-      throw new Error(`Failed to load OCR extracted events for cleanup: ${extractedEventsError.message}`)
-    }
-
-    if (segmentsError) {
-      throw new Error(`Failed to load OCR entry segments for cleanup: ${segmentsError.message}`)
-    }
-
-    const extractedEventIds =
-      (extractedEvents as Array<{ id: string }> | null)?.map((event) => event.id) ?? []
-    const segmentIds =
-      (segments as Array<{ id: string }> | null)?.map((segment) => segment.id) ?? []
-
-    if (extractedEventIds.length > 0) {
-      const { error } = await supabase
-        .from('review_queue_items')
-        .delete()
-        .in('ocr_extracted_event_id', extractedEventIds)
+  // Postgres + PostgREST reject `IN (...)` filters whose URL-encoded list
+  // grows too long — large OCR docs (200+ pages, thousands of segments) were
+  // hitting HTTP 400 mid-cleanup. Chunk the IDs so each DELETE stays bounded.
+  // Reduced 200 → 50 because even 200 was hitting the per-statement timeout
+  // on heavily indexed tables. The RPC above is the primary path now;
+  // 50-id chunks here are belt-and-suspenders for environments without it.
+  const DELETE_IN_CHUNK_SIZE = 50
+  async function runChunkedDeleteIn<T extends string>(
+    step: string,
+    ids: T[],
+    buildAction: (chunk: T[]) => Promise<{ error: { message: string } | null }>
+  ) {
+    if (ids.length === 0) return
+    for (let i = 0; i < ids.length; i += DELETE_IN_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + DELETE_IN_CHUNK_SIZE)
+      const { error } = await buildAction(chunk)
       if (error) {
-        throw new Error(`Failed to clear review queue items for extracted events: ${error.message}`)
+        throw new Error(`Failed to clear ${step}: ${error.message}`)
       }
     }
+  }
 
-    if (segmentIds.length > 0) {
-      await runDelete('review queue items for segments', () =>
-        supabase.from('review_queue_items').delete().in('ocr_entry_segment_id', segmentIds)
-      )
-      await runDelete('OCR segment field candidates', () =>
-        supabase.from('ocr_segment_field_candidates').delete().in('segment_id', segmentIds)
-      )
-      await runDelete('OCR segment conflicts', () =>
-        supabase.from('segment_conflicts').delete().in('segment_id', segmentIds)
-      )
+  // Page through results to avoid the PostgREST 1000-row cap.
+  async function fetchAllIds(
+    table: string,
+    filter: (query: any) => any,
+  ): Promise<string[]> {
+    const out: string[] = []
+    const SELECT_PAGE_SIZE = 1000
+    for (let from = 0; ; from += SELECT_PAGE_SIZE) {
+      const { data, error } = await filter(supabase.from(table).select('id'))
+        .range(from, from + SELECT_PAGE_SIZE - 1)
+      if (error) {
+        throw new Error(`Failed to load ${table} for cleanup: ${error.message}`)
+      }
+      const rows = (data as Array<{ id: string }> | null) ?? []
+      if (rows.length === 0) break
+      out.push(...rows.map((r) => r.id))
+      if (rows.length < SELECT_PAGE_SIZE) break
+    }
+    return out
+  }
+
+  const pageJobIds = await fetchAllIds('ocr_page_jobs', (q) => q.eq('document_id', documentId))
+
+  if (pageJobIds.length > 0) {
+    const extractedEventIds: string[] = []
+    const segmentIds: string[] = []
+    for (let i = 0; i < pageJobIds.length; i += 200) {
+      const chunk = pageJobIds.slice(i, i + 200)
+      const [events, segs] = await Promise.all([
+        fetchAllIds('ocr_extracted_events', (q) => q.in('ocr_page_job_id', chunk)),
+        fetchAllIds('ocr_entry_segments', (q) => q.in('ocr_page_job_id', chunk)),
+      ])
+      extractedEventIds.push(...events)
+      segmentIds.push(...segs)
     }
 
-    await runDelete('review queue items for pages', () =>
-      supabase.from('review_queue_items').delete().in('ocr_page_job_id', pageJobIds)
+    await runChunkedDeleteIn('review queue items for extracted events', extractedEventIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_extracted_event_id', chunk)
     )
-    await runDelete('extracted field candidates', () =>
-      supabase.from('extracted_field_candidates').delete().in('page_id', pageJobIds)
+
+    await runChunkedDeleteIn('review queue items for segments', segmentIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_entry_segment_id', chunk)
     )
-    await runDelete('field conflicts', () =>
-      supabase.from('field_conflicts').delete().in('page_id', pageJobIds)
+    await runChunkedDeleteIn('OCR segment field candidates', segmentIds, (chunk) =>
+      supabase.from('ocr_segment_field_candidates').delete().in('segment_id', chunk)
     )
-    await runDelete('OCR extracted events', () =>
-      supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', pageJobIds)
+    await runChunkedDeleteIn('OCR segment conflicts', segmentIds, (chunk) =>
+      supabase.from('segment_conflicts').delete().in('segment_id', chunk)
     )
-    await runDelete('OCR entry segments', () =>
-      supabase.from('ocr_entry_segments').delete().in('ocr_page_job_id', pageJobIds)
+
+    await runChunkedDeleteIn('review queue items for pages', pageJobIds, (chunk) =>
+      supabase.from('review_queue_items').delete().in('ocr_page_job_id', chunk)
+    )
+    await runChunkedDeleteIn('extracted field candidates', pageJobIds, (chunk) =>
+      supabase.from('extracted_field_candidates').delete().in('page_id', chunk)
+    )
+    await runChunkedDeleteIn('field conflicts', pageJobIds, (chunk) =>
+      supabase.from('field_conflicts').delete().in('page_id', chunk)
+    )
+    await runChunkedDeleteIn('OCR extracted events', pageJobIds, (chunk) =>
+      supabase.from('ocr_extracted_events').delete().in('ocr_page_job_id', chunk)
+    )
+    await runChunkedDeleteIn('OCR entry segments', pageJobIds, (chunk) =>
+      supabase.from('ocr_entry_segments').delete().in('ocr_page_job_id', chunk)
     )
     await runDelete('OCR page jobs', () =>
       supabase.from('ocr_page_jobs').delete().eq('document_id', documentId)
@@ -419,18 +520,25 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
 }
 
 async function clearDerivedArtifactsWithRetry(supabase: ServiceClient, documentId: string) {
-  const maxAttempts = 4
+  // Up to 5 attempts with linear backoff. Retries fire on:
+  //   - Deadlocks (other session was cleaning up the same doc concurrently)
+  //   - Statement timeouts (rare now that the RPC handles cleanup, but keep
+  //     the fallback covered in case the RPC is unavailable)
+  // Anything else bubbles up immediately so we don't paper over real bugs.
+  const maxAttempts = 5
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await clearDerivedArtifacts(supabase, documentId)
       return
     } catch (error) {
-      if (!isDeadlockError(error) || attempt === maxAttempts) {
+      if (!isTransientCleanupError(error) || attempt === maxAttempts) {
         throw error
       }
-
-      await sleep(250 * attempt)
+      // Statement-timeout: longer pause so the DB has a moment to recover
+      // before the next attempt slams it again with the same workload.
+      const baseDelay = isStatementTimeoutError(error) ? 1000 : 250
+      await sleep(baseDelay * attempt)
     }
   }
 }
@@ -534,21 +642,43 @@ async function insertEmbeddingsCompat(args: {
 
   if (rows.length === 0) return
 
-  const { error } = await args.supabase.from('document_embeddings').insert(rows)
-  if (!error) return
+  // CHUNKED INSERT — pgvector embeddings are 1536-dim each, and a 200-page
+  // logbook can produce 4000+ chunks. Inserting them all in a single
+  // statement was hitting the Postgres per-statement timeout
+  // ("canceling statement due to statement timeout") on the
+  // document_embeddings INSERT. Smaller batches stay well under the
+  // timeout, even on the slowest connection.
+  const EMBEDDING_BATCH_SIZE = 100
+  let isLegacyShape = false
 
-  if (isMissingColumnError(error, 'embedding_model')) {
-    const legacyRows = rows.map(({ embedding_model, ...row }) => ({
-      ...row,
-      model: embedding_model,
-    }))
+  for (let i = 0; i < rows.length; i += EMBEDDING_BATCH_SIZE) {
+    const batch = rows.slice(i, i + EMBEDDING_BATCH_SIZE)
+    const payload = isLegacyShape
+      ? batch.map(({ embedding_model, ...row }) => ({ ...row, model: embedding_model }))
+      : batch
+    const { error } = await args.supabase.from('document_embeddings').insert(payload)
+    if (!error) continue
 
-    const { error: legacyError } = await args.supabase.from('document_embeddings').insert(legacyRows)
-    if (!legacyError) return
-    throw new Error(`Failed to insert document embeddings: ${legacyError.message}`)
+    // Detect the older schema (model column instead of embedding_model)
+    // on the first batch — re-emit this batch with the legacy shape and
+    // continue with that shape for the rest of the run.
+    if (!isLegacyShape && isMissingColumnError(error, 'embedding_model')) {
+      isLegacyShape = true
+      const legacyBatch = batch.map(({ embedding_model, ...row }) => ({
+        ...row,
+        model: embedding_model,
+      }))
+      const { error: legacyError } = await args.supabase
+        .from('document_embeddings')
+        .insert(legacyBatch)
+      if (legacyError) {
+        throw new Error(`Failed to insert document embeddings: ${legacyError.message}`)
+      }
+      continue
+    }
+
+    throw new Error(`Failed to insert document embeddings: ${error.message}`)
   }
-
-  throw new Error(`Failed to insert document embeddings: ${error.message}`)
 }
 
 async function insertCanonicalEmbeddingsCompat(args: {
@@ -619,14 +749,23 @@ async function insertCanonicalChunksFromTextNative(args: {
     .from('canonical_document_chunks')
     .upsert(rows, { onConflict: 'document_id,chunk_index' })
 
-  const { data: insertedChunks, error } = await args.supabase
-    .from('canonical_document_chunks')
-    .select('id, chunk_index')
-    .eq('document_id', args.document.id)
-    .order('chunk_index', { ascending: true })
+  // Page through all rows to avoid the PostgREST default 1000-row cap.
+  const insertedChunks: Array<{ id: string; chunk_index: number }> = []
+  const CHUNK_PAGE_SIZE = 1000
+  for (let from = 0; ; from += CHUNK_PAGE_SIZE) {
+    const { data: page, error } = await args.supabase
+      .from('canonical_document_chunks')
+      .select('id, chunk_index')
+      .eq('document_id', args.document.id)
+      .order('chunk_index', { ascending: true })
+      .range(from, from + CHUNK_PAGE_SIZE - 1)
 
-  if (error || !insertedChunks) {
-    throw new Error(`Failed to fetch canonical chunks: ${error?.message ?? 'unknown error'}`)
+    if (error) {
+      throw new Error(`Failed to fetch canonical chunks: ${error.message}`)
+    }
+    if (!page || page.length === 0) break
+    insertedChunks.push(...(page as Array<{ id: string; chunk_index: number }>))
+    if (page.length < CHUNK_PAGE_SIZE) break
   }
 
   await insertCanonicalEmbeddingsCompat({
@@ -792,6 +931,59 @@ async function markDocumentFailed(
       updated_at: now,
     },
   })
+
+  // Structured failure log — feeds /admin/ingestion-health so we can spot
+  // recurring patterns + surface unknown error categories for one-time fix
+  // instead of repeated firefighting.
+  try {
+    const { classifyIngestionFailure } = await import('./failure-classifier')
+    const classification = classifyIngestionFailure(errorMessage)
+    const attempt =
+      typeof (nextState as any)?.heal_attempts === 'number'
+        ? (nextState as any).heal_attempts + 1
+        : 1
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('organization_id')
+      .eq('id', documentId)
+      .maybeSingle()
+    if (doc?.organization_id) {
+      await supabase.from('ingestion_failures').insert({
+        document_id: documentId,
+        organization_id: doc.organization_id,
+        error_message: errorMessage.slice(0, 1000),
+        classifier_tag: classification.tag,
+        severity: classification.severity,
+        attempt_number: attempt,
+        outcome: 'failed',
+        pipeline_stage: nextState?.current_stage ?? null,
+      })
+    }
+  } catch (err) {
+    // Logging is best-effort. A failure to write the failure log must NOT
+    // mask the original ingestion error.
+    console.warn('[ingestion] failed to write ingestion_failures row:', err)
+  }
+}
+
+/**
+ * Called when an ingestion attempt SUCCEEDS for a document that has prior
+ * 'failed' rows in ingestion_failures. Marks them all as 'recovered' so the
+ * admin dashboard can show "X recovered automatically vs Y still failing".
+ */
+async function markPriorFailuresRecovered(
+  supabase: ServiceClient,
+  documentId: string,
+) {
+  try {
+    await supabase
+      .from('ingestion_failures')
+      .update({ outcome: 'recovered', recovered_at: new Date().toISOString() })
+      .eq('document_id', documentId)
+      .eq('outcome', 'failed')
+  } catch (err) {
+    console.warn('[ingestion] failed to mark prior failures recovered:', err)
+  }
 }
 
 async function markDocumentNeedsOcr(
@@ -1119,23 +1311,42 @@ async function persistOcrArtifacts(args: {
       }
     })
 
-    await batchInsert(args.supabase, 'ocr_entry_segments', segmentRows, 100)
-  }
-
-  const { data: insertedSegments, error: segmentsError } = await args.supabase
-    .from('ocr_entry_segments')
-    .select(
-      'id, ocr_page_job_id, page_number, segment_index, segment_group_key, evidence_state, canonical_candidate, segment_type, confidence, metadata_json'
+    // Upsert (not insert) on (ocr_page_job_id, segment_index) so a retry
+    // that races a still-running prior attempt wins idempotently.
+    // Without this, two concurrent ingestion attempts both insert their
+    // segments and the second hits the unique-index violation. Same race
+    // family as document_pages and ocr_page_jobs, fixed identically.
+    await batchUpsert(
+      args.supabase,
+      'ocr_entry_segments',
+      segmentRows,
+      'ocr_page_job_id,segment_index',
+      100,
     )
-    .eq('document_id', args.document.id)
-    .order('page_number', { ascending: true })
-    .order('segment_index', { ascending: true })
-
-  if (segmentsError) {
-    throw new Error(`Failed to fetch OCR entry segments: ${segmentsError.message}`)
   }
 
-  const segmentRowsTyped = (insertedSegments as InsertedSegmentRow[] | null) ?? []
+  // Page through all segments — avoid the PostgREST default 1000-row cap.
+  const segmentRowsTyped: InsertedSegmentRow[] = []
+  const SEGMENT_PAGE_SIZE = 1000
+  for (let from = 0; ; from += SEGMENT_PAGE_SIZE) {
+    const { data: page, error: segmentsError } = await args.supabase
+      .from('ocr_entry_segments')
+      .select(
+        'id, ocr_page_job_id, page_number, segment_index, segment_group_key, evidence_state, canonical_candidate, segment_type, confidence, metadata_json'
+      )
+      .eq('document_id', args.document.id)
+      .order('page_number', { ascending: true })
+      .order('segment_index', { ascending: true })
+      .range(from, from + SEGMENT_PAGE_SIZE - 1)
+
+    if (segmentsError) {
+      throw new Error(`Failed to fetch OCR entry segments: ${segmentsError.message}`)
+    }
+    const typedPage = (page as InsertedSegmentRow[] | null) ?? []
+    if (typedPage.length === 0) break
+    segmentRowsTyped.push(...typedPage)
+    if (typedPage.length < SEGMENT_PAGE_SIZE) break
+  }
   const localKeyToId = new Map<string, string>()
 
   for (const row of segmentRowsTyped) {
@@ -1617,7 +1828,17 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
 
     if (!ingestData.is_text_native && ingestData.pages.length > 0) {
       const enrichedPages = await annotateOcrPagesWithOpenAI({
-        pages: ingestData.pages,
+        pages: ingestData.pages.map((p) => ({
+          page_number: p.page_number,
+          text: p.text,
+          ocr_confidence: p.ocr_confidence ?? 0,
+          word_count: p.word_count ?? 0,
+          char_count: p.char_count ?? 0,
+          ocr_engine: p.ocr_engine ?? null,
+          page_classification: p.page_classification ?? null,
+          extracted_event: p.extracted_event ?? null,
+          geometry_regions: p.geometry_regions,
+        })),
         docType: document.doc_type,
         title: document.title,
         make: aircraft?.make ?? null,
@@ -1682,7 +1903,11 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         char_count: page.char_count ?? page.text.length,
       }))
 
-      await batchInsert(supabase, 'document_pages', pageRows, 50)
+      // Upsert (not insert) so a retry that races a still-running prior
+      // attempt doesn't fail with the document_pages_document_id_page_number_key
+      // unique constraint. Same (document_id, page_number) writes the new
+      // text instead of erroring.
+      await batchUpsert(supabase, 'document_pages', pageRows, 'document_id,page_number', 50)
     }
 
     let requiresHumanReview = false
@@ -1715,16 +1940,50 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       },
     }))
 
+    // Safety net: if the native-PDF probe declared the doc text-native but
+    // the resulting chunks are mostly empty/sparse, the probe was wrong (e.g.
+    // digital cover on top of scanned interior, or a malformed text layer
+    // that looked rich on a single sample page). Flag for human review so
+    // the user can hit "Re-OCR" instead of silently completing with garbage
+    // embeddings.
+    if (ingestData.is_text_native && chunkRows.length > 0) {
+      const SUBSTANTIVE_CHUNK_MIN_CHARS = 40
+      const substantiveChunks = chunkRows.filter(
+        (row) => (row.chunk_text ?? '').trim().length >= SUBSTANTIVE_CHUNK_MIN_CHARS,
+      ).length
+      const substantiveRatio = substantiveChunks / chunkRows.length
+      if (substantiveRatio < 0.5) {
+        console.warn(
+          `[ingestion] document ${documentId} declared text-native but only ` +
+            `${substantiveChunks}/${chunkRows.length} chunks have substantive text ` +
+            `(ratio=${substantiveRatio.toFixed(2)}). Routing to human review for re-OCR.`,
+        )
+        requiresHumanReview = true
+      }
+    }
+
     await batchInsert(supabase, 'document_chunks', chunkRows, 50)
 
-    const { data: insertedChunks, error: chunksError } = await supabase
-      .from('document_chunks')
-      .select('id, chunk_index')
-      .eq('document_id', documentId)
-      .order('chunk_index', { ascending: true })
+    // PostgREST caps SELECT at 1000 rows by default — very large scanned docs
+    // (200+ pages = 3-5k chunks) were silently losing 70%+ of embeddings
+    // because only the first 1000 chunk IDs made it into chunkIdsByIndex.
+    // Page through all chunks explicitly.
+    const insertedChunks: Array<{ id: string; chunk_index: number }> = []
+    const CHUNK_PAGE_SIZE = 1000
+    for (let from = 0; ; from += CHUNK_PAGE_SIZE) {
+      const { data: page, error: chunksError } = await supabase
+        .from('document_chunks')
+        .select('id, chunk_index')
+        .eq('document_id', documentId)
+        .order('chunk_index', { ascending: true })
+        .range(from, from + CHUNK_PAGE_SIZE - 1)
 
-    if (chunksError || !insertedChunks) {
-      throw new Error(`Failed to fetch inserted chunks: ${chunksError?.message ?? 'unknown error'}`)
+      if (chunksError) {
+        throw new Error(`Failed to fetch inserted chunks: ${chunksError.message}`)
+      }
+      if (!page || page.length === 0) break
+      insertedChunks.push(...(page as Array<{ id: string; chunk_index: number }>))
+      if (page.length < CHUNK_PAGE_SIZE) break
     }
 
     processingState = markDocumentProcessingStage(processingState, 'chunking', 'completed', {
@@ -1806,6 +2065,12 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           now: completedAt,
         })
 
+    // Doc is fully ingested either way — chunks + embeddings exist.
+    // requiresHumanReview just means the OCR confidence was low (typically
+    // handwriting). We now land everything as 'completed' and use the
+    // dedicated needs_human_review flag for the UI hint, so the user has
+    // a clean inbox of "docs to manually verify" without polluting the
+    // pipeline status.
     await persistDocumentProcessingState({
       supabase,
       documentId,
@@ -1816,6 +2081,40 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         parse_error: null,
       },
     })
+    if (requiresHumanReview) {
+      await supabase
+        .from('documents')
+        .update({
+          needs_human_review: true,
+          human_review_reason: 'Low-confidence or handwritten OCR — verify accuracy.',
+          updated_at: completedAt,
+        })
+        .eq('id', documentId)
+    } else {
+      // Clear the flag if a fresh successful OCR run replaces an older
+      // low-confidence one.
+      await supabase
+        .from('documents')
+        .update({ needs_human_review: false, human_review_reason: null })
+        .eq('id', documentId)
+    }
+
+    // Mark any prior failure log rows for this doc as recovered, so the
+    // admin dashboard can show "auto-recovered after N attempts" instead
+    // of leaving the failure dangling forever.
+    void markPriorFailuresRecovered(supabase, documentId)
+
+    // Auto-classify with LLM so the doc lands in the right bucket on the
+    // Aircraft Documents tab without the user picking a category by hand.
+    // Fire-and-forget — never block completion on a 429 / classifier hiccup.
+    void (async () => {
+      try {
+        const { autoClassifyDocument } = await import('@/lib/documents/auto-classify')
+        await autoClassifyDocument(supabase as any, documentId)
+      } catch (err) {
+        console.warn(`[ingestion] auto-classify post-step failed for ${documentId}:`, err)
+      }
+    })()
 
     return { mode: 'inline', status: 'completed' }
   } catch (error) {

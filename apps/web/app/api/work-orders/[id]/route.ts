@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'corrective_action', 'internal_notes', 'customer_visible_notes',
     'assigned_mechanic_id', 'aircraft_id', 'customer_id', 'tax_amount', 'service_type',
     'linked_invoice_id', 'linked_logbook_entry_id',
-    'closed_at',
+    'closed_at', 'ai_summary',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   // Map frontend field names to DB column names
@@ -86,10 +86,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (field in body) updates[field] = body[field]
   }
 
-  if (body.status === 'closed') {
+  // Block status transitions that finalize the WO (ready_for_signoff,
+  // closed, invoiced, paid) until every required checklist item — including
+  // overdue AD/SB items auto-added at WO creation — is checked off.
+  const FINALIZING_STATUSES = ['ready_for_signoff', 'closed', 'invoiced', 'paid']
+  if (typeof body.status === 'string' && FINALIZING_STATUSES.includes(body.status)) {
     const { data: incompleteChecklist, error: checklistError } = await supabase
       .from('work_order_checklist_items')
-      .select('id')
+      .select('id, item_label, source')
       .eq('organization_id', orgId)
       .eq('work_order_id', params.id)
       .eq('required', true)
@@ -100,8 +104,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     if ((incompleteChecklist?.length ?? 0) > 0) {
+      const adSbCount = (incompleteChecklist ?? []).filter((row) => row.source === 'ad_sb').length
+      const detail = adSbCount > 0
+        ? ` ${adSbCount} AD/SB item${adSbCount === 1 ? '' : 's'} still need to be resolved.`
+        : ''
       return NextResponse.json(
-        { error: 'Complete all required checklist items before closing this work order.' },
+        {
+          error: `Complete all required checklist items before moving this work order to ${body.status}.${detail}`,
+          incomplete_count: incompleteChecklist?.length ?? 0,
+        },
         { status: 409 }
       )
     }

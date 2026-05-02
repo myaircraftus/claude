@@ -440,7 +440,7 @@ function FinalCTASection() {
             Get Started Free
           </Link>
         </div>
-        <p className="text-[13px] text-[#6B7280]">No credit card required · 14-day free trial · Setup in under 30 minutes</p>
+        <p className="text-[13px] text-[#6B7280]">No credit card required · 30-day free trial · Setup in under 30 minutes</p>
       </div>
     </section>
   )

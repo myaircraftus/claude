@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
 import { findOwnerCustomer, syncAircraftOwnerAssignment } from '@/lib/aircraft/ownership'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -228,6 +229,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    try {
+      await requireActiveBilling(organization_id, 'owner')
+    } catch (err) {
+      if (err instanceof BillingBlockedError) {
+        return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+      }
+      throw err
+    }
+
     const requestedOwnerCustomer = fields.owner_customer_id
       ? await findOwnerCustomer(supabase, organization_id, fields.owner_customer_id)
       : null
@@ -339,11 +349,11 @@ export async function POST(req: NextRequest) {
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: existingAircraft?.is_archived ? 'aircraft.restored' : 'aircraft.created',
-      target_type: 'aircraft',
-      target_id: aircraft.id,
-      metadata: {
+      entity_type: 'aircraft',
+      entity_id: aircraft.id,
+      metadata_json: {
         tail_number: fields.tail_number,
         make: fields.make,
         model: fields.model,

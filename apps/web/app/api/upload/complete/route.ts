@@ -11,6 +11,8 @@ import {
   isDocumentDetailId,
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
+import { queueDocumentIngestion } from '@/lib/ingestion/server'
+import { personaCanUpload, buildPersonaRejection, type Persona } from '@/lib/documents/persona-scope'
 
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -113,6 +115,8 @@ export async function POST(req: NextRequest) {
     marketplaceInjectable?: boolean
     marketplacePreviewAvailable?: boolean
     checksumSha256?: string | null
+    /** Active UI persona at time of upload — drives the strict scope check. */
+    persona?: Persona
   }
 
   try {
@@ -153,6 +157,15 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Prevent cross-tenant storage hijack: client-supplied storagePath must live
+  // under the caller's org prefix. Without this, an attacker could pass
+  // `<victim-org>/...` here and have a documents row in their own org point at
+  // a victim org's storage object — which the preview/download routes then
+  // hand back via service-role storage reads (bypassing storage RLS).
+  if (!storagePath.startsWith(`${orgId}/`) || storagePath.includes('..')) {
+    return NextResponse.json({ error: 'Invalid storage path.' }, { status: 400 })
+  }
+
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
     return NextResponse.json({ error: 'Invalid file size.' }, { status: 400 })
   }
@@ -174,6 +187,65 @@ export async function POST(req: NextRequest) {
 
   if (!VALID_DOC_TYPES.includes(docType as DocType)) {
     return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
+  }
+
+  // ── Persona-scope enforcement ─────────────────────────────────────────────
+  // Strict rule from product: when a user is on the Mechanic persona they
+  // can only upload shop reference documentation (maintenance manuals,
+  // service manuals, parts catalogs, service bulletins) plus shared types
+  // like POH / AFM. Aircraft-specific records (logbooks, ADs, inspection
+  // reports, work orders, registration, insurance) belong to the Owner
+  // persona — even if the same user has both. The client sends the active
+  // UI persona; we trust it but still verify the org role allows owner-side
+  // uploads when persona='owner'.
+  const submittedPersona: Persona = body.persona === 'mechanic' ? 'mechanic' : 'owner'
+  if (!personaCanUpload(submittedPersona, docType as DocType)) {
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      {
+        error: buildPersonaRejection(docType as DocType),
+        code: 'PERSONA_SCOPE_BLOCKED',
+        persona: submittedPersona,
+        doc_type: docType,
+      },
+      { status: 403 }
+    )
+  }
+  // If they claim to be uploading as Owner, verify their org role actually
+  // allows owner-side ownership records. Mechanic-only org roles trying to
+  // pretend to be Owner via the body get bounced.
+  if (submittedPersona === 'owner') {
+    const ownerCapableRoles = ['owner', 'admin', 'pilot']
+    if (!ownerCapableRoles.includes(requestContext.role) && requestContext.role !== 'mechanic') {
+      // edge: viewer role
+      await serviceClient.storage.from('documents').remove([storagePath])
+      return NextResponse.json(
+        { error: 'This account does not have permission to upload owner records.' },
+        { status: 403 }
+      )
+    }
+    if (requestContext.role === 'mechanic') {
+      // Dual-role: mechanic in this org wants to upload as Owner. Allow only
+      // if their user profile has persona='owner' set (i.e. they actually
+      // own aircraft on the platform).
+      const { data: uploaderPersonaRow } = await serviceClient
+        .from('user_profiles')
+        .select('persona')
+        .eq('id', user.id)
+        .maybeSingle()
+      const hasOwnerPersona = uploaderPersonaRow?.persona === 'owner'
+      if (!hasOwnerPersona) {
+        await serviceClient.storage.from('documents').remove([storagePath])
+        return NextResponse.json(
+          {
+            error:
+              'You are signed in as a mechanic on this organization. Aircraft owner records (logbooks, registration, insurance) can only be uploaded by the owner. Ask the owner to upload it from their account, or switch to your owner profile if you have one.',
+            code: 'PERSONA_SCOPE_BLOCKED',
+          },
+          { status: 403 }
+        )
+      }
+    }
   }
 
   if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
@@ -324,11 +396,32 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Fire-and-forget ingestion. We deliberately don't await here:
+  //  - The browser client should get a fast 201 so the user can keep
+  //    uploading the next file (multi-upload UX was getting stuck waiting
+  //    for OCR to finish each file before the response returned).
+  //  - queueDocumentIngestion runs inline (Document AI / Textract / Tesseract
+  //    fallback). On Vercel this continues running in the background until
+  //    the function instance is reused or the 300s budget is exhausted.
+  //  - If the ingestion crashes or the function gets killed before chunks
+  //    land, the heal-ingestions cron picks it up within 10 minutes — the
+  //    doc was inserted with parsing_status: 'queued' which is in the
+  //    cron's STUCK_STATES list, so it auto-retries.
+  //
+  // Wrap in a Promise so an unhandled rejection in this background work
+  // doesn't take down the function instance.
+  void queueDocumentIngestion(documentId, {
+    preferBackground: true,
+    allowInlineFallback: true,
+  }).catch((err) => {
+    console.error(`[upload/complete] ingestion enqueue failed for ${documentId}:`, err)
+  })
+
   return NextResponse.json(
     {
       document_id: documentId,
       status: 'queued',
-      ingestion_mode: 'deferred',
+      ingestion_mode: 'background',
       warning: null,
     },
     { status: 201 }
