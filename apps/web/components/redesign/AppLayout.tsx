@@ -6,7 +6,7 @@ import {
   Wrench, Settings, ChevronDown, User,
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
-  Sparkles, ShieldCheck, MapPin, Building2,
+  Sparkles, ShieldCheck, MapPin, Building2, Inbox,
 } from "lucide-react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -42,6 +42,7 @@ type OwnerAircraftSummary = {
 /* ─── Owner nav ─────────────────────────────────────────────── */
 const ownerNavItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard",        href: "/dashboard" },
+  { icon: Inbox,           label: "AI Inbox",         href: "/inbox" },
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: FileText,        label: "Documents",        href: "/documents" },
@@ -53,6 +54,11 @@ const ownerNavItems: NavItem[] = [
 /* ─── Mechanic nav builder ───────────────────────────────────── */
 function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   const items: NavItem[] = [];
+
+  // AI Inbox is visible to every persona — Spec 0.3 places it at the top
+  // of the home screen. Phase 5 (Smart Home Screen) will replace the
+  // dashboard with this surface.
+  items.push({ icon: Inbox, label: "AI Inbox", href: "/inbox" });
 
   if (perm.aiCommandCenter) {
     items.push({ icon: Bot, label: "AI Command Center", href: "/workspace" });

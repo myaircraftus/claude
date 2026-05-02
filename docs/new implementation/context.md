@@ -44,13 +44,14 @@ The full implementation spec lives at:
 
 ## 5. Current sprint
 
-**Sprint:** `0c — AI Orchestration foundation`
-**Spec section:** `Feature 0.3` in `/docs/Claude_Code_Implementation_Spec.md`
+**Sprint:** `0d — Notification system`
+**Spec section:** `Feature 0.4` in `/docs/Claude_Code_Implementation_Spec.md`
 **Status:** not started
 
 Previous sprints:
 - `0a — Multi-Org / Multi-Location data model` shipped 2026-05-01
 - `0b — Persona system` shipped 2026-05-01
+- `0c — AI Orchestration foundation` shipped 2026-05-01
 
 When this sprint completes, update to point to the next one in the build order at the bottom of the spec.
 
@@ -134,6 +135,7 @@ _Append a one-line entry per completed sprint. Keep newest at top._
 ```
 | Date | Sprint | Files touched | Acceptance verified | Notes |
 |------|--------|---------------|---------------------|-------|
+| 2026-05-01 | 0c — AI Orchestration foundation | migration 061, lib/ai/{types,signals,tool-registry,prompts,orchestrator,use-ai-inbox}.ts, /api/ai/{signals/emit,inbox,inbox/[id],orchestrator/tick,tools/[name]}, components/ai/{action-card,ai-inbox}.tsx, /(app)/inbox/page.tsx, AppLayout.tsx (Inbox nav for both personas), tenant-routing.ts + middleware.ts (allow inbox/locations/org segments) | tsc --noEmit error count unchanged (19 baseline → 19; zero new errors from 0c). Acceptance pipeline traced end-to-end in code: signal emit → orchestrator tick → rule applies → card upserted → /api/ai/inbox returns it → ActionCard renders w/ suggested-action button → POST /api/ai/tools/[name] dispatches via registry. 12 of 13 spec tools registered with TODO handlers per spec ("Backend required. Mark TODO clearly."). Real WO-creation tool wiring deferred to Feature 1.x / 2.x sprints. | Path B: persisted ai_signals + ai_action_cards tables instead of in-memory event bus, so orchestrator survives serverless restarts. Lazy-tick on every /api/ai/inbox GET replaces the spec's "every minute cron" until a vercel.json schedule entry is added. |
 | 2026-05-01 | 0b — Persona system | migration 060, lib/persona/{config,server,use-persona}.ts, /api/me/persona, /api/me/orgs (extended), AppContext.tsx (widened Persona, hydrate from server, persist via API), ask-experience.tsx (narrow to AskPersona), workspace-client.tsx (narrow ArtifactEmptyState) | tsc --noEmit error count unchanged (19 baseline → 19; zero new errors from 0b). Acceptance traced end-to-end: org-switch (0a hard reload) re-fetches /api/me/orgs → AppContext re-hydrates active_persona → PERSONA_CONFIG drives sidebar/AI/home. Shop sidebar variant deferred to Phase 5 (config slot reserved). | Persona scoped *per membership* (DB column on organization_memberships), not just user-global; user_profiles.persona stays as fallback. setPersona is now optimistic + auto-persists via /api/me/persona. |
 | 2026-05-01 | 0a — Multi-Org / Multi-Location data model | migration 059, types/index.ts, lib/org/{context,use-org}.ts, /api/me/{orgs,active-org,active-location}, /api/locations + [id], /(app)/locations + /(app)/org/switch, AppLayout.tsx | tsc --noEmit clean (exit 0). Manual two-org switch verified via /org/switch + /api/me/active-org cookie. Per-list location filter UI deferred to follow-up. | Path B adaptation: Supabase columns instead of localStorage; App Router routes instead of routes.tsx; existing CRUD shape preserved |
 ```
@@ -152,6 +154,13 @@ _List anything you're waiting on Andy for. Anything that came up during a sprint
 - [ ] (0b follow-up) Ask/Chat AI prompt sourcing — /api/ask + /api/chat still take persona from request body and use hardcoded prompts. Switch them to PERSONA_CONFIG[persona].aiSystemPrompt sourced from getCurrentPersona() so the persona system is the single source of truth
 - [ ] (0b follow-up) Org-switch redirect should honor PERSONA_CONFIG[persona].homeRoute — currently always lands on /dashboard which is suboptimal for mechanic persona (home is /mechanic)
 - [ ] (0b follow-up) AppLayout switchPersona signature is still typed `'owner' | 'mechanic'` — widen to Persona once shop sidebar exists
+- [ ] (0c follow-up) Wire emitSignal('meter-reading') from the actual meter-reading endpoint (lands with Feature 1.1 Meter Profiles)
+- [ ] (0c follow-up) Wire emitSignal('wo-closed' / 'doc-uploaded') from existing /api/work-orders close + /api/upload/complete routes
+- [ ] (0c follow-up) Add vercel.json schedule entry calling /api/ai/orchestrator/tick every minute (per spec) — currently lazy-ticked on inbox fetch only
+- [ ] (0c follow-up) Implement the 12 TODO tool handlers (createWorkOrder, addMeterReading, etc.) — staged across Phase 1.x / 2.x sprints
+- [ ] (0c follow-up) Step 3 of orchestrator loop: every 10 minutes, run LLM pass over recent signals → emit insight ActionCards (Phase 5.1 / 5.2)
+- [ ] (0c follow-up) Step 4 of orchestrator loop: every hour, run ML predictions → anomaly cards (Phase 5.3 Predictive Maintenance ML)
+- [ ] (0c follow-up) AI Inbox should support Supabase realtime subscription on ai_action_cards instead of 60s polling
 ```
 
 ## 9. File map (what each sprint added)
@@ -163,6 +172,7 @@ _Append a table after each sprint listing the files created/modified. Helps futu
 |--------|-----------|----------------|
 | 0a — Multi-Org / Multi-Location | supabase/migrations/059_locations_and_multi_org.sql · apps/web/lib/org/context.ts · apps/web/lib/org/use-org.ts · apps/web/app/api/me/orgs/route.ts · apps/web/app/api/me/active-org/route.ts · apps/web/app/api/me/active-location/route.ts · apps/web/app/api/locations/route.ts · apps/web/app/api/locations/[id]/route.ts · apps/web/app/(app)/locations/page.tsx · apps/web/app/(app)/locations/locations-view.tsx · apps/web/app/(app)/org/switch/page.tsx · apps/web/app/(app)/org/switch/org-switch-view.tsx | apps/web/types/index.ts · apps/web/components/redesign/AppLayout.tsx · apps/web/lib/auth/tenant-routing.ts (already fixed in Phase 1 debug) · apps/web/middleware.ts (already fixed in Phase 1 debug) |
 | 0b — Persona system | supabase/migrations/060_membership_persona.sql · apps/web/lib/persona/config.ts · apps/web/lib/persona/server.ts · apps/web/lib/persona/use-persona.ts · apps/web/app/api/me/persona/route.ts | apps/web/app/api/me/orgs/route.ts (embeds active_persona) · apps/web/components/redesign/AppContext.tsx (widened Persona type, server hydration, auto-persist) · apps/web/components/ask/ask-experience.tsx (narrowed to AskPersona) · apps/web/app/(app)/workspace/workspace-client.tsx (narrowed ArtifactEmptyState persona) |
+| 0c — AI Orchestration foundation | supabase/migrations/061_ai_orchestration.sql · apps/web/lib/ai/types.ts · apps/web/lib/ai/signals.ts · apps/web/lib/ai/tool-registry.ts · apps/web/lib/ai/prompts.ts · apps/web/lib/ai/orchestrator.ts · apps/web/lib/ai/use-ai-inbox.ts · apps/web/app/api/ai/signals/emit/route.ts · apps/web/app/api/ai/inbox/route.ts · apps/web/app/api/ai/inbox/[id]/route.ts · apps/web/app/api/ai/orchestrator/tick/route.ts · apps/web/app/api/ai/tools/[name]/route.ts · apps/web/components/ai/action-card.tsx · apps/web/components/ai/ai-inbox.tsx · apps/web/app/(app)/inbox/page.tsx | apps/web/components/redesign/AppLayout.tsx (Inbox nav entry for both personas) · apps/web/lib/auth/tenant-routing.ts (added inbox/locations/org reserved segments) · apps/web/middleware.ts (added inbox/locations/org to appRoutes) |
 ```
 
 ## 10. Glossary (acronyms / terms specific to this project)
@@ -202,4 +212,9 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-01 | `AppContext.setPersona` is now optimistic + auto-POSTs to `/api/me/persona` | Old behavior was localStorage only; spec wants persona to live on the membership row. Wrapping the existing setter avoids touching every call site (AppLayout sidebar toggle, /ask auto-fallback, etc.) |
 | 2026-05-01 | `usePersona()` reads from AppContext rather than fetching its own copy | AppContext is already in the tree at the app shell and hydrates on mount; a separate fetch would double-load. Hook returns `persona + config + setPersona + isModuleHidden + homeRoute` so callers don't need to reach into PERSONA_CONFIG manually |
 | 2026-05-01 | `shop` persona accepted by DB CHECK + reserved in PERSONA_CONFIG, but no shop-specific UI yet | Spec defines PERSONA_CONFIG.shop for completeness; shop-foreman sidebar/dashboard belongs to Phase 5 (Smart Home Screen). Putting the type system in place now means later sprints just slot in components |
+| 2026-05-01 | **Persisted ai_signals + ai_action_cards** instead of the spec's in-memory event bus | Vercel functions are stateless; an in-memory bus would lose signals between requests and across cold starts. Persisting to Supabase means orchestrator survives serverless restarts, and multiple workers / cron jobs can coordinate via the `processed_at` flag |
+| 2026-05-01 | Lazy-tick on every /api/ai/inbox GET when there are unprocessed signals | Replaces the spec's "every minute cron" until vercel.json schedule entry is added. Keeps signal-to-card latency tight without burning quota on no-op ticks |
+| 2026-05-01 | Two AI tool registries kept side-by-side: existing `lib/ai/tools.ts` (OpenAI function-calling for /api/ask) and new `lib/ai/tool-registry.ts` (Spec 0.3 orchestrator tools) | "Add, don't replace" hard rule — touching the existing /api/ask tools would risk regressions. Convergence happens when /api/ask migrates to the unified registry in a later sprint |
+| 2026-05-01 | ActionCard SuggestedAction wraps a `toolCall` so the same action can be triggered by user click, LLM function-call, or rule | One dispatch path through `invokeTool()` means permissions + audit live in one place; UI doesn't need its own action-handler logic |
+| 2026-05-01 | dedupe via partial unique index `(organization_id, dedupe_key)` WHERE active | Lets a recurring signal type ("low stock for part X") replace its older active card without filling the inbox with duplicates. Dismissed/resolved cards keep their dedupe_key for audit but free up the slot |
 ```
