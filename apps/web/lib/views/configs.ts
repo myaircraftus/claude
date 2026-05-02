@@ -133,6 +133,68 @@ export const MODULE_CONFIGS: Partial<Record<SavedViewModule, ModuleViewConfig>> 
       },
     ],
   },
+
+  /* Shifts (sprint 2.5.1) — calendar is the natural default; board by status
+     for at-a-glance "who's on / off / missed", table for export. */
+  shifts: {
+    module: 'shifts',
+    label: 'Shifts',
+    listEndpoint: '/api/shifts',
+    fields: [
+      { key: 'name',          label: 'Shift',      type: 'text',     defaultVisible: true, width: 200 },
+      { key: 'technician_id', label: 'Technician', type: 'text',     defaultVisible: true, width: 180 },
+      {
+        key: 'status', label: 'Status', type: 'status', defaultVisible: true, width: 140,
+        options: [
+          { value: 'scheduled',    label: 'Scheduled',    tint: 'bg-blue-50 text-blue-700 border-blue-200' },
+          { value: 'in-progress',  label: 'In progress',  tint: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+          { value: 'completed',    label: 'Completed',    tint: 'bg-slate-100 text-slate-600 border-slate-200' },
+          { value: 'missed',       label: 'Missed',       tint: 'bg-red-50 text-red-700 border-red-200' },
+          { value: 'swapped',      label: 'Swapped',      tint: 'bg-amber-50 text-amber-700 border-amber-200' },
+        ],
+      },
+      { key: 'start_time',    label: 'Start',      type: 'datetime', defaultVisible: true, width: 170 },
+      { key: 'end_time',      label: 'End',        type: 'datetime', defaultVisible: true, width: 170 },
+      { key: 'created_at',    label: 'Created',    type: 'datetime', width: 160 },
+    ],
+    groupable: ['status', 'technician_id'],
+    dateField: 'start_time',
+    primaryField: 'name',
+    secondaryField: 'status',
+    defaultViewType: 'calendar',
+    seedViews: [
+      {
+        name: 'Calendar',
+        view_type: 'calendar',
+        filters: {},
+        is_default: true,
+      },
+      {
+        name: 'This week',
+        view_type: 'list',
+        filters: { status: ['scheduled', 'in-progress'] },
+        sort: { field: 'start_time', direction: 'asc' },
+      },
+      {
+        name: 'By status',
+        view_type: 'board',
+        filters: {},
+        group_by: 'status',
+      },
+      {
+        name: 'By technician',
+        view_type: 'board',
+        filters: {},
+        group_by: 'technician_id',
+      },
+      {
+        name: 'Table',
+        view_type: 'table',
+        filters: {},
+        sort: { field: 'start_time', direction: 'desc' },
+      },
+    ],
+  },
 }
 
 /**

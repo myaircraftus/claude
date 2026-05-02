@@ -119,6 +119,7 @@ function isAppRoute(pathname: string): boolean {
     '/purchase-orders',
     '/reminders',
     '/scanner',
+    '/scheduler',
     '/settings',
     '/time-clock',
     '/vendors',

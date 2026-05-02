@@ -1115,6 +1115,73 @@ export interface TimeEntry {
   updated_at: string
 }
 
+/* ─── Mechanic Scheduler — shifts (Spec 2.5.1) ───────────────────────────── */
+
+export type ShiftStatus = 'scheduled' | 'in-progress' | 'completed' | 'missed' | 'swapped'
+
+/**
+ * Mechanic shift. Per-tech, per-org scheduled work block. Unlike TimeEntry
+ * (sprint 2.3), shifts represent the PLAN — what the manager said the
+ * tech should be working when. TimeEntry represents the ACTUAL.
+ *
+ * Shift.reminders is intentionally free-form JSONB on the DB side so the
+ * cross-wire to sprint 0d's reminder_schedules can evolve (eager vs lazy
+ * enqueue) without a schema change.
+ */
+export interface Shift {
+  id: string
+  organization_id: string
+  /** Optional location scope (sprint 0a). NULL = anywhere in the org. */
+  location_id?: string | null
+  /** Display label on the calendar tile. */
+  name: string
+  /** Assigned tech (auth.users.id). */
+  technician_id: string
+  /** Optional skill tags: "IA", "Avionics", "Engine". */
+  roles: string[]
+  start_time: string
+  end_time: string
+  status: ShiftStatus
+  /** Sprint 0d reminder spec list. Free-form per spec. */
+  reminders: Array<Record<string, unknown>>
+  /** Pre-shift / post-shift checklist items. */
+  checklist: ShiftChecklistItem[]
+  notes?: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ShiftChecklistItem {
+  id: string
+  text: string
+  completed: boolean
+  completed_at?: string | null
+}
+
+export type ShiftCoverStatus = 'open' | 'claimed' | 'approved' | 'rejected'
+
+/**
+ * Shift swap request — tech can't make a shift, asks if anyone can cover.
+ * Workflow:
+ *   1. Tech POSTs /api/shifts/[id]/request-cover  → row inserted, status='open'
+ *   2. Teammate sees it on /scheduler ShiftCovers tab → PATCH covering_tech_id +
+ *      status='claimed'
+ *   3. Manager approves/rejects → status flips to 'approved' (also flips the
+ *      original Shift.status to 'swapped' + reassigns) or 'rejected'.
+ */
+export interface ShiftCover {
+  id: string
+  organization_id: string
+  original_shift_id: string
+  requested_by: string
+  covering_tech_id?: string | null
+  status: ShiftCoverStatus
+  reason?: string | null
+  created_at: string
+  updated_at: string
+}
+
 /* ─── Multi-view system per module (Spec 2.4) ────────────────────────────── */
 
 /**
@@ -1133,6 +1200,7 @@ export type SavedViewModule =
   | 'vendors'
   | 'continued'
   | 'approvals'
+  | 'shifts'
 
 export type SavedViewType = 'list' | 'calendar' | 'table' | 'board'
 
