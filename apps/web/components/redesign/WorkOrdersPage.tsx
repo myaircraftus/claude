@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useDataStore, type WorkOrder } from "./workspace/DataStore";
 import { motion, AnimatePresence } from "motion/react";
-import { CreateWorkOrderModal } from "./CreateWorkOrderModal";
+import { CreateWorkOrderModal } from "@/components/work-orders/create-work-order-modal";
 import { toast } from "sonner";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { useEffect } from "react";
@@ -16,7 +16,7 @@ import { useEffect } from "react";
 /* ─── Seed work orders disabled — live data only ───────────────── */
 
 export function WorkOrdersPage() {
-  const { workOrders, deleteWorkOrder } = useDataStore();
+  const { workOrders, deleteWorkOrder, aircraft } = useDataStore();
   const router = useTenantRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -267,6 +267,7 @@ export function WorkOrdersPage() {
       <AnimatePresence>
         {showCreateModal && (
           <CreateWorkOrderModal
+            aircraft={aircraft}
             onClose={() => setShowCreateModal(false)}
             onCreated={() => { setShowCreateModal(false); toast.success("Work order created!"); }}
           />

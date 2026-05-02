@@ -9,7 +9,7 @@ import {
 import { useDataStore, type Invoice } from "./workspace/DataStore";
 import { motion, AnimatePresence } from "motion/react";
 import { CreateInvoiceModal } from "./CreateInvoiceModal";
-import { ESignatureModal, SignatureBlock, type SignatureResult } from "./ESignatureModal";
+import { ESignatureModal, SignatureBlock, type SignatureResult } from "@/components/work-orders/e-signature-modal";
 import { useAppContext } from "./AppContext";
 import { toast } from "sonner";
 
@@ -524,7 +524,7 @@ export function InvoicesPage() {
               { label: "Invoice", value: selectedInv.invoiceNumber },
             ]}
             onCancel={() => setSigModal(null)}
-            onSigned={(result) => handleSigned(sigModal, result)}
+            onSigned={(result: SignatureResult) => handleSigned(sigModal, result)}
           />
         )}
       </AnimatePresence>

@@ -30,19 +30,13 @@ export function CalendarView<T extends { id: string }>({
   })
 
   const dateField = config.dateField
-  if (!dateField) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-8 text-center">
-        <CalIcon className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
-        <p className="text-[12.5px] text-muted-foreground">
-          This module's view config doesn't declare a calendar date field.
-        </p>
-      </div>
-    )
-  }
 
+  // Hooks must run unconditionally (rules-of-hooks). The empty-state early
+  // return below sits AFTER this memo. When dateField is undefined the memo
+  // produces an empty map and we never read it, so the cost is trivial.
   const eventsByDay = useMemo(() => {
     const map = new Map<string, T[]>()
+    if (!dateField) return map
     for (const r of rows) {
       const raw = (r as any)[dateField]
       if (!raw) continue
@@ -56,6 +50,17 @@ export function CalendarView<T extends { id: string }>({
     }
     return map
   }, [rows, dateField])
+
+  if (!dateField) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-8 text-center">
+        <CalIcon className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
+        <p className="text-[12.5px] text-muted-foreground">
+          This module's view config doesn't declare a calendar date field.
+        </p>
+      </div>
+    )
+  }
 
   const monthStart = month
   const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0)

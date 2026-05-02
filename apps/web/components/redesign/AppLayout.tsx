@@ -357,6 +357,13 @@ function AppLayoutInner({
       router.push("/admin");
       return;
     }
+    // Shop persona has no billing surface yet (Phase 5 — Smart Home Screen).
+    // Switch without an entitlement check; falls back to /dashboard.
+    if (p === "shop") {
+      setPersona("shop");
+      router.push("/dashboard");
+      return;
+    }
     // If the user doesn't have an active entitlement for the target persona,
     // open the cross-persona upsell instead of navigating. canRead stays true
     // for paywalled (read-only) personas so re-subscribers can browse.
@@ -792,7 +799,7 @@ function AppLayoutInner({
       <div className="flex-1 flex flex-col min-w-0">
         {/* Admin persona has no billing surface (they're staff). For owner
             and mechanic, billing banner + paywall apply normally. */}
-        {persona !== "admin" && <BillingBanner persona={persona} />}
+        {(persona === "owner" || persona === "mechanic") && <BillingBanner persona={persona} />}
         <main
           className={`flex-1 ${
             ["/workspace", "/maintenance", "/mechanic", "/invoices", "/ask", "/documents", "/settings", "/admin"].includes(effectivePathname) ||
@@ -806,9 +813,10 @@ function AppLayoutInner({
           <DataStoreProvider>
             <PartsStoreProvider>
               {(() => {
-                // Admin persona bypasses paywall entirely — they're platform
-                // staff, not a paying customer. Owner + mechanic still pay.
-                if (persona === "admin") return children;
+                // Admin + shop personas bypass the paywall — admin is platform
+                // staff (no billing) and shop has no billing surface yet
+                // (Phase 5). Only owner + mechanic flow through entitlements.
+                if (persona !== "owner" && persona !== "mechanic") return children;
                 const ent = billingStatus?.[persona];
                 const isBillingScreen =
                   effectivePathname === "/settings" ||
@@ -828,13 +836,13 @@ function AppLayoutInner({
       {/* ── Floating work-order chat bubble ──
           Visible on owner + mechanic personas. Admin doesn't need it.
           Tap → drawer with aircraft picker → active work orders → timeline + chat thread. */}
-      {persona !== "admin" && <WorkOrderChatBubble persona={persona} />}
+      {(persona === "owner" || persona === "mechanic") && <WorkOrderChatBubble persona={persona} />}
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
 
-      {/* ── Cross-persona upsell — never fires for admin ── */}
-      {upsellPersona && upsellPersona !== "admin" && (
+      {/* ── Cross-persona upsell — only owner/mechanic have billing surfaces ── */}
+      {upsellPersona && (upsellPersona === "owner" || upsellPersona === "mechanic") && (
         <CrossPersonaUpsell
           persona={upsellPersona}
           open

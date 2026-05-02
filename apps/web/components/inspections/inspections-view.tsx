@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, ClipboardList, Plane, ChevronRight } from 'lucide-react'
+import { Plus, ClipboardList, Plane, ChevronRight, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
 import Link from '@/components/shared/tenant-link'

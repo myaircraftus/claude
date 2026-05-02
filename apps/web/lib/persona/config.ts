@@ -61,6 +61,19 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
     homeCardPriorities: ['overdue-wos', 'today-shifts', 'low-stock-parts', 'pending-approvals', 'kpis'],
     label: 'Shop',
   },
+  // Platform admin — internal-only persona used by support/staff tooling.
+  // Reuses the shop-foreman surface (which has full visibility) until a
+  // dedicated platform-admin layout exists. Phase 5 may give admins their own
+  // sidebar; for now this entry just keeps the Record<Persona, …> exhaustive.
+  admin: {
+    homeRoute: '/admin',
+    sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
+    hiddenModules: [],
+    aiSystemPrompt:
+      'You are an AI operations manager for an aviation maintenance shop. Optimize for throughput, profitability, and compliance.',
+    homeCardPriorities: ['overdue-wos', 'today-shifts', 'low-stock-parts', 'pending-approvals', 'kpis'],
+    label: 'Admin',
+  },
 }
 
 /**
@@ -71,7 +84,7 @@ export const DEFAULT_PERSONA: Persona = 'owner'
 
 /** Type guard for runtime persona values (e.g. from request bodies). */
 export function isPersona(value: unknown): value is Persona {
-  return value === 'owner' || value === 'mechanic' || value === 'shop'
+  return value === 'owner' || value === 'mechanic' || value === 'shop' || value === 'admin'
 }
 
 /**
