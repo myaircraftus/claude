@@ -170,8 +170,58 @@ const RULES: OrchestratorRule[] = [
     },
   },
 
+  /**
+   * Sprint 2.1 wire-in: `low-stock` signals fire from
+   * lib/inventory/consume.ts when qty_on_hand crosses min_on_hand from
+   * above. Each emits a high-priority compliance/maintenance ActionCard
+   * with a "View part" SuggestedAction. Cross-wire 0d picks up high-
+   * priority cards and notifies alert_emails recipients.
+   */
+  {
+    id: 'low-stock-card',
+    matches: ['low-stock'],
+    apply: (signal) => {
+      const p = signal.payload as any
+      const partId = String(p?.inventory_part_id ?? '')
+      const partNumber = String(p?.part_number ?? 'part')
+      const description = String(p?.description ?? '')
+      const qtyOnHand = p?.qty_on_hand
+      const minOnHand = p?.min_on_hand
+      const vendor = p?.vendor
+
+      const body = description
+        ? `${description} (${partNumber}) is at ${qtyOnHand}${minOnHand != null ? ` of ${minOnHand} threshold` : ''}.${vendor ? ` Reorder from ${vendor}.` : ''}`
+        : `${partNumber} is at ${qtyOnHand}${minOnHand != null ? ` of ${minOnHand} threshold` : ''}.`
+
+      return [{
+        organization_id: signal.organization_id,
+        persona: 'mechanic',
+        priority: 'high' as ActionCardPriority,
+        category: 'maintenance' as ActionCardCategory,
+        title: `Low stock: ${partNumber}`,
+        body,
+        evidence: [
+          `Part: ${partNumber}`,
+          ...(description ? [description] : []),
+          ...(qtyOnHand != null ? [`qty on hand: ${qtyOnHand}`] : []),
+          ...(minOnHand != null ? [`reorder threshold: ${minOnHand}`] : []),
+          ...(vendor ? [`Last vendor: ${vendor}`] : []),
+        ],
+        suggested_actions: partId
+          ? [{
+              label: 'View part',
+              toolCall: { tool: 'searchParts', args: { query: partNumber, include_external: false } },
+            }]
+          : [],
+        confidence: 1,
+        source: 'rule',
+        dedupe_key: partId ? `low-stock:${partId}` : null,
+        source_signal_id: signal.id,
+      }]
+    },
+  },
+
   // TODO(0.3 → 1.5): rule for 'approval-response' → status-change card
-  // TODO(0.3 → 2.1): rule for 'low-stock' → reorder-suggestion card
   // TODO(0.3 → 2.6): rule for 'tool-overdue' → calibration-due card
   // TODO(0.3 → 5.3): rule for 'anomaly' → ML-flagged card
 ]

@@ -116,6 +116,7 @@ function isAppRoute(pathname: string): boolean {
     '/org',
     '/parts',
     '/procedures',
+    '/purchase-orders',
     '/reminders',
     '/scanner',
     '/settings',
