@@ -716,3 +716,63 @@ export interface MeterReading {
   created_at: string
   updated_at: string
 }
+
+/* ─── Compliance / Maintenance Tracking (Spec 1.2) ───────────────────────── */
+
+export type ComplianceItemType = 'inspection' | 'component'
+
+export type ComplianceSource = 'AD' | 'SB' | 'Manufacturer' | 'Custom' | 'Life-Limited'
+
+/**
+ * A compliance item flips between four statuses:
+ * - `current`   — not in the lookahead window
+ * - `due-soon`  — within the configured lookahead (calendar OR hours)
+ * - `overdue`   — past the next-due date / hours / cycles, beyond tolerance
+ * - `deferred`  — explicitly held (manual override, e.g. waiting on parts)
+ */
+export type ComplianceStatus = 'current' | 'due-soon' | 'overdue' | 'deferred'
+
+/**
+ * Spec 1.2: recurring inspection or life-limited component.
+ *
+ * "Whichever-comes-first" semantics: ANY combination of
+ * `interval_calendar_months` / `interval_hours` / `interval_cycles` can
+ * be set. The recompute helper in `lib/compliance/compute.ts` derives
+ * `next_due_*` and `status` from those + the most recent meter readings
+ * (Sprint 1.1). The recompute fires on item insert/edit and after every
+ * meter reading insert via the cross-wire in /api/meter-readings POST.
+ */
+export interface ComplianceItem {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  title: string
+  item_type: ComplianceItemType
+  source: ComplianceSource
+  source_reference?: string | null
+
+  interval_calendar_months?: number | null
+  interval_hours?: number | null
+  interval_cycles?: number | null
+
+  tolerance_calendar_days?: number | null
+  tolerance_hours?: number | null
+
+  last_completed_date?: string | null
+  last_completed_hours?: number | null
+  last_completed_cycles?: number | null
+
+  /** Computed by lib/compliance/compute.ts. Null when no interval is set. */
+  next_due_date?: string | null
+  next_due_hours?: number | null
+  next_due_cycles?: number | null
+
+  status: ComplianceStatus
+  requires_rii: boolean
+  notes?: string | null
+  linked_work_orders: string[]
+
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}

@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { emitSignal } from '@/lib/ai/signals'
+import { recomputeCompliance } from '@/lib/compliance/recompute'
 import type { OrgRole, MeterReadingSource } from '@/types'
 
 const VALID_SOURCES: ReadonlySet<MeterReadingSource> = new Set([
@@ -130,6 +131,16 @@ export async function POST(req: NextRequest) {
     },
     source: 'user',
   }).catch((e) => console.warn('[meter-readings] signal emit failed:', e))
+
+  // Sprint 1.1 → 1.2 cross-wire: a new meter reading can flip compliance
+  // items to overdue/due-soon. Recompute synchronously so the inserted
+  // reading's downstream effect is visible to the next /api/aircraft/[id]/
+  // compliance fetch. recomputeCompliance() emits its own compliance-due
+  // signals on status flips → the orchestrator can produce ActionCards
+  // and the notification system can fire alerts. Best-effort — failures
+  // do not roll back the reading.
+  recomputeCompliance(supabase, aircraftId, { userId: ctx.user.id })
+    .catch((e) => console.warn('[meter-readings] compliance recompute failed:', e))
 
   return NextResponse.json({ reading: data }, { status: 201 })
 }

@@ -7,6 +7,7 @@ import {
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
   Sparkles, ShieldCheck, MapPin, Building2, Inbox, Gauge,
+  ClipboardCheck,
 } from "lucide-react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -46,6 +47,7 @@ const ownerNavItems: NavItem[] = [
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: FileText,        label: "Documents",        href: "/documents" },
+  { icon: ClipboardCheck,  label: "Compliance",       href: "/compliance" },
   { icon: Gauge,           label: "Meters",           href: "/meters" },
   { icon: MapPin,          label: "Locations",        href: "/locations" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
@@ -83,10 +85,11 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   }
 
   if (perm.settingsFull) {
-    items.push({ icon: FileText, label: "Documents",   href: "/documents" });
-    items.push({ icon: Gauge,    label: "Meters",      href: "/meters" });
-    items.push({ icon: MapPin,   label: "Locations",   href: "/locations" });
-    items.push({ icon: Store,    label: "Marketplace", href: "/marketplace" });
+    items.push({ icon: FileText,       label: "Documents",   href: "/documents" });
+    items.push({ icon: ClipboardCheck, label: "Compliance",  href: "/compliance" });
+    items.push({ icon: Gauge,          label: "Meters",      href: "/meters" });
+    items.push({ icon: MapPin,         label: "Locations",   href: "/locations" });
+    items.push({ icon: Store,          label: "Marketplace", href: "/marketplace" });
   }
 
   return items;

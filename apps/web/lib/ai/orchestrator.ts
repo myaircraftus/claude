@@ -119,6 +119,57 @@ const RULES: OrchestratorRule[] = [
     }],
   },
 
+  /**
+   * Sprint 1.2 wire-in: `compliance-due` signals fire from
+   * lib/compliance/recompute.ts whenever an item flips to overdue or
+   * due-soon. Each emits a real ActionCard with a SuggestedAction that
+   * marks the item complete (toolCall stub will become real once
+   * Feature 1.2's complete-tool ships its handler).
+   */
+  {
+    id: 'compliance-due-card',
+    matches: ['compliance-due'],
+    apply: (signal) => {
+      const p = signal.payload as any
+      const status = String(p?.status ?? 'due-soon')
+      const isOverdue = status === 'overdue'
+      const title = String(p?.title ?? 'Compliance item')
+      const itemId = String(p?.compliance_item_id ?? '')
+      const aircraftId = String(p?.aircraft_id ?? '')
+      const dueDate = p?.next_due_date ? String(p.next_due_date) : null
+      const dueHours = p?.next_due_hours
+
+      const body = isOverdue
+        ? `${title} is overdue${dueDate ? ` (due ${dueDate})` : ''}${dueHours != null ? ` or at ${dueHours} hours` : ''}.`
+        : `${title} is due soon${dueDate ? ` on ${dueDate}` : ''}${dueHours != null ? ` or at ${dueHours} hours` : ''}.`
+
+      return [{
+        organization_id: signal.organization_id,
+        persona: null,
+        priority: isOverdue ? ('urgent' as ActionCardPriority) : ('high' as ActionCardPriority),
+        category: 'compliance' as ActionCardCategory,
+        title: isOverdue ? `Overdue: ${title}` : `Due soon: ${title}`,
+        body,
+        evidence: [
+          `Source: ${String(p?.source ?? 'Custom')}`,
+          ...(p?.requires_rii ? ['Requires RII (Required Inspection Item)'] : []),
+          ...(dueDate ? [`Next due date: ${dueDate}`] : []),
+          ...(dueHours != null ? [`Next due hours: ${dueHours}`] : []),
+        ],
+        suggested_actions: itemId
+          ? [{
+              label: isOverdue ? 'Complete now' : 'Mark complete',
+              toolCall: { tool: 'markComplianceComplete', args: { compliance_item_id: itemId } },
+            }]
+          : [],
+        confidence: 0.95,
+        source: 'rule',
+        dedupe_key: itemId ? `compliance-due:${itemId}` : null,
+        source_signal_id: signal.id,
+      }]
+    },
+  },
+
   // TODO(0.3 → 1.5): rule for 'approval-response' → status-change card
   // TODO(0.3 → 2.1): rule for 'low-stock' → reorder-suggestion card
   // TODO(0.3 → 2.6): rule for 'tool-overdue' → calibration-due card
