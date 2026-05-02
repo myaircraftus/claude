@@ -311,8 +311,10 @@ function QuestionCard({
 }
 
 function SetupOwnerStep({
+  persona,
   onSubmitSuccess,
 }: {
+  persona: OnboardingPersona
   onSubmitSuccess: (
     organization: { id: string; slug: string; name: string },
     values: OwnerSetupValues
@@ -349,6 +351,7 @@ function SetupOwnerStep({
         body: JSON.stringify({
           name: values.org_name,
           slug: values.slug,
+          persona,
         }),
       })
       const payload = await res.json().catch(() => ({}))
@@ -438,8 +441,10 @@ function SetupOwnerStep({
 }
 
 function SetupMechanicStep({
+  persona,
   onSubmitSuccess,
 }: {
+  persona: OnboardingPersona
   onSubmitSuccess: (
     organization: { id: string; slug: string; name: string },
     values: MechanicSetupValues
@@ -481,6 +486,7 @@ function SetupMechanicStep({
         body: JSON.stringify({
           name: values.org_name,
           slug: values.slug,
+          persona,
         }),
       })
       const payload = await res.json().catch(() => ({}))
@@ -1695,7 +1701,10 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
   }
 
   async function finishMechanicOnboarding() {
-    const destination = withTenantPrefix('/dashboard', organizationSlug)
+    // Route through billing onboarding first to capture a payment method and
+    // start the 30-day trial. After that flow succeeds the user lands in
+    // their persona surface.
+    const destination = `/onboarding/billing?persona=${persona}`
     await completeOnboarding(destination)
   }
 
@@ -1704,10 +1713,8 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
     if (primaryAircraftId) {
       window.localStorage.setItem('owner_selected_aircraft_id', primaryAircraftId)
     }
-    const destination = withTenantPrefix(
-      primaryAircraftId ? `/documents/upload?aircraft=${primaryAircraftId}` : '/documents/upload',
-      organizationSlug
-    )
+    // Same gate as mechanic finish — billing first, dashboard after.
+    const destination = `/onboarding/billing?persona=${persona}`
     await completeOnboarding(destination)
   }
 
@@ -1715,7 +1722,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
     if (aircraft[0]?.id) {
       window.localStorage.setItem('owner_selected_aircraft_id', aircraft[0].id)
     }
-    const destination = withTenantPrefix('/dashboard', organizationSlug)
+    const destination = `/onboarding/billing?persona=${persona}`
     await completeOnboarding(destination)
   }
 
@@ -1732,7 +1739,9 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
           : 'Set up the owner workspace, add the fleet by tail number, assign operations, and decide whether to upload records now.'
       }
     >
-      {persona === 'owner' && step === 1 && <SetupOwnerStep onSubmitSuccess={handleOwnerSetupSuccess} />}
+      {persona === 'owner' && step === 1 && (
+        <SetupOwnerStep persona={persona} onSubmitSuccess={handleOwnerSetupSuccess} />
+      )}
       {persona === 'owner' && step === 2 && (
         <AircraftStep
           title="Which aircraft should we load first?"
@@ -1764,7 +1773,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
       )}
 
       {persona === 'mechanic' && step === 1 && (
-        <SetupMechanicStep onSubmitSuccess={handleMechanicSetupSuccess} />
+        <SetupMechanicStep persona={persona} onSubmitSuccess={handleMechanicSetupSuccess} />
       )}
       {persona === 'mechanic' && step === 2 && (
         <AircraftStep

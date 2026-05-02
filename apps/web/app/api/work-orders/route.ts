@@ -8,6 +8,7 @@ import {
   type ChecklistTemplateOverrides,
 } from '@/lib/work-orders/checklists'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
+import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -49,6 +50,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req, { includeOrganization: true })
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  try {
+    await requireActiveBilling(ctx.organizationId, 'mechanic')
+  } catch (err) {
+    if (err instanceof BillingBlockedError) {
+      return NextResponse.json({ error: err.message, billing: err.status }, { status: 402 })
+    }
+    throw err
+  }
 
   const supabase = createServerSupabase()
   const orgId = ctx.organizationId
@@ -124,47 +134,160 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const checklist = generateWorkOrderChecklist({
-    serviceType: body.service_type ?? null,
-    complaint: body.complaint ?? null,
-    discrepancy: body.discrepancy ?? null,
-    aircraft: aircraft
-      ? {
-          tailNumber: aircraft.tail_number,
-          make: aircraft.make,
-          model: aircraft.model,
-          year: aircraft.year,
-          engineMake: aircraft.engine_make,
-          engineModel: aircraft.engine_model,
-        }
-      : null,
-    templateOverrides: (organization?.checklist_templates ?? {}) as ChecklistTemplateOverrides,
-    templateReferenceLibrary: extractChecklistTemplateReferenceLibrary(
-      organization?.checklist_templates
-    ),
-  })
+  // checklist_source values from the unified create modal:
+  //   'template' → use shop template only (no AI gap-fill)
+  //   'ai'       → template + AI-generated gap items (default behavior)
+  //   'skip'     → no template-driven items at all (AD/SB still added below)
+  const checklistSource: 'template' | 'ai' | 'skip' =
+    body.checklist_source === 'template' || body.checklist_source === 'skip'
+      ? body.checklist_source
+      : 'ai'
 
-  if (checklist.items.length > 0) {
-    const { error: checklistError } = await supabase.from('work_order_checklist_items').insert(
-      checklist.items.map((item) => ({
-        organization_id: orgId,
-        work_order_id: data.id,
-        aircraft_id: body.aircraft_id ?? null,
-        template_key: item.templateKey,
-        template_label: item.templateLabel,
-        section: item.section,
-        item_key: item.itemKey,
-        item_label: item.itemLabel,
-        item_description: item.itemDescription,
-        source: item.source,
-        source_reference: item.sourceReference,
-        required: item.required,
-        sort_order: item.sortOrder,
-      }))
-    )
+  const checklist = checklistSource === 'skip'
+    ? { items: [] as Array<any>, templateLabel: '' }
+    : generateWorkOrderChecklist({
+        serviceType: body.service_type ?? null,
+        complaint: body.complaint ?? null,
+        discrepancy: body.discrepancy ?? null,
+        aircraft: aircraft
+          ? {
+              tailNumber: aircraft.tail_number,
+              make: aircraft.make,
+              model: aircraft.model,
+              year: aircraft.year,
+              engineMake: aircraft.engine_make,
+              engineModel: aircraft.engine_model,
+            }
+          : null,
+        templateOverrides: (organization?.checklist_templates ?? {}) as ChecklistTemplateOverrides,
+        templateReferenceLibrary: extractChecklistTemplateReferenceLibrary(
+          organization?.checklist_templates
+        ),
+      })
+
+  // If user picked "template" only, drop any AI-generated gap items.
+  if (checklistSource === 'template' && checklist.items?.length) {
+    checklist.items = checklist.items.filter((item: any) => item.source !== 'ai')
+  }
+
+  // Pull AD/SB applicability for this aircraft and turn each item into a
+  // checklist row. Overdue / unknown ADs are flagged required so closing
+  // the WO forces the mechanic to actually mark them resolved. Compliant
+  // items are included as non-required reference rows ("verified at WO
+  // open" — gives the mechanic a snapshot of what was current at the time).
+  let adSbChecklistItems: Array<{
+    organization_id: string
+    work_order_id: string
+    aircraft_id: string | null
+    template_key: string
+    template_label: string
+    section: string
+    item_key: string
+    item_label: string
+    item_description: string | null
+    source: string
+    source_reference: string
+    required: boolean
+    sort_order: number
+  }> = []
+  if (body.aircraft_id) {
+    try {
+      const { data: ads } = await supabase
+        .from('aircraft_ad_applicability')
+        .select(`
+          ad_number,
+          compliance_status,
+          last_compliance_date,
+          next_due_date,
+          faa_airworthiness_directives:ad_id ( title, recurring )
+        `)
+        .eq('aircraft_id', body.aircraft_id)
+        .order('compliance_status', { ascending: true })
+
+      const baseSort = checklist.items.length + 100
+      adSbChecklistItems = ((ads ?? []) as any[])
+        .map((row, idx) => {
+          const fad = Array.isArray(row.faa_airworthiness_directives)
+            ? row.faa_airworthiness_directives[0]
+            : row.faa_airworthiness_directives
+          const status = String(row.compliance_status ?? 'unknown')
+          const isResolved = status === 'compliant'
+          const dueLabel = row.next_due_date ? ` (due ${row.next_due_date})` : ''
+          const lastLabel = row.last_compliance_date ? ` · last ${row.last_compliance_date}` : ''
+          return {
+            organization_id: orgId,
+            work_order_id: data.id,
+            aircraft_id: body.aircraft_id ?? null,
+            template_key: 'ad_sb_compliance',
+            template_label: 'AD / SB Compliance',
+            section: status === 'overdue' ? 'AD / SB — Overdue' : status === 'unknown' ? 'AD / SB — Verify Status' : 'AD / SB — Compliant',
+            item_key: `ad_${row.ad_number}`,
+            item_label: `${row.ad_number}${fad?.title ? ' — ' + fad.title : ''}`,
+            item_description:
+              `Status at WO open: ${status.toUpperCase()}${lastLabel}${dueLabel}.` +
+              (isResolved
+                ? ' Verified compliant — review only if work scope touches this system.'
+                : status === 'overdue'
+                  ? ' OVERDUE — perform compliance action and record N/P + tach time before closing.'
+                  : ' Compliance unknown — verify aircraft records and update before closing.'),
+            source: 'ad_sb',
+            source_reference: row.ad_number,
+            required: !isResolved, // overdue + unknown must be resolved to close
+            sort_order: baseSort + idx,
+          }
+        })
+    } catch (err) {
+      console.warn('[work-orders] Failed to pull AD/SB applicability for checklist:', err)
+    }
+  }
+
+  const allChecklistRows = [
+    ...checklist.items.map((item) => ({
+      organization_id: orgId,
+      work_order_id: data.id,
+      aircraft_id: body.aircraft_id ?? null,
+      template_key: item.templateKey,
+      template_label: item.templateLabel,
+      section: item.section,
+      item_key: item.itemKey,
+      item_label: item.itemLabel,
+      item_description: item.itemDescription,
+      source: item.source,
+      source_reference: item.sourceReference,
+      required: item.required,
+      sort_order: item.sortOrder,
+    })),
+    ...adSbChecklistItems,
+  ]
+
+  if (allChecklistRows.length > 0) {
+    const { error: checklistError } = await supabase
+      .from('work_order_checklist_items')
+      .insert(allChecklistRows)
 
     if (checklistError) {
       return NextResponse.json({ error: checklistError.message }, { status: 500 })
+    }
+  }
+
+  // Link any squawks the user picked into this WO so they show up in the
+  // detail view + flip to "in_work_order" status.
+  const includedSquawkIds = Array.isArray(body.included_squawk_ids)
+    ? (body.included_squawk_ids as unknown[]).filter((v): v is string => typeof v === 'string')
+    : []
+  if (includedSquawkIds.length > 0) {
+    try {
+      await supabase
+        .from('squawks')
+        .update({
+          assigned_work_order_id: data.id,
+          status: 'in_work_order',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('organization_id', orgId)
+        .in('id', includedSquawkIds)
+    } catch (sqErr) {
+      console.warn('[work-orders] Failed to attach squawks to new WO:', sqErr)
     }
   }
 
@@ -210,7 +333,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       ...data,
-      checklist_template_key: checklist.templateKey,
+      checklist_template_key: (checklist as any).templateKey ?? null,
       owner_approval_required: ownerApprovalRequired,
       owner_approval_email_sent: ownerApprovalEmailSent,
     },

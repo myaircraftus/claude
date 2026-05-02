@@ -18,7 +18,7 @@ import {
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
 
-const MAX_FILE_SIZE_BYTES = 250 * 1024 * 1024 // 250 MB
+const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -44,6 +44,23 @@ const VALID_DOC_TYPES: DocType[] = [
 
 function sha256Hex(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex')
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isUuid(value: string | null | undefined): value is string {
+  return !!value && UUID_REGEX.test(value)
+}
+
+function sanitizeFilenameForStorage(rawName: string): string {
+  const lastSlash = Math.max(rawName.lastIndexOf('/'), rawName.lastIndexOf('\\'))
+  const base = lastSlash >= 0 ? rawName.slice(lastSlash + 1) : rawName
+  const cleaned = base
+    .replace(/\.\.+/g, '.')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^[._-]+/, '')
+    .slice(0, 200)
+  return cleaned || 'file.pdf'
 }
 
 // ─── Helper: write audit log ──────────────────────────────────────────────────
@@ -93,10 +110,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No organization membership found' }, { status: 403 })
   }
 
-  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic', 'pilot']
+  const ALLOWED_ROLES = ['owner', 'admin', 'mechanic']
   if (!ALLOWED_ROLES.includes(requestContext.role)) {
     return NextResponse.json(
-      { error: 'Insufficient permissions. Pilot, mechanic, or higher required.' },
+      { error: 'Insufficient permissions. Mechanic or higher required.' },
       { status: 403 }
     )
   }
@@ -143,7 +160,11 @@ export async function POST(req: NextRequest) {
   }
 
   const fileEntry = formData.get('file')
-  const aircraftId = formData.get('aircraft_id')?.toString().trim() || null
+  const aircraftIdRaw = formData.get('aircraft_id')?.toString().trim() || null
+  if (aircraftIdRaw && !isUuid(aircraftIdRaw)) {
+    return NextResponse.json({ error: 'Invalid aircraft id.' }, { status: 400 })
+  }
+  const aircraftId = aircraftIdRaw
   const submittedDocType = formData.get('doc_type')?.toString().trim() || 'miscellaneous'
   const documentGroupIdRaw = formData.get('document_group')?.toString().trim() || null
   const documentDetailIdRaw = formData.get('document_detail')?.toString().trim() || null
@@ -265,7 +286,7 @@ export async function POST(req: NextRequest) {
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json(
-      { error: `File exceeds maximum size of 250 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
+      { error: `File exceeds maximum size of 500 MB (received ${Math.round(file.size / 1024 / 1024)} MB).` },
       { status: 400 }
     )
   }
@@ -287,7 +308,9 @@ export async function POST(req: NextRequest) {
   const docId = crypto.randomUUID()
 
   // ── 8. Upload to Supabase Storage ─────────────────────────────────────────
-  const storagePath = `${orgId}/${aircraftId ?? 'general'}/originals/${docId}/${file.name}`
+  // Sanitize the filename — never trust client-supplied paths in storage keys.
+  const safeFilename = sanitizeFilenameForStorage(file.name)
+  const storagePath = `${orgId}/${aircraftId ?? 'general'}/originals/${docId}/${safeFilename}`
 
   const { error: storageError } = await serviceClient.storage
     .from('documents')
@@ -410,8 +433,7 @@ export async function POST(req: NextRequest) {
         parsing_status: 'failed',
         processing_state: markDocumentProcessingFailed(
           buildInitialDocumentProcessingState(),
-          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-          'uploaded'
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.'
         ),
         parse_error:
           ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',

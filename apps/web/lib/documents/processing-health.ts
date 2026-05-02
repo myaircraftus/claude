@@ -25,7 +25,11 @@ interface StaleProcessingDiagnosis {
 }
 
 const QUEUED_STALE_MS = 10 * 60 * 1000
-const ACTIVE_STALE_MS = 20 * 60 * 1000
+// Large handwritten multi-engine OCR docs (200+ pages, 3 engines, arbitration)
+// can go quiet between progress updates — especially during the embedding loop
+// which has no per-batch heartbeat. 45min gives real headroom without silently
+// accepting genuinely hung jobs.
+const ACTIVE_STALE_MS = 45 * 60 * 1000
 
 const ACTIVE_STATUSES: ParsingStatus[] = ['parsing', 'ocr_processing', 'chunking', 'embedding']
 const RECONCILABLE_STATUSES: ParsingStatus[] = ['queued', ...ACTIVE_STATUSES]

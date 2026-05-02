@@ -158,11 +158,11 @@ export async function GET(req: NextRequest) {
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id: orgId,
-      actor_user_id: userId,
+      user_id: userId,
       action: 'gdrive.connected',
-      target_type: 'gdrive_connection',
-      target_id: orgId,
-      metadata: { google_email: googleEmail },
+      entity_type: 'gdrive_connection',
+      entity_id: orgId,
+      metadata_json: { google_email: googleEmail },
     })
 
     // 7. Redirect to /documents/upload?gdrive=connected

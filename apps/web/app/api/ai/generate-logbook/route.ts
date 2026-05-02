@@ -201,6 +201,50 @@ export async function POST(req: NextRequest) {
     workOrder = wo
   }
 
+  // Fetch AD/SB applicability for this aircraft so the generated logbook
+  // entry can call out compliance-relevant items (recently resolved + still
+  // overdue). The UI surfaces these in a dedicated AD/SB Compliance
+  // section under the entry, and the AI is told to fold them into
+  // references_used so they appear inline too.
+  let adSbContext: Array<{
+    ad_number: string
+    title: string | null
+    compliance_status: string
+    last_compliance_date: string | null
+    next_due_date: string | null
+    recurring: boolean
+  }> = []
+  try {
+    const { data: ads } = await supabase
+      .from('aircraft_ad_applicability')
+      .select(`
+        ad_number,
+        compliance_status,
+        last_compliance_date,
+        next_due_date,
+        faa_airworthiness_directives:ad_id ( title, recurring )
+      `)
+      .eq('aircraft_id', aircraftId)
+      .order('compliance_status', { ascending: true })
+      .limit(20)
+
+    adSbContext = ((ads ?? []) as any[]).map((row) => {
+      const fad = Array.isArray(row.faa_airworthiness_directives)
+        ? row.faa_airworthiness_directives[0]
+        : row.faa_airworthiness_directives
+      return {
+        ad_number: row.ad_number,
+        title: fad?.title ?? null,
+        compliance_status: row.compliance_status,
+        last_compliance_date: row.last_compliance_date,
+        next_due_date: row.next_due_date,
+        recurring: !!fad?.recurring,
+      }
+    })
+  } catch {
+    // Table may not exist yet — proceed without AD/SB context.
+  }
+
   const aircraftLine = [
     aircraft.year,
     aircraft.make,
@@ -215,6 +259,21 @@ export async function POST(req: NextRequest) {
     ? `Engine: ${aircraft.engine_make}${aircraft.engine_model ? ' ' + aircraft.engine_model : ''}${aircraft.engine_serial ? ' S/N ' + aircraft.engine_serial : ''}`
     : ''
 
+  // Compact AD/SB summary for the prompt — keep it short so we don't blow
+  // the token budget. Show overdue first, then recently resolved.
+  const adSbForPrompt = adSbContext.length === 0
+    ? ''
+    : '\nCurrent AD/SB compliance posture for this aircraft:\n' +
+      adSbContext
+        .slice(0, 12)
+        .map((row) => {
+          const status = row.compliance_status.toUpperCase()
+          const last = row.last_compliance_date ? ` last:${row.last_compliance_date}` : ''
+          const next = row.next_due_date ? ` next:${row.next_due_date}` : ''
+          return `- [${status}] ${row.ad_number}${row.title ? ' — ' + row.title : ''}${last}${next}`
+        })
+        .join('\n')
+
   const userPrompt = [
     `Aircraft: ${aircraftLine || 'Unknown aircraft'}`,
     engineLine,
@@ -226,8 +285,10 @@ export async function POST(req: NextRequest) {
       ? `\nWork Order ${workOrder.work_order_number}:\n- Complaint: ${workOrder.customer_complaint ?? 'n/a'}\n- Discrepancy: ${workOrder.discrepancy ?? 'n/a'}\n- Findings: ${workOrder.findings ?? 'n/a'}\n- Troubleshooting: ${workOrder.troubleshooting_notes ?? 'n/a'}\n- Corrective action: ${workOrder.corrective_action ?? 'n/a'}`
       : '',
     additionalContext ? `\nAdditional context from mechanic:\n${additionalContext}` : '',
+    adSbForPrompt,
     '',
     `Draft a logbook entry. Return JSON with keys: description, entry_type, parts_used, references_used, ad_numbers, suggested_total_time_note.`,
+    `If any AD/SB items above are directly addressed by this maintenance, include them in references_used and ad_numbers.`,
   ]
     .filter(Boolean)
     .join('\n')
@@ -265,6 +326,26 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Build the AD/SB Compliance section the UI renders alongside the entry.
+    // Surface overdue items + any items the AI explicitly cited (since those
+    // were addressed by this work). Matched on AD number.
+    const citedAdNumbers = new Set(ad_numbers.map((s: string) => s.toUpperCase()))
+    const adSbCompliance = adSbContext
+      .filter((row) => {
+        const cited = citedAdNumbers.has(row.ad_number.toUpperCase())
+        const overdue = row.compliance_status === 'overdue'
+        return cited || overdue
+      })
+      .map((row) => ({
+        ad_number: row.ad_number,
+        title: row.title,
+        compliance_status: row.compliance_status,
+        last_compliance_date: row.last_compliance_date,
+        next_due_date: row.next_due_date,
+        recurring: row.recurring,
+        cited_by_entry: citedAdNumbers.has(row.ad_number.toUpperCase()),
+      }))
+
     return NextResponse.json({
       description,
       entry_type,
@@ -272,6 +353,10 @@ export async function POST(req: NextRequest) {
       references_used,
       ad_numbers,
       suggested_total_time_note,
+      // Structured AD/SB section the logbook UI can render below the
+      // narrative — overdue items surface as warnings, cited items show
+      // as "addressed by this entry."
+      ad_sb_compliance: adSbCompliance,
     })
   } catch (err: any) {
     console.error('generate-logbook failed:', err)

@@ -24,12 +24,13 @@ import {
 } from "./workspace/DataStore";
 import { useAppContext } from "./AppContext";
 import { toast } from "sonner";
+import { CreateWorkOrderModal } from "@/components/work-orders/create-work-order-modal";
 import { LogbookCanaryGenerator } from "./LogbookCanaryGenerator";
 import { lookupAircraftByNNumber, FaaLookupResult } from "./faaRegistryService";
-import { formatHorsepower, formatRegistrantLocation } from "./faaDisplay";
+import { formatRegistrantLocation } from "./faaDisplay";
 import { MechanicDashboardTab } from "./MechanicDashboardTab";
-import { createAircraftRecord } from "@/lib/aircraft/client";
 import { InviteTeamMemberModal } from "./mechanicPortal/InviteTeamMemberModal";
+import { AddAircraftModal } from "./mechanicPortal/AddAircraftModal";
 import type {
   FoundFaaResult,
   MechanicInvoice,
@@ -44,6 +45,7 @@ import {
   threadColor,
   invoiceStatusColor,
   normalizeCustomerIdentity,
+  isFaaTemporarilyUnavailable,
 } from "./mechanicPortal/helpers";
 
 /* ═══════════════════ MAIN COMPONENT ════════════════════════════ */
@@ -82,24 +84,37 @@ export function MechanicPortal() {
   const tenantSlug = (pathname ?? "").split("/").filter(Boolean)[0] ?? "";
   const normalizedTenantCustomerKey = normalizeCustomerIdentity(tenantSlug.replace(/-/g, " "));
 
-  const VALID_SECTIONS: MechanicSection[] = ["dashboard","aircraft","squawks","estimates","workorders","invoices","logbook","customers","team","parts"];
+  // The "workorders" section was retired from /mechanic — work orders live
+  // at /work-orders (master-detail). Anyone landing on /mechanic?tab=workorders
+  // gets bounced to /work-orders. Same for any setSection("workorders") call.
+  const VALID_SECTIONS: MechanicSection[] = ["dashboard","aircraft","squawks","estimates","invoices","logbook","customers","team","parts"];
   const tabParam = searchParams.get("tab") as MechanicSection | null;
   // Determine the correct default section based on permissions
-  const defaultSection: MechanicSection = perm.dashboard ? "dashboard" : perm.workOrders ? "workorders" : "workorders";
+  const defaultSection: MechanicSection = perm.dashboard ? "dashboard" : "aircraft";
   const [section, _setSection] = useState<MechanicSection>(() =>
     tabParam && VALID_SECTIONS.includes(tabParam) ? tabParam : defaultSection
   );
 
   useEffect(() => {
     const t = searchParams.get("tab") as MechanicSection | null;
+    if (t === ("workorders" as MechanicSection)) {
+      router.replace("/work-orders");
+      return;
+    }
     if (t && VALID_SECTIONS.includes(t) && t !== section) _setSection(t);
   }, [searchParams]);
 
   const setSection = (s: MechanicSection) => {
+    if ((s as string) === "workorders") {
+      router.push("/work-orders");
+      return;
+    }
     _setSection(s);
     router.replace(`/mechanic?tab=${s}`);
   };
   const [selectedAircraft, setSelectedAircraft] = useState<string | null>(null);
+  // Aircraft id pre-loaded into the unified create-WO modal (null = closed)
+  const [createWoAircraftId, setCreateWoAircraftId] = useState<string | null>(null);
   // Work order detail state
   const [selectedWOId, setSelectedWOId] = useState<string | null>(null);
   const [woPartsById, setWoPartsById] = useState<Record<string, {id:string;pn:string;desc:string;qty:number;price:number;total:number;vendor?:string;requestOnly?:boolean}[]>>({});
@@ -200,21 +215,8 @@ export function MechanicPortal() {
   const [invLaborLines, setInvLaborLines] = useState<{ id: string; desc: string; hours: number; rate: number; total: number }[]>([]);
   const [invPartsLines, setInvPartsLines] = useState<{ id: string; pn: string; desc: string; qty: number; price: number; total: number }[]>([]);
 
-  // Add Aircraft modal state
+  // Add Aircraft modal — modal owns its own form state
   const [showAddAircraft, setShowAddAircraft] = useState(false);
-  const [addAcTail, setAddAcTail] = useState("");
-  const [addAcStep, setAddAcStep] = useState<"tail" | "searching" | "faa-result" | "customer" | "done">("tail");
-  const [addAcFaaData, setAddAcFaaData] = useState<FoundFaaResult | null>(null);
-  const [addAcInFleet, setAddAcInFleet] = useState(false);
-  const [addAcFaaNotFound, setAddAcFaaNotFound] = useState(false);
-  const [addAcFaaError, setAddAcFaaError] = useState<string | null>(null);
-  const [addAcExistingCustomer, setAddAcExistingCustomer] = useState<any | null>(null);
-  const [addAcNewName, setAddAcNewName] = useState("");
-  const [addAcNewEmail, setAddAcNewEmail] = useState("");
-  const [addAcNewPhone, setAddAcNewPhone] = useState("");
-  const [addAcInvited, setAddAcInvited] = useState(false);
-  const [addAcSaving, setAddAcSaving] = useState(false);
-  const [addAcSaveError, setAddAcSaveError] = useState<string | null>(null);
 
   // Add Squawk modal state
   const [showAddSquawk, setShowAddSquawk] = useState(false);
@@ -225,8 +227,6 @@ export function MechanicPortal() {
   const [sqGrounded, setSqGrounded] = useState(false);
   const [sqTitleEdited, setSqTitleEdited] = useState("");
 
-  const isFaaTemporarilyUnavailable = (error?: string | null) =>
-    Boolean(error && /unavailable|unreachable|timed out|returned 4|returned 5|forbidden|rate limit/i.test(error));
   // Saved squawks (loaded live and extended locally in-session)
   const [savedSquawks, setSavedSquawks] = useState<SquawkRecord[]>(EMPTY_SQUAWK_QUEUE);
   // Squawk customer/aircraft filter
@@ -601,123 +601,6 @@ export function MechanicPortal() {
     setInvPartsLines([]);
   };
 
-  const openAddAircraft = () => {
-    setShowAddAircraft(true);
-    setAddAcStep("tail");
-    setAddAcTail("");
-    setAddAcFaaData(null);
-    setAddAcInFleet(false);
-    setAddAcFaaNotFound(false);
-    setAddAcFaaError(null);
-    setAddAcExistingCustomer(null);
-    setAddAcNewName("");
-    setAddAcNewEmail("");
-    setAddAcNewPhone("");
-    setAddAcInvited(false);
-    setAddAcSaving(false);
-    setAddAcSaveError(null);
-  };
-
-  const handleAddAcLookup = async () => {
-    const normalized = addAcTail.toUpperCase().trim();
-    if (!normalized) return;
-    setAddAcStep("searching");
-    setAddAcFaaError(null);
-    const inFleet = ASSIGNED_AIRCRAFT.some((a) => a.tail === normalized);
-    if (inFleet) {
-      setAddAcInFleet(true);
-      setAddAcFaaNotFound(false);
-      setAddAcFaaData(null);
-      setAddAcStep("faa-result");
-      return;
-    }
-    const result = await lookupAircraftByNNumber(normalized);
-    setAddAcInFleet(false);
-    if (result.found) {
-      setAddAcFaaNotFound(false);
-      setAddAcFaaError(null);
-      setAddAcFaaData(result);
-    } else {
-      setAddAcFaaError(result.error ?? null);
-      setAddAcFaaNotFound(!result.error);
-      setAddAcFaaData(null);
-    }
-    setAddAcStep("faa-result");
-  };
-
-  const handleAddAcContinueToCustomer = () => {
-    const normalized = addAcTail.toUpperCase().trim();
-    const custId = TAIL_TO_CUSTOMER_ID[normalized];
-    const existingCust = custId ? CUSTOMERS_DATA.find((c) => c.id === custId) || null : null;
-    setAddAcExistingCustomer(existingCust);
-    setAddAcStep("customer");
-  };
-
-  const handleConfirmAddAircraft = async (inviteCustomer: boolean) => {
-    const normalized = addAcTail.toUpperCase().trim();
-    if (!normalized) return;
-
-    setAddAcSaving(true);
-    setAddAcSaveError(null);
-
-    try {
-      let activeCustomerName = addAcExistingCustomer?.name ?? "";
-
-      if (addAcExistingCustomer?.id) {
-        if (!addAcExistingCustomer.aircraft?.includes(normalized)) {
-          updateCustomer(addAcExistingCustomer.id, {
-            aircraft: [...(addAcExistingCustomer.aircraft ?? []), normalized],
-            lastService: new Date().toISOString(),
-          });
-        }
-      } else if (addAcNewName.trim()) {
-        activeCustomerName = addAcNewName.trim();
-        const newCustomer = addCustomer({
-          name: addAcNewName.trim(),
-          email: addAcNewEmail.trim(),
-          phone: addAcNewPhone.trim(),
-          company: "",
-          address: addAcFaaData ? formatRegistrantLocation(addAcFaaData.registrant) : "",
-          aircraft: [normalized],
-          totalWorkOrders: 0,
-          openInvoices: 0,
-          totalBilled: 0,
-          outstandingBalance: 0,
-          lastService: new Date().toISOString(),
-          preferredContact: "Email",
-          notes: "",
-          tags: ["New Customer"],
-        });
-        if (newCustomer?.id) {
-          setAddAcExistingCustomer(newCustomer);
-        }
-      }
-
-      await createAircraftRecord({
-        tail_number: normalized,
-        make: (addAcFaaData?.aircraft.manufacturer ?? "").trim(),
-        model: (addAcFaaData?.aircraft.model ?? "").trim(),
-        year: addAcFaaData?.aircraft.year ?? undefined,
-        serial_number: addAcFaaData?.aircraft.serialNumber?.trim() || undefined,
-        engine_make: addAcFaaData?.engine.manufacturer?.trim() || undefined,
-        engine_model: addAcFaaData?.engine.model?.trim() || undefined,
-        operator_name: activeCustomerName || undefined,
-      });
-      await refreshAircraft();
-      if (inviteCustomer && addAcNewEmail.trim()) {
-        setAddAcInvited(true);
-      }
-      setAddAcSaving(false);
-      setAddAcStep("done");
-      setSelectedAircraft(normalized);
-      setSection("aircraft");
-      toast.success(`${normalized} added to fleet`);
-    } catch (error) {
-      setAddAcSaving(false);
-      setAddAcSaveError(error instanceof Error ? error.message : "Failed to add aircraft");
-    }
-  };
-
   const handleGenerateSquawk = () => {
     if (!sqDescription.trim()) return;
     setSqGenerating(true);
@@ -1079,7 +962,7 @@ export function MechanicPortal() {
               <h2 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>My Aircraft ({ASSIGNED_AIRCRAFT.length})</h2>
               <p className="text-[12px] text-muted-foreground">Assigned fleet</p>
             </div>
-            <button onClick={openAddAircraft} className="flex items-center gap-1.5 text-[12px] text-primary border border-primary/30 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+            <button onClick={() => setShowAddAircraft(true)} className="flex items-center gap-1.5 text-[12px] text-primary border border-primary/30 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
               <Plus className="w-3.5 h-3.5" /> Add Aircraft
             </button>
           </div>
@@ -1122,13 +1005,50 @@ export function MechanicPortal() {
                       <div className="text-[13px] text-muted-foreground">{ac.model} &middot; {ac.customer}</div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button onClick={() => { setSection("squawks"); }} className="flex items-center gap-1.5 border border-border px-3 py-2 rounded-lg text-[12px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
                       <AlertTriangle className="w-3.5 h-3.5" /> Squawks
                     </button>
+                    {/* Ask Aircraft — runs RAG against this aircraft's
+                        ingested logbooks + manuals (when the owner has
+                        purchased ingestion). The /ask page will show the
+                        paywall message itself if not ingested. */}
+                    <Link
+                      href={(() => {
+                        const matchingAircraft = aircraft.find(
+                          (a) => (a.tail_number ?? "").toUpperCase() === ac.tail.toUpperCase(),
+                        );
+                        return matchingAircraft
+                          ? `/ask?aircraft=${encodeURIComponent(matchingAircraft.id)}`
+                          : "/ask";
+                      })()}
+                      className="flex items-center gap-1.5 border border-violet-300 text-violet-700 px-3 py-2 rounded-lg text-[12px] hover:bg-violet-50 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Ask Aircraft
+                    </Link>
                     <button onClick={() => { setSelectedSquawks(squawkQueue.filter((s) => s.tail === ac.tail).map((s) => s.id)); setShowEstCreator(true); }}
-                      className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 500 }}>
+                      className="flex items-center gap-1.5 border border-primary/30 text-primary px-3 py-2 rounded-lg text-[12px] hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
                       <Plus className="w-3.5 h-3.5" /> Create Estimate
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Open the unified create-WO modal pre-set to this
+                        // aircraft. Same flow as /work-orders → "+ New":
+                        // service type → scope → squawks → checklist source.
+                        const matchingAircraft = aircraft.find(
+                          (a) => (a.tail_number ?? "").toUpperCase() === ac.tail.toUpperCase(),
+                        );
+                        if (!matchingAircraft) {
+                          toast.error("Could not match this tail to an aircraft record");
+                          return;
+                        }
+                        setCreateWoAircraftId(matchingAircraft.id);
+                      }}
+                      className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors"
+                      style={{ fontWeight: 600 }}
+                    >
+                      <Wrench className="w-3.5 h-3.5" /> Generate Work Order
                     </button>
                   </div>
                 </div>
@@ -1146,6 +1066,118 @@ export function MechanicPortal() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Active Work Order — link straight into rich tabbed WO detail */}
+              {(() => {
+                // Pull anything we know about this tail's active WO from
+                // both the live + mocked sets so the click always goes
+                // somewhere useful.
+                const acLiveWO = liveWOs.find((w) => w.tail === ac.tail);
+                const ASSIGNED_MOCK_WOS = [
+                  { wo: "WO-2026-0047", tail: "N67890", desc: "Left brake caliper R&R — piston binding", status: "In Progress", progress: 45 },
+                  { wo: "WO-2026-0042", tail: "N12345", desc: "Nav light intermittent — wire repair at wing root", status: "Awaiting Approval", progress: 70 },
+                ] as const;
+                const acMockWO = ASSIGNED_MOCK_WOS.find((w) => w.tail === ac.tail);
+                const activeWo = acLiveWO ?? acMockWO ?? null;
+                if (!activeWo) {
+                  return (
+                    <div className="bg-white rounded-xl border border-dashed border-border p-5 text-center text-[12px] text-muted-foreground">
+                      No active work order. <span className="text-primary">Click &ldquo;Generate Work Order&rdquo; above to start one.</span>
+                    </div>
+                  );
+                }
+                const woProgress = "progress" in activeWo ? activeWo.progress : 0;
+                const woId = "id" in activeWo ? activeWo.id : null;
+                return (
+                  <div className="bg-white rounded-xl border border-border overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                      <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Active Work Order</h3>
+                      <Link
+                        href={woId ? `/work-orders/${woId}` : "#"}
+                        onClick={(e) => {
+                          if (!woId) {
+                            e.preventDefault();
+                            setSelectedWOId(activeWo.wo);
+                            setSection("workorders");
+                          }
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Open <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
+                        <span className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>{activeWo.wo}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700" style={{ fontWeight: 600 }}>{activeWo.status}</span>
+                      </div>
+                      <p className="text-[12px] text-muted-foreground line-clamp-2">{activeWo.desc}</p>
+                      <div className="mt-2.5 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary transition-all" style={{ width: `${woProgress}%` }} />
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1 tabular-nums">{woProgress}% complete</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* History strip — last 12 months WO + invoice volume sparkline */}
+              <div className="bg-white rounded-xl border border-border p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>12-Month History</h3>
+                  <span className="text-[11px] text-muted-foreground">Work orders &amp; invoices</span>
+                </div>
+                {(() => {
+                  // Mock per-month rollup keyed off the tail so each aircraft
+                  // gets a different shape. Real data wires in via
+                  // /api/aircraft/[id]/history later — UI placeholder for now.
+                  const seed = ac.tail.charCodeAt(ac.tail.length - 1);
+                  const months = Array.from({ length: 12 }, (_, i) => {
+                    const wos = ((seed + i * 3) % 5) + (i === 11 ? 2 : 0);
+                    const inv = ((seed * 11 + i * 7) % 9000) + 200;
+                    const d = new Date();
+                    d.setMonth(d.getMonth() - (11 - i));
+                    return {
+                      key: d.toLocaleDateString("en-US", { month: "short" }),
+                      wos,
+                      inv,
+                    };
+                  });
+                  const maxWO = Math.max(1, ...months.map((m) => m.wos));
+                  const totalInv = months.reduce((s, m) => s + m.inv, 0);
+                  return (
+                    <div>
+                      <div className="grid grid-cols-12 gap-1 h-20 items-end">
+                        {months.map((m, i) => (
+                          <div key={i} className="flex flex-col items-center justify-end h-full">
+                            <div
+                              className={`w-full rounded-t ${i === 11 ? "bg-primary" : "bg-primary/30"}`}
+                              style={{ height: `${(m.wos / maxWO) * 100}%`, minHeight: m.wos > 0 ? 4 : 0 }}
+                              title={`${m.key}: ${m.wos} WO · $${m.inv.toLocaleString()}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-12 gap-1 mt-1.5">
+                        {months.map((m, i) => (
+                          <div key={i} className="text-center text-[9px] text-muted-foreground tabular-nums">
+                            {m.key}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between mt-3 pt-3 border-t border-border text-[11px]">
+                        <span className="text-muted-foreground">
+                          {months.reduce((s, m) => s + m.wos, 0)} work orders · last 12 mo
+                        </span>
+                        <span className="text-foreground tabular-nums" style={{ fontWeight: 600 }}>
+                          ${totalInv.toLocaleString()} invoiced
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
@@ -2809,12 +2841,25 @@ export function MechanicPortal() {
           )}
           <div className={`${selectedWO ? "flex-1 overflow-auto divide-y divide-border" : "space-y-3"}`}>
             {ALL_WOS_COMBINED.map((w) => (
-              <button key={w.wo} onClick={() => setSelectedWOId(w.wo === selectedWOId ? null : w.wo)}
+              <button
+                key={w.wo}
+                onClick={() => {
+                  // Real DB-backed WO → navigate straight to /work-orders/[id]
+                  // (the rich detail page is the single source of truth).
+                  // Mock seed rows that never made it to the DB fall back to
+                  // the in-page panel so the demo still works.
+                  if ((w as any).id) {
+                    router.push(`/work-orders/${(w as any).id}`);
+                  } else {
+                    setSelectedWOId(w.wo === selectedWOId ? null : w.wo);
+                  }
+                }}
                 className={`w-full text-left transition-colors ${
                   selectedWO
                     ? `p-4 hover:bg-muted/20 ${selectedWOId === w.wo ? "bg-primary/5 border-l-2 border-primary" : ""}`
                     : `bg-white rounded-xl border border-border p-5 block hover:shadow-sm hover:border-primary/20`
-                }`}>
+                }`}
+              >
                 <div className={`flex items-start justify-between gap-2 ${selectedWO ? "mb-1" : "mb-3"}`}>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -2866,10 +2911,14 @@ export function MechanicPortal() {
               </span>
               <span className="text-[11px] text-muted-foreground">{selectedWO.tail} · {selectedWO.customer}</span>
               <div className="ml-auto flex items-center gap-2">
-                <Link href="/maintenance"
+                {/* If this is a real (DB) work order, deep-link to the rich tabbed
+                    detail page. Mocked rows fall back to the maintenance hub. */}
+                <Link
+                  href={"id" in selectedWO && selectedWO.id ? `/work-orders/${selectedWO.id}` : "/maintenance"}
                   className="flex items-center gap-1.5 text-[11px] text-primary border border-primary/20 px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors"
-                  style={{ fontWeight: 500 }}>
-                  <ExternalLink className="w-3 h-3" /> Full WO
+                  style={{ fontWeight: 500 }}
+                >
+                  <ExternalLink className="w-3 h-3" /> Open Rich View
                 </Link>
                 <button onClick={() => setSelectedWOId(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
                   <X className="w-4 h-4 text-muted-foreground" />
@@ -4335,312 +4384,6 @@ export function MechanicPortal() {
       </div>
     );
   }
-
-  /* ─── Add Aircraft Modal ──────────────────────────────────── */
-  function renderAddAircraftModal() {
-    const tailNorm = addAcTail.toUpperCase().trim();
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAddAircraft(false)} />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97 }}
-          transition={{ duration: 0.15 }}
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[500px] overflow-hidden"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Plane className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <div className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>Add Aircraft</div>
-                <div className="text-[11px] text-muted-foreground">
-                  {addAcStep === "tail" && "Enter the N-number to look up"}
-                  {addAcStep === "searching" && "Searching FAA Registry…"}
-                  {addAcStep === "faa-result" && (addAcInFleet ? "Already in your fleet" : addAcFaaNotFound ? "Aircraft not found" : "Aircraft found")}
-                  {addAcStep === "customer" && (addAcExistingCustomer ? "Customer matched" : "Add a customer")}
-                  {addAcStep === "done" && "Aircraft added"}
-                </div>
-              </div>
-            </div>
-            <button onClick={() => setShowAddAircraft(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-              <X className="w-4 h-4 text-muted-foreground" />
-            </button>
-          </div>
-
-          {/* Step progress */}
-          <div className="flex items-center gap-1.5 px-6 pt-4 pb-0">
-            {(["tail", "faa-result", "customer", "done"] as const).map((s, i) => (
-              <div key={s} className={`h-1 rounded-full flex-1 transition-all ${
-                addAcStep === "done" ? "bg-primary"
-                : addAcStep === "customer" && i <= 2 ? "bg-primary"
-                : addAcStep === "faa-result" && i <= 1 ? "bg-primary"
-                : (addAcStep === "tail" || addAcStep === "searching") && i === 0 ? "bg-primary"
-                : "bg-muted"
-              }`} />
-            ))}
-          </div>
-
-          <div className="px-6 py-5">
-            <AnimatePresence mode="wait">
-
-              {/* Step 1: Enter tail */}
-              {addAcStep === "tail" && (
-                <motion.div key="tail" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.15 }}>
-                  <p className="text-[13px] text-muted-foreground mb-4">Enter the aircraft's FAA registration N-number. We'll look it up in the FAA registry and pull aircraft details automatically.</p>
-                  <label className="block text-[12px] text-foreground mb-1.5" style={{ fontWeight: 600 }}>N-Number <span className="text-red-500">*</span></label>
-                  <input
-                    value={addAcTail}
-                    onChange={(e) => setAddAcTail(e.target.value.toUpperCase())}
-                    onKeyDown={(e) => e.key === "Enter" && handleAddAcLookup()}
-                    placeholder="e.g. N45678"
-                    className="w-full border border-border rounded-xl px-4 py-3 text-[14px] outline-none focus:ring-2 focus:ring-primary/20 tracking-widest"
-                    style={{ fontWeight: 600, letterSpacing: "0.08em" }}
-                    autoFocus
-                  />
-                  <p className="text-[11px] text-muted-foreground mt-2">Try: N45678 (customer match), N55200, N88321, N73041</p>
-                  <div className="flex justify-end mt-5">
-                    <button onClick={handleAddAcLookup} disabled={!addAcTail.trim()}
-                      className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 disabled:opacity-40 transition-colors" style={{ fontWeight: 600 }}>
-                      <Search className="w-3.5 h-3.5" /> Look Up
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Searching */}
-              {addAcStep === "searching" && (
-                <motion.div key="searching" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center py-10 gap-4">
-                  <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                  <div>
-                    <div className="text-[14px] text-foreground text-center" style={{ fontWeight: 600 }}>Searching FAA Registry</div>
-                    <div className="text-[12px] text-muted-foreground text-center mt-1">Looking up {tailNorm || addAcTail.toUpperCase()}…</div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* FAA result */}
-              {addAcStep === "faa-result" && (
-                <motion.div key="faa-result" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.15 }}>
-
-                  {addAcInFleet && (
-                    <div className="flex flex-col items-center py-6 text-center gap-3">
-                      <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center">
-                        <Plane className="w-7 h-7 text-amber-600" />
-                      </div>
-                      <div>
-                        <div className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>{tailNorm} is already in your fleet</div>
-                        <div className="text-[13px] text-muted-foreground mt-1">This aircraft is already assigned to your mechanic workspace.</div>
-                      </div>
-                      <button onClick={() => { setShowAddAircraft(false); setSelectedAircraft(tailNorm); setSection("aircraft"); }}
-                        className="mt-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                        View Aircraft
-                      </button>
-                    </div>
-                  )}
-
-                  {addAcFaaNotFound && !addAcInFleet && (
-                    <div className="flex flex-col items-center py-6 text-center gap-3">
-                      <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
-                        <AlertTriangle className="w-7 h-7 text-red-500" />
-                      </div>
-                      <div>
-                        <div className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>
-                          {isFaaTemporarilyUnavailable(addAcFaaError) ? "FAA registry temporarily unavailable" : "Not found in FAA Registry"}
-                        </div>
-                        <div className="text-[13px] text-muted-foreground mt-1">
-                          {isFaaTemporarilyUnavailable(addAcFaaError)
-                            ? `The FAA registry did not respond cleanly for ${tailNorm}. You can retry, or continue with manual details.`
-                            : `No active registration for ${tailNorm}. Please verify the N-number and try again.`}
-                        </div>
-                      </div>
-                      <button onClick={() => setAddAcStep("tail")}
-                        className="mt-2 border border-border px-5 py-2.5 rounded-xl text-[13px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
-                        Try Again
-                      </button>
-                    </div>
-                  )}
-
-                  {addAcFaaData && !addAcInFleet && (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="text-[12px] text-emerald-800" style={{ fontWeight: 600 }}>FAA registry match found for <span className="tracking-widest">{tailNorm}</span></span>
-                      </div>
-                      <div className="bg-[#F7F8FA] rounded-xl border border-border p-4">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-lg bg-[#0A1628] flex items-center justify-center">
-                            <Plane className="w-5 h-5 text-white" />
-                          </div>
-                          <div>
-                            <div className="text-[16px] text-foreground" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>{tailNorm}</div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[13px] text-muted-foreground">{addAcFaaData.aircraft.year} {addAcFaaData.aircraft.manufacturer} {addAcFaaData.aircraft.model}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${addAcFaaData.source === "live" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`} style={{ fontWeight: 600 }}>
-                                {addAcFaaData.source === "live" ? "Live FAA API" : "Saved profile"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                          {[
-                            { label: "Year", value: String(addAcFaaData.aircraft.year) },
-                            { label: "Manufacturer", value: addAcFaaData.aircraft.manufacturer },
-                            { label: "Model", value: addAcFaaData.aircraft.model },
-                            { label: "Serial Number", value: addAcFaaData.aircraft.serialNumber },
-                            { label: "Engine", value: `${addAcFaaData.engine.manufacturer} ${addAcFaaData.engine.model}` },
-                            { label: "Engine Type", value: addAcFaaData.engine.type },
-                            { label: "HP", value: formatHorsepower(addAcFaaData.engine) },
-                            { label: "Aircraft Type", value: addAcFaaData.aircraft.aircraftType },
-                            { label: "Category", value: addAcFaaData.aircraft.category },
-                            { label: "Max Weight", value: addAcFaaData.aircraft.maxWeight },
-                            { label: "Seats", value: String(addAcFaaData.aircraft.seats) },
-                            { label: "Registrant", value: addAcFaaData.registrant.name },
-                            { label: "City/State", value: formatRegistrantLocation(addAcFaaData.registrant) },
-                            { label: "Cert Status", value: addAcFaaData.certificate.status },
-                          ].map((f) => (
-                            <div key={f.label}>
-                              <div className="text-muted-foreground uppercase tracking-wider text-[10px]" style={{ fontWeight: 600 }}>{f.label}</div>
-                              <div className="text-foreground text-[12px] mt-0.5" style={{ fontWeight: 500 }}>{f.value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <button onClick={() => setAddAcStep("tail")} className="border border-border px-4 py-2.5 rounded-xl text-[13px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>Back</button>
-                        <button onClick={handleAddAcContinueToCustomer}
-                          className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                          Continue <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {/* Customer step */}
-              {addAcStep === "customer" && (
-                <motion.div key="customer" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.15 }}>
-                  {addAcExistingCustomer ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
-                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="text-[12px] text-emerald-800" style={{ fontWeight: 600 }}>Customer found in your system — auto-matched</span>
-                      </div>
-                      <div className="bg-[#F7F8FA] rounded-xl border border-border p-4 flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          {addAcExistingCustomer.company ? <Building2 className="w-5 h-5 text-primary" /> : <User className="w-5 h-5 text-primary" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>{addAcExistingCustomer.name}</div>
-                          {addAcExistingCustomer.company && <div className="text-[12px] text-muted-foreground">{addAcExistingCustomer.company}</div>}
-                          <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
-                            <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{addAcExistingCustomer.email}</span>
-                            <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{addAcExistingCustomer.phone}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex justify-between gap-2 pt-1">
-                        <button onClick={() => setAddAcStep("faa-result")} className="border border-border px-4 py-2.5 rounded-xl text-[13px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>Back</button>
-                        <button
-                          onClick={() => void handleConfirmAddAircraft(false)}
-                          disabled={addAcSaving}
-                          className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 disabled:opacity-40 transition-colors" style={{ fontWeight: 600 }}>
-                          {addAcSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Add to Fleet
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span className="text-[12px] text-amber-800" style={{ fontWeight: 600 }}>No customer found for {tailNorm} — add one below</span>
-                      </div>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-[12px] text-foreground mb-1.5" style={{ fontWeight: 600 }}>Full Name <span className="text-red-500">*</span></label>
-                          <input value={addAcNewName} onChange={(e) => setAddAcNewName(e.target.value)} placeholder="e.g. James Carter"
-                            className="w-full border border-border rounded-xl px-4 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20" />
-                        </div>
-                        <div>
-                          <label className="block text-[12px] text-foreground mb-1.5" style={{ fontWeight: 600 }}>Email Address <span className="text-red-500">*</span></label>
-                          <input value={addAcNewEmail} onChange={(e) => setAddAcNewEmail(e.target.value)} placeholder="e.g. james@email.com" type="email"
-                            className="w-full border border-border rounded-xl px-4 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20" />
-                        </div>
-                        <div>
-                          <label className="block text-[12px] text-foreground mb-1.5" style={{ fontWeight: 600 }}>Phone Number</label>
-                          <input value={addAcNewPhone} onChange={(e) => setAddAcNewPhone(e.target.value)} placeholder="e.g. (512) 555-0100" type="tel"
-                            className="w-full border border-border rounded-xl px-4 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-primary/20" />
-                        </div>
-                      </div>
-                      <div className="flex justify-between gap-2 pt-1">
-                        <button onClick={() => setAddAcStep("faa-result")} className="border border-border px-4 py-2.5 rounded-xl text-[13px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>Back</button>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => void handleConfirmAddAircraft(false)}
-                            disabled={addAcSaving}
-                            className="border border-border px-4 py-2.5 rounded-xl text-[13px] text-muted-foreground hover:bg-muted/30 disabled:opacity-40 transition-colors" style={{ fontWeight: 500 }}>
-                            Skip
-                          </button>
-                          <button onClick={() => void handleConfirmAddAircraft(true)}
-                            disabled={!addAcNewName.trim() || !addAcNewEmail.trim()}
-                            className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 disabled:opacity-40 transition-colors" style={{ fontWeight: 600 }}>
-                            {addAcSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Invite Customer
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {addAcSaveError && (
-                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-700">
-                      {addAcSaveError}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {/* Done */}
-              {addAcStep === "done" && (
-                <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18 }} className="flex flex-col items-center py-8 text-center gap-3">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center">
-                    <CheckCircle className="w-8 h-8 text-emerald-600" />
-                  </div>
-                  <div>
-                    <div className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>
-                      {addAcFaaData ? `${tailNorm} Added` : "Aircraft Added"}
-                    </div>
-                    {addAcFaaData && (
-                      <div className="text-[13px] text-muted-foreground mt-1">{addAcFaaData.aircraft.year} {addAcFaaData.aircraft.manufacturer} {addAcFaaData.aircraft.model} · {tailNorm}</div>
-                    )}
-                    {addAcInvited && (
-                      <div className="flex items-center justify-center gap-1.5 mt-2 text-[12px] text-primary bg-primary/8 px-3 py-1.5 rounded-full" style={{ fontWeight: 500 }}>
-                        <Mail className="w-3.5 h-3.5" /> Invite sent to {addAcNewEmail}
-                      </div>
-                    )}
-                    {addAcExistingCustomer && (
-                      <div className="flex items-center justify-center gap-1.5 mt-2 text-[12px] text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full" style={{ fontWeight: 500 }}>
-                        <CheckCircle className="w-3.5 h-3.5" /> Linked to {addAcExistingCustomer.name}
-                      </div>
-                    )}
-                  </div>
-                  <button onClick={() => setShowAddAircraft(false)}
-                    className="mt-2 bg-primary text-white px-6 py-2.5 rounded-xl text-[13px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                    Done
-                  </button>
-                </motion.div>
-              )}
-
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   function renderParts() { return <PartsSection />; }
 
   const sectionRenderers: Record<MechanicSection, () => JSX.Element> = {
@@ -4678,7 +4421,15 @@ export function MechanicPortal() {
 
       {/* Add Aircraft Modal */}
       <AnimatePresence>
-        {showAddAircraft && renderAddAircraftModal()}
+        {showAddAircraft && (
+          <AddAircraftModal
+            onClose={() => setShowAddAircraft(false)}
+            assignedAircraft={ASSIGNED_AIRCRAFT}
+            customersData={CUSTOMERS_DATA}
+            tailToCustomerId={TAIL_TO_CUSTOMER_ID}
+            onNavigateToAircraft={(tail) => { setSelectedAircraft(tail); setSection("aircraft"); }}
+          />
+        )}
       </AnimatePresence>
 
       {/* New Invoice Modal */}
@@ -5067,6 +4818,24 @@ export function MechanicPortal() {
           />
         )}
       </AnimatePresence>
+
+      {/* Unified Create Work Order modal — opened by aircraft "Generate Work Order" */}
+      {createWoAircraftId && (
+        <CreateWorkOrderModal
+          initialAircraftId={createWoAircraftId}
+          aircraft={aircraft.map((a) => ({
+            id: a.id,
+            tail_number: a.tail_number,
+            make: (a as any).make ?? null,
+            model: (a as any).model ?? null,
+          }))}
+          onClose={() => setCreateWoAircraftId(null)}
+          onCreated={(woId) => {
+            setCreateWoAircraftId(null);
+            router.push(`/work-orders/${woId}`);
+          }}
+        />
+      )}
     </div>
   );
 }

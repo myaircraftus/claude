@@ -27,9 +27,20 @@ export const MARKETING_DEFAULTS: Record<string, Record<string, ContentDefault>> 
     hero_subtitle: {
       content_type: 'rich_text',
       value:
-        'Scan every logbook, track every airworthiness directive, and answer any maintenance question in seconds. AI-powered records management built for mechanics, owners, and MROs.',
+        'Logbooks get lost. Maintenance history gets buried. ADs slip through. myaircraft.us brings your records, squawks, work orders, estimates, and AI search into one trusted platform — built for the people who actually deal with the paperwork.',
       label: 'Hero subtitle',
       description: 'Supporting text under the hero headline',
+    },
+    who_for_title: {
+      content_type: 'text',
+      value: 'Built for the people who actually deal with the records.',
+      label: 'Who-it\u2019s-for section title',
+    },
+    who_for_subtitle: {
+      content_type: 'rich_text',
+      value:
+        'Aircraft owners, A&P mechanics, MRO shops, fleet operators, flight schools \u2014 every workflow on the same trusted platform.',
+      label: 'Who-it\u2019s-for section subtitle',
     },
     hero_cta_primary: {
       content_type: 'text',
@@ -234,4 +245,85 @@ export const MARKETING_DEFAULTS: Record<string, Record<string, ContentDefault>> 
       label: 'Blog hero subtitle',
     },
   },
+
+  /**
+   * Brand kit — site-wide design assets uploaded by the platform admin.
+   * Empty defaults intentionally; admin uploads via CMS to override.
+   * Components fall back to bundled SVGs / lucide icons when slot is empty.
+   */
+  brand: {
+    logo_primary: {
+      content_type: 'image',
+      value: '',
+      label: 'Primary logo (full)',
+      description: 'Used in nav and footer. SVG preferred.',
+    },
+    logo_mark: {
+      content_type: 'image',
+      value: '',
+      label: 'Logomark (icon only)',
+      description: 'Square icon variant — for favicons, social cards.',
+    },
+    logo_dark: {
+      content_type: 'image',
+      value: '',
+      label: 'Dark-background logo',
+      description: 'Variant for dark sections.',
+    },
+    loader_primary: {
+      content_type: 'image',
+      value: '',
+      label: 'Loader animation',
+      description: 'Animated SVG or GIF for loading states.',
+    },
+
+    // Tech partner logos — third-party trademarks, upload only assets you have rights to.
+    partner_openai: { content_type: 'image', value: '', label: 'OpenAI logo' },
+    partner_anthropic: { content_type: 'image', value: '', label: 'Anthropic logo' },
+    partner_aws: { content_type: 'image', value: '', label: 'AWS logo' },
+    partner_google: { content_type: 'image', value: '', label: 'Google Cloud logo' },
+    partner_figma: { content_type: 'image', value: '', label: 'Figma logo' },
+
+    // OEM aircraft brand logos.
+    oem_cessna: { content_type: 'image', value: '', label: 'Cessna logo' },
+    oem_piper: { content_type: 'image', value: '', label: 'Piper logo' },
+    oem_beechcraft: { content_type: 'image', value: '', label: 'Beechcraft logo' },
+    oem_cirrus: { content_type: 'image', value: '', label: 'Cirrus logo' },
+    oem_diamond: { content_type: 'image', value: '', label: 'Diamond logo' },
+    oem_mooney: { content_type: 'image', value: '', label: 'Mooney logo' },
+    oem_gulfstream: { content_type: 'image', value: '', label: 'Gulfstream logo' },
+    oem_embraer: { content_type: 'image', value: '', label: 'Embraer logo' },
+    oem_pilatus: { content_type: 'image', value: '', label: 'Pilatus logo' },
+    oem_daher: { content_type: 'image', value: '', label: 'Daher / TBM logo' },
+    oem_textron: { content_type: 'image', value: '', label: 'Textron logo' },
+    oem_socata: { content_type: 'image', value: '', label: 'Socata logo' },
+
+    // Demo / interactive section media.
+    demo_video: {
+      content_type: 'embed',
+      value: '',
+      label: 'Mechanic UI demo video',
+      description: 'YouTube / Vimeo URL. Replaces the static demo screenshot.',
+    },
+    demo_screenshot: {
+      content_type: 'image',
+      value: '',
+      label: 'Mechanic UI demo screenshot',
+      description: 'Fallback if no demo video is set.',
+    },
+  },
 }
+
+/**
+ * Schema for an OEM logo slot.
+ * Lookup name (e.g. "cessna") maps to brand.oem_<name> in the CMS.
+ */
+export const OEM_BRAND_SLOTS = [
+  'cessna', 'piper', 'beechcraft', 'cirrus', 'diamond', 'mooney',
+  'gulfstream', 'embraer', 'pilatus', 'daher', 'textron', 'socata',
+] as const
+
+export type OemBrandSlot = (typeof OEM_BRAND_SLOTS)[number]
+
+export const PARTNER_BRAND_SLOTS = ['openai', 'anthropic', 'aws', 'google', 'figma'] as const
+export type PartnerBrandSlot = (typeof PARTNER_BRAND_SLOTS)[number]

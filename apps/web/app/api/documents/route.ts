@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reconcileOrganizationStaleDocuments } from '@/lib/documents/processing-health'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     .from('documents')
     .select(
       `
-      id, title, doc_type, document_group_id, document_detail_id, record_family,
+      id, title, doc_type, document_subtype, document_group_id, document_detail_id, record_family,
       truth_role, parsing_status, parse_error, page_count, file_size_bytes,
       uploaded_at, updated_at, aircraft_id, processing_state,
       aircraft:aircraft_id (id, tail_number, make, model)
@@ -42,6 +43,17 @@ export async function GET(req: NextRequest) {
 
   if (aircraft_id) query = query.eq('aircraft_id', aircraft_id)
   if (status) query = query.eq('parsing_status', status)
+
+  // Persona-scoped doc filter: mechanic persona only sees shop reference docs
+  // (maintenance manuals, service manuals, parts catalogs, service bulletins,
+  // POH / AFM). Owner persona sees everything. Owner is the default — passing
+  // ?persona=mechanic in the query string narrows the result set so the
+  // mechanic UI shows only what's relevant.
+  const personaParam = searchParams.get('persona')
+  if (personaParam === 'mechanic') {
+    const allowed = docTypesForPersona('mechanic' as Persona)
+    query = query.in('doc_type', allowed)
+  }
 
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

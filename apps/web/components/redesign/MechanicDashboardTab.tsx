@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { useMemo } from "react";
 import {
   Wrench, BookOpen, AlertTriangle, ArrowRight, Sparkles, DollarSign, Users,
-  ChevronRight, Timer,
+  ChevronRight, Timer, FileText, Receipt,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -253,14 +253,40 @@ export function MechanicDashboardTab() {
             Saturday, April 11 · <span className="text-amber-600" style={{ fontWeight: 600 }}>{openWOs} work orders</span> active · {weeklyHours} hrs logged this week
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Link href="/workspace"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-violet-600 to-violet-700 text-white px-5 py-2.5 rounded-xl hover:opacity-90 transition-all shadow-lg shadow-violet-500/20 text-[13px]"
-            style={{ fontWeight: 600 }}>
-            <Sparkles className="w-4 h-4" /> Open AI Workspace
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {/* Quick jump to each operations surface — replaces the old
+              "AI Workspace" CTA. Single source of truth: clicking any of
+              these lands on /work-orders with the right tab pre-selected. */}
+          <Link
+            href="/work-orders"
+            className="inline-flex items-center gap-2 bg-[#0A1628] text-white px-4 py-2.5 rounded-xl hover:bg-[#0A1628]/90 transition-colors text-[13px]"
+            style={{ fontWeight: 600 }}
+          >
+            <Wrench className="w-4 h-4" /> Work Orders
+          </Link>
+          <Link
+            href="/work-orders?tab=estimates"
+            className="inline-flex items-center gap-2 border border-[#D7DFEC] text-foreground px-4 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
+            style={{ fontWeight: 500 }}
+          >
+            <FileText className="w-4 h-4" /> Estimates
+          </Link>
+          <Link
+            href="/work-orders?tab=invoices"
+            className="inline-flex items-center gap-2 border border-[#D7DFEC] text-foreground px-4 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
+            style={{ fontWeight: 500 }}
+          >
+            <Receipt className="w-4 h-4" /> Invoices
+          </Link>
+          <Link
+            href="/work-orders?tab=logbook"
+            className="inline-flex items-center gap-2 border border-[#D7DFEC] text-foreground px-4 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
+            style={{ fontWeight: 500 }}
+          >
+            <BookOpen className="w-4 h-4" /> Logbook
           </Link>
           <Link href="/mechanic?tab=workorders"
-            className="inline-flex items-center gap-2 border border-[#D7DFEC] text-foreground px-5 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
+            className="hidden lg:inline-flex items-center gap-2 border border-[#D7DFEC] text-foreground px-4 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
             style={{ fontWeight: 500 }}>
             <Wrench className="w-4 h-4" /> Work Orders
           </Link>
@@ -491,68 +517,27 @@ export function MechanicDashboardTab() {
         </div>
       </div>
 
-      {/* ── Skill Utilization + AI Workspace Banner ── */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className={`bg-white rounded-2xl border ${softCardBorder} p-6`}>
-          <h3 className="text-[15px] text-foreground mb-5" style={{ fontWeight: 700 }}>Skill Utilization</h3>
-          <div className="space-y-4">
-            {skillUtil.map(s => (
-              <div key={s.name}>
-                <div className="flex justify-between text-[12px] mb-1.5">
-                  <span className="text-muted-foreground">{s.name}</span>
-                  <span style={{ fontWeight: 600, color: s.fill }}>{s.value}%</span>
-                </div>
-                <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${s.value}%` }}
-                    transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    className="h-full rounded-full"
-                    style={{ background: s.fill }}
-                  />
-                </div>
+      {/* ── Skill Utilization (full-width — AI Workspace banner removed) ── */}
+      <div className={`bg-white rounded-2xl border ${softCardBorder} p-6`}>
+        <h3 className="text-[15px] text-foreground mb-5" style={{ fontWeight: 700 }}>Skill Utilization</h3>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
+          {skillUtil.map(s => (
+            <div key={s.name}>
+              <div className="flex justify-between text-[12px] mb-1.5">
+                <span className="text-muted-foreground">{s.name}</span>
+                <span style={{ fontWeight: 600, color: s.fill }}>{s.value}%</span>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* AI Workspace Banner */}
-        <div className="lg:col-span-2">
-          <Link href="/workspace"
-            className="block h-full bg-gradient-to-br from-[#0e0a2e] to-[#1a0e4e] rounded-2xl p-6 hover:opacity-95 transition-opacity group relative overflow-hidden">
-            {/* grid bg */}
-            <div className="absolute inset-0 opacity-10"
-              style={{ backgroundImage: "radial-gradient(rgba(139,92,246,0.8) 1px, transparent 1px)", backgroundSize: "30px 30px" }} />
-            <div className="absolute top-0 right-0 w-[300px] h-[200px] bg-violet-500/10 rounded-full blur-[80px] pointer-events-none" />
-
-            <div className="relative z-10 h-full flex flex-col justify-between gap-8">
-              <div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-violet-400" />
-                  </div>
-                  <div>
-                    <div className="text-[16px] text-white" style={{ fontWeight: 700 }}>AI Mechanic Workspace</div>
-                    <div className="text-[12px] text-white/50">Your intelligent co-pilot for every job</div>
-                  </div>
-                </div>
-                <p className="text-[14px] text-white/60 leading-relaxed max-w-lg">
-                  Generate logbook entries, search ADs and service bulletins, look up parts, draft estimates, and get answers from the complete aircraft history — all in one conversational workspace.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                {["Generate Logbook Entry", "Search FAA ADs", "Find Parts", "Draft Estimate", "Ask AI"].map(chip => (
-                  <div key={chip} className="text-[11px] bg-white/10 border border-white/15 text-white/70 px-3 py-1.5 rounded-lg" style={{ fontWeight: 500 }}>
-                    {chip}
-                  </div>
-                ))}
-                <div className="ml-auto flex items-center gap-2 text-violet-400 group-hover:text-violet-300 transition-colors">
-                  <span className="text-[13px]" style={{ fontWeight: 600 }}>Open Workspace</span>
-                  <ArrowRight className="w-4 h-4" />
-                </div>
+              <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${s.value}%` }}
+                  transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="h-full rounded-full"
+                  style={{ background: s.fill }}
+                />
               </div>
             </div>
-          </Link>
+          ))}
         </div>
       </div>
     </div>

@@ -303,8 +303,7 @@ export async function POST(req: NextRequest) {
               parsing_status: 'failed',
               processing_state: markDocumentProcessingFailed(
                 buildInitialDocumentProcessingState(),
-                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-                'uploaded'
+                ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.'
               ),
               parse_error:
                 ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
@@ -338,11 +337,11 @@ export async function POST(req: NextRequest) {
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id: orgId,
-      actor_user_id: user.id,
+      user_id: user.id,
       action: 'gdrive.files_imported',
-      target_type: 'document',
-      target_id: orgId,
-      metadata: { imported, failed, file_ids },
+      entity_type: 'document',
+      entity_id: orgId,
+      metadata_json: { imported, failed, file_ids },
     })
 
     return NextResponse.json({ imported, failed, results }, { status: 200 })

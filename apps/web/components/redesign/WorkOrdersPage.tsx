@@ -10,17 +10,35 @@ import { useDataStore, type WorkOrder } from "./workspace/DataStore";
 import { motion, AnimatePresence } from "motion/react";
 import { CreateWorkOrderModal } from "./CreateWorkOrderModal";
 import { toast } from "sonner";
-import Link from "@/components/shared/tenant-link";
+import Link, { useTenantRouter } from "@/components/shared/tenant-link";
+import { useEffect } from "react";
 
 /* ─── Seed work orders disabled — live data only ───────────────── */
 
 export function WorkOrdersPage() {
   const { workOrders, deleteWorkOrder } = useDataStore();
+  const router = useTenantRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const allWOs: WorkOrder[] = workOrders;
+
+  // Single-source-of-truth: when there is exactly one work order in the
+  // org, take the user straight to the detail page. They expect "go to
+  // my work order" not "show me a list of one item." Skip the bounce
+  // when filters or search are active — at that point the list is
+  // intentionally narrow and they may want to see "0 / 1 found."
+  useEffect(() => {
+    if (
+      workOrders.length === 1 &&
+      !searchQuery &&
+      statusFilter === "all" &&
+      !showCreateModal
+    ) {
+      router.replace(`/work-orders/${workOrders[0].id}`);
+    }
+  }, [workOrders, searchQuery, statusFilter, showCreateModal, router]);
 
   const filteredOrders = allWOs.filter((wo) => {
     const matchesSearch =
@@ -79,13 +97,8 @@ export function WorkOrdersPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/maintenance"
-            className="inline-flex items-center gap-1.5 border border-border text-muted-foreground px-3 py-2 rounded-lg text-[12px] hover:bg-muted/30 transition-colors"
-            style={{ fontWeight: 500 }}
-          >
-            <ExternalLink className="w-3.5 h-3.5" /> Open in Maintenance View
-          </Link>
+          {/* "Open in Maintenance View" link removed — the work-order detail
+              page IS the single source of truth now. */}
           <button
             onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-2 bg-[#0A1628] text-white px-4 py-2 rounded-lg text-[13px] hover:bg-[#0A1628]/90 transition-colors"
@@ -179,7 +192,8 @@ export function WorkOrdersPage() {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.03 }}
-                    className="hover:bg-muted/20 transition-colors"
+                    onClick={() => router.push(`/work-orders/${wo.id}`)}
+                    className="hover:bg-muted/20 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3">
                       <div className="text-[13px] text-primary" style={{ fontWeight: 700 }}>{wo.woNumber}</div>
@@ -223,11 +237,11 @@ export function WorkOrdersPage() {
                       <div className="text-[12px] text-muted-foreground whitespace-nowrap">{new Date(wo.openedDate).toLocaleDateString()}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                         <Link
-                          href="/maintenance"
+                          href={`/work-orders/${wo.id}`}
                           className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
-                          title="Open in Maintenance"
+                          title="Open work order"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Link>

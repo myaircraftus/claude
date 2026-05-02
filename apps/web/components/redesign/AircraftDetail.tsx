@@ -20,6 +20,29 @@ import { useAppContext } from "./AppContext";
 import { InviteMechanicModal } from "./InviteMechanicModal";
 import { LiveTrackWidget } from "./LiveTrackWidget";
 import { useIntegrationStore } from "./integrationStore";
+// ADSBManagerPanel moved to /work-orders/[id] — Mechanic flow only.
+import { DocumentProcessingTimeline } from "@/components/documents/processing-timeline";
+import { MoveCategoryMenu } from "@/components/documents/move-category-menu";
+import { coerceDocumentProcessingState } from "@/lib/documents/processing-state";
+import { toast } from "sonner";
+
+const TIMELINE_STATUSES_DOCS = new Set([
+  "queued",
+  "parsing",
+  "ocr_processing",
+  "chunking",
+  "embedding",
+]);
+
+const RETRYABLE_STATUSES_DOCS = new Set([
+  "failed",
+  "needs_ocr",
+  "queued",
+  "parsing",
+  "ocr_processing",
+  "chunking",
+  "embedding",
+]);
 
 /* ─── Aircraft DB ─────────────────────────────────────────────── */
 interface AircraftRecord {
@@ -508,6 +531,8 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const [generatingPacket, setGeneratingPacket] = useState(false);
   const [packetError, setPacketError] = useState<string | null>(null);
   const [packetSignedUrl, setPacketSignedUrl] = useState<string | null>(null);
+  // AD/SB compliance is a mechanic responsibility — surfaced inside the
+  // Work Order detail (AD/SB tab) instead of the owner's aircraft view.
   const [maintSubTab, setMaintSubTab] = useState<"workorders" | "squawks" | "reminders" | "activity">("workorders");
 
   // Helpers for opening Maintenance sub-tabs (replaces direct setActiveTab for the
@@ -528,6 +553,162 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const squawkSpeechRecognitionRef = useRef<any>(null);
   const squawkPhotoInputRef = useRef<HTMLInputElement>(null);
   const [reminderFilter, setReminderFilter] = useState("All");
+
+  // ── Real documents for the Documents tab ─────────────────────────────────
+  // Categories used to be hardcoded with mock counts (4, 18, 3, 2, 12, ...).
+  // Now we fetch this aircraft's real documents from /api/documents and group
+  // them by doc_type so the cards show actual counts and clicking a card
+  // filters the recent-documents list below.
+  type AircraftDoc = {
+    id: string
+    title: string | null
+    doc_type: string | null
+    document_subtype: string | null
+    parsing_status: string | null
+    parse_error: string | null
+    page_count: number | null
+    file_size_bytes: number | null
+    uploaded_at: string | null
+    updated_at: string | null
+    needs_human_review?: boolean | null
+    human_review_reason?: string | null
+    human_reviewed_at?: string | null
+  }
+  const [aircraftDocs, setAircraftDocs] = useState<AircraftDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [activeDocCategory, setActiveDocCategory] = useState<string | null>(null);
+  const [docSearch, setDocSearch] = useState("");
+  const [docBulkRetrying, setDocBulkRetrying] = useState(false);
+  const [classifyBackfilling, setClassifyBackfilling] = useState(false);
+  const [classifyToast, setClassifyToast] = useState<string | null>(null);
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+  const [draggingDocId, setDraggingDocId] = useState<string | null>(null);
+
+  // Active work order id for the AD/SB Manager "Add to WO" affordance.
+  // Pulled from the same chat-summary endpoint the bubble uses so it stays
+  // consistent — first open WO wins.
+  const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/aircraft/${aircraftId}/chat-summary`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const wos = Array.isArray(json?.work_orders) ? json.work_orders : [];
+        const firstOpen = wos.find((w: any) => w.is_open) ?? wos[0] ?? null;
+        setActiveWorkOrderId(firstOpen?.id ?? null);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true };
+  }, [aircraftId]);
+
+  useEffect(() => {
+    if (!aircraftId) return;
+    let cancelled = false;
+    async function loadDocs() {
+      setDocsLoading(true);
+      try {
+        const res = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+        setAircraftDocs(docs);
+
+        // Auto-heal anything stuck OR transient-failed. POST /api/documents/heal
+        // is org-scoped, fire-and-forget. Including 'failed' here means the
+        // moment the user opens this aircraft's Documents tab, any 429 /
+        // timeout / duplicate-key failures from the latest upload start
+        // auto-recovering — no Retry click needed.
+        const stuckLocally = docs.filter((d) =>
+          ["parsing", "ocr_processing", "chunking", "embedding", "failed"].includes(
+            (d as any).parsing_status ?? "",
+          ),
+        );
+        if (stuckLocally.length > 0 && !cancelled) {
+          void fetch("/api/documents/heal", { method: "POST" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then(async (heal) => {
+              if (!heal?.recovered?.length || cancelled) return;
+              // Poll again at 30s, 90s, 180s — that covers most recoveries
+              // without hammering the API.
+              for (const delay of [30_000, 60_000, 90_000]) {
+                await new Promise((r) => setTimeout(r, delay));
+                if (cancelled) return;
+                const res2 = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+                if (!res2.ok) continue;
+                const json2 = await res2.json();
+                if (!cancelled && Array.isArray(json2?.documents)) {
+                  setAircraftDocs(json2.documents as AircraftDoc[]);
+                }
+              }
+            })
+            .catch(() => { /* swallow — heal is best-effort */ });
+        }
+      } finally {
+        if (!cancelled) setDocsLoading(false);
+      }
+    }
+    void loadDocs();
+    return () => { cancelled = true };
+  }, [aircraftId]);
+
+  // Persist a doc_type/subtype change (drag-drop reclassification or
+  // "Reclassify with AI"). Optimistic update so the card moves into the
+  // new category immediately, then sync to the server.
+  const reclassifyDoc = useCallback(
+    async (docId: string, target: { doc_type: string; document_subtype: string | null }) => {
+      setAircraftDocs((prev) =>
+        prev.map((d) =>
+          d.id === docId ? { ...d, doc_type: target.doc_type, document_subtype: target.document_subtype } : d,
+        ),
+      );
+      try {
+        const res = await fetch(`/api/documents/${docId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            doc_type: target.doc_type,
+            document_subtype: target.document_subtype,
+          }),
+        });
+        if (!res.ok) throw new Error(`Reclassify failed (${res.status})`);
+      } catch (err) {
+        console.error("[reclassifyDoc]", err);
+        // Re-fetch to undo the optimistic update if the server rejected
+        if (aircraftId) {
+          const res = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+          if (res.ok) {
+            const json = await res.json();
+            const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+            setAircraftDocs(docs);
+          }
+        }
+      }
+    },
+    [aircraftId],
+  );
+
+  const aiReclassifyDoc = useCallback(async (docId: string) => {
+    try {
+      const res = await fetch(`/api/documents/${docId}/classify`, { method: "POST" });
+      if (!res.ok) return;
+      // Refresh the list — the classify endpoint already wrote the new doc_type
+      if (aircraftId) {
+        const list = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`);
+        if (list.ok) {
+          const json = await list.json();
+          const docs = Array.isArray(json?.documents) ? (json.documents as AircraftDoc[]) : [];
+          setAircraftDocs(docs);
+        }
+      }
+    } catch (err) {
+      console.error("[aiReclassifyDoc]", err);
+    }
+  }, [aircraftId]);
   const [askInput, setAskInput] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [showInviteMechanic, setShowInviteMechanic] = useState(false);
@@ -1421,33 +1602,28 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                     <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Quick Actions</h3>
                     <div className="space-y-2">
                       {[
+                        // "Upload Document" intentionally NOT here — it lives
+                        // on the Documents tab. Two upload buttons made the
+                        // surface confusing.
                         { label: "Add Squawk", icon: AlertTriangle, action: () => { openSquawksTab(); setShowAddSquawk(true); } },
                         { label: "Request Maintenance", icon: Wrench, action: () => setActiveTab("Maintenance") },
-                        { label: "Upload Document", icon: Upload, href: uploadHref },
+                        { label: "Open Documents", icon: FileText, action: () => setActiveTab("Documents") },
                         { label: "View Intelligence", icon: BarChart3, action: () => setActiveTab("Intelligence") },
                       ].map((qa) => (
-                        qa.href ? (
-                          <Link
-                            key={qa.label}
-                            href={qa.href}
-                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left"
-                            style={{ fontWeight: 500 }}
-                          >
-                            <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
-                            {qa.label}
-                          </Link>
-                        ) : (
-                          <button key={qa.label} onClick={qa.action} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left" style={{ fontWeight: 500 }}>
-                            <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
-                            {qa.label}
-                          </button>
-                        )
+                        <button key={qa.label} onClick={qa.action} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] text-foreground hover:bg-muted/50 transition-colors text-left" style={{ fontWeight: 500 }}>
+                          <qa.icon className="w-3.5 h-3.5 text-muted-foreground" />
+                          {qa.label}
+                        </button>
                       ))}
                     </div>
                   </div>
                 </div>
               </div>
             )}
+
+            {/* AD/SB tab moved to the Work Order detail (AD/SB tab) — that's where
+                the mechanic decides what to add to a specific work order. The owner's
+                aircraft view stays focused on operational status, not compliance. */}
 
             {/* ══════════════════════ SQUAWKS TAB ══════════════════════ */}
             {(activeTab === "Squawks" || (activeTab === "Maintenance" && maintSubTab === "squawks")) && (
@@ -2941,68 +3117,580 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
                   )}
                 </div>
 
-                {/* Document category grid */}
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {[
-                    { name: "Airworthiness & Registration", count: 4, complete: true, icon: Shield },
-                    { name: "Inspection Records", count: 18, complete: true, icon: CheckCircle },
-                    { name: "Engine Logbook", count: 3, complete: true, icon: BookOpen },
-                    { name: "Airframe Logbook", count: 2, complete: true, icon: BookOpen },
-                    { name: "Airworthiness Directives", count: 12, complete: false, icon: AlertTriangle },
-                    { name: "Avionics / Equipment", count: 6, complete: true, icon: Radio },
-                    { name: "Weight & Balance", count: 1, complete: ac.docCompleteness < 80, icon: Layers },
-                    { name: "Overhaul Records", count: 3, complete: true, icon: Wrench },
-                    { name: "Supplemental Type Certs", count: 2, complete: true, icon: FileText },
-                  ].map((cat) => (
-                    <button key={cat.name} className="bg-white rounded-xl border border-border p-4 text-left hover:shadow-sm hover:border-primary/20 transition-all group">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cat.complete ? "bg-emerald-50" : "bg-amber-50"}`}>
-                          <cat.icon className={`w-4 h-4 ${cat.complete ? "text-emerald-600" : "text-amber-600"}`} />
-                        </div>
-                        {!cat.complete && <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Incomplete</span>}
-                      </div>
-                      <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{cat.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{cat.count} document{cat.count !== 1 ? "s" : ""}</div>
-                    </button>
-                  ))}
-                </div>
+                {/* Document category grid — REAL counts + drag-drop targets.
+                    Drag any document row onto a card to reclassify it. */}
+                {(() => {
+                  // Each category maps to a (doc_type, document_subtype) target
+                  // that the drop handler writes to the doc row.
+                  const CATEGORY_DEFS: Array<{
+                    key: string
+                    name: string
+                    icon: any
+                    target: { doc_type: string; document_subtype: string | null }
+                    docTypes: string[]
+                  }> = [
+                    { key: 'airworthiness_registration', name: 'Airworthiness & Registration', icon: Shield, target: { doc_type: 'compliance', document_subtype: null }, docTypes: ['compliance', 'lease_ownership', 'insurance'] },
+                    { key: 'inspection_records', name: 'Inspection Records', icon: CheckCircle, target: { doc_type: 'inspection_report', document_subtype: null }, docTypes: ['inspection_report', 'form_337'] },
+                    { key: 'engine_logbook', name: 'Engine Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'engine_logbook' }, docTypes: [] },
+                    { key: 'airframe_logbook', name: 'Airframe Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'airframe_logbook' }, docTypes: [] },
+                    { key: 'prop_logbook', name: 'Propeller Logbook', icon: BookOpen, target: { doc_type: 'logbook', document_subtype: 'prop_logbook' }, docTypes: [] },
+                    { key: 'airworthiness_directives', name: 'Airworthiness Directives', icon: AlertTriangle, target: { doc_type: 'airworthiness_directive', document_subtype: null }, docTypes: ['airworthiness_directive', 'service_bulletin'] },
+                    { key: 'avionics_equipment', name: 'Avionics / Equipment', icon: Radio, target: { doc_type: 'form_8130', document_subtype: null }, docTypes: ['form_8130'] },
+                    { key: 'manuals', name: 'Manuals & POH', icon: BookOpen, target: { doc_type: 'poh', document_subtype: null }, docTypes: ['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'] },
+                    { key: 'work_orders', name: 'Work Orders', icon: Wrench, target: { doc_type: 'work_order', document_subtype: null }, docTypes: ['work_order'] },
+                    { key: 'other', name: 'Other Records', icon: FileText, target: { doc_type: 'miscellaneous', document_subtype: null }, docTypes: ['miscellaneous'] },
+                  ]
 
-                {/* Recent documents */}
-                <div className="bg-white rounded-xl border border-border">
-                  <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                    <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>Recent Documents</h3>
-                    <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
-                      <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                      <input type="text" placeholder="Search documents..." className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60" />
+                  // Resolve a doc to its category. Prefer document_subtype for
+                  // engine/airframe/prop logbook splits (set by the AI
+                  // classifier or a previous drag-drop). Fall back to title
+                  // keywords for older docs that haven't been classified yet.
+                  function categorize(doc: AircraftDoc): string {
+                    const dt = doc.doc_type ?? 'miscellaneous'
+                    const sub = doc.document_subtype ?? ''
+                    const title = (doc.title ?? '').toLowerCase()
+                    if (dt === 'logbook') {
+                      if (sub === 'engine_logbook') return 'engine_logbook'
+                      if (sub === 'prop_logbook') return 'prop_logbook'
+                      if (sub === 'airframe_logbook') return 'airframe_logbook'
+                      // Title-keyword fallback for un-subtyped legacy logbooks
+                      if (/\beng\b|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (/prop|propeller/.test(title)) return 'prop_logbook'
+                      return 'airframe_logbook'
+                    }
+                    for (const cat of CATEGORY_DEFS) {
+                      if (cat.docTypes.includes(dt)) return cat.key
+                    }
+                    return 'other'
+                  }
+
+                  const counts = new Map<string, number>()
+                  for (const d of aircraftDocs) {
+                    const k = categorize(d)
+                    counts.set(k, (counts.get(k) ?? 0) + 1)
+                  }
+
+                  return (
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {CATEGORY_DEFS.map((cat) => {
+                        const count = counts.get(cat.key) ?? 0
+                        const isActive = activeDocCategory === cat.key
+                        const isDragOver = dragOverCategory === cat.key
+                        return (
+                          <button
+                            key={cat.key}
+                            type="button"
+                            onClick={() => setActiveDocCategory(isActive ? null : cat.key)}
+                            onDragOver={(e) => {
+                              if (draggingDocId) {
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = "move"
+                                if (dragOverCategory !== cat.key) setDragOverCategory(cat.key)
+                              }
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverCategory === cat.key) setDragOverCategory(null)
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              const docId = e.dataTransfer.getData("text/plain") || draggingDocId
+                              setDragOverCategory(null)
+                              setDraggingDocId(null)
+                              if (docId) void reclassifyDoc(docId, cat.target)
+                            }}
+                            className={`bg-white rounded-xl border p-4 text-left hover:shadow-sm transition-all group ${
+                              isDragOver
+                                ? 'border-primary ring-2 ring-primary/40 bg-primary/5'
+                                : isActive
+                                ? 'border-primary ring-2 ring-primary/20'
+                                : 'border-border hover:border-primary/30'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${count > 0 ? 'bg-emerald-50' : 'bg-muted'}`}>
+                                <cat.icon className={`w-4 h-4 ${count > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                              </div>
+                              {isDragOver && <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Drop here</span>}
+                              {!isDragOver && isActive && <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>Filtering</span>}
+                            </div>
+                            <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{cat.name}</div>
+                            <div className="text-[11px] text-muted-foreground">{count} document{count === 1 ? '' : 's'}</div>
+                          </button>
+                        )
+                      })}
                     </div>
-                  </div>
-                  <div className="divide-y divide-border">
-                    {[
-                      { name: "Annual Inspection Report 2026", type: "Inspection", pages: 12, status: "Indexed", date: "Mar 15, 2026" },
-                      { name: "Engine Logbook Pages 1-50", type: "Logbook", pages: 50, status: "Indexed", date: "Feb 20, 2026" },
-                      { name: "AD 2024-15-06 Compliance Record", type: "AD", pages: 3, status: "Needs Review", date: "Jan 10, 2026" },
-                      { name: "Propeller Overhaul Certificate", type: "Certificate", pages: 2, status: "Indexed", date: "Dec 5, 2025" },
-                    ].map((doc, i) => (
-                      <div key={i} className="px-5 py-3.5 flex items-center justify-between hover:bg-muted/20 transition-colors">
+                  )
+                })()}
+
+                {/* Documents list — filtered by active category + search */}
+                {(() => {
+                  function categorize(doc: AircraftDoc): string {
+                    const dt = doc.doc_type ?? 'miscellaneous'
+                    const sub = doc.document_subtype ?? ''
+                    const title = (doc.title ?? '').toLowerCase()
+                    if (dt === 'logbook') {
+                      if (sub === 'engine_logbook') return 'engine_logbook'
+                      if (sub === 'prop_logbook') return 'prop_logbook'
+                      if (sub === 'airframe_logbook') return 'airframe_logbook'
+                      if (/\beng\b|engine|smoh|cylinder/.test(title)) return 'engine_logbook'
+                      if (/prop|propeller/.test(title)) return 'prop_logbook'
+                      return 'airframe_logbook'
+                    }
+                    if (['inspection_report', 'form_337'].includes(dt)) return 'inspection_records'
+                    if (['airworthiness_directive', 'service_bulletin'].includes(dt)) return 'airworthiness_directives'
+                    if (['compliance', 'lease_ownership', 'insurance'].includes(dt)) return 'airworthiness_registration'
+                    if (['poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual', 'parts_catalog'].includes(dt)) return 'manuals'
+                    if (dt === 'form_8130') return 'avionics_equipment'
+                    if (dt === 'work_order') return 'work_orders'
+                    return 'other'
+                  }
+
+                  const search = docSearch.trim().toLowerCase()
+                  let filtered = aircraftDocs
+                  if (activeDocCategory) {
+                    filtered = filtered.filter((d) => categorize(d) === activeDocCategory)
+                  }
+                  if (search) {
+                    filtered = filtered.filter((d) => (d.title ?? '').toLowerCase().includes(search))
+                  }
+                  const sorted = [...filtered].sort((a, b) => {
+                    const ad = a.uploaded_at ?? a.updated_at ?? ''
+                    const bd = b.uploaded_at ?? b.updated_at ?? ''
+                    return bd.localeCompare(ad)
+                  })
+
+                  // Count of currently-visible (filtered) docs that can be retried.
+                  // The bulk button below acts on this set so the user's filter
+                  // chip selection IS the selection.
+                  const retryableCount = sorted.filter((d) =>
+                    RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
+                  ).length
+
+                  // Count of docs in this aircraft that are sitting in the
+                  // catch-all "Other documents" bucket (uncategorized). Drives
+                  // the "Sort into folders" button below.
+                  const uncategorizedCount = sorted.filter((d) => {
+                    const did = (d as any).document_detail_id
+                    return !did || did === 'master_document_register'
+                  }).length
+
+                  async function handleDocsBulkRetry() {
+                    const targets = sorted.filter((d) =>
+                      RETRYABLE_STATUSES_DOCS.has(d.parsing_status ?? ''),
+                    )
+                    if (targets.length === 0) return
+                    setDocBulkRetrying(true)
+                    // Optimistic flip so each row's timeline starts redrawing
+                    // immediately while the network calls are in flight.
+                    setAircraftDocs((prev) =>
+                      prev.map((d) =>
+                        targets.find((t) => t.id === d.id)
+                          ? { ...d, parsing_status: 'queued' as any, parse_error: null }
+                          : d,
+                      ),
+                    )
+                    let queued = 0
+                    let failed = 0
+                    await Promise.all(
+                      targets.map(async (t) => {
+                        try {
+                          const r = await fetch(`/api/documents/${t.id}/retry`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ force: true }),
+                          })
+                          if (r.ok) queued += 1
+                          else failed += 1
+                        } catch {
+                          failed += 1
+                        }
+                      }),
+                    )
+                    setDocBulkRetrying(false)
+                    if (queued > 0 && failed === 0) {
+                      toast.success(`Re-queued ${queued} document${queued === 1 ? '' : 's'}`, {
+                        description: 'Watch the steps fill in under each row as processing progresses.',
+                      })
+                    } else if (failed > 0 && queued > 0) {
+                      toast.message(`${queued} re-queued, ${failed} failed`)
+                    } else if (failed > 0) {
+                      toast.error(`Could not re-queue ${failed} document${failed === 1 ? '' : 's'}`)
+                    }
+                    // Refresh the list to pick up server-side state.
+                    if (aircraftId) {
+                      try {
+                        const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                        if (r.ok) {
+                          const j = await r.json()
+                          setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                        }
+                      } catch { /* best-effort */ }
+                    }
+                  }
+
+                  return (
+                    <div className="bg-white rounded-xl border border-border">
+                      <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
-                            <FileText className="w-3.5 h-3.5 text-primary" />
-                          </div>
-                          <div>
-                            <div className="text-[13px] text-foreground" style={{ fontWeight: 500 }}>{doc.name}</div>
-                            <div className="text-[11px] text-muted-foreground">{doc.type} &middot; {doc.pages} pages &middot; {doc.date}</div>
-                          </div>
+                          <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
+                            {activeDocCategory ? 'Filtered Documents' : 'Recent Documents'}
+                          </h3>
+                          <span className="text-[11px] text-muted-foreground">{sorted.length} of {aircraftDocs.length}</span>
+                          {activeDocCategory && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveDocCategory(null)}
+                              className="text-[11px] text-primary hover:text-primary/80"
+                              style={{ fontWeight: 500 }}
+                            >
+                              Clear filter
+                            </button>
+                          )}
+                          <span className="hidden md:inline text-[11px] text-muted-foreground/70 italic">
+                            · drag a row onto a category to reclassify
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${doc.status === "Indexed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`} style={{ fontWeight: 600 }}>{doc.status}</span>
-                          <button className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                            <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                          </button>
+                          {uncategorizedCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setClassifyBackfilling(true)
+                                setClassifyToast('AI is classifying — this can take 30-60s for 25 docs.')
+                                try {
+                                  const res = await fetch('/api/admin/classify-backfill', { method: 'POST' })
+                                  const json = await res.json()
+                                  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+                                  setClassifyToast(
+                                    `✓ Sorted ${json.classified} doc${json.classified === 1 ? '' : 's'} into specific folders. ${json.remaining} remaining ${
+                                      json.remaining > 0 ? '— click again to continue.' : 'across all aircraft.'
+                                    }`,
+                                  )
+                                  // Refresh the doc list so categories update
+                                  if (aircraftId) {
+                                    const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                    if (r.ok) {
+                                      const j = await r.json()
+                                      setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                    }
+                                  }
+                                } catch (err) {
+                                  setClassifyToast(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+                                } finally {
+                                  setClassifyBackfilling(false)
+                                  window.setTimeout(() => setClassifyToast(null), 8000)
+                                }
+                              }}
+                              disabled={classifyBackfilling}
+                              className="inline-flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-[12px] hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                              style={{ fontWeight: 600 }}
+                              title="AI classifies each uncategorized doc into a specific bucket (engine logbook, AD compliance, etc.)"
+                            >
+                              {classifyBackfilling ? (
+                                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5" />
+                              )}
+                              {classifyBackfilling ? 'Sorting…' : `Sort into folders (${uncategorizedCount})`}
+                            </button>
+                          )}
+                          {retryableCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleDocsBulkRetry}
+                              disabled={docBulkRetrying}
+                              className="inline-flex items-center gap-1.5 bg-primary text-white px-3 py-1.5 rounded-lg text-[12px] hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                              style={{ fontWeight: 600 }}
+                            >
+                              {docBulkRetrying ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                              {docBulkRetrying ? 'Re-queueing…' : `Re-run all (${retryableCount})`}
+                            </button>
+                          )}
+                          <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
+                            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                            <input
+                              type="text"
+                              value={docSearch}
+                              onChange={(e) => setDocSearch(e.target.value)}
+                              placeholder="Search documents..."
+                              className="bg-transparent text-[12px] outline-none w-40 placeholder:text-muted-foreground/60"
+                            />
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      {classifyToast && (
+                        <div
+                          className={
+                            'px-5 py-2 text-[12px] border-b border-border ' +
+                            (classifyToast.startsWith('✓')
+                              ? 'bg-emerald-50 text-emerald-800'
+                              : classifyToast.startsWith('Failed')
+                                ? 'bg-red-50 text-red-800'
+                                : 'bg-violet-50 text-violet-800')
+                          }
+                        >
+                          {classifyToast}
+                        </div>
+                      )}
+                      <div className="divide-y divide-border">
+                        {docsLoading && aircraftDocs.length === 0 && (
+                          <div className="px-5 py-6 text-[12px] text-muted-foreground italic">Loading documents…</div>
+                        )}
+                        {!docsLoading && sorted.length === 0 && (
+                          <div className="px-5 py-6 text-[12px] text-muted-foreground italic">
+                            {activeDocCategory ? 'No documents in this category yet.' : 'No documents uploaded yet.'}
+                          </div>
+                        )}
+                        {sorted.slice(0, 50).map((doc) => {
+                          const isComplete = doc.parsing_status === 'completed'
+                          const isDragging = draggingDocId === doc.id
+                          const showTimeline =
+                            doc.parsing_status != null &&
+                            TIMELINE_STATUSES_DOCS.has(doc.parsing_status)
+                          const dateLabel = doc.uploaded_at
+                            ? new Date(doc.uploaded_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                            : '—'
+                          return (
+                            <div
+                              key={doc.id}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.effectAllowed = "move"
+                                e.dataTransfer.setData("text/plain", doc.id)
+                                setDraggingDocId(doc.id)
+                              }}
+                              onDragEnd={() => {
+                                setDraggingDocId(null)
+                                setDragOverCategory(null)
+                              }}
+                              className={`group px-5 py-3.5 flex flex-col gap-2 transition-colors cursor-grab active:cursor-grabbing ${
+                                isDragging ? 'opacity-50 bg-muted/40' : 'hover:bg-muted/30'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                              <Link
+                                href={`/documents/${doc.id}`}
+                                className="flex items-center gap-3 min-w-0 flex-1"
+                                onClick={(e) => {
+                                  // Suppress click navigation if a drag was in progress
+                                  if (draggingDocId === doc.id) e.preventDefault()
+                                }}
+                              >
+                                <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center shrink-0">
+                                  <FileText className="w-3.5 h-3.5 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[13px] text-foreground truncate" style={{ fontWeight: 500 }}>{doc.title ?? 'Untitled'}</div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    {(doc.document_subtype ?? doc.doc_type ?? 'document').replace(/_/g, ' ')}
+                                    {doc.page_count ? ` · ${doc.page_count} pages` : ''}
+                                    {' · '}{dateLabel}
+                                  </div>
+                                </div>
+                              </Link>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                                  isComplete ? 'bg-emerald-50 text-emerald-700' :
+                                  doc.parsing_status === 'failed' ? 'bg-red-50 text-red-700' :
+                                  'bg-amber-50 text-amber-700'
+                                }`} style={{ fontWeight: 600 }} title={doc.parse_error ?? undefined}>
+                                  {isComplete
+                                    ? 'Indexed'
+                                    : doc.parsing_status === 'failed'
+                                    ? 'Failed'
+                                    : (doc.parsing_status ?? 'Processing').replace(/_/g, ' ')}
+                                </span>
+                                {/* Human-review badge — separate from pipeline status. Shows when
+                                    OCR finished with low confidence (handwriting). One click clears
+                                    it and records who/when reviewed via PATCH. */}
+                                {doc.needs_human_review && (
+                                  <button
+                                    type="button"
+                                    title={doc.human_review_reason ?? 'Click after manually verifying the OCR text accuracy'}
+                                    onClick={async (e) => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      // Optimistic update.
+                                      setAircraftDocs((prev) =>
+                                        prev.map((d) =>
+                                          d.id === doc.id
+                                            ? { ...d, needs_human_review: false, human_reviewed_at: new Date().toISOString() }
+                                            : d,
+                                        ),
+                                      )
+                                      try {
+                                        await fetch(`/api/documents/${doc.id}`, {
+                                          method: 'PATCH',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ needs_human_review: false }),
+                                        })
+                                      } catch {
+                                        // revert on error
+                                        setAircraftDocs((prev) =>
+                                          prev.map((d) =>
+                                            d.id === doc.id ? { ...d, needs_human_review: true } : d,
+                                          ),
+                                        )
+                                      }
+                                    }}
+                                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 inline-flex items-center gap-1"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    <Eye className="w-3 h-3" /> Needs review
+                                  </button>
+                                )}
+                                {/* Failed → Retry triggers /api/documents/[id]/retry; replaces a
+                                    full-page reload after a quota top-up so the user keeps state. */}
+                                {doc.parsing_status === 'failed' && (
+                                  <button
+                                    type="button"
+                                    title={doc.parse_error ?? 'Retry processing'}
+                                    onClick={async (e) => {
+                                      e.preventDefault(); e.stopPropagation()
+                                      try {
+                                        await fetch(`/api/documents/${doc.id}/retry`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ force: true }),
+                                        })
+                                        if (aircraftId) {
+                                          const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                          if (r.ok) {
+                                            const j = await r.json()
+                                            setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                          }
+                                        }
+                                      } catch {/* ignore — user can click again */}
+                                    }}
+                                    className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    Retry
+                                  </button>
+                                )}
+                                {/* Needs human review → jump to the OCR review queue, OR
+                                    re-run the OCR pipeline from scratch with the new RPC-backed
+                                    cleanup path. */}
+                                {doc.parsing_status === 'needs_ocr' && (
+                                  <>
+                                    <Link
+                                      href={`/documents/review?document=${doc.id}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200"
+                                      style={{ fontWeight: 600 }}
+                                    >
+                                      Review
+                                    </Link>
+                                    <button
+                                      type="button"
+                                      title="Re-run OCR from scratch"
+                                      onClick={async (e) => {
+                                        e.preventDefault(); e.stopPropagation()
+                                        try {
+                                          await fetch(`/api/documents/${doc.id}/retry`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ force: true }),
+                                          })
+                                          if (aircraftId) {
+                                            const r = await fetch(`/api/documents?aircraft_id=${aircraftId}&limit=200`)
+                                            if (r.ok) {
+                                              const j = await r.json()
+                                              setAircraftDocs(Array.isArray(j?.documents) ? j.documents : [])
+                                            }
+                                          }
+                                        } catch { /* ignore */ }
+                                      }}
+                                      className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
+                                      style={{ fontWeight: 600 }}
+                                    >
+                                      Re-run
+                                    </button>
+                                  </>
+                                )}
+                                {isComplete && (
+                                  <>
+                                    {/* Move-to-category menu — fix-up tool when AI picks the
+                                        wrong bucket. Always visible for completed docs so the
+                                        user can see at a glance that moving is one click away. */}
+                                    <MoveCategoryMenu
+                                      documentId={doc.id}
+                                      currentDetailId={(doc as any).document_detail_id ?? null}
+                                      onMoved={({ groupId, detailId, docType }) => {
+                                        setAircraftDocs((prev) =>
+                                          prev.map((d) =>
+                                            d.id === doc.id
+                                              ? {
+                                                  ...d,
+                                                  document_group_id: groupId,
+                                                  document_detail_id: detailId,
+                                                  doc_type: docType,
+                                                } as any
+                                              : d,
+                                          ),
+                                        )
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      title="Reclassify with AI"
+                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void aiReclassifyDoc(doc.id) }}
+                                      className="p-1.5 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                      aria-label="Reclassify with AI"
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                                    </button>
+                                  </>
+                                )}
+                                <a
+                                  href={`/api/documents/${doc.id}/preview?download=1`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                                  aria-label="Download"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                                </a>
+                              </div>
+                              </div>
+                              {/* Inline step-by-step processing timeline — same look as the
+                                  upload dropzone so the user knows exactly where each retry/queue
+                                  is in the pipeline. */}
+                              {showTimeline && (
+                                <div className="pl-11" onClick={(e) => e.stopPropagation()}>
+                                  <DocumentProcessingTimeline
+                                    state={
+                                      (doc as any).processing_state
+                                        ? coerceDocumentProcessingState((doc as any).processing_state, (doc as any).uploaded_at, {
+                                            status: doc.parsing_status as any,
+                                            pageCount: doc.page_count ?? null,
+                                            parseError: (doc as any).parse_error ?? null,
+                                            ocrRequired: (doc as any).ocr_required ?? null,
+                                            isTextNative: (doc as any).is_text_native ?? null,
+                                          })
+                                        : null
+                                    }
+                                    fallbackStatus={doc.parsing_status as any}
+                                    size="compact"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {sorted.length > 50 && (
+                          <div className="px-5 py-3 text-[11px] text-muted-foreground text-center">
+                            Showing first 50 of {sorted.length} — refine with search to find more.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
 

@@ -1,62 +1,10 @@
-import { requireAppServerSession } from '@/lib/auth/server-app'
-import { WorkspaceClient } from './workspace-client'
-import type { Aircraft } from '@/types'
+import { redirect } from 'next/navigation'
 
-export const metadata = {
-  title: 'Workspace — myaircraft.us',
-}
-
-export default async function WorkspacePage({
-  searchParams,
-}: {
-  searchParams?: Record<string, string | string[] | undefined>
-}) {
-  const { supabase, user, membership } = await requireAppServerSession()
-  const orgId = membership.organization_id
-
-  // Aircraft list
-  const { data: aircraftData } = await supabase
-    .from('aircraft')
-    .select('id, tail_number, make, model, year, is_archived')
-    .eq('organization_id', orgId)
-    .eq('is_archived', false)
-    .order('created_at', { ascending: false })
-
-  const aircraft: Aircraft[] = (aircraftData ?? []) as Aircraft[]
-  const requestedAircraftId = Array.isArray(searchParams?.aircraft)
-    ? searchParams?.aircraft[0] ?? null
-    : searchParams?.aircraft ?? null
-
-  // Recent threads — gracefully handle if table doesn't exist yet
-  let recentThreads: Array<{
-    id: string
-    title: string
-    aircraft_id: string | null
-    is_pinned: boolean
-    created_at: string
-    updated_at: string
-  }> = []
-
-  try {
-    const { data: threadsData } = await supabase
-      .from('chat_threads')
-      .select('id, title, aircraft_id, is_pinned, created_at, updated_at')
-      .eq('organization_id', orgId)
-      .order('updated_at', { ascending: false })
-      .limit(50)
-
-    recentThreads = threadsData ?? []
-  } catch {
-    // Table may not exist yet — start fresh
-  }
-
-  return (
-    <WorkspaceClient
-      organizationId={orgId}
-      userId={user.id}
-      aircraft={aircraft}
-      initialThreads={recentThreads}
-      initialAircraftId={requestedAircraftId}
-    />
-  )
+// The "AI Command Center" surface (/workspace) was retired. Mechanics
+// interact with AI through the work-order Activity tab and per-WO AI Plan
+// drawer; owners use the Logbook AI (/ask). Anyone landing on /workspace
+// gets bounced to the dashboard so we don't leave a stray AI surface
+// hanging around.
+export default function WorkspaceRedirect() {
+  redirect('/dashboard')
 }

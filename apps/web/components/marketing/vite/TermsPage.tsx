@@ -20,7 +20,7 @@ const SECTIONS = [
   },
   {
     title: "5. Free Trial",
-    content: "New accounts receive a 14-day free trial with full access to all platform features. No credit card is required to start a trial. At the end of the trial period, continued access requires a paid subscription. We reserve the right to modify or discontinue the trial offer at any time.",
+    content: "New accounts receive a 30-day free trial with full access to all platform features. No credit card is required to start a trial. At the end of the trial period, continued access requires a paid subscription. We reserve the right to modify or discontinue the trial offer at any time.",
   },
   {
     title: "6. Acceptable Use",

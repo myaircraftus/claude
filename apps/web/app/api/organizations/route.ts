@@ -9,6 +9,9 @@ const createOrgSchema = z.object({
     .min(2)
     .max(40)
     .regex(/^[a-z0-9-]+$/, 'Slug may only contain lowercase letters, numbers and hyphens'),
+  // Persona the user is signing up as. Determines which entitlement row gets
+  // seeded (in 'none' state until they add a payment method and start the trial).
+  persona: z.enum(['owner', 'mechanic']).default('owner'),
 })
 
 export async function POST(req: NextRequest) {
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { name, slug } = parsed.data
+    const { name, slug, persona } = parsed.data
 
     // 3. Check slug uniqueness
     const { data: existing, error: slugError } = await service
@@ -123,18 +126,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to set up organization membership' }, { status: 500 })
     }
 
-    // 6. Audit log
+    // 6. Seed an empty entitlement row for the signup persona. status='none'
+    //    means no trial has started — user must add a payment method and call
+    //    /api/billing/start-trial. Anti-abuse checks (card fingerprint dedup,
+    //    email trial limit, IP rate limit) all run at that gate.
+    const { error: entitlementError } = await service.from('entitlements').insert({
+      organization_id: org.id,
+      persona,
+      status: 'none',
+      trial_ends_at: null,
+    })
+
+    if (entitlementError) {
+      console.error('[organizations POST] entitlement seed error', entitlementError)
+      // Non-fatal: org and membership exist; user can still add payment method
+      // and start trial later. Webhook upsert path will create the row if
+      // missing. Just log and continue.
+    }
+
+    // 7. Audit log
     await service.from('audit_logs').insert({
       organization_id: org.id,
       user_id: user.id,
       action: 'organization.created',
       entity_type: 'organization',
       entity_id: org.id,
-      metadata_json: { name, slug },
+      metadata_json: { name, slug, persona },
     })
 
-    // 7. Return created org
-    return NextResponse.json({ id: org.id, name: org.name, slug: org.slug }, { status: 201 })
+    // 8. Return created org
+    return NextResponse.json(
+      { id: org.id, name: org.name, slug: org.slug, persona },
+      { status: 201 }
+    )
   } catch (err) {
     console.error('[organizations POST] unexpected error', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

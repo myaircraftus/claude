@@ -18,6 +18,8 @@ CRITICAL RULES:
 5. For safety-critical questions (airworthiness directives, emergency procedures, operating limits), always recommend the user verify with the actual current document and a qualified aviation professional. Flag these with a "safety_critical" warning.
 6. Maintain a professional, precise tone appropriate for aviation technical documentation. Avoid hedging language that could create ambiguity in a safety context.
 7. Your JSON response must strictly follow the schema provided. Do not include any text outside the JSON object.
+8. INSPECTION TYPES ARE NOT INTERCHANGEABLE. The Annual Inspection (FAR 91.409 / Part 43 Appendix D) is a distinct legal & technical event from a 100-hour inspection, ELT inspection, pitot-static / altimeter / transponder check, oil change, or any other periodic check. NEVER substitute one inspection type for another in your answer. If the user asks about a specific inspection type (e.g. "last annual") and the documents do not clearly state that type, say so explicitly — for example: "I don't see an annual inspection record. The most recent maintenance entry I can find is a 100-hour inspection on YYYY-MM-DD." Do NOT answer a question about an annual with a 100-hour, and do NOT answer a 100-hour question with an annual. The phrasing "I certify this aircraft has been inspected in accordance with an Annual Inspection and found airworthy" is the legally distinct annual signoff — only this (or equivalent FAR 91.409 / Appendix D wording) counts as an annual inspection.
+9. When the user asks for "last X" / "most recent X" / "latest X", scan ALL the provided chunks for entries matching X, identify the one with the most recent date (Tach/Hobbs/calendar date), and lead with that one. If multiple chunks contain X with no clear date ordering, say so.
 
 RESPONSE FORMAT (strict JSON):
 {
@@ -135,14 +137,45 @@ export async function generateAnswer(
     ? parsed.cited_chunk_ids
     : [];
 
-  // 6. Build AnswerCitation objects from cited_chunk_ids
+  // 6. Build AnswerCitation objects from cited_chunk_ids.
+  //
+  // The system prompt asks the model to (a) use [N] index markers inline AND
+  // (b) return UUIDs in cited_chunk_ids. In practice GPT-4o frequently
+  // returns UUIDs that don't exactly match retrieved chunk IDs, which made
+  // the filter silently drop everything — citations: [] — and the [N]
+  // markers in the rendered answer became dead plain text in the UI.
+  //
+  // Defense in depth: try UUIDs first; if zero map, fall back to extracting
+  // the [N] markers from the answer text and resolving each one to
+  // chunks[N-1]. We also union the two sources so a partial-UUID return
+  // still gets the positionally referenced markers backfilled.
   const citationMap = new Map<string, RetrievedChunk>(
     chunks.map((c) => [c.chunk_id, c])
   );
 
-  const citations: AnswerCitation[] = citedChunkIds
+  const uuidCitations = citedChunkIds
     .filter((id) => citationMap.has(id))
-    .map((id) => buildAnswerCitationFromChunk(citationMap.get(id)!));
+    .map((id) => citationMap.get(id)!);
+
+  const answerText = typeof parsed.answer === 'string' ? parsed.answer : '';
+  const positionalIndices = Array.from(
+    new Set(
+      Array.from(answerText.matchAll(/\[(\d+)\]/g))
+        .map((m) => parseInt(m[1], 10))
+        .filter((n) => Number.isFinite(n) && n > 0 && n <= chunks.length)
+    )
+  ).sort((a, b) => a - b);
+
+  // Order results so citations[N-1] aligns with the [N] markers users see
+  // when the positional fallback kicks in.
+  const orderedChunks: RetrievedChunk[] =
+    uuidCitations.length > 0
+      ? uuidCitations
+      : positionalIndices.map((n) => chunks[n - 1]);
+
+  const citations: AnswerCitation[] = orderedChunks.map((chunk) =>
+    buildAnswerCitationFromChunk(chunk)
+  );
 
   // 7. Return complete AnswerResult
   return {

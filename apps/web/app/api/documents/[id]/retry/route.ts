@@ -9,6 +9,14 @@ import {
 import { reconcileDocumentProcessingStates } from '@/lib/documents/processing-health'
 import type { DocType } from '@/types'
 
+export const runtime = 'nodejs'
+// Manual retries run ingestion inline and synchronously block the HTTP
+// response. Very large scanned PDFs (200+ handwritten pages = 20+ Document AI
+// batches) need well beyond the default 10s. 800s is the Vercel Fluid Compute
+// ceiling on the Pro plan; the platform will downgrade this automatically if
+// the plan doesn't support it.
+export const maxDuration = 800
+
 // ─── Route context type ────────────────────────────────────────────────────────
 
 interface RouteContext {
@@ -97,12 +105,26 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
 
   const RETRYABLE_STATUSES = ['failed', 'queued', 'needs_ocr']
   const IN_PROGRESS_STATUSES = ['parsing', 'ocr_processing', 'chunking', 'embedding']
-  const INTERNAL_FORCE_STATUSES = ['completed', 'failed', 'queued', 'needs_ocr']
+  // Internal callers (cron healer, the user-org-scoped /api/documents/heal,
+  // operators with PARSER_SERVICE_SECRET) can force a retry regardless of the
+  // current state — including mid-flight in-progress rows that got cut off by
+  // a Vercel function timeout. The caller already knows the row is broken,
+  // there's no point gating it behind a 15-minute stale check.
+  const INTERNAL_FORCE_STATUSES = [
+    'completed',
+    'failed',
+    'queued',
+    'needs_ocr',
+    ...IN_PROGRESS_STATUSES,
+  ]
   const retryableAsStale = IN_PROGRESS_STATUSES.includes(doc.parsing_status)
   const retryableViaInternalForce =
     isInternalRequest && force && INTERNAL_FORCE_STATUSES.includes(doc.parsing_status)
   const parseStartedAt = doc.parse_started_at ?? doc.updated_at ?? null
-  const staleThresholdMs = 15 * 60 * 1000
+  // User-initiated stale-retry threshold. Lowered from 15 → 5 min — a doc
+  // that hasn't moved in 5 minutes is almost certainly cooked, not making
+  // progress.
+  const staleThresholdMs = 5 * 60 * 1000
   const isStale =
     Boolean(parseStartedAt) &&
     Date.now() - new Date(parseStartedAt).getTime() >= staleThresholdMs
@@ -132,8 +154,11 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
 
   const targetOrgId = (doc as any).organization_id ?? orgId
 
-  // ── 4. Reset status to 'queued', clear parse state ────────────────────────
-  const { error: updateError } = await serviceClient
+  // ── 4. Reset status to 'queued', clear parse state (atomic CAS) ───────────
+  // Guard against double-clicks / concurrent retries by requiring the row to
+  // still be in the same status we just observed. If another request beat us
+  // to the update, the WHERE clause matches zero rows and we return 409.
+  const { data: updatedRows, error: updateError } = await serviceClient
     .from('documents')
     .update({
       parsing_status: 'queued',
@@ -144,10 +169,19 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
+    .eq('parsing_status', doc.parsing_status)
+    .select('id')
 
   if (updateError) {
     console.error('[retry] DB update error:', updateError)
     return NextResponse.json({ error: 'Failed to re-queue document' }, { status: 500 })
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json(
+      { error: 'This document is already being retried. Please wait a moment and refresh.' },
+      { status: 409 }
+    )
   }
 
   const ingestionResult = await queueDocumentIngestion(id, {
@@ -164,8 +198,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
         parsing_status: 'failed',
         processing_state: markDocumentProcessingFailed(
           buildInitialDocumentProcessingState(),
-          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',
-          'uploaded'
+          ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.'
         ),
         parse_error:
           ingestionResult.warning ?? 'Failed to hand document off for OCR/indexing.',

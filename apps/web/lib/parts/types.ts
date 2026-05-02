@@ -105,10 +105,43 @@ export interface SearchResponse {
   offers: RankedOffer[]
   providerSummary: Record<ProviderId, { ok: boolean; count: number; error?: string; durationMs: number }>
   resultCount: number
+  /** Total before filters were applied — useful for "X of Y results" messaging. */
+  totalBeforeFilters?: number
   /** AI-resolved part info (only present when aircraft context was provided) */
   aiResolution?: AIResolutionInfo | null
   /** Matching parts already saved to the org library */
   libraryMatches?: LibraryMatch[]
+}
+
+/**
+ * User-tunable filters applied AFTER ranking, BEFORE persisting offers.
+ * Persistence uses the filtered set so saved-search analytics aren't polluted
+ * by results the user discarded.
+ */
+export type ConditionFilter = 'any' | 'new' | 'pma' | 'overhauled' | 'serviceable' | 'used'
+export type ShippingFilter = 'any' | 'in_stock' | 'next_day' | 'two_day' | 'this_week'
+export type VendorBucketFilter = 'any' | 'aviation_trusted'
+export type SortMode =
+  | 'best_fit'
+  | 'price_asc'
+  | 'price_desc'
+  | 'fastest'
+  | 'highest_rated'
+
+export interface PartsSearchFilters {
+  condition?: ConditionFilter
+  /** Inclusive lower bound on `totalEstimatedPrice ?? price`. */
+  priceMin?: number | null
+  /** Inclusive upper bound on `totalEstimatedPrice ?? price`. */
+  priceMax?: number | null
+  shipping?: ShippingFilter
+  vendorBucket?: VendorBucketFilter
+  /** Free-text brand match (case-insensitive substring). */
+  brand?: string | null
+  /** Filter to results matching exactly this part number. Empty string = no filter. */
+  partNumber?: string | null
+  /** Sort order applied after filtering (defaults to 'best_fit'). */
+  sortBy?: SortMode
 }
 
 export type PartOrderStatus =

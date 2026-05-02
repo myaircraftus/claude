@@ -9,9 +9,9 @@ export const metadata = { title: 'Parts inventory' }
  * Parts inventory page (Spec 2.1).
  *
  * Spec 2.1 promotes `/parts` from a redirect to a real inventory surface.
- * The legacy `/maintenance?tab=parts` PartsSection (localStorage-backed)
- * continues to work as a separate UI on the maintenance hub — this page
- * is the DB-backed source of truth going forward.
+ * The legacy `/parts/library` (localStorage-backed) and `/mechanic?tab=parts`
+ * (parts ordering) continue to work as separate UIs — this page is the
+ * DB-backed source of truth going forward.
  */
 export default async function PartsPage() {
   const { profile, membership } = await requireAppServerSession()

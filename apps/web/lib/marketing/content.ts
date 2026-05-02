@@ -64,6 +64,7 @@ export const MARKETING_PAGES = [
   'privacy',
   'terms',
   'blog',
+  'brand',
 ] as const
 
 export type MarketingPage = (typeof MARKETING_PAGES)[number]
@@ -73,9 +74,12 @@ export const CONTENT_TYPES = [
   'rich_text',
   'image',
   'video',
+  'embed',
   'link',
   'number',
   'json',
 ] as const
 
 export type ContentType = (typeof CONTENT_TYPES)[number]
+
+export { toEmbedUrl } from './embed'

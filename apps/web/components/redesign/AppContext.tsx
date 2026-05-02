@@ -8,9 +8,15 @@ import { MINIMAL_MECHANIC_PERMISSIONS } from "@/lib/roles";
    Types
 ───────────────────────────────────────── */
 /**
- * Spec 0.2: persona is now `'owner' | 'mechanic' | 'shop'` — re-exported
- * from @/types so existing consumers keep working. The `shop` view itself
- * isn't surfaced in the sidebar toggle yet; PERSONA_CONFIG.shop reserves it.
+ * Persona is the canonical type from @/types — `'owner' | 'mechanic' | 'shop' | 'admin'`.
+ * Re-exported here so existing AppContext consumers keep working without
+ * an import path change.
+ *
+ * - 'owner' / 'mechanic'  : surfaced in the sidebar persona toggle (Spec 0.2).
+ * - 'shop'                : reserved for Phase 5 (shop-foreman view).
+ * - 'admin'               : derived from user_profiles.is_platform_admin
+ *                            (Operations Hub work) — gates the admin sidebar
+ *                            section in AppLayout. Not switchable via the toggle.
  */
 export type { Persona };
 
@@ -346,6 +352,11 @@ export function AppProvider({
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("ui_persona", persona);
+    // Mirror the active persona to a cookie so server-rendered pages
+    // (e.g. /documents, the upload page) can scope queries without a
+    // round-trip. Same-site, 1-year, JS-readable so this same client can
+    // keep updating it.
+    document.cookie = `ui_persona=${persona}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
   }, [persona]);
 
   function setActiveMechanic(m: TeamMember) { setAMId(m.id); }

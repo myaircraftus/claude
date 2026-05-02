@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { toast } from 'sonner'
 import { AlertCircle, CheckCircle2, Loader2, Plane, Search } from 'lucide-react'
 import { Topbar } from '@/components/shared/topbar'
 import { Button } from '@/components/ui/button'
@@ -105,6 +106,10 @@ export default function EditAircraftPage() {
     loadAircraft()
     return () => {
       cancelled = true
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
     }
   }, [params.id, reset])
 
@@ -187,9 +192,13 @@ export default function EditAircraftPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to update aircraft')
+      toast.success('Aircraft saved')
       router.push(`/aircraft/${params.id}`)
     } catch (error: any) {
-      setServerError(error.message ?? 'Failed to update aircraft')
+      const msg = error.message ?? 'Failed to update aircraft'
+      setServerError(msg)
+      toast.error(msg)
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
 
@@ -243,11 +252,16 @@ export default function EditAircraftPage() {
                       <Input
                         id="tail_number"
                         className="font-mono uppercase pr-8"
-                        {...register('tail_number')}
-                        onChange={(event) => {
-                          register('tail_number').onChange(event)
-                          handleTailChange(event)
-                        }}
+                        {...(() => {
+                          const reg = register('tail_number')
+                          return {
+                            ...reg,
+                            onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+                              void reg.onChange(event)
+                              handleTailChange(event)
+                            },
+                          }
+                        })()}
                       />
                       {faaStatus === 'loading' && (
                         <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />

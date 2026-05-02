@@ -154,8 +154,14 @@ export interface UserProfile {
  *
  * `shop` is reserved for Phase 5 — the shop-wide foreman view. Not yet
  * surfaced in the persona switcher.
+ *
+ * `admin` was added by the Operations Hub work for the platform-admin
+ * sidebar gate — see AppLayout.tsx admin section. Per-membership
+ * persona switching still only exposes owner / mechanic; admin is
+ * derived from `user_profiles.is_platform_admin` rather than a
+ * membership column.
  */
-export type Persona = 'owner' | 'mechanic' | 'shop'
+export type Persona = 'owner' | 'mechanic' | 'shop' | 'admin'
 
 export interface OrganizationMembership {
   id: string

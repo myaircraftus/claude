@@ -6,7 +6,7 @@ import {
   VALID_ENTRY_TYPES,
   VALID_STATUSES,
   VALID_LOGBOOK_TYPES,
-} from "../route";
+} from "@/lib/logbook/constants";
 
 const ENTRY_SELECT = `
   id, aircraft_id, work_order_id, entry_type, entry_date, description,
