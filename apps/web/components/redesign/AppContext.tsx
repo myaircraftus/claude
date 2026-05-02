@@ -1,13 +1,18 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import type { OrgRole } from "@/types";
+import type { OrgRole, Persona } from "@/types";
 import { MINIMAL_MECHANIC_PERMISSIONS } from "@/lib/roles";
 
 /* ─────────────────────────────────────────
    Types
 ───────────────────────────────────────── */
-export type Persona = "owner" | "mechanic";
+/**
+ * Spec 0.2: persona is now `'owner' | 'mechanic' | 'shop'` — re-exported
+ * from @/types so existing consumers keep working. The `shop` view itself
+ * isn't surfaced in the sidebar toggle yet; PERSONA_CONFIG.shop reserves it.
+ */
+export type { Persona };
 
 /* ── Mechanic assigned to a specific aircraft by an owner ── */
 export interface AircraftMechanicAssignment {
@@ -183,7 +188,25 @@ export function AppProvider({
   children: ReactNode;
   initialPersona?: Persona;
 }) {
-  const [persona, setPersona]           = useState<Persona>(initialPersona ?? "owner");
+  const [persona, setPersonaState]      = useState<Persona>(initialPersona ?? "owner");
+
+  /**
+   * Wrap setPersona so any caller (sidebar toggle, /ask auto-fallback, etc.)
+   * also persists the choice to organization_memberships.persona via
+   * /api/me/persona. Optimistic — failures don't roll back the in-memory
+   * state since the localStorage cache keeps the UI consistent for this
+   * tab. Spec 0.2 hard rule: persona is server-of-record per membership.
+   */
+  function setPersona(next: Persona) {
+    setPersonaState(next);
+    if (typeof window === "undefined") return;
+    fetch("/api/me/persona", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ persona: next, scope: "membership" }),
+    }).catch(() => { /* noop — see comment above */ });
+  }
+
   const [team, setTeam]                 = useState<TeamMember[]>(DEFAULT_TEAM);
   const [activeMechanicId, setAMId]     = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<OrgRole | null>(null);
@@ -211,10 +234,36 @@ export function AppProvider({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Snappy initial paint from cache. The server-of-record fetch below
+    // overwrites this with the resolved membership.persona once it lands.
     const stored = window.localStorage.getItem("ui_persona");
-    if (stored === "owner" || stored === "mechanic") {
-      setPersona(stored);
+    if (stored === "owner" || stored === "mechanic" || stored === "shop") {
+      setPersonaState(stored);
     }
+  }, []);
+
+  /* Hydrate persona from /api/me/orgs (Spec 0.2). The server resolves the
+     fallback chain membership → profile → DEFAULT_PERSONA; we just trust it.
+     Use setPersonaState (not setPersona) to avoid round-tripping the value
+     we just fetched back to the server. */
+  useEffect(() => {
+    let cancelled = false;
+    async function hydratePersona() {
+      try {
+        const res = await fetch("/api/me/orgs", { cache: "no-store" });
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (cancelled) return;
+        const next = payload?.active_persona;
+        if (next === "owner" || next === "mechanic" || next === "shop") {
+          setPersonaState(next);
+        }
+      } catch {
+        // noop — fall back to the localStorage cache / default.
+      }
+    }
+    hydratePersona();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {

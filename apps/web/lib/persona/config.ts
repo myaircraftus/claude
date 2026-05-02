@@ -1,0 +1,96 @@
+/**
+ * Persona system (Spec 0.2) — single source of truth for owner / mechanic /
+ * shop UI variants. Same app, three radically different surfaces.
+ *
+ * - Owner: plain-English aircraft owner. Hides W/O profitability, labor rates,
+ *   and shop-pricing. Home is "My Aircraft".
+ * - Mechanic: A&P technician. Hides org billing. Home is "My Day".
+ * - Shop: shop foreman / dispatcher. Sees everything: scheduling, KPIs,
+ *   profitability. Home is the operations dashboard.
+ *
+ * Read this config from `getCurrentPersona()` (server) or `usePersona()`
+ * (client). Don't branch on persona inline — extend this config and read it.
+ */
+
+import type { Persona } from '@/types'
+
+export interface PersonaConfig {
+  /** Default landing route after login or org-switch. */
+  homeRoute: string
+  /** Section labels for the sidebar — order matters. UI maps these to nav items. */
+  sidebarSections: string[]
+  /**
+   * Module keys that are *hidden* for this persona. Compared against
+   * `nav-item.module` and `route.module` to filter access. Adding a key here
+   * is the only place to hide a module from a persona; do not branch inline.
+   */
+  hiddenModules: string[]
+  /** System prompt sent to the AI assistant for this persona. */
+  aiSystemPrompt: string
+  /** Ordered card priorities for the AI Inbox / home screen (Phase 5). */
+  homeCardPriorities: string[]
+  /** Display label, used in toggles, settings, and the persona switcher. */
+  label: string
+}
+
+export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
+  owner: {
+    homeRoute: '/dashboard',
+    sidebarSections: ['MY AIRCRAFT', 'DOCUMENTS', 'MAINTENANCE', 'FINANCES'],
+    hiddenModules: ['work-orders-financials', 'labor-rates', 'shop-pricing'],
+    aiSystemPrompt:
+      'You are an AI co-pilot for an aircraft owner. Speak in plain English. Translate maintenance jargon. Surface upcoming items, costs, and compliance.',
+    homeCardPriorities: ['expiring-docs', 'upcoming-compliance', 'open-squawks', 'next-flight'],
+    label: 'Owner',
+  },
+  mechanic: {
+    homeRoute: '/mechanic',
+    sidebarSections: ['MY DAY', 'WORK ORDERS', 'INSPECTIONS', 'PARTS', 'TOOLS'],
+    hiddenModules: ['org-billing', 'owner-finances'],
+    aiSystemPrompt:
+      'You are an AI assistant for an A&P mechanic. Be technically precise. Reference FARs, ADs, SBs. Suggest next steps.',
+    homeCardPriorities: ['assigned-wos', 'tool-calibrations-due', 'shift-status', 'expiring-certs'],
+    label: 'Mechanic',
+  },
+  shop: {
+    homeRoute: '/dashboard/ops',
+    sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
+    hiddenModules: [],
+    aiSystemPrompt:
+      'You are an AI operations manager for an aviation maintenance shop. Optimize for throughput, profitability, and compliance.',
+    homeCardPriorities: ['overdue-wos', 'today-shifts', 'low-stock-parts', 'pending-approvals', 'kpis'],
+    label: 'Shop',
+  },
+}
+
+/**
+ * Default fallback. Used by getCurrentPersona() when membership.persona and
+ * user_profiles.persona are both NULL — a freshly created user.
+ */
+export const DEFAULT_PERSONA: Persona = 'owner'
+
+/** Type guard for runtime persona values (e.g. from request bodies). */
+export function isPersona(value: unknown): value is Persona {
+  return value === 'owner' || value === 'mechanic' || value === 'shop'
+}
+
+/**
+ * Resolve a persona value from its possible sources, with the documented
+ * fallback chain: membership → user_profile → DEFAULT_PERSONA.
+ *
+ * Strings outside the allowed enum are silently coerced to DEFAULT_PERSONA;
+ * the caller can rely on the return value being a valid Persona.
+ */
+export function resolvePersona(
+  membershipPersona: string | null | undefined,
+  userProfilePersona: string | null | undefined,
+): Persona {
+  if (isPersona(membershipPersona)) return membershipPersona
+  if (isPersona(userProfilePersona)) return userProfilePersona
+  return DEFAULT_PERSONA
+}
+
+/** Whether the given module key is hidden for this persona. */
+export function isModuleHidden(persona: Persona, moduleKey: string): boolean {
+  return PERSONA_CONFIG[persona].hiddenModules.includes(moduleKey)
+}

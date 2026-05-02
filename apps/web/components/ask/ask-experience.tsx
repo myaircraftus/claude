@@ -290,7 +290,12 @@ function ArtifactCard({ artifact, onUse }: { artifact: Artifact; onUse: (url: st
 export function AskExperience() {
   const searchParams = useSearchParams()
   const router = useTenantRouter()
-  const { persona, setPersona, currentUserRole } = useAppContext()
+  // Narrow the AppContext persona (now `'owner' | 'mechanic' | 'shop'` per Spec
+  // 0.2) to the AskPersona shape /ask supports. Shop falls back to owner-mode
+  // here — the shop-foreman /ask experience is reserved for Phase 5.
+  const { persona: rawPersona, setPersona: setRawPersona, currentUserRole } = useAppContext()
+  const persona: AskPersona = rawPersona === 'mechanic' ? 'mechanic' : 'owner'
+  const setPersona = setRawPersona as (p: AskPersona) => void
   const aircraftParam = searchParams.get('aircraft')?.trim() ?? ''
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])

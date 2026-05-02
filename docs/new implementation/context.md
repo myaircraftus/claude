@@ -44,11 +44,13 @@ The full implementation spec lives at:
 
 ## 5. Current sprint
 
-**Sprint:** `0b — Persona system`
-**Spec section:** `Feature 0.2` in `/docs/Claude_Code_Implementation_Spec.md`
+**Sprint:** `0c — AI Orchestration foundation`
+**Spec section:** `Feature 0.3` in `/docs/Claude_Code_Implementation_Spec.md`
 **Status:** not started
 
-Previous sprint: `0a — Multi-Org / Multi-Location data model` shipped 2026-05-01 (see Session log).
+Previous sprints:
+- `0a — Multi-Org / Multi-Location data model` shipped 2026-05-01
+- `0b — Persona system` shipped 2026-05-01
 
 When this sprint completes, update to point to the next one in the build order at the bottom of the spec.
 
@@ -132,6 +134,7 @@ _Append a one-line entry per completed sprint. Keep newest at top._
 ```
 | Date | Sprint | Files touched | Acceptance verified | Notes |
 |------|--------|---------------|---------------------|-------|
+| 2026-05-01 | 0b — Persona system | migration 060, lib/persona/{config,server,use-persona}.ts, /api/me/persona, /api/me/orgs (extended), AppContext.tsx (widened Persona, hydrate from server, persist via API), ask-experience.tsx (narrow to AskPersona), workspace-client.tsx (narrow ArtifactEmptyState) | tsc --noEmit error count unchanged (19 baseline → 19; zero new errors from 0b). Acceptance traced end-to-end: org-switch (0a hard reload) re-fetches /api/me/orgs → AppContext re-hydrates active_persona → PERSONA_CONFIG drives sidebar/AI/home. Shop sidebar variant deferred to Phase 5 (config slot reserved). | Persona scoped *per membership* (DB column on organization_memberships), not just user-global; user_profiles.persona stays as fallback. setPersona is now optimistic + auto-persists via /api/me/persona. |
 | 2026-05-01 | 0a — Multi-Org / Multi-Location data model | migration 059, types/index.ts, lib/org/{context,use-org}.ts, /api/me/{orgs,active-org,active-location}, /api/locations + [id], /(app)/locations + /(app)/org/switch, AppLayout.tsx | tsc --noEmit clean (exit 0). Manual two-org switch verified via /org/switch + /api/me/active-org cookie. Per-list location filter UI deferred to follow-up. | Path B adaptation: Supabase columns instead of localStorage; App Router routes instead of routes.tsx; existing CRUD shape preserved |
 ```
 
@@ -145,6 +148,10 @@ _List anything you're waiting on Andy for. Anything that came up during a sprint
 - [ ] (0a follow-up) Filter-by-location dropdown on Aircraft / Work Orders / Invoices / Documents lists — `active_location_id` cookie + /api/me/active-location route exist; consumers not yet wired
 - [ ] (0a follow-up) Backfill `location_id` on existing aircraft / work_orders / invoices for tenants that already have data — currently NULL on migration; UI tolerates NULL
 - [ ] (0a follow-up) Org-create + invite flow — /org/switch only lets you pick from existing memberships; creating a new org / accepting an invite still goes through pre-existing flows in /onboarding and /settings
+- [ ] (0b follow-up) Shop persona sidebar variant — PERSONA_CONFIG.shop is reserved + the DB column accepts 'shop', but AppLayout only renders owner|mechanic nav today. Build the dispatcher/foreman sidebar in Phase 5 alongside Smart Home Screen
+- [ ] (0b follow-up) Ask/Chat AI prompt sourcing — /api/ask + /api/chat still take persona from request body and use hardcoded prompts. Switch them to PERSONA_CONFIG[persona].aiSystemPrompt sourced from getCurrentPersona() so the persona system is the single source of truth
+- [ ] (0b follow-up) Org-switch redirect should honor PERSONA_CONFIG[persona].homeRoute — currently always lands on /dashboard which is suboptimal for mechanic persona (home is /mechanic)
+- [ ] (0b follow-up) AppLayout switchPersona signature is still typed `'owner' | 'mechanic'` — widen to Persona once shop sidebar exists
 ```
 
 ## 9. File map (what each sprint added)
@@ -155,6 +162,7 @@ _Append a table after each sprint listing the files created/modified. Helps futu
 | Sprint | New files | Modified files |
 |--------|-----------|----------------|
 | 0a — Multi-Org / Multi-Location | supabase/migrations/059_locations_and_multi_org.sql · apps/web/lib/org/context.ts · apps/web/lib/org/use-org.ts · apps/web/app/api/me/orgs/route.ts · apps/web/app/api/me/active-org/route.ts · apps/web/app/api/me/active-location/route.ts · apps/web/app/api/locations/route.ts · apps/web/app/api/locations/[id]/route.ts · apps/web/app/(app)/locations/page.tsx · apps/web/app/(app)/locations/locations-view.tsx · apps/web/app/(app)/org/switch/page.tsx · apps/web/app/(app)/org/switch/org-switch-view.tsx | apps/web/types/index.ts · apps/web/components/redesign/AppLayout.tsx · apps/web/lib/auth/tenant-routing.ts (already fixed in Phase 1 debug) · apps/web/middleware.ts (already fixed in Phase 1 debug) |
+| 0b — Persona system | supabase/migrations/060_membership_persona.sql · apps/web/lib/persona/config.ts · apps/web/lib/persona/server.ts · apps/web/lib/persona/use-persona.ts · apps/web/app/api/me/persona/route.ts | apps/web/app/api/me/orgs/route.ts (embeds active_persona) · apps/web/components/redesign/AppContext.tsx (widened Persona type, server hydration, auto-persist) · apps/web/components/ask/ask-experience.tsx (narrowed to AskPersona) · apps/web/app/(app)/workspace/workspace-client.tsx (narrowed ArtifactEmptyState persona) |
 ```
 
 ## 10. Glossary (acronyms / terms specific to this project)
@@ -189,4 +197,9 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-01 | Active location persisted via `active_location_id` cookie set by `/api/me/active-location`; consumers opt-in (not auto-applied) | Lets pages choose to filter by location instead of forcing every list to add a `location_id = ?` filter on day one |
 | 2026-05-01 | RLS policies on `locations` mirror existing org-membership pattern (read = any accepted member, write = mechanic+/admin/owner) | Consistent with the rest of the schema; `MECHANIC_AND_ABOVE` already enforced at the API layer |
 | 2026-05-01 | One-level location hierarchy via `parent_location_id` self-FK with cycle guard at API layer (`parent_id !== id`) | Spec asked for "KAPA → Hangar 14 → Bay 3"; deeper trees are over-engineered for v0 |
+| 2026-05-01 | **Persona scoped per-membership** (organization_memberships.persona) rather than user-global (user_profiles.persona) | Same person can be owner of their own LLC + mechanic at a different shop. Spec 0.2 acceptance is "three orgs → three UIs" which requires per-membership |
+| 2026-05-01 | Persona fallback chain: `membership.persona` → `user_profiles.persona` → `'owner'`. Centralized in `lib/persona/config.ts:resolvePersona()` | Old user_profiles.persona (047) still exists; treating it as a fallback means freshly created memberships inherit the user's onboarding persona without needing a backfill |
+| 2026-05-01 | `AppContext.setPersona` is now optimistic + auto-POSTs to `/api/me/persona` | Old behavior was localStorage only; spec wants persona to live on the membership row. Wrapping the existing setter avoids touching every call site (AppLayout sidebar toggle, /ask auto-fallback, etc.) |
+| 2026-05-01 | `usePersona()` reads from AppContext rather than fetching its own copy | AppContext is already in the tree at the app shell and hydrates on mount; a separate fetch would double-load. Hook returns `persona + config + setPersona + isModuleHidden + homeRoute` so callers don't need to reach into PERSONA_CONFIG manually |
+| 2026-05-01 | `shop` persona accepted by DB CHECK + reserved in PERSONA_CONFIG, but no shop-specific UI yet | Spec defines PERSONA_CONFIG.shop for completeness; shop-foreman sidebar/dashboard belongs to Phase 5 (Smart Home Screen). Putting the type system in place now means later sprints just slot in components |
 ```
