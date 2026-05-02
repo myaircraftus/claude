@@ -1085,3 +1085,32 @@ export interface Vendor {
   created_at: string
   updated_at: string
 }
+
+/* ─── Live Time Clock on Work Orders (Spec 2.3) ──────────────────────────── */
+
+export type TimeEntryWorkType = 'labor' | 'ojt' | 'warranty' | 'rework'
+
+/**
+ * Per-technician, per-WO time entry. `end_time = null` means the entry
+ * is OPEN (clocked in). Partial unique index in migration 070 enforces
+ * "one open entry per technician" so the running-timer chip on Topbar
+ * always shows one row.
+ *
+ * Coexists with work_order_lines.hours/rate (016) — manual labor lines
+ * still work; aggregated WO labor totals sum BOTH systems.
+ */
+export interface TimeEntry {
+  id: string
+  organization_id: string
+  work_order_id: string
+  work_order_line_id?: string | null
+  technician_id: string
+  start_time: string
+  end_time?: string | null
+  hourly_rate: number
+  work_type: TimeEntryWorkType
+  is_overtime: boolean
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
