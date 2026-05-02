@@ -94,6 +94,7 @@ function isAppRoute(pathname: string): boolean {
   const appRoutes = [
     '/admin',
     '/aircraft',
+    '/approvals',
     '/ask',
     '/compliance',
     '/continued',

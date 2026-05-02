@@ -6,6 +6,8 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'admin',
   'aircraft',
   'app',
+  'approve',
+  'approvals',
   'ask',
   'auth',
   'blog',
@@ -59,6 +61,7 @@ export interface TenantPathMatch {
 const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/admin',
   '/aircraft',
+  '/approvals',
   '/ask',
   '/compliance',
   '/continued',

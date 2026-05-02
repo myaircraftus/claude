@@ -914,3 +914,67 @@ export interface ContinuedItem {
   created_at: string
   updated_at: string
 }
+
+/* ─── Customer Approvals portal (Spec 1.5) ───────────────────────────────── */
+
+export type ApprovalRequestStatus =
+  | 'draft'
+  | 'sent'
+  | 'partially-responded'
+  | 'completed'
+  | 'expired'
+
+export type ApprovalLineResponse = 'approved' | 'denied' | 'deferred'
+
+/**
+ * Customer-facing approval flow on quoted work. Operator builds an
+ * `ApprovalRequest` from a WO + selected line items, gets a public
+ * `public_token` to share, and the customer responds per-line via the
+ * unauthenticated `/approve/[token]` route.
+ *
+ * Status machine (operator perspective):
+ *   draft → sent → partially-responded → completed
+ *                                       \→ expired
+ */
+export interface ApprovalRequest {
+  id: string
+  organization_id: string
+  work_order_id?: string | null
+  customer_id?: string | null
+  aircraft_id?: string | null
+  public_token: string
+  status: ApprovalRequestStatus
+  subject?: string | null
+  message?: string | null
+  sent_date?: string | null
+  responded_date?: string | null
+  expires_at?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Per-line item shown to the customer. Customer responds with
+ * approved | denied | deferred per item — `deferred` items
+ * automatically become `continued_items` rows for the aircraft (Spec 1.4
+ * cross-wire); the resulting id is stored in
+ * `resulting_continued_item` for idempotency.
+ */
+export interface ApprovalLineItem {
+  id: string
+  approval_request_id: string
+  description: string
+  estimated_cost: number
+  labor_hours: number
+  parts_cost: number
+  photo_urls: string[]
+  customer_response?: ApprovalLineResponse | null
+  customer_comment?: string | null
+  responded_at?: string | null
+  resulting_continued_item?: string | null
+  work_order_line_id?: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
