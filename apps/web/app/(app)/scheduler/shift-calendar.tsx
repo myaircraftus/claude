@@ -11,7 +11,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Calendar as CalIcon, Plane } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { Shift, ShiftStatus } from '@/types'
+import type { Shift, ShiftStatus, TimeOffRequest } from '@/types'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -36,9 +36,11 @@ interface Props {
   shifts: Shift[]
   techNameById: Map<string, string>
   onShiftClick?: (s: Shift) => void
+  /** Approved PTO blocks to overlay as gray bars on the day grid (sprint 2.5.2). */
+  timeOff?: TimeOffRequest[]
 }
 
-export function ShiftCalendar({ shifts, techNameById, onShiftClick }: Props) {
+export function ShiftCalendar({ shifts, techNameById, onShiftClick, timeOff = [] }: Props) {
   const [view, setView] = useState<'month' | 'week'>('month')
   const [anchor, setAnchor] = useState<Date>(() => {
     const d = new Date()
@@ -63,6 +65,26 @@ export function ShiftCalendar({ shifts, techNameById, onShiftClick }: Props) {
     }
     return map
   }, [shifts])
+
+  // Approved PTO bars (sprint 2.5.2) — expand each multi-day request into
+  // one entry per day so the overlay shows on every covered cell.
+  const ptoByDay = useMemo(() => {
+    const map = new Map<string, TimeOffRequest[]>()
+    for (const r of timeOff) {
+      if (r.status !== 'approved') continue
+      const start = new Date(r.start_date + 'T00:00:00')
+      const end = new Date(r.end_date + 'T00:00:00')
+      const cur = new Date(start)
+      while (cur <= end) {
+        const k = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+        const list = map.get(k) ?? []
+        list.push(r)
+        map.set(k, list)
+        cur.setDate(cur.getDate() + 1)
+      }
+    }
+    return map
+  }, [timeOff])
 
   // Build the day list — month view = 6×7 grid, week view = 7 days
   const days: Date[] = useMemo(() => {
@@ -185,6 +207,7 @@ export function ShiftCalendar({ shifts, techNameById, onShiftClick }: Props) {
             const inMonth = view === 'week' || d.getMonth() === anchor.getMonth()
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
             const dayShifts = shiftsByDay.get(key) ?? []
+            const dayPto = ptoByDay.get(key) ?? []
             const isToday = key === todayKey
             const cellHeight = view === 'week' ? 'min-h-[420px]' : 'min-h-[120px]'
             return (
@@ -213,6 +236,23 @@ export function ShiftCalendar({ shifts, techNameById, onShiftClick }: Props) {
                   )}
                 </div>
                 <ul className="space-y-0.5">
+                  {/* Approved PTO bars (sprint 2.5.2) — render BEFORE shifts so the
+                      gray block visually pre-empts the scheduled shift. Hover shows
+                      who's out + reason. */}
+                  {dayPto.slice(0, view === 'week' ? 6 : 2).map((p) => {
+                    const techName = techNameById.get(p.employee_id) ?? 'Tech'
+                    return (
+                      <li key={`pto-${p.id}`}>
+                        <div
+                          className="w-full text-left text-[10.5px] px-1.5 py-1 rounded bg-slate-200/70 text-slate-700 ring-1 ring-slate-300 truncate"
+                          title={`${techName} on PTO (${p.request_type})${p.reason ? ' — ' + p.reason : ''}`}
+                          style={{ fontWeight: 500 }}
+                        >
+                          🌴 {techName} · {p.request_type}
+                        </div>
+                      </li>
+                    )
+                  })}
                   {(view === 'week' ? dayShifts : dayShifts.slice(0, 4)).map((s) => {
                     const tone = STATUS_COLOR[s.status] ?? STATUS_COLOR.scheduled
                     const techName = techNameById.get(s.technician_id) ?? 'Unknown'

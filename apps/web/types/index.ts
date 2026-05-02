@@ -1176,6 +1176,35 @@ export type ShiftCoverStatus = 'open' | 'claimed' | 'approved' | 'rejected'
  *   3. Manager approves/rejects → status flips to 'approved' (also flips the
  *      original Shift.status to 'swapped' + reassigns) or 'rejected'.
  */
+/* ─── Time Off Requests (Spec 2.5.2) ──────────────────────────────────────── */
+
+export type TimeOffStatus = 'draft' | 'pending' | 'approved' | 'denied' | 'cancelled'
+export type TimeOffType = 'Holiday' | 'Medical' | 'Personal' | 'Bereavement' | 'Jury Duty'
+
+/**
+ * Employee PTO request with manager approval. Approved blocks render as
+ * gray bars on the Scheduler calendar and flag conflicts in the WO
+ * assignee picker. Coexists with Shift (2.5.1) — a tech can have shifts
+ * AND PTO; the assignment-conflict check treats approved PTO as a hard
+ * block.
+ */
+export interface TimeOffRequest {
+  id: string
+  organization_id: string
+  employee_id: string
+  request_type: TimeOffType
+  start_date: string                 // ISO date (YYYY-MM-DD)
+  end_date: string                   // ISO date, inclusive
+  status: TimeOffStatus
+  notify_user_ids: string[]
+  reason?: string | null
+  manager_comment?: string | null
+  decided_by?: string | null
+  decided_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ShiftCover {
   id: string
   organization_id: string

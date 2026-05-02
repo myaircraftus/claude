@@ -20,7 +20,7 @@ import { ShiftCalendar } from './shift-calendar'
 import { MyShiftsView } from './my-shifts-view'
 import { ShiftCoversList } from './shift-covers-list'
 import { ShiftForm } from './shift-form'
-import type { Shift, ShiftCover } from '@/types'
+import type { Shift, ShiftCover, TimeOffRequest } from '@/types'
 
 type Tab = 'calendar' | 'mine' | 'covers'
 
@@ -40,6 +40,7 @@ export function SchedulerView({ techs, currentUserId, isAdmin }: Props) {
   const [tab, setTab] = useState<Tab>('calendar')
   const [shifts, setShifts] = useState<Shift[]>([])
   const [covers, setCovers] = useState<ShiftCover[]>([])
+  const [timeOff, setTimeOff] = useState<TimeOffRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingShift, setEditingShift] = useState<Shift | null>(null)
@@ -57,14 +58,21 @@ export function SchedulerView({ techs, currentUserId, isAdmin }: Props) {
       const end = new Date(start)
       end.setUTCMonth(end.getUTCMonth() + 4)
 
-      const [shiftsRes, coversRes] = await Promise.all([
+      // Time-off uses date strings (YYYY-MM-DD) — slice the same window.
+      const fromDate = start.toISOString().slice(0, 10)
+      const toDate = end.toISOString().slice(0, 10)
+
+      const [shiftsRes, coversRes, ptoRes] = await Promise.all([
         fetch(`/api/shifts?from=${start.toISOString()}&to=${end.toISOString()}`),
         fetch('/api/shift-covers?status=open&status=claimed'),
+        fetch(`/api/time-off-requests?status=approved&from=${fromDate}&to=${toDate}`),
       ])
       const shiftsJson = shiftsRes.ok ? await shiftsRes.json() : { shifts: [] }
       const coversJson = coversRes.ok ? await coversRes.json() : { covers: [] }
+      const ptoJson = ptoRes.ok ? await ptoRes.json() : { requests: [] }
       setShifts((shiftsJson.shifts ?? []) as Shift[])
       setCovers((coversJson.covers ?? []) as ShiftCover[])
+      setTimeOff((ptoJson.requests ?? []) as TimeOffRequest[])
     } finally {
       setLoading(false)
     }
@@ -147,6 +155,7 @@ export function SchedulerView({ techs, currentUserId, isAdmin }: Props) {
           <ShiftCalendar
             shifts={shifts}
             techNameById={techNameById}
+            timeOff={timeOff}
             onShiftClick={(s) => {
               if (!isAdmin) return
               setEditingShift(s)

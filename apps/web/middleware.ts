@@ -131,6 +131,7 @@ function isAppRoute(pathname: string): boolean {
     '/scheduler',
     '/settings',
     '/time-clock',
+    '/time-off',
     '/vendors',
     '/owner/onboarding',
     '/mechanic/onboarding',

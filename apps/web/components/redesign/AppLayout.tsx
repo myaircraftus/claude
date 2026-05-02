@@ -8,7 +8,7 @@ import {
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
   Sparkles, ShieldCheck, LogOut, GitBranch, MapPin, Building2, Inbox, Gauge,
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
-  Truck, Timer, CalendarDays,
+  Truck, Timer, CalendarDays, CalendarOff,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -71,9 +71,9 @@ const ownerNavItems: NavItem[] = [
   { icon: ShoppingCart,    label: "Purchase orders",  href: "/purchase-orders" },
   { icon: Truck,           label: "Vendors",          href: "/vendors" },
   { icon: Timer,           label: "Time clock",       href: "/time-clock" },
-  // ── Workforce group (sprint 2.5.1) — Scheduler is the first entry;
-  //    Time Off Requests + Daily Clock-in arrive in 2.5.2 + 2.5.3.
+  // ── Workforce group (sprints 2.5.1 + 2.5.2; 2.5.3 = Daily Clock-in) ──
   { icon: CalendarDays,    label: "Scheduler",        href: "/scheduler" },
+  { icon: CalendarOff,     label: "Time Off",         href: "/time-off" },
   { icon: Gauge,           label: "Meters",           href: "/meters" },
   { icon: MapPin,          label: "Locations",        href: "/locations" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
@@ -132,8 +132,9 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
     items.push({ icon: ShoppingCart,   label: "Purchase orders", href: "/purchase-orders" });
     items.push({ icon: Truck,          label: "Vendors",     href: "/vendors" });
     items.push({ icon: Timer,          label: "Time clock",  href: "/time-clock" });
-    // ── Workforce group (sprint 2.5.1) ──
+    // ── Workforce group (sprints 2.5.1 + 2.5.2) ──
     items.push({ icon: CalendarDays,   label: "Scheduler",   href: "/scheduler" });
+    items.push({ icon: CalendarOff,    label: "Time Off",    href: "/time-off" });
     items.push({ icon: Gauge,          label: "Meters",      href: "/meters" });
     items.push({ icon: MapPin,         label: "Locations",   href: "/locations" });
     items.push({ icon: Store,          label: "Marketplace", href: "/marketplace" });
