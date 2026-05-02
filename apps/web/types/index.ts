@@ -1055,3 +1055,33 @@ export interface PurchaseOrderLine {
   created_at: string
   updated_at: string
 }
+
+/* ─── Vendor Management (Spec 2.2) ───────────────────────────────────────── */
+
+export type VendorType = 'parts' | 'osr' | 'service' | 'freight' | 'other'
+
+/**
+ * Vendor master. Back-references inventory_parts.vendor_id (068),
+ * purchase_orders.vendor_id (068), work_order_lines.vendor_id (016).
+ *
+ * `approved` is the "approved-vendor-only" enforcement flag. Future WO-line
+ * policy can refuse outside_service lines pointing to a non-approved vendor;
+ * for now it's display-only.
+ */
+export interface Vendor {
+  id: string
+  organization_id: string
+  name: string
+  vendor_type: VendorType
+  approved: boolean
+  address?: string | null
+  phone?: string | null
+  website?: string | null
+  contact_name?: string | null
+  contact_email?: string | null
+  description?: string | null
+  is_archived: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}

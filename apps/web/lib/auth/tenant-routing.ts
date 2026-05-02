@@ -50,6 +50,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'signin',
   'signup',
   'terms',
+  'vendors',
   'work-orders',
   'workspace',
 ])
@@ -89,6 +90,7 @@ const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/reminders',
   '/scanner',
   '/settings',
+  '/vendors',
   '/work-orders',
   '/workspace',
 ] as const
