@@ -776,3 +776,105 @@ export interface ComplianceItem {
   created_at: string
   updated_at: string
 }
+
+/* ─── Inspections + Procedures (Spec 1.3) ────────────────────────────────── */
+
+export type ProcedureItemInputType =
+  | 'checkbox'
+  | 'pass-fail'
+  | 'value'
+  | 'photo'
+  | 'signature'
+
+export type InspectionStatus =
+  | 'draft'
+  | 'in-progress'
+  | 'complete'
+  | 'complete-requires-attention'
+
+/**
+ * Reusable inspection template ("Cessna 172 Annual Inspection"). Sections +
+ * items live in their own tables so we get clean cascades, can FK from
+ * inspection_results, and can rename items without breaking history.
+ */
+export interface Procedure {
+  id: string
+  organization_id: string
+  name: string
+  description?: string | null
+  /** Make/model strings filter — empty = applies to anything in the org. */
+  applies_to: string[]
+  is_archived: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProcedureSection {
+  id: string
+  procedure_id: string
+  title: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProcedureItem {
+  id: string
+  procedure_section_id: string
+  text: string
+  input_type: ProcedureItemInputType
+  reference?: string | null
+  requires_photo: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * An instance of running a procedure on an aircraft. Snapshot the procedure
+ * name at creation so a later rename / delete doesn't lose context.
+ *
+ * `linked_work_order` (FK) and `linked_compliance_items` (UUID[]) cross-link
+ * to Sprint 1.2 + the WO ecosystem. Status flips from in-progress to
+ * complete (or complete-requires-attention if any item failed) on the
+ * completion endpoint.
+ */
+export interface Inspection {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  procedure_id: string
+  procedure_name_snapshot?: string | null
+  status: InspectionStatus
+  assignee?: string | null
+  due_date?: string | null
+  start_date?: string | null
+  completed_date?: string | null
+  linked_work_order?: string | null
+  linked_compliance_items: string[]
+  notes?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Per-item result. `value` is JSONB so we can store string | boolean | number
+ * without a discriminator column — frontend reads procedure_item.input_type
+ * to interpret. UPSERT on (inspection_id, procedure_item_id) so saving a row
+ * twice doesn't pile up history.
+ */
+export interface InspectionResult {
+  id: string
+  inspection_id: string
+  procedure_item_id: string
+  value: unknown
+  passed?: boolean | null
+  photo_urls: string[]
+  comments?: string | null
+  completed_by?: string | null
+  completed_at?: string | null
+  created_at: string
+  updated_at: string
+}
