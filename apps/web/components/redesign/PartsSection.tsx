@@ -6,7 +6,7 @@ import {
   Star, Loader2, AlertTriangle, CheckCircle, Save, Plane,
   Sparkles, Globe, ShieldCheck, TrendingDown, BarChart3,
   ArrowRight, ChevronDown, ChevronUp, RefreshCw, Database,
-  DollarSign, Archive, Info, Zap, Filter,
+  DollarSign, Archive, Info, Zap, Filter, List, LayoutGrid,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -64,6 +64,15 @@ interface AIPartResult {
   vendor: string; vendorIcon: string; price: number; condition: string;
   stock: string; leadTime: string; fit: "Confirmed" | "Likely fit — verify" | "Check compatibility";
   sourceUrl: string; rating: number; reviews: number;
+  imageUrl?: string | null;
+}
+
+interface AIResolutionMeta {
+  partNumbers: string[];
+  alternates: string[];
+  confidence: "high" | "medium" | "low";
+  description?: string;
+  reasoning?: string;
 }
 
 interface AISearchResult {
@@ -71,6 +80,9 @@ interface AISearchResult {
   aiSummary: string;
   partType: string;
   results: AIPartResult[];
+  totalBeforeFilters?: number;
+  aiResolution?: AIResolutionMeta | null;
+  searchDurationMs?: number;
 }
 
 const VENDOR_LIST = [
@@ -121,6 +133,7 @@ function mapOfferToResult(offer: any): AIPartResult {
     sourceUrl: offer.productUrl,
     rating: typeof offer.rating === "number" ? offer.rating : 4.2,
     reviews: typeof offer.ratingCount === "number" ? offer.ratingCount : 0,
+    imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
   };
 }
 
@@ -134,16 +147,44 @@ interface PartsAircraftContext {
   ownerName?: string | null;
 }
 
+/* ─── Filter types — mirror lib/parts/types.ts ──────────────────── */
+type ConditionFilter = "any" | "new" | "pma" | "overhauled" | "serviceable" | "used";
+type ShippingFilter = "any" | "in_stock" | "next_day" | "two_day" | "this_week";
+type VendorBucketFilter = "any" | "aviation_trusted";
+type SortMode = "best_fit" | "price_asc" | "price_desc" | "fastest" | "highest_rated";
+
+interface PartsFilters {
+  condition: ConditionFilter;
+  priceMin: number | null;
+  priceMax: number | null;
+  shipping: ShippingFilter;
+  vendorBucket: VendorBucketFilter;
+  brand: string;
+  sortBy: SortMode;
+}
+
+const DEFAULT_FILTERS: PartsFilters = {
+  condition: "any",
+  priceMin: null,
+  priceMax: null,
+  shipping: "any",
+  vendorBucket: "any",
+  brand: "",
+  sortBy: "best_fit",
+};
+
 async function runContextualPartSearch({
   tail,
   query,
   aircraftId,
   aircraftContext,
+  filters,
 }: {
   tail: string;
   query: string;
   aircraftId?: string | null;
   aircraftContext?: PartsAircraftContext | null;
+  filters?: PartsFilters | null;
 }): Promise<AISearchResult> {
   const tailUp = tail.toUpperCase().trim();
   let faaData: FaaAircraftRecord | null = null;
@@ -195,6 +236,20 @@ async function runContextualPartSearch({
     };
   }
 
+  // Translate UI filters to API contract — strip empty values so backend
+  // defaults apply when the user hasn't tweaked anything.
+  const apiFilters: Record<string, unknown> = {};
+  if (filters) {
+    if (filters.condition && filters.condition !== "any") apiFilters.condition = filters.condition;
+    if (filters.priceMin != null) apiFilters.priceMin = filters.priceMin;
+    if (filters.priceMax != null) apiFilters.priceMax = filters.priceMax;
+    if (filters.shipping && filters.shipping !== "any") apiFilters.shipping = filters.shipping;
+    if (filters.vendorBucket && filters.vendorBucket !== "any") apiFilters.vendorBucket = filters.vendorBucket;
+    if (filters.brand) apiFilters.brand = filters.brand;
+    if (filters.sortBy && filters.sortBy !== "best_fit") apiFilters.sortBy = filters.sortBy;
+  }
+
+  const startedAt = Date.now();
   const res = await fetch("/api/parts/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -203,6 +258,7 @@ async function runContextualPartSearch({
       aircraft_id: aircraftId ?? null,
       aircraft_context: requestAircraftContext,
       limit: 40,
+      filters: Object.keys(apiFilters).length > 0 ? apiFilters : undefined,
     }),
   });
 
@@ -214,6 +270,7 @@ async function runContextualPartSearch({
   const payload = await res.json().catch(() => ({}));
   const offers = Array.isArray(payload?.offers) ? payload.offers : [];
   const results = offers.map(mapOfferToResult);
+  const searchDurationMs = Date.now() - startedAt;
 
   const aiResolution = payload?.aiResolution;
   const partType = aiResolution?.partNumbers?.[0] || query;
@@ -240,7 +297,25 @@ async function runContextualPartSearch({
     aiSummary = `Showing parts results matching "${query}". Select a saved aircraft or enter a valid custom N-number to apply aircraft context.`;
   }
 
-  return { faaData, aiSummary, partType, results };
+  const aiResolutionMeta: AIResolutionMeta | null = aiResolution
+    ? {
+        partNumbers: Array.isArray(aiResolution.partNumbers) ? aiResolution.partNumbers : [],
+        alternates: Array.isArray(aiResolution.alternates) ? aiResolution.alternates : [],
+        confidence: ["high", "medium", "low"].includes(aiResolution.confidence) ? aiResolution.confidence : "low",
+        description: typeof aiResolution.description === "string" ? aiResolution.description : undefined,
+        reasoning: typeof aiResolution.reasoning === "string" ? aiResolution.reasoning : undefined,
+      }
+    : null;
+
+  return {
+    faaData,
+    aiSummary,
+    partType,
+    results,
+    totalBeforeFilters: typeof payload?.totalBeforeFilters === "number" ? payload.totalBeforeFilters : undefined,
+    aiResolution: aiResolutionMeta,
+    searchDurationMs,
+  };
 }
 
 /* ─── Edit Part Modal ──────────────────────────────────────────── */
@@ -439,6 +514,328 @@ function PhaseLoader({ phase }: { phase: "faa" | "ai" | "done" }) {
   );
 }
 
+/* ─── Filter chips bar (Google-style) ──────────────────────────── */
+function FilterChipsBar({
+  filters,
+  onChange,
+  onPriceChange,
+  onReset,
+  showAdvanced,
+  activeCount,
+}: {
+  filters: PartsFilters;
+  onChange: <K extends keyof PartsFilters>(key: K, value: PartsFilters[K]) => void;
+  onPriceChange: (min: number | null, max: number | null) => void;
+  onReset: () => void;
+  showAdvanced: boolean;
+  activeCount: number;
+}) {
+  return (
+    <div className="max-w-[1280px] mx-auto w-full space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Sort by */}
+        <ChipDropdown
+          icon={<TrendingDown className="w-3.5 h-3.5" />}
+          label="Sort"
+          value={
+            filters.sortBy === "best_fit"
+              ? "Best fit"
+              : filters.sortBy === "price_asc"
+                ? "Lowest price"
+                : filters.sortBy === "price_desc"
+                  ? "Highest price"
+                  : filters.sortBy === "fastest"
+                    ? "Fastest delivery"
+                    : "Highest rated"
+          }
+          options={[
+            { value: "best_fit", label: "Best fit" },
+            { value: "price_asc", label: "Lowest price" },
+            { value: "fastest", label: "Fastest delivery" },
+            { value: "highest_rated", label: "Highest rated" },
+            { value: "price_desc", label: "Highest price" },
+          ]}
+          onSelect={(v) => onChange("sortBy", v as SortMode)}
+          active={filters.sortBy !== "best_fit"}
+        />
+
+        {/* Condition */}
+        <ChipDropdown
+          icon={<ShieldCheck className="w-3.5 h-3.5" />}
+          label="Condition"
+          value={
+            filters.condition === "any"
+              ? "Any"
+              : filters.condition === "new"
+                ? "New"
+                : filters.condition === "pma"
+                  ? "PMA / FAA-approved"
+                  : filters.condition === "overhauled"
+                    ? "Overhauled"
+                    : filters.condition === "serviceable"
+                      ? "Serviceable"
+                      : "Used"
+          }
+          options={[
+            { value: "any", label: "Any condition" },
+            { value: "new", label: "New" },
+            { value: "pma", label: "PMA / FAA-approved" },
+            { value: "overhauled", label: "Overhauled" },
+            { value: "serviceable", label: "Serviceable" },
+            { value: "used", label: "Used" },
+          ]}
+          onSelect={(v) => onChange("condition", v as ConditionFilter)}
+          active={filters.condition !== "any"}
+        />
+
+        {/* Shipping speed */}
+        <ChipDropdown
+          icon={<Zap className="w-3.5 h-3.5" />}
+          label="Delivery"
+          value={
+            filters.shipping === "any"
+              ? "Any"
+              : filters.shipping === "in_stock"
+                ? "In stock"
+                : filters.shipping === "next_day"
+                  ? "Next-day"
+                  : filters.shipping === "two_day"
+                    ? "2-day"
+                    : "This week"
+          }
+          options={[
+            { value: "any", label: "Any speed" },
+            { value: "in_stock", label: "In stock now" },
+            { value: "next_day", label: "Next-day" },
+            { value: "two_day", label: "2-day" },
+            { value: "this_week", label: "This week" },
+          ]}
+          onSelect={(v) => onChange("shipping", v as ShippingFilter)}
+          active={filters.shipping !== "any"}
+        />
+
+        {/* Vendor bucket — proxy for "trusted/aviation only" */}
+        <ChipDropdown
+          icon={<Globe className="w-3.5 h-3.5" />}
+          label="Vendor"
+          value={filters.vendorBucket === "any" ? "All vendors" : "Aviation-trusted only"}
+          options={[
+            { value: "any", label: "All vendors" },
+            { value: "aviation_trusted", label: "Aviation-trusted only" },
+          ]}
+          onSelect={(v) => onChange("vendorBucket", v as VendorBucketFilter)}
+          active={filters.vendorBucket !== "any"}
+        />
+
+        {/* Price range chips */}
+        <PriceChip
+          min={filters.priceMin}
+          max={filters.priceMax}
+          onChange={onPriceChange}
+        />
+
+        {activeCount > 0 && (
+          <button
+            onClick={onReset}
+            className="text-[11px] text-white/65 hover:text-white px-2"
+            style={{ fontWeight: 500 }}
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
+      {/* Advanced filters expansion (brand input) */}
+      {showAdvanced && (
+        <div className="bg-white/8 border border-white/15 rounded-xl px-3 py-2.5 flex items-center gap-2 text-[12px]">
+          <span className="text-white/65 shrink-0">Brand:</span>
+          <input
+            value={filters.brand}
+            onChange={(e) => onChange("brand", e.target.value)}
+            placeholder="e.g. Champion, Tempest, Lycoming"
+            className="flex-1 bg-transparent text-white outline-none placeholder:text-white/30 text-[12px]"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Chip dropdown (compact, Google-Maps-style) ─────────────────── */
+function ChipDropdown({
+  icon,
+  label,
+  value,
+  options,
+  onSelect,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onSelect: (value: string) => void;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] border transition-colors ${
+          active
+            ? "bg-white text-slate-900 border-white"
+            : "bg-white/10 text-white border-white/20 hover:bg-white/15 hover:border-white/30"
+        }`}
+        style={{ fontWeight: 600 }}
+      >
+        {icon}
+        <span className={active ? "text-slate-900" : "text-white"}>{value}</span>
+        <ChevronDown className={`w-3 h-3 ${active ? "text-slate-500" : "text-white/60"}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-30 min-w-[180px]">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                onSelect(opt.value);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-[12px] text-slate-900 hover:bg-slate-50 flex items-center justify-between"
+              style={{ fontWeight: 500 }}
+            >
+              {opt.label}
+              {value === opt.label && <CheckCircle className="w-3.5 h-3.5 text-blue-600" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PriceChip({
+  min,
+  max,
+  onChange,
+}: {
+  min: number | null;
+  max: number | null;
+  onChange: (min: number | null, max: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const active = min != null || max != null;
+  const label =
+    min != null && max != null
+      ? `$${min}–$${max}`
+      : min != null
+        ? `From $${min}`
+        : max != null
+          ? `Under $${max}`
+          : "Any price";
+
+  const presets = [
+    { label: "Under $50", min: null, max: 50 },
+    { label: "$50 – $200", min: 50, max: 200 },
+    { label: "$200 – $500", min: 200, max: 500 },
+    { label: "Over $500", min: 500, max: null },
+  ];
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] border transition-colors ${
+          active
+            ? "bg-white text-slate-900 border-white"
+            : "bg-white/10 text-white border-white/20 hover:bg-white/15 hover:border-white/30"
+        }`}
+        style={{ fontWeight: 600 }}
+      >
+        <DollarSign className={`w-3.5 h-3.5 ${active ? "text-slate-900" : "text-white"}`} />
+        <span className={active ? "text-slate-900" : "text-white"}>{label}</span>
+        <ChevronDown className={`w-3 h-3 ${active ? "text-slate-500" : "text-white/60"}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-30 w-[260px] p-3">
+          <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => {
+                  onChange(p.min, p.max);
+                  setOpen(false);
+                }}
+                className="text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700"
+                style={{ fontWeight: 500 }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-slate-200 pt-2.5">
+            <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5" style={{ fontWeight: 700 }}>
+              Custom range
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={min ?? ""}
+                onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value), max)}
+                placeholder="Min"
+                className="flex-1 border border-slate-200 rounded-md px-2 py-1.5 text-[12px] outline-none focus:border-blue-400"
+              />
+              <span className="text-slate-400 text-[11px]">to</span>
+              <input
+                type="number"
+                value={max ?? ""}
+                onChange={(e) => onChange(min, e.target.value === "" ? null : Number(e.target.value))}
+                placeholder="Max"
+                className="flex-1 border border-slate-200 rounded-md px-2 py-1.5 text-[12px] outline-none focus:border-blue-400"
+              />
+            </div>
+            {active && (
+              <button
+                onClick={() => {
+                  onChange(null, null);
+                  setOpen(false);
+                }}
+                className="w-full mt-2 text-[11px] text-blue-600 hover:text-blue-700 py-1"
+                style={{ fontWeight: 600 }}
+              >
+                Clear price filter
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── AI Search Panel ───────────────────────────────────────────── */
 function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => void }) {
   const { aircraft, customers } = useDataStore();
@@ -454,8 +851,17 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
   const [result, setResult] = useState<AISearchResult | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [expandedPn, setExpandedPn] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"price" | "fit">("fit");
-  const [filterCond, setFilterCond] = useState("all");
+  const [filters, setFilters] = useState<PartsFilters>(DEFAULT_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
+    if (typeof window === "undefined") return "list";
+    return (window.localStorage.getItem("partsSearchViewMode") as "list" | "grid") || "list";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("partsSearchViewMode", viewMode);
+    }
+  }, [viewMode]);
   const selectedAircraft = useMemo(
     () => aircraft.find((item) => item.id === selectedAircraftId) ?? null,
     [aircraft, selectedAircraftId]
@@ -467,7 +873,7 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
   const activeTail = selectedAircraft?.tail_number || customTail.trim().toUpperCase();
   const isCustomTailMode = selectedAircraftId === CUSTOM_AIRCRAFT_KEY;
 
-  const handleSearch = async () => {
+  const handleSearch = async (overrideFilters?: PartsFilters) => {
     if (!query.trim()) return;
     setResult(null);
     setPhase("faa");
@@ -488,6 +894,7 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
               ownerName: selectedOwnerName,
             }
           : null,
+        filters: overrideFilters ?? filters,
       });
       setResult(res);
       setPhase("done");
@@ -496,6 +903,36 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
       toast.error("Parts search failed", { description: err?.message ?? "Try again in a moment." });
     }
   };
+
+  /** Update one filter slot and immediately re-run the search if we already have results. */
+  const updateFilter = <K extends keyof PartsFilters>(key: K, value: PartsFilters[K]) => {
+    const next = { ...filters, [key]: value };
+    setFilters(next);
+    if (result || phase === "done") {
+      // Re-run with the new filters; the backend handles strict P/N + conditions etc.
+      handleSearch(next);
+    }
+  };
+
+  /** Batched price update — sets both bounds in one render to avoid double-fetch. */
+  const updatePriceRange = (min: number | null, max: number | null) => {
+    const next = { ...filters, priceMin: min, priceMax: max };
+    setFilters(next);
+    if (result || phase === "done") handleSearch(next);
+  };
+
+  const resetFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+    if (result) handleSearch(DEFAULT_FILTERS);
+  };
+
+  const activeFilterCount =
+    (filters.condition !== "any" ? 1 : 0) +
+    (filters.shipping !== "any" ? 1 : 0) +
+    (filters.vendorBucket !== "any" ? 1 : 0) +
+    (filters.priceMin != null || filters.priceMax != null ? 1 : 0) +
+    (filters.brand ? 1 : 0) +
+    (filters.sortBy !== "best_fit" ? 1 : 0);
 
   const handleSave = (r: AIPartResult) => {
     const key = `${r.pn}-${r.vendor}`;
@@ -517,19 +954,12 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
     "Check compatibility": "bg-red-50 text-red-700",
   }[fit] || "bg-slate-100 text-slate-500");
 
-  // Group results by part number
+  // Group results by part number — backend already applied filters + sort
   const grouped: Record<string, AIPartResult[]> = {};
   if (result) {
-    let arr = [...result.results];
-    if (filterCond !== "all") arr = arr.filter(r => r.condition === filterCond);
-    if (sortBy === "price") arr.sort((a, b) => a.price - b.price);
-    else arr.sort((a, b) => {
-      const o: Record<string, number> = { "Confirmed": 0, "Likely fit — verify": 1, "Check compatibility": 2 };
-      return (o[a.fit] || 0) - (o[b.fit] || 0);
-    });
-    arr.forEach(r => { if (!grouped[r.pn]) grouped[r.pn] = []; grouped[r.pn].push(r); });
-    if (!expandedPn && Object.keys(grouped).length > 0) {
-      // auto-expand first group (we won't setState here to avoid loop, just default first)
+    for (const r of result.results) {
+      if (!grouped[r.pn]) grouped[r.pn] = [];
+      grouped[r.pn].push(r);
     }
   }
 
@@ -537,95 +967,148 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Search toolbar */}
-      <div className="bg-gradient-to-br from-[#0A1628] to-[#1E3A5F] px-5 py-4 space-y-3 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
+      {/* Search toolbar — Google-style wide centered search */}
+      <div className="bg-gradient-to-br from-[#0A1628] to-[#1E3A5F] px-6 py-5 space-y-3.5 shrink-0">
+        <div className="flex items-center justify-between gap-3 max-w-[1280px] mx-auto w-full">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-[15px] text-white" style={{ fontWeight: 700 }}>AI Parts Search</div>
+              <div className="text-[11px] text-white/50">FAA registry lookup + AI cross-reference across all aviation vendors</div>
+            </div>
           </div>
-          <div>
-            <div className="text-[15px] text-white" style={{ fontWeight: 700 }}>AI Parts Search</div>
-            <div className="text-[11px] text-white/50">FAA registry lookup + AI cross-reference across all aviation vendors</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-[220px_1fr_auto] gap-2">
-          {/* Aircraft selector */}
-          <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-3 py-2.5 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
-            <Plane className="w-3.5 h-3.5 text-white/60 shrink-0" />
-            <select
-              value={selectedAircraftId}
-              onChange={e => setSelectedAircraftId(e.target.value)}
-              className="flex-1 bg-transparent text-[13px] text-white outline-none min-w-0"
+          {result && (
+            <button
+              onClick={() => setShowAdvancedFilters((s) => !s)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border transition-colors ${
+                showAdvancedFilters
+                  ? "bg-white/15 border-white/30 text-white"
+                  : "bg-white/5 border-white/15 text-white/70 hover:bg-white/10 hover:text-white"
+              }`}
               style={{ fontWeight: 600 }}
             >
-              {aircraft.map((item) => (
-                <option key={item.id} value={item.id} className="text-slate-900">
-                  {item.tail_number} {item.make || item.model ? `— ${[item.make, item.model].filter(Boolean).join(" ")}` : ""}
-                </option>
-              ))}
-              <option value={CUSTOM_AIRCRAFT_KEY} className="text-slate-900">Custom N-number…</option>
-            </select>
-          </div>
-
-          {/* Part query field */}
-          <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-white/40">
-            <Search className="w-4 h-4 text-slate-400 shrink-0" />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSearch()}
-              placeholder="Part # or plain English — e.g. REM38E or spark plug…"
-              className="flex-1 bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
-            />
-            {query && (
-              <button onClick={() => { setQuery(""); setResult(null); setPhase("idle"); }} className="text-slate-400 hover:text-slate-600">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Search button */}
-          <button
-            onClick={handleSearch}
-            disabled={phase === "faa" || phase === "ai" || !query.trim()}
-            className="px-5 py-2.5 bg-[#2563EB] text-white rounded-xl text-[13px] hover:bg-blue-600 disabled:opacity-40 transition-colors flex items-center gap-1.5 shrink-0"
-            style={{ fontWeight: 600 }}
-          >
-            {phase === "faa" || phase === "ai"
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <><Sparkles className="w-3.5 h-3.5" /> AI Search</>}
-          </button>
+              <Filter className="w-3.5 h-3.5" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center" style={{ fontWeight: 700 }}>
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
-        {isCustomTailMode ? (
-          <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-3 py-2.5 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
-            <Plane className="w-3.5 h-3.5 text-white/60 shrink-0" />
-            <input
-              value={customTail}
-              onChange={e => setCustomTail(e.target.value.toUpperCase())}
-              placeholder="Enter custom N-number"
-              className="flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/40 tracking-wider min-w-0"
+        {/* Wide Google-style search bar */}
+        <div className="max-w-[1280px] mx-auto w-full">
+          <div className="flex items-stretch gap-2 bg-white rounded-2xl shadow-lg overflow-hidden focus-within:ring-4 focus-within:ring-blue-500/30 transition-all">
+            {/* Aircraft selector — compact pill on the left */}
+            <div className="flex items-center gap-2 bg-slate-50 border-r border-slate-200 px-4 min-w-[210px] max-w-[260px]">
+              <Plane className="w-4 h-4 text-slate-500 shrink-0" />
+              <select
+                value={selectedAircraftId}
+                onChange={(e) => setSelectedAircraftId(e.target.value)}
+                className="flex-1 bg-transparent text-[13px] text-slate-900 outline-none min-w-0"
+                style={{ fontWeight: 600 }}
+              >
+                {aircraft.map((item) => (
+                  <option key={item.id} value={item.id} className="text-slate-900">
+                    {item.tail_number}
+                    {item.make || item.model ? ` — ${[item.make, item.model].filter(Boolean).join(" ")}` : ""}
+                  </option>
+                ))}
+                <option value={CUSTOM_AIRCRAFT_KEY} className="text-slate-900">Custom N-number…</option>
+              </select>
+            </div>
+
+            {/* Search input — flex-1 fills the rest */}
+            <div className="flex items-center gap-2.5 px-4 flex-1 min-w-0">
+              <Search className="w-5 h-5 text-slate-400 shrink-0" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                placeholder="Part # or plain English — e.g. CH48110-1, REM38E, spark plug for Lycoming O-320…"
+                className="flex-1 bg-transparent text-[15px] text-slate-900 outline-none placeholder:text-slate-400 py-3.5"
+              />
+              {query && (
+                <button
+                  onClick={() => {
+                    setQuery("");
+                    setResult(null);
+                    setPhase("idle");
+                  }}
+                  className="text-slate-400 hover:text-slate-600 shrink-0"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Search button — Google-style on the right */}
+            <button
+              onClick={() => handleSearch()}
+              disabled={phase === "faa" || phase === "ai" || !query.trim()}
+              className="px-6 bg-[#2563EB] text-white text-[14px] hover:bg-blue-600 disabled:opacity-40 transition-colors flex items-center gap-2 shrink-0"
               style={{ fontWeight: 600 }}
-              onKeyDown={e => e.key === "Enter" && handleSearch()}
-            />
+            >
+              {phase === "faa" || phase === "ai" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Searching…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  AI Search
+                </>
+              )}
+            </button>
           </div>
-        ) : (
-          <div className="flex items-center gap-2 text-[11px] text-white/65">
+        </div>
+
+        {isCustomTailMode && (
+          <div className="max-w-[1280px] mx-auto w-full">
+            <div className="flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-3 py-2.5 focus-within:border-white/40 focus-within:bg-white/15 transition-all">
+              <Plane className="w-3.5 h-3.5 text-white/60 shrink-0" />
+              <input
+                value={customTail}
+                onChange={(e) => setCustomTail(e.target.value.toUpperCase())}
+                placeholder="Enter custom N-number"
+                className="flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/40 tracking-wider min-w-0"
+                style={{ fontWeight: 600 }}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              />
+            </div>
+          </div>
+        )}
+
+        {!isCustomTailMode && (
+          <div className="max-w-[1280px] mx-auto w-full flex items-center gap-2 text-[11px] text-white/65">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
             Using saved aircraft context for {selectedAircraft?.tail_number}
-            {selectedAircraft?.make || selectedAircraft?.model ? ` — ${[selectedAircraft?.make, selectedAircraft?.model].filter(Boolean).join(" ")}` : ""}
+            {selectedAircraft?.make || selectedAircraft?.model
+              ? ` — ${[selectedAircraft?.make, selectedAircraft?.model].filter(Boolean).join(" ")}`
+              : ""}
+            {selectedAircraft?.engine_model ? ` · ${selectedAircraft.engine_model}` : ""}
           </div>
         )}
 
         {/* Quick searches */}
         {phase === "idle" && !result && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="max-w-[1280px] mx-auto w-full flex flex-wrap gap-1.5">
             <span className="text-[11px] text-white/40 self-center">Try:</span>
-            {quickSearches.map(q => (
-              <button key={q}
-                onClick={() => { setQuery(q); }}
-                className="text-[11px] bg-white/8 text-white/70 border border-white/15 px-2.5 py-1 rounded-full hover:bg-white/15 hover:text-white transition-colors" style={{ fontWeight: 500 }}>
+            {quickSearches.map((q) => (
+              <button
+                key={q}
+                onClick={() => {
+                  setQuery(q);
+                }}
+                className="text-[11px] bg-white/8 text-white/70 border border-white/15 px-2.5 py-1 rounded-full hover:bg-white/15 hover:text-white transition-colors"
+                style={{ fontWeight: 500 }}
+              >
                 {q}
               </button>
             ))}
@@ -634,12 +1117,26 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
 
         {/* Phase indicator */}
         {(phase === "faa" || phase === "ai" || phase === "done") && result === null && (
-          <div className="overflow-x-auto">
+          <div className="max-w-[1280px] mx-auto w-full overflow-x-auto">
             <PhaseLoader phase={phase === "done" ? "done" : phase} />
           </div>
         )}
         {phase === "done" && result && (
-          <PhaseLoader phase="done" />
+          <div className="max-w-[1280px] mx-auto w-full">
+            <PhaseLoader phase="done" />
+          </div>
+        )}
+
+        {/* Google-style filter chips row — visible after results land */}
+        {result && (
+          <FilterChipsBar
+            filters={filters}
+            onChange={updateFilter}
+            onPriceChange={updatePriceRange}
+            onReset={resetFilters}
+            showAdvanced={showAdvancedFilters}
+            activeCount={activeFilterCount}
+          />
         )}
       </div>
 
@@ -709,7 +1206,7 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
 
         {/* Results */}
         {phase === "done" && result && (
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-4 max-w-[1280px] mx-auto">
             {/* FAA + AI context card */}
             <div className="bg-white rounded-xl border border-border overflow-hidden">
               {/* FAA Registry strip */}
@@ -764,121 +1261,296 @@ function AISearchPanel({ onSavePart }: { onSavePart: (p: Partial<SavedPart>) => 
               </div>
             </div>
 
-            {/* Filters */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                <Filter className="w-3.5 h-3.5" />
-                <select value={filterCond} onChange={e => setFilterCond(e.target.value)}
-                  className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none cursor-pointer">
-                  <option value="all">All Conditions</option>
-                  <option value="New">New Only</option>
-                  <option value="New-PMA">PMA Parts</option>
-                  <option value="Overhauled">Overhauled</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                Sort by:
-                <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
-                  className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none cursor-pointer">
-                  <option value="fit">Best Fit</option>
-                  <option value="price">Lowest Price</option>
-                </select>
-              </div>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {Object.keys(grouped).length} part{Object.keys(grouped).length !== 1 ? "s" : ""} · {result.results.length} listings
+            {/* Result summary — Google-style "About X results" */}
+            <div className="flex items-center justify-between gap-3 text-[12px] text-muted-foreground flex-wrap">
+              <span>
+                About <span className="text-foreground" style={{ fontWeight: 600 }}>{result.results.length}</span>
+                {typeof result.totalBeforeFilters === "number" && result.totalBeforeFilters > result.results.length
+                  ? <> of {result.totalBeforeFilters}</>
+                  : null}
+                {" "}listings across <span className="text-foreground" style={{ fontWeight: 600 }}>{Object.keys(grouped).length}</span> part{Object.keys(grouped).length !== 1 ? "s" : ""}
+                {typeof result.searchDurationMs === "number"
+                  ? <> · {(result.searchDurationMs / 1000).toFixed(2)}s</>
+                  : null}
               </span>
+              <div className="flex items-center gap-2">
+                {result.aiResolution?.partNumbers && result.aiResolution.partNumbers.length > 0 && (
+                  <span className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full text-[11px]" style={{ fontWeight: 600 }}>
+                    <Sparkles className="w-3 h-3" />
+                    P/N: {result.aiResolution.partNumbers.slice(0, 2).join(", ")}
+                    {result.aiResolution.partNumbers.length > 2 ? ` +${result.aiResolution.partNumbers.length - 2}` : ""}
+                    <span className={`ml-1 px-1 rounded text-[9px] ${
+                      result.aiResolution.confidence === "high" ? "bg-emerald-100 text-emerald-800" :
+                      result.aiResolution.confidence === "medium" ? "bg-amber-100 text-amber-800" :
+                      "bg-slate-100 text-slate-700"
+                    }`}>{result.aiResolution.confidence}</span>
+                  </span>
+                )}
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={resetFilters}
+                    className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-[11px]"
+                    style={{ fontWeight: 600 }}
+                  >
+                    <X className="w-3 h-3" /> Clear filters ({activeFilterCount})
+                  </button>
+                )}
+                {/* List / Grid view toggle */}
+                <div className="inline-flex items-center bg-white border border-border rounded-lg p-0.5 shadow-sm">
+                  <button
+                    onClick={() => setViewMode("list")}
+                    aria-label="List view"
+                    className={`p-1.5 rounded-md transition-colors ${
+                      viewMode === "list"
+                        ? "bg-slate-900 text-white"
+                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode("grid")}
+                    aria-label="Grid view"
+                    className={`p-1.5 rounded-md transition-colors ${
+                      viewMode === "grid"
+                        ? "bg-slate-900 text-white"
+                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Grouped by part number */}
-            {Object.entries(grouped).map(([pn, listings]) => {
-              const isExpanded = expandedPn === pn || expandedPn === null;
-              const topListing = listings[0];
-              return (
-                <div key={pn} className="bg-white rounded-xl border border-border overflow-hidden">
-                  {/* Part header */}
-                  <button
-                    onClick={() => setExpandedPn(isExpanded && expandedPn === pn ? null : pn)}
-                    className="w-full px-5 py-4 flex items-center gap-4 hover:bg-muted/20 transition-colors text-left"
-                  >
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${fitBadge(topListing.fit)}`} style={{ fontWeight: 600 }}>{topListing.fit}</span>
-                        <span className="text-[15px] text-foreground tracking-wide" style={{ fontWeight: 700 }}>{pn}</span>
-                        {topListing.altPn && <span className="text-[12px] text-muted-foreground">/ {topListing.altPn}</span>}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${COND_BADGE[topListing.condition] || "bg-slate-100 text-slate-500"}`} style={{ fontWeight: 600 }}>{topListing.condition}</span>
-                      </div>
-                      <div className="text-[13px] text-foreground">{topListing.desc}</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {topListing.manufacturer} · {listings.length} vendor{listings.length !== 1 ? "s" : ""} · from ${Math.min(...listings.map(l => l.price)).toFixed(2)}
-                      </div>
-                    </div>
-                    {isExpanded && expandedPn === pn
-                      ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
-                      : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  </button>
+            {/* Results — switches between LIST and GRID layouts */}
+            {viewMode === "list" ? (
+              <>
+                {Object.entries(grouped).map(([pn, listings]) => {
+                  const isExpanded = expandedPn === pn || expandedPn === null;
+                  const topListing = listings[0];
+                  return (
+                    <div key={pn} className="bg-white rounded-xl border border-border overflow-hidden">
+                      {/* Part header */}
+                      <button
+                        onClick={() => setExpandedPn(isExpanded && expandedPn === pn ? null : pn)}
+                        className="w-full px-5 py-4 flex items-center gap-4 hover:bg-muted/20 transition-colors text-left"
+                      >
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${fitBadge(topListing.fit)}`} style={{ fontWeight: 600 }}>{topListing.fit}</span>
+                            <span className="text-[15px] text-foreground tracking-wide" style={{ fontWeight: 700 }}>{pn}</span>
+                            {topListing.altPn && <span className="text-[12px] text-muted-foreground">/ {topListing.altPn}</span>}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${COND_BADGE[topListing.condition] || "bg-slate-100 text-slate-500"}`} style={{ fontWeight: 600 }}>{topListing.condition}</span>
+                          </div>
+                          <div className="text-[13px] text-foreground">{topListing.desc}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {topListing.manufacturer} · {listings.length} vendor{listings.length !== 1 ? "s" : ""} · from ${Math.min(...listings.map(l => l.price)).toFixed(2)}
+                          </div>
+                        </div>
+                        {isExpanded && expandedPn === pn
+                          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+                          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      </button>
 
-                  {/* Vendor listings */}
-                  <AnimatePresence>
-                    {(expandedPn === pn || expandedPn === null) && (
-                      <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
-                        className="overflow-hidden border-t border-border">
-                        <div className="divide-y divide-border">
-                          {listings.map((listing, idx) => {
-                            const saveKey = `${listing.pn}-${listing.vendor}`;
-                            const isSaved = savedIds.has(saveKey);
-                            return (
-                              <motion.div key={`${listing.pn}-${listing.vendor}-${idx}`}
-                                initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
-                                className="px-5 py-3.5 flex items-center gap-4 hover:bg-muted/10 transition-colors">
-                                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-border flex items-center justify-center text-[18px] shrink-0">
-                                  {listing.vendorIcon}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{listing.vendor}</span>
-                                    <div className="flex items-center gap-0.5 text-amber-500">
-                                      <Star className="w-3 h-3 fill-current" />
-                                      <span className="text-[11px] text-foreground">{listing.rating.toFixed(1)}</span>
-                                      <span className="text-[10px] text-muted-foreground">({listing.reviews})</span>
+                      {/* Vendor listings */}
+                      <AnimatePresence>
+                        {(expandedPn === pn || expandedPn === null) && (
+                          <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+                            className="overflow-hidden border-t border-border">
+                            <div className="divide-y divide-border">
+                              {listings.map((listing, idx) => {
+                                const saveKey = `${listing.pn}-${listing.vendor}`;
+                                const isSaved = savedIds.has(saveKey);
+                                return (
+                                  <motion.div key={`${listing.pn}-${listing.vendor}-${idx}`}
+                                    initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
+                                    className="px-5 py-3.5 flex items-center gap-4 hover:bg-muted/10 transition-colors">
+                                    <div className="w-10 h-10 rounded-xl bg-slate-50 border border-border flex items-center justify-center text-[18px] shrink-0 overflow-hidden">
+                                      {listing.imageUrl
+                                        ? <img src={listing.imageUrl} alt="" className="w-full h-full object-contain" />
+                                        : listing.vendorIcon}
                                     </div>
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className={`text-[11px] ${listing.stock === "In Stock" ? "text-emerald-600" : "text-amber-600"}`} style={{ fontWeight: 500 }}>
-                                      {listing.stock}
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground">· Ships {listing.leadTime}</span>
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>${listing.price.toFixed(2)}</div>
-                                  <div className="text-[10px] text-muted-foreground">each</div>
-                                </div>
-                                <div className="flex flex-col gap-1.5 shrink-0">
-                                  <a href={listing.sourceUrl} target="_blank" rel="noopener noreferrer"
-                                    className="flex items-center gap-1 border border-primary/20 text-primary px-2.5 py-1.5 rounded-lg text-[11px] hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
-                                    <ExternalLink className="w-3 h-3" /> Order
-                                  </a>
-                                  {isSaved ? (
-                                    <div className="flex items-center gap-1 text-[11px] text-emerald-600 justify-center px-1" style={{ fontWeight: 600 }}>
-                                      <CheckCircle className="w-3.5 h-3.5" /> Saved
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>{listing.vendor}</span>
+                                        <div className="flex items-center gap-0.5 text-amber-500">
+                                          <Star className="w-3 h-3 fill-current" />
+                                          <span className="text-[11px] text-foreground">{listing.rating.toFixed(1)}</span>
+                                          <span className="text-[10px] text-muted-foreground">({listing.reviews})</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className={`text-[11px] ${listing.stock === "In Stock" ? "text-emerald-600" : "text-amber-600"}`} style={{ fontWeight: 500 }}>
+                                          {listing.stock}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground">· Ships {listing.leadTime}</span>
+                                      </div>
                                     </div>
-                                  ) : (
-                                    <button onClick={() => handleSave(listing)}
-                                      className="flex items-center gap-1 bg-primary text-white px-2.5 py-1.5 rounded-lg text-[11px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
-                                      <Save className="w-3 h-3" /> Save
-                                    </button>
-                                  )}
+                                    <div className="text-right shrink-0">
+                                      <div className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>${listing.price.toFixed(2)}</div>
+                                      <div className="text-[10px] text-muted-foreground">each</div>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5 shrink-0">
+                                      <a href={listing.sourceUrl} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center gap-1 border border-primary/20 text-primary px-2.5 py-1.5 rounded-lg text-[11px] hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
+                                        <ExternalLink className="w-3 h-3" /> Order
+                                      </a>
+                                      {isSaved ? (
+                                        <div className="flex items-center gap-1 text-[11px] text-emerald-600 justify-center px-1" style={{ fontWeight: 600 }}>
+                                          <CheckCircle className="w-3.5 h-3.5" /> Saved
+                                        </div>
+                                      ) : (
+                                        <button onClick={() => handleSave(listing)}
+                                          className="flex items-center gap-1 bg-primary text-white px-2.5 py-1.5 rounded-lg text-[11px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
+                                          <Save className="w-3 h-3" /> Save
+                                        </button>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              /* GRID / CARD layout — Google-Shopping-style 2/3/4-column grid of vendor offers */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {Object.entries(grouped).flatMap(([pn, listings]) =>
+                  listings.map((listing, idx) => {
+                    const saveKey = `${listing.pn}-${listing.vendor}`;
+                    const isSaved = savedIds.has(saveKey);
+                    return (
+                      <motion.div
+                        key={`${pn}-${listing.vendor}-${idx}`}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.02 }}
+                        className="bg-white rounded-xl border border-border overflow-hidden flex flex-col hover:shadow-md hover:border-slate-300 transition-all"
+                      >
+                        {/* Product image */}
+                        <a
+                          href={listing.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative aspect-square bg-slate-50 border-b border-border overflow-hidden flex items-center justify-center group"
+                        >
+                          {listing.imageUrl ? (
+                            <img
+                              src={listing.imageUrl}
+                              alt={listing.desc}
+                              loading="lazy"
+                              className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="text-[48px] text-slate-300 select-none">
+                              <Package className="w-12 h-12 text-slate-300" />
+                            </div>
+                          )}
+                          <span
+                            className={`absolute top-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full ${fitBadge(listing.fit)}`}
+                            style={{ fontWeight: 700 }}
+                          >
+                            {listing.fit}
+                          </span>
+                          <span
+                            className={`absolute top-2 right-2 text-[9px] px-1.5 py-0.5 rounded-full ${COND_BADGE[listing.condition] || "bg-slate-100 text-slate-500"}`}
+                            style={{ fontWeight: 700 }}
+                          >
+                            {listing.condition}
+                          </span>
+                        </a>
+
+                        {/* Card body */}
+                        <div className="p-3 flex flex-col gap-1.5 flex-1 min-h-0">
+                          {/* P/N + manufacturer */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[12px] text-foreground tracking-wide" style={{ fontWeight: 700 }}>
+                              {listing.pn}
+                            </span>
+                            {listing.manufacturer && listing.manufacturer !== "Unknown" && (
+                              <span className="text-[10px] text-muted-foreground">· {listing.manufacturer}</span>
+                            )}
+                          </div>
+
+                          {/* Description (clamp 2 lines) */}
+                          <div
+                            className="text-[12px] text-foreground leading-snug"
+                            style={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {listing.desc}
+                          </div>
+
+                          {/* Vendor + rating */}
+                          <div className="flex items-center gap-1.5 mt-auto pt-1.5">
+                            <span className="text-[15px]">{listing.vendorIcon}</span>
+                            <span className="text-[11px] text-foreground truncate flex-1" style={{ fontWeight: 600 }}>
+                              {listing.vendor}
+                            </span>
+                            <div className="flex items-center gap-0.5 text-amber-500 shrink-0">
+                              <Star className="w-2.5 h-2.5 fill-current" />
+                              <span className="text-[10px] text-foreground">{listing.rating.toFixed(1)}</span>
+                            </div>
+                          </div>
+
+                          {/* Stock + ship */}
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className={listing.stock === "In Stock" ? "text-emerald-600" : "text-amber-600"} style={{ fontWeight: 500 }}>
+                              {listing.stock}
+                            </span>
+                            <span className="text-muted-foreground">Ships {listing.leadTime}</span>
+                          </div>
+
+                          {/* Price + actions */}
+                          <div className="flex items-end justify-between pt-2 border-t border-border mt-1">
+                            <div>
+                              <div className="text-[18px] text-foreground leading-none" style={{ fontWeight: 700 }}>
+                                ${listing.price.toFixed(2)}
+                              </div>
+                              <div className="text-[9px] text-muted-foreground mt-0.5">each</div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {isSaved ? (
+                                <div className="flex items-center gap-1 text-[10px] text-emerald-600" style={{ fontWeight: 600 }}>
+                                  <CheckCircle className="w-3 h-3" /> Saved
                                 </div>
-                              </motion.div>
-                            );
-                          })}
+                              ) : (
+                                <button
+                                  onClick={() => handleSave(listing)}
+                                  aria-label="Save"
+                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors"
+                                >
+                                  <Save className="w-3 h-3" />
+                                </button>
+                              )}
+                              <a
+                                href={listing.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 bg-primary text-white px-2.5 py-1.5 rounded-md text-[10px] hover:bg-primary/90 transition-colors"
+                                style={{ fontWeight: 600 }}
+                              >
+                                <ExternalLink className="w-3 h-3" /> Order
+                              </a>
+                            </div>
+                          </div>
                         </div>
                       </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

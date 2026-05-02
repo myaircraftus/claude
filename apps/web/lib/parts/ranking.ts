@@ -18,7 +18,55 @@ const AVIATION_TRUSTED_DOMAINS = new Set([
   'chtservices.com',
   'champion-aerospace.com',
   'aviall.com',
+  'skygeek.com',
+  'wicksaircraft.com',
+  'cptaviation.com',
+  'pacificoil.com',
+  'aviation-supply.com',
+  'preferredairparts.com',
+  'airpowerinc.com',
+  'aircraftpartsinc.com',
+  'gulfcoastavionics.com',
+  'mypilotstore.com',
+  'pilotpartsplus.com',
+  'aircraft-parts.com',
+  'aviationoilstore.com',
 ])
+
+/**
+ * Vendor-name patterns that indicate an aviation supplier even when the URL
+ * lives on google.com / shopping aggregators. SerpAPI Google Shopping
+ * returns the actual vendor in `source` even though the productUrl is
+ * google.com — so name-based detection is essential for bucket accuracy.
+ */
+const AVIATION_VENDOR_NAME_PATTERNS = [
+  /aircraft\s+spruce/i,
+  /\bskygeek\b/i,
+  /\baviall\b/i,
+  /\bwicks\b/i,
+  /pilot\s*shop/i,
+  /\bsporty'?s\b/i,
+  /aero\s*performance/i,
+  /lycoming/i,
+  /continental\s+aerospace/i,
+  /tempest\s*plus/i,
+  /champion\s+aerospace/i,
+  /\bcpt\s+aviation\b/i,
+  /aircraft\s+shop/i,
+  /preferred\s+air(craft)?\s+parts/i,
+  /air\s*power\s+inc/i,
+  /aviation\s+oil\s+store/i,
+  /pacific\s+oil/i,
+  /gulf\s+coast\s+avionics/i,
+  /aviation\s+supply/i,
+  /aero\s*specialties/i,
+  /\bmypilotstore\b/i,
+]
+
+function vendorLooksAviation(vendorName?: string | null): boolean {
+  if (!vendorName) return false
+  return AVIATION_VENDOR_NAME_PATTERNS.some((re) => re.test(vendorName))
+}
 
 // Known general marketplaces (not aviation-specific).
 const GENERAL_MARKETPLACES = new Set([
@@ -39,6 +87,10 @@ function getDomain(url: string): string | null {
 function bucketFor(offer: NormalizedOffer): SortBucket {
   const domain = (offer.vendorDomain ?? getDomain(offer.productUrl) ?? '').toLowerCase()
   if (AVIATION_TRUSTED_DOMAINS.has(domain)) return 'aviation_trusted'
+  // SerpAPI surfaces a `google.com` URL but the actual seller name is in
+  // vendorName — fall back to vendor-name pattern matching so suppliers like
+  // "Aircraft Spruce" / "SkyGeek" / "Aviall" still get the trusted bucket.
+  if (vendorLooksAviation(offer.vendorName)) return 'aviation_trusted'
   if (offer.certifications && offer.certifications.length > 0) return 'aviation_trusted'
   if (GENERAL_MARKETPLACES.has(domain)) return 'general_marketplace'
   if (!offer.price || !offer.vendorName) return 'uncertain'
