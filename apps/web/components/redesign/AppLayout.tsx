@@ -6,7 +6,7 @@ import {
   Wrench, Settings, ChevronDown, User,
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
-  Sparkles, ShieldCheck, MapPin, Building2, Inbox,
+  Sparkles, ShieldCheck, MapPin, Building2, Inbox, Gauge,
 } from "lucide-react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -46,6 +46,7 @@ const ownerNavItems: NavItem[] = [
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: FileText,        label: "Documents",        href: "/documents" },
+  { icon: Gauge,           label: "Meters",           href: "/meters" },
   { icon: MapPin,          label: "Locations",        href: "/locations" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
   { icon: UserRound,       label: "Users",            href: "/settings" },
@@ -83,6 +84,7 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
 
   if (perm.settingsFull) {
     items.push({ icon: FileText, label: "Documents",   href: "/documents" });
+    items.push({ icon: Gauge,    label: "Meters",      href: "/meters" });
     items.push({ icon: MapPin,   label: "Locations",   href: "/locations" });
     items.push({ icon: Store,    label: "Marketplace", href: "/marketplace" });
   }

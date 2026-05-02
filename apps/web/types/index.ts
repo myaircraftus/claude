@@ -174,6 +174,8 @@ export interface Aircraft {
   organization_id: string
   /** Spec 0.1: optional location within the org (nullable). */
   location_id?: string | null
+  /** Spec 1.1: optional meter profile driving the aircraft's time tracking. */
+  meter_profile_id?: string | null
   tail_number: string
   serial_number?: string
   make: string
@@ -656,4 +658,61 @@ export interface WorkOrderLine {
   notes: string | null
   sort_order: number
   created_at: string
+}
+
+/* ─── Meter Profiles & Aircraft Times (Spec 1.1) ─────────────────────────── */
+
+export type MeterUnit = 'hours' | 'cycles' | 'landings' | 'minutes' | 'starts'
+
+export type MeterReadingSource = 'manual' | 'automatic' | 'imported'
+
+/**
+ * A meter profile is a *template* — bundles one or more meter definitions
+ * (Hobbs, Tach, Cycles, …) so an aircraft can be assigned the right kit
+ * with one selection. Profiles are org-scoped; meters within them are
+ * stored as separate rows (see `MeterDefinition`) for clean cascades.
+ */
+export interface MeterProfile {
+  id: string
+  organization_id: string
+  name: string
+  description?: string | null
+  is_template: boolean
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * A meter inside a profile. `decimal_places` is display precision (1 for
+ * Hobbs/Tach, 0 for cycles/landings). `sort_order` controls render order
+ * inside the profile.
+ */
+export interface MeterDefinition {
+  id: string
+  meter_profile_id: string
+  name: string
+  unit: MeterUnit
+  decimal_places: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Time-series row: "aircraft X had meter Y at value Z on date D". The
+ * "current" reading for a meter is the latest row by (reading_date,
+ * created_at). See lib/meters/current.ts:getCurrentMeterReading().
+ */
+export interface MeterReading {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  meter_definition_id: string
+  value: number
+  reading_date: string
+  source: MeterReadingSource
+  notes?: string | null
+  recorded_by?: string | null
+  created_at: string
+  updated_at: string
 }

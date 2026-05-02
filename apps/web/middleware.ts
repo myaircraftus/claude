@@ -107,6 +107,7 @@ function isAppRoute(pathname: string): boolean {
     '/maintenance',
     '/marketplace',
     '/mechanic',
+    '/meters',
     '/my-aircraft',
     '/org',
     '/parts',
