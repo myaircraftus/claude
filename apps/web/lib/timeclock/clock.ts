@@ -79,6 +79,23 @@ export async function clockIn(
     .maybeSingle()
   if (!wo) return { ok: false, entry: null, error: 'Work order not found in this organization' }
 
+  // Sprint 2.5.3 bridge: if the tech has an open daily ClockEvent, link
+  // this per-WO entry to it. Best-effort lookup — failure here doesn't
+  // block the clock-in (per-WO clocking still works without daily clock).
+  let clockEventId: string | null = null
+  try {
+    const { data: openClock } = await supabase
+      .from('clock_events')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('employee_id', userId)
+      .is('clock_out_at', null)
+      .maybeSingle()
+    if (openClock?.id) clockEventId = openClock.id as string
+  } catch {
+    /* swallow — bridge is best-effort */
+  }
+
   const { data, error } = await supabase
     .from('time_entries')
     .insert({
@@ -91,6 +108,7 @@ export async function clockIn(
       work_type: input.work_type ?? 'labor',
       is_overtime: Boolean(input.is_overtime),
       notes: input.notes ?? null,
+      clock_event_id: clockEventId,
     })
     .select('*')
     .single()

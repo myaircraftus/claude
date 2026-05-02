@@ -102,6 +102,7 @@ function isAppRoute(pathname: string): boolean {
     '/aircraft',
     '/approvals',
     '/ask',
+    '/clock',
     '/compliance',
     '/continued',
     '/customers',

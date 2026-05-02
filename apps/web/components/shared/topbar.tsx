@@ -17,6 +17,7 @@ import { FeedbackDialog } from '@/components/shared/feedback-dialog'
 import { SupportDialog } from '@/components/shared/support-dialog'
 import { NotificationBell } from '@/components/notifications/notification-bell'
 import { RunningTimerChip } from '@/components/timeclock/running-timer-chip'
+import { ClockInWidget } from '@/components/clock/clock-in-widget'
 import type { UserProfile } from '@/types'
 
 interface TopbarProps {
@@ -83,6 +84,7 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
       <div className="flex items-center gap-2">
         {actions}
 
+        <ClockInWidget />
         <RunningTimerChip />
 
         <FeedbackDialog />

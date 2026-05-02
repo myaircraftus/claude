@@ -1117,6 +1117,10 @@ export interface TimeEntry {
   work_type: TimeEntryWorkType
   is_overtime: boolean
   notes?: string | null
+  /** Sprint 2.5.3 bridge — auto-set when a tech with an open daily
+   *  ClockEvent clocks into a WO. NULL if the tech is not using the
+   *  daily clock. */
+  clock_event_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -1176,6 +1180,40 @@ export type ShiftCoverStatus = 'open' | 'claimed' | 'approved' | 'rejected'
  *   3. Manager approves/rejects → status flips to 'approved' (also flips the
  *      original Shift.status to 'swapped' + reassigns) or 'rejected'.
  */
+/* ─── Daily Clock In/Out (Spec 2.5.3) ─────────────────────────────────────── */
+
+export type ClockEventStatus = 'clocked-in' | 'on-break' | 'clocked-out'
+
+export interface BreakInterval {
+  start: string                       // ISO datetime
+  end?: string | null
+  reason?: string | null              // "Lunch", "Smoke", etc.
+}
+
+/**
+ * Daily ClockEvent — tech's whole-day clock in/out, with embedded breaks.
+ * Distinct from sprint 2.3's TimeEntry (per-WO labor); per-WO entries
+ * roll up INSIDE a ClockEvent via time_entries.clock_event_id.
+ *
+ * Partial UNIQUE on (employee_id) WHERE clock_out_at IS NULL guarantees
+ * one open clock-event per employee at the DB level.
+ */
+export interface ClockEvent {
+  id: string
+  organization_id: string
+  employee_id: string
+  status: ClockEventStatus
+  clock_in_at: string
+  clock_out_at?: string | null
+  breaks: BreakInterval[]
+  total_hours?: number | null
+  shift_id?: string | null
+  notes?: string | null
+  image_url?: string | null
+  created_at: string
+  updated_at: string
+}
+
 /* ─── Time Off Requests (Spec 2.5.2) ──────────────────────────────────────── */
 
 export type TimeOffStatus = 'draft' | 'pending' | 'approved' | 'denied' | 'cancelled'

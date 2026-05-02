@@ -8,7 +8,7 @@ import {
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
   Sparkles, ShieldCheck, LogOut, GitBranch, MapPin, Building2, Inbox, Gauge,
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
-  Truck, Timer, CalendarDays, CalendarOff,
+  Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -71,9 +71,10 @@ const ownerNavItems: NavItem[] = [
   { icon: ShoppingCart,    label: "Purchase orders",  href: "/purchase-orders" },
   { icon: Truck,           label: "Vendors",          href: "/vendors" },
   { icon: Timer,           label: "Time clock",       href: "/time-clock" },
-  // ── Workforce group (sprints 2.5.1 + 2.5.2; 2.5.3 = Daily Clock-in) ──
+  // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
   { icon: CalendarDays,    label: "Scheduler",        href: "/scheduler" },
   { icon: CalendarOff,     label: "Time Off",         href: "/time-off" },
+  { icon: ClockIcon,       label: "Clock In/Out",     href: "/clock" },
   { icon: Gauge,           label: "Meters",           href: "/meters" },
   { icon: MapPin,          label: "Locations",        href: "/locations" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
@@ -132,9 +133,10 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
     items.push({ icon: ShoppingCart,   label: "Purchase orders", href: "/purchase-orders" });
     items.push({ icon: Truck,          label: "Vendors",     href: "/vendors" });
     items.push({ icon: Timer,          label: "Time clock",  href: "/time-clock" });
-    // ── Workforce group (sprints 2.5.1 + 2.5.2) ──
+    // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
     items.push({ icon: CalendarDays,   label: "Scheduler",   href: "/scheduler" });
     items.push({ icon: CalendarOff,    label: "Time Off",    href: "/time-off" });
+    items.push({ icon: ClockIcon,      label: "Clock In/Out", href: "/clock" });
     items.push({ icon: Gauge,          label: "Meters",      href: "/meters" });
     items.push({ icon: MapPin,         label: "Locations",   href: "/locations" });
     items.push({ icon: Store,          label: "Marketplace", href: "/marketplace" });
