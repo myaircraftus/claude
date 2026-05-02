@@ -1114,3 +1114,51 @@ export interface TimeEntry {
   created_at: string
   updated_at: string
 }
+
+/* ─── Multi-view system per module (Spec 2.4) ────────────────────────────── */
+
+/**
+ * Module keys for the multi-view system. Open string at the DB layer; the
+ * MODULE_CONFIGS map in lib/views/configs.ts decides what fields, group
+ * options, and date keys each module exposes.
+ */
+export type SavedViewModule =
+  | 'work-orders'
+  | 'invoices'
+  | 'logbook'
+  | 'compliance'
+  | 'inspections'
+  | 'parts'
+  | 'purchase-orders'
+  | 'vendors'
+  | 'continued'
+  | 'approvals'
+
+export type SavedViewType = 'list' | 'calendar' | 'table' | 'board'
+
+/**
+ * Saved view config. Per-user by default; user_id=null means org-shared
+ * (only owner/admin can create/edit those — enforced at the API layer).
+ *
+ * `filters` shape is per-module (frontend defines via ModuleViewConfig).
+ * `sort` is `{field, direction}`. `group_by` is the column key for board
+ * grouping. `display_config` carries column order, primary date field for
+ * calendar, status field for board, etc.
+ */
+export interface SavedView {
+  id: string
+  organization_id: string
+  user_id?: string | null
+  module: SavedViewModule
+  name: string
+  view_type: SavedViewType
+  filters: Record<string, unknown>
+  sort?: { field: string; direction: 'asc' | 'desc' } | null
+  group_by?: string | null
+  display_config: Record<string, unknown>
+  is_default: boolean
+  is_seeded: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}

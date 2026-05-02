@@ -1,18 +1,24 @@
 'use client'
 
 /**
- * InspectionsPage view (Spec 1.3) — list of inspections with status filters
- * and an inline create flow (pick aircraft + procedure).
+ * InspectionsPage view (Spec 1.3 + Spec 2.4 multi-view).
+ *
+ * Sprint 2.4: replaced the original status-filter chips + list block with
+ * the generic <ModuleViewShell module="inspections"> from
+ * components/views/. The shell handles list / calendar / table / board
+ * via the module config in lib/views/configs.ts.
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, ClipboardList, Loader2, ChevronRight, Plane } from 'lucide-react'
+import { Plus, ClipboardList, Plane, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
 import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { INSPECTION_STATUS_LABEL } from '@/lib/inspections/status'
+import { ModuleViewShell } from '@/components/views/module-view-shell'
+import { useTenantRouter } from '@/components/shared/tenant-link'
 import type { Inspection, InspectionStatus, OrgRole, Procedure, ProcedureSection, ProcedureItem } from '@/types'
 
 const READ_ONLY_ROLES = new Set<OrgRole>(['viewer', 'auditor'])
@@ -29,12 +35,12 @@ type ProcedureFull = Procedure & { sections: Array<ProcedureSection & { items: P
 
 export function InspectionsView({ userRole }: { userRole: OrgRole }) {
   const canMutate = !READ_ONLY_ROLES.has(userRole)
+  const router = useTenantRouter()
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [aircraft, setAircraft] = useState<AircraftLite[]>([])
   const [procedures, setProcedures] = useState<ProcedureFull[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<'all' | InspectionStatus>('all')
 
   async function load() {
     try {
@@ -67,9 +73,22 @@ export function InspectionsView({ userRole }: { userRole: OrgRole }) {
     return m
   }, [procedures])
 
-  const filtered = statusFilter === 'all'
-    ? inspections
-    : inspections.filter((i) => i.status === statusFilter)
+  // Hydrate the rows passed into ModuleViewShell with display-friendly fields
+  // so the table/board/calendar views can render names instead of UUIDs.
+  // Note: filtering / sorting / grouping is applied INSIDE the shell based on
+  // the active saved view; we just denormalize the inputs.
+  const rows = useMemo(
+    () => inspections.map((i) => ({
+      ...i,
+      // Override aircraft_id with the tail number for display purposes —
+      // the field config still reads aircraft_id, so the table column shows
+      // a tail. Keep the original on _aircraft_id_uuid for click-through.
+      _aircraft_id_uuid: i.aircraft_id,
+      aircraft_id: tailById.get(i.aircraft_id) ?? i.aircraft_id,
+      procedure_name_snapshot: i.procedure_name_snapshot || procNameById.get(i.procedure_id) || '(unknown procedure)',
+    })),
+    [inspections, tailById, procNameById],
+  )
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
@@ -109,103 +128,64 @@ export function InspectionsView({ userRole }: { userRole: OrgRole }) {
         )}
       </AnimatePresence>
 
-      {/* Filter row */}
-      <div className="flex items-center gap-1 flex-wrap">
-        <FilterChip active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>All</FilterChip>
-        {(Object.keys(INSPECTION_STATUS_LABEL) as InspectionStatus[]).map((s) => (
-          <FilterChip
-            key={s}
-            active={statusFilter === s}
-            onClick={() => setStatusFilter(s)}
+      {/* Sprint 2.4 multi-view shell — replaces the original status-filter
+          chips + flat list. The shell pulls saved views from the
+          'inspections' module config (lib/views/configs.ts) and renders
+          list / calendar / table / board with filter + sort + groupBy. */}
+      <ModuleViewShell
+        module="inspections"
+        rows={rows}
+        loading={loading}
+        emptyState={
+          <>
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-white border border-border flex items-center justify-center mb-3">
+              <ClipboardList className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
+              No inspections
+            </h3>
+            <p className="text-[12.5px] text-muted-foreground mt-1 max-w-md mx-auto">
+              Create one to start running a procedure on an aircraft, or pick a
+              different saved view.
+            </p>
+          </>
+        }
+        renderListRow={(i) => (
+          <motion.div
+            layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            className="bg-white rounded-2xl border border-border hover:border-primary/40 hover:shadow-sm transition-all"
           >
-            {INSPECTION_STATUS_LABEL[s]}
-            <span className="ml-1 text-[10px] text-muted-foreground/70">
-              {inspections.filter((i) => i.status === s).length}
-            </span>
-          </FilterChip>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-10 text-center">
-          <div className="mx-auto w-12 h-12 rounded-2xl bg-white border border-border flex items-center justify-center mb-3">
-            <ClipboardList className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <h3 className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
-            {statusFilter === 'all' ? 'No inspections yet' : 'Nothing in this status'}
-          </h3>
-          <p className="text-[12.5px] text-muted-foreground mt-1 max-w-md mx-auto">
-            {statusFilter === 'all'
-              ? 'Create one to start running a procedure on an aircraft.'
-              : 'Try a different filter or kick off a new inspection.'}
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          <AnimatePresence>
-            {filtered.map((i) => {
-              const tail = tailById.get(i.aircraft_id) || i.aircraft_id.slice(0, 8)
-              const procName = i.procedure_name_snapshot || procNameById.get(i.procedure_id) || '(unknown procedure)'
-              return (
-                <motion.li
-                  key={i.id}
-                  layout
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.12 }}
-                  className="bg-white rounded-2xl border border-border hover:border-primary/40 hover:shadow-sm transition-all"
-                >
-                  <Link href={`/inspections/${i.id}`} className="flex items-center gap-3 p-4 group">
-                    <div className={cn('w-10 h-10 rounded-xl border flex items-center justify-center shrink-0', STATUS_TINT[i.status])}>
-                      <ClipboardList className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>
-                          {procName}
-                        </h3>
-                        <span className={cn('inline-flex items-center text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border', STATUS_TINT[i.status])} style={{ fontWeight: 700 }}>
-                          {INSPECTION_STATUS_LABEL[i.status]}
-                        </span>
-                      </div>
-                      <div className="text-[11.5px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                        <Plane className="h-3 w-3" />
-                        <span>{tail}</span>
-                        {i.due_date && <span>· due {i.due_date}</span>}
-                        {i.completed_date && <span>· completed {i.completed_date.slice(0,10)}</span>}
-                      </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </Link>
-                </motion.li>
-              )
-            })}
-          </AnimatePresence>
-        </ul>
-      )}
+            <Link href={`/inspections/${i.id}`} className="flex items-center gap-3 p-4 group">
+              <div className={cn('w-10 h-10 rounded-xl border flex items-center justify-center shrink-0', STATUS_TINT[i.status as InspectionStatus] ?? STATUS_TINT.draft)}>
+                <ClipboardList className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-[14px] text-foreground" style={{ fontWeight: 700 }}>
+                    {(i as any).procedure_name_snapshot}
+                  </h3>
+                  <span className={cn('inline-flex items-center text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border', STATUS_TINT[i.status as InspectionStatus] ?? STATUS_TINT.draft)} style={{ fontWeight: 700 }}>
+                    {INSPECTION_STATUS_LABEL[i.status as InspectionStatus] ?? i.status}
+                  </span>
+                </div>
+                <div className="text-[11.5px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                  <Plane className="h-3 w-3" />
+                  <span>{(i as any).aircraft_id}</span>
+                  {i.due_date && <span>· due {i.due_date}</span>}
+                  {i.completed_date && <span>· completed {String(i.completed_date).slice(0,10)}</span>}
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </Link>
+          </motion.div>
+        )}
+        onRowClick={(i) => router.push(`/inspections/${i.id}`)}
+      />
     </div>
-  )
-}
-
-function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'px-2.5 py-1 rounded-full text-[11.5px] border transition-colors',
-        active
-          ? 'bg-foreground text-background border-foreground'
-          : 'bg-white text-foreground border-border hover:bg-muted',
-      )}
-      style={{ fontWeight: 500 }}
-    >
-      {children}
-    </button>
   )
 }
 
