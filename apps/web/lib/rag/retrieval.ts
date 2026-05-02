@@ -131,6 +131,16 @@ function prefersLatestRecords(queryText: string) {
   return /\b(LAST|LATEST|MOST RECENT|RECENT|CURRENT)\b/i.test(queryText)
 }
 
+/**
+ * Detects "show me X for every aircraft / across the fleet / per tail" style
+ * questions where the user expects per-aircraft answers, not just the most
+ * relevant chunks across the whole org. We use this to force per-aircraft
+ * round-robin so each tail gets representation in the candidate set.
+ */
+function isFleetWideQuery(queryText: string) {
+  return /\b(EVERY\s+AIRCRAFT|ALL\s+AIRCRAFT|EACH\s+AIRCRAFT|PER\s+AIRCRAFT|ACROSS\s+THE\s+FLEET|WHOLE\s+FLEET|ENTIRE\s+FLEET|FLEET[- ]?WIDE|FOR\s+EACH\s+TAIL|EVERY\s+TAIL|WHICH\s+AIRCRAFT)\b/i.test(queryText)
+}
+
 function prefersLatestInspectionRecord(queryText: string) {
   return (
     prefersLatestRecords(queryText) &&
@@ -867,6 +877,141 @@ async function runPhraseFallback(params: {
   return Array.from(merged.values())
 }
 
+/**
+ * Supplemental retrieval for "most recent annual" / "latest annual" queries.
+ *
+ * The cosine-similarity ranker can rank older annual chunks above newer ones
+ * when the verbose query phrasing happens to match the older logbook better.
+ * The pin in scoreRecencyPreference() can only re-rank chunks already in the
+ * candidate set, so when the right chunk doesn't make top-K, we lose.
+ *
+ * This pass directly fetches chunks containing annual-signoff language from
+ * the most-recent dated airframe logbooks for the aircraft, and returns them
+ * with a high preset score so they always make it into the candidate set.
+ */
+async function runLatestAnnualSupplemental(params: {
+  organizationId: string
+  aircraftId?: string
+  queryText: string
+  limit: number
+}): Promise<RetrievedChunk[]> {
+  if (!isAnnualInspectionQuery(params.queryText) || !prefersLatestRecords(params.queryText)) {
+    return []
+  }
+
+  const supabase = createServiceSupabase()
+  // Two ILIKE patterns covering the formal annual signoff language.
+  const patterns = ['%annual inspection%', '%accordance with an annual%']
+  const merged = new Map<string, RetrievedChunk>()
+
+  // Fleet-wide queries with no aircraft_id need a much larger pool so the
+  // round-robin step downstream can give every aircraft representation.
+  // Per-aircraft queries only need enough to surface the most recent annual.
+  const isFleetWide = !params.aircraftId && isFleetWideQuery(params.queryText)
+  // Cap fleet-wide pool: each aircraft typically has 5-15 annual signoff
+  // chunks, so 60 covers ~10 tails after dedup. Per-aircraft only needs
+  // enough to surface the most-recent annual.
+  const sqlLimit = isFleetWide ? 60 : Math.max(params.limit, 12)
+
+  for (const pattern of patterns) {
+    let query = supabase
+      .from('canonical_document_chunks')
+      .select(
+        `
+        id,
+        document_id,
+        aircraft_id,
+        page_number,
+        page_number_end,
+        section_title,
+        chunk_text,
+        metadata_json,
+        documents:document_id!inner (
+          title,
+          doc_type,
+          document_date,
+          document_detail_id,
+          parsing_status
+        ),
+        aircraft:aircraft_id (
+          tail_number
+        )
+      `
+      )
+      .eq('organization_id', params.organizationId)
+      .neq('documents.parsing_status', 'failed')
+      .ilike('chunk_text', pattern)
+      .order('document_date', { foreignTable: 'documents', ascending: false, nullsFirst: false })
+      .limit(sqlLimit)
+
+    if (params.aircraftId) {
+      query = query.eq('aircraft_id', params.aircraftId)
+    }
+
+    const { data, error } = await query
+    if (error || !Array.isArray(data)) continue
+
+    for (const row of data as any[]) {
+      const document = Array.isArray(row.documents) ? row.documents[0] : row.documents
+      const aircraft = Array.isArray(row.aircraft) ? row.aircraft[0] : row.aircraft
+      const chunk: RetrievedChunk = {
+        chunk_id: row.id,
+        document_id: row.document_id,
+        document_title: document?.title ?? 'Untitled document',
+        doc_type: document?.doc_type as DocType,
+        document_detail_id: document?.document_detail_id ?? undefined,
+        document_date: document?.document_date ?? undefined,
+        aircraft_id: row.aircraft_id ?? undefined,
+        aircraft_tail: aircraft?.tail_number ?? undefined,
+        page_number: row.page_number,
+        page_number_end: row.page_number_end ?? undefined,
+        section_title: row.section_title ?? undefined,
+        chunk_text: row.chunk_text,
+        metadata_json: (row.metadata_json as Record<string, unknown>) ?? {},
+        vector_score: 0,
+        keyword_score: 1,
+        // Score high enough to always survive the top-K cull. The downstream
+        // recency pass adds the +1.5 pin if this chunk also has the latest
+        // sortKey, so we don't need to overshoot here.
+        combined_score: 0.9,
+      }
+      const existing = merged.get(chunk.chunk_id)
+      if (!existing || chunk.combined_score > existing.combined_score) {
+        merged.set(chunk.chunk_id, chunk)
+      }
+    }
+  }
+
+  // Fleet-wide round-robin: for "every aircraft" / "across the fleet" style
+  // queries with no specific aircraft_id, ensure each aircraft gets at least
+  // one annual chunk in the candidate set so the model can answer per-tail.
+  if (!params.aircraftId && isFleetWideQuery(params.queryText)) {
+    const grouped = new Map<string, RetrievedChunk[]>()
+    for (const chunk of merged.values()) {
+      const tailKey = chunk.aircraft_id ?? 'unknown'
+      const list = grouped.get(tailKey) ?? []
+      list.push(chunk)
+      grouped.set(tailKey, list)
+    }
+
+    const roundRobin: RetrievedChunk[] = []
+    for (const [, list] of grouped) {
+      list.sort((a, b) => {
+        const da = a.document_date ?? ''
+        const db = b.document_date ?? ''
+        return db.localeCompare(da)
+      })
+      // Top 3 most recent annual chunks per aircraft so the LLM has
+      // enough context to identify the actual annual signoff line.
+      roundRobin.push(...list.slice(0, 3))
+    }
+
+    return roundRobin
+  }
+
+  return Array.from(merged.values())
+}
+
 async function runRawChunkFallback(params: {
   organizationId: string
   aircraftId?: string
@@ -1055,11 +1200,28 @@ export async function retrieveChunks(params: {
         })
       : []
 
+  // Supplemental: for "most recent annual" queries, force-include the latest
+  // annual signoff chunks so the recency pin actually has the right chunk to
+  // pin. Without this, verbose phrasings like "when was N562AF's most recent
+  // annual completed and who signed it off?" fail to retrieve chunks from
+  // the most recent airframe logbook.
+  const latestAnnualChunks = await runLatestAnnualSupplemental({
+    organizationId: params.organizationId,
+    aircraftId: effectiveAircraftId,
+    queryText: effectiveQueryText,
+    limit,
+  })
+
   if (chunks.length === 0) {
-    chunks = [...phraseChunks, ...keywordChunks, ...rawChunks]
-  } else if (keywordChunks.length > 0 || phraseChunks.length > 0 || rawChunks.length > 0) {
+    chunks = [...latestAnnualChunks, ...phraseChunks, ...keywordChunks, ...rawChunks]
+  } else if (
+    keywordChunks.length > 0 ||
+    phraseChunks.length > 0 ||
+    rawChunks.length > 0 ||
+    latestAnnualChunks.length > 0
+  ) {
     const merged = new Map(chunks.map((chunk) => [chunk.chunk_id, chunk]))
-    for (const chunk of [...keywordChunks, ...phraseChunks, ...rawChunks]) {
+    for (const chunk of [...latestAnnualChunks, ...keywordChunks, ...phraseChunks, ...rawChunks]) {
       const existing = merged.get(chunk.chunk_id)
       if (!existing) {
         merged.set(chunk.chunk_id, chunk)
