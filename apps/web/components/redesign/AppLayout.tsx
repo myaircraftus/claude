@@ -8,7 +8,7 @@ import {
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
   Sparkles, ShieldCheck, LogOut, GitBranch, MapPin, Building2, Inbox, Gauge,
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
-  Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon,
+  Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon, CalendarClock,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -64,6 +64,7 @@ const ownerNavItems: NavItem[] = [
   // admins as a global monitoring view.
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: ClipboardCheck,  label: "Compliance",       href: "/compliance" },
+  { icon: CalendarClock,   label: "Expirations",      href: "/documents/expiring" },
   { icon: ClipboardList,   label: "Inspections",      href: "/inspections" },
   { icon: Bookmark,        label: "Continued",        href: "/continued" },
   { icon: Mailbox,         label: "Approvals",        href: "/approvals" },
@@ -127,6 +128,7 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
     // Documents intentionally omitted — Operations Hub decision: it lives
     // under Admin now, mechanics don't see it as a top-level entry.
     items.push({ icon: ClipboardCheck, label: "Compliance",  href: "/compliance" });
+    items.push({ icon: CalendarClock,  label: "Expirations", href: "/documents/expiring" });
     items.push({ icon: ClipboardList,  label: "Inspections", href: "/inspections" });
     items.push({ icon: Bookmark,       label: "Continued",   href: "/continued" });
     items.push({ icon: Mailbox,        label: "Approvals",   href: "/approvals" });

@@ -275,6 +275,78 @@ export interface Document {
   uploaded_at: string
   updated_at: string
   aircraft?: { id: string; tail_number: string; make?: string; model?: string; year?: number } | null
+  /* ─── Document Expiration & Reminders (Spec 2.6.2) — additive ─── */
+  /** Which persona this expiring document belongs to. Distinct from uploader_role. */
+  target_persona?: 'owner' | 'mechanic' | 'shop' | null
+  /** Persona-specific regulatory category ("Insurance Policy", "A&P Certificate", …). */
+  expiration_category?: string | null
+  has_expiration?: boolean
+  expiration_date?: string | null
+  effective_date?: string | null
+  /** [{offset_days: -30, channels: ['in-app','email']}, ...] */
+  reminder_offsets?: Array<{ offset_days: number; channels?: string[] }>
+  expiration_status?: 'current' | 'expiring-soon' | 'expired' | null
+  issued_by?: string | null
+  document_number?: string | null
+  renewal_tracking_id?: string | null
+}
+
+/* ─── Document Expiration helpers (Spec 2.6.2) ──────────────────────────── */
+
+export type ExpirationPersona = 'owner' | 'mechanic' | 'shop'
+export type ExpirationStatus = 'current' | 'expiring-soon' | 'expired'
+
+export interface ReminderOffsetSpec {
+  /** Negative = before, positive = after. Spec uses "30 days before" → -30. */
+  offset_days: number
+  channels?: string[]
+}
+
+export const OWNER_DOC_CATEGORIES = [
+  'Aircraft Registration',
+  'Airworthiness Certificate',
+  'Insurance Policy',
+  'Lease Agreement',
+  'Annual Inspection Sign-off',
+  'Pilot Medical',
+  'Flight Review (BFR)',
+  'ELT Battery Certificate',
+  'Transponder Cert',
+  'Pitot-Static Cert',
+  'VOR Check',
+  'Other',
+] as const
+
+export const MECHANIC_DOC_CATEGORIES = [
+  'A&P Certificate',
+  'IA Authorization',
+  'Repair Station Certificate',
+  'Training Record',
+  'Drug & Alcohol Compliance',
+  'Hangar Lease',
+  'Shop Insurance',
+  'Tool Calibration Certificate',
+  'Vendor Approval Letter',
+  'Continuing Education',
+  'OSHA Training',
+  'Other',
+] as const
+
+export const SHOP_DOC_CATEGORIES = [
+  'Business License',
+  'Tax ID Letter',
+  'EPA Permit',
+  'Hazmat Storage Permit',
+  'Workers Comp Policy',
+  'Lease Agreement',
+  'Service Contract',
+  'Other',
+] as const
+
+export const DOC_CATEGORIES_BY_PERSONA: Record<ExpirationPersona, readonly string[]> = {
+  owner: OWNER_DOC_CATEGORIES,
+  mechanic: MECHANIC_DOC_CATEGORIES,
+  shop: SHOP_DOC_CATEGORIES,
 }
 
 export interface DocumentChunk {
