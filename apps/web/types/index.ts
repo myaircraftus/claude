@@ -77,6 +77,13 @@ export interface DocumentProcessingState {
   stages?: Partial<Record<DocumentProcessingStage, DocumentProcessingStageSnapshot>>
 }
 
+/**
+ * Org persona / business type from Spec 0.1. Drives default surface choice
+ * (a "shop" org defaults to mechanic persona, "owner" defaults to owner, etc.)
+ * — actual persona switching still lives in `Membership.persona`.
+ */
+export type OrgType = 'owner' | 'shop' | 'flight-school' | 'fbo' | 'operator'
+
 export interface Organization {
   id: string
   name: string
@@ -90,8 +97,36 @@ export interface Organization {
   stripe_customer_id?: string
   stripe_subscription_id?: string
   logo_url?: string
+  /** Spec 0.1: owner | shop | flight-school | fbo | operator. */
+  org_type?: OrgType | null
+  /** Primary airport ICAO/IATA (e.g. "KAPA"). */
+  home_base?: string | null
+  /** Billing contact email. */
+  billing_email?: string | null
   current_integration?: string
   integration_flags?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Location: org-scoped physical space (hangar, tie-down, ramp, shop, office).
+ * Hierarchical via `parent_location_id` so an org can model: airport → hangar → bay.
+ *
+ * Per Spec 0.1, every primary entity (aircraft, WO, invoice, logbook, customer,
+ * document) gets an optional `location_id`. Records without a location are
+ * "org-wide" — list views should still show them under "All locations".
+ */
+export type LocationType = 'hangar' | 'tie-down' | 'ramp' | 'shop' | 'office'
+
+export interface Location {
+  id: string
+  organization_id: string
+  name: string
+  airport_code?: string | null
+  location_type: LocationType
+  address?: string | null
+  parent_location_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -112,11 +147,23 @@ export interface UserProfile {
   updated_at: string
 }
 
+/**
+ * Persona that drives UI rendering. The same user in the same org can flip
+ * between `owner` and `mechanic` — Feature 0.2 (Persona system) wires the
+ * actual switcher; this column has existed since migration 047.
+ *
+ * `shop` is reserved for Phase 5 — the shop-wide foreman view. Not yet
+ * surfaced in the persona switcher.
+ */
+export type Persona = 'owner' | 'mechanic' | 'shop'
+
 export interface OrganizationMembership {
   id: string
   organization_id: string
   user_id: string
   role: OrgRole
+  /** Persona this membership defaults to in the UI (Spec 0.1 / 0.2). */
+  persona?: Persona | null
   invited_by?: string
   invited_at: string
   accepted_at?: string
@@ -125,6 +172,8 @@ export interface OrganizationMembership {
 export interface Aircraft {
   id: string
   organization_id: string
+  /** Spec 0.1: optional location within the org (nullable). */
+  location_id?: string | null
   tail_number: string
   serial_number?: string
   make: string
@@ -155,6 +204,8 @@ export interface Aircraft {
 export interface Document {
   id: string
   organization_id: string
+  /** Spec 0.1: optional location within the org (nullable). */
+  location_id?: string | null
   aircraft_id?: string
   title: string
   doc_type: DocType
@@ -556,6 +607,8 @@ export type WorkOrderLineType = 'labor' | 'part' | 'outside_service' | 'discrepa
 export interface WorkOrder {
   id: string
   organization_id: string
+  /** Spec 0.1: optional location within the org (nullable). */
+  location_id?: string | null
   work_order_number: string
   aircraft_id: string | null
   customer_id: string | null

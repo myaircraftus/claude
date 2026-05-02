@@ -6,7 +6,7 @@ import {
   Wrench, Settings, ChevronDown, User,
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
-  Sparkles, ShieldCheck,
+  Sparkles, ShieldCheck, MapPin, Building2,
 } from "lucide-react";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -45,6 +45,7 @@ const ownerNavItems: NavItem[] = [
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: FileText,        label: "Documents",        href: "/documents" },
+  { icon: MapPin,          label: "Locations",        href: "/locations" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
   { icon: UserRound,       label: "Users",            href: "/settings" },
 ];
@@ -76,6 +77,7 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
 
   if (perm.settingsFull) {
     items.push({ icon: FileText, label: "Documents",   href: "/documents" });
+    items.push({ icon: MapPin,   label: "Locations",   href: "/locations" });
     items.push({ icon: Store,    label: "Marketplace", href: "/marketplace" });
   }
 
@@ -130,6 +132,8 @@ function AppLayoutInner({
   const [ownerAircraft, setOwnerAircraft] = useState<OwnerAircraftSummary[]>([]);
   const [ownerAircraftLoaded, setOwnerAircraftLoaded] = useState(false);
   const [persistedAircraftId, setPersistedAircraftId] = useState<string | null>(null);
+  const [orgCount, setOrgCount] = useState<number>(1);
+  const [activeOrgName, setActiveOrgName] = useState<string | null>(null);
 
   const [collapsed,         setCollapsed]         = useState(false);
   const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Mechanic Portal"]));
@@ -150,7 +154,24 @@ function AppLayoutInner({
         // noop
       }
     }
+    async function loadOrgs() {
+      try {
+        const res = await fetch("/api/me/orgs", { cache: "no-store" });
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (cancelled) return;
+        const memberships = Array.isArray(payload?.memberships) ? payload.memberships : [];
+        setOrgCount(memberships.length);
+        const active = memberships.find(
+          (m: any) => m?.organization?.id === payload?.active_organization_id,
+        );
+        setActiveOrgName(active?.organization?.name ?? null);
+      } catch {
+        // noop
+      }
+    }
     loadProfile();
+    loadOrgs();
     return () => { cancelled = true; };
   }, []);
 
@@ -549,6 +570,41 @@ function AppLayoutInner({
             );
           })}
         </nav>
+
+        {/* Switch Organization — only visible if user belongs to >1 org */}
+        {orgCount > 1 && !collapsed && (
+          <div className="px-2 pb-1 shrink-0">
+            <Link
+              href="/org/switch"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] transition-all group"
+              style={{ color: "rgba(255,255,255,0.55)" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "rgba(255,255,255,0.95)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}
+            >
+              <Building2 className="w-4 h-4 shrink-0 text-blue-300/70" />
+              <div className="flex-1 min-w-0 text-left">
+                <div className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
+                  Organization
+                </div>
+                <div className="truncate" style={{ fontWeight: 500 }}>
+                  {activeOrgName ?? "Switch organization"}
+                </div>
+              </div>
+              <ArrowLeftRight className="w-3.5 h-3.5 shrink-0 text-white/40" />
+            </Link>
+          </div>
+        )}
+        {orgCount > 1 && collapsed && (
+          <div className="px-2 pb-1 shrink-0 flex justify-center">
+            <Link
+              href="/org/switch"
+              title={activeOrgName ? `${activeOrgName} · Switch organization` : "Switch organization"}
+              className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors text-white/55 hover:bg-white/10 hover:text-white"
+            >
+              <Building2 className="w-4 h-4" />
+            </Link>
+          </div>
+        )}
 
         {/* Guided Tour button — above user footer */}
         {!collapsed && (
