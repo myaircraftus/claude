@@ -24,8 +24,10 @@ import {
   Wrench, Package, ExternalLink, ChevronDown, FileText,
   Receipt, Sparkles, MessageSquare, BookOpen,
   ClipboardCheck, Layers, Camera, Bot, Eye, ShieldCheck,
-  CheckCircle2, Circle,
+  CheckCircle2, Circle, MoreHorizontal, Printer, Link2, Share2, Mail,
+  PenLine, AlertCircle,
 } from 'lucide-react'
+import { ESignatureModal, SignatureBlock, type SignatureResult } from '@/components/work-orders/e-signature-modal'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import { ADSBManagerPanel } from '@/components/aircraft/ad-sb-manager'
@@ -123,15 +125,24 @@ interface ChecklistItem {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+interface SignerProfile {
+  full_name?: string | null
+  email?: string | null
+  mechanic_cert_number?: string | null
+  mechanic_cert_type?: string | null
+}
+
 interface Props {
   workOrder: WorkOrder
   aircraft: { id: string; tail_number: string; make: string; model: string }[]
   userRole: string
+  /** Profile for the currently signed-in user — used to pre-fill the e-sign modal. */
+  profile?: SignerProfile | null
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole }: Props) {
+export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole, profile }: Props) {
   const router = useTenantRouter()
   const [wo, setWo] = useState(workOrder)
   const [lines, setLines] = useState<WorkOrderLine[]>((workOrder.lines as WorkOrderLine[]) ?? [])
@@ -140,7 +151,67 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
   const [addingLine, setAddingLine] = useState(false)
   const [showAddLine, setShowAddLine] = useState(false)
   const [showAIPlan, setShowAIPlan] = useState(false)
+  const [shareMenuOpen, setShareMenuOpen] = useState(false)
   const [tab, setTab] = useState<TabId>('activity')
+
+  // Logbook entry state — pulled from /api/logbook-entries?work_order_id=...
+  // and refreshed on tab open. The Logbook tab renders editable description
+  // for drafts, then opens ESignatureModal for the actual sign.
+  const [logbookEntry, setLogbookEntry] = useState<any | null>(null)
+  const [logbookLoading, setLogbookLoading] = useState(false)
+  const [logbookGenerating, setLogbookGenerating] = useState(false)
+  const [logbookSaving, setLogbookSaving] = useState(false)
+  const [logbookDraftBody, setLogbookDraftBody] = useState('')
+  const [logbookDirty, setLogbookDirty] = useState(false)
+  const [showSignatureModal, setShowSignatureModal] = useState(false)
+
+  // AI Summary state — aggregated narrative from checklist + lines + activity.
+  // Cached on work_orders.ai_summary, regenerated on demand.
+  const [aiSummary, setAiSummary] = useState<string>(((wo as any).ai_summary as string) ?? '')
+  const [aiSummaryGeneratedAt, setAiSummaryGeneratedAt] = useState<string | null>(((wo as any).ai_summary_generated_at as string) ?? null)
+  const [aiSummaryStats, setAiSummaryStats] = useState<{
+    checklist_total?: number; checklist_completed?: number; adsb_resolved?: number;
+    line_items_count?: number; parts_count?: number; labor_count?: number;
+  } | null>(null)
+  const [aiSummaryGenerating, setAiSummaryGenerating] = useState(false)
+  const [aiSummaryDirty, setAiSummaryDirty] = useState(false)
+  const [generatingInvoice, setGeneratingInvoice] = useState(false)
+
+  // Close the share menu on outside click.
+  useEffect(() => {
+    if (!shareMenuOpen) return
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as HTMLElement
+      if (target.closest('[data-share-menu]')) return
+      setShareMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [shareMenuOpen])
+
+  async function handleCopyLink() {
+    try {
+      const url = `${window.location.origin}/work-orders/${wo.id}`
+      await navigator.clipboard.writeText(url)
+      toast.success('Link copied to clipboard')
+    } catch {
+      toast.error('Could not copy link')
+    }
+    setShareMenuOpen(false)
+  }
+
+  function handlePrint() {
+    setShareMenuOpen(false)
+    setTimeout(() => window.print(), 50)
+  }
+
+  function handleEmailCustomer() {
+    setShareMenuOpen(false)
+    const url = `${window.location.origin}/work-orders/${wo.id}`
+    const subject = `Work Order ${wo.work_order_number}`
+    const body = `Here's the work order detail link:\n\n${url}`
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  }
 
   // Editable fields
   const [complaint, setComplaint] = useState(workOrder.customer_complaint ?? '')
@@ -212,6 +283,202 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
+
+  // ─── Load logbook entry for this WO (if exists) when Logbook tab opens ────
+  useEffect(() => {
+    if (tab !== 'logbook') return
+    let cancelled = false
+    void (async () => {
+      setLogbookLoading(true)
+      try {
+        const res = await fetch(`/api/logbook-entries?work_order_id=${wo.id}&limit=1`)
+        if (!res.ok) return
+        const json = await res.json()
+        const entry = Array.isArray(json.entries) && json.entries.length > 0
+          ? json.entries[0]
+          : Array.isArray(json) && json.length > 0
+            ? json[0]
+            : null
+        if (!cancelled) {
+          setLogbookEntry(entry)
+          setLogbookDraftBody(entry?.entry_text ?? entry?.description ?? '')
+          setLogbookDirty(false)
+        }
+      } finally {
+        if (!cancelled) setLogbookLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, wo.id])
+
+  async function handleGenerateLogbookEntry() {
+    setLogbookGenerating(true)
+    try {
+      // Step 1 — generate the AI draft body (description, parts, refs, ADs).
+      const aiRes = await fetch('/api/ai/generate-logbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: (wo as any).aircraft_id,
+          work_order_id: wo.id,
+        }),
+      })
+      const aiJson = await aiRes.json().catch(() => ({}))
+      if (!aiRes.ok) {
+        toast.error(aiJson?.error || 'AI logbook generation failed')
+        return
+      }
+
+      // Step 2 — persist as a draft entry tied to this WO.
+      const entryRes = await fetch('/api/logbook-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: (wo as any).aircraft_id,
+          work_order_id: wo.id,
+          entry_type: aiJson.entry_type ?? 'maintenance',
+          entry_date: new Date().toISOString().slice(0, 10),
+          description: aiJson.description ?? '',
+          parts_used: aiJson.parts_used ?? [],
+          references_used: aiJson.references_used ?? [],
+          ad_numbers: aiJson.ad_numbers ?? [],
+          status: 'draft',
+        }),
+      })
+      const entry = await entryRes.json().catch(() => ({}))
+      if (!entryRes.ok) {
+        toast.error(entry?.error || 'Failed to save logbook draft')
+        return
+      }
+      setLogbookEntry(entry)
+      setLogbookDraftBody(entry.entry_text ?? entry.description ?? aiJson.description ?? '')
+      setLogbookDirty(false)
+      toast.success('Logbook draft generated — review and sign')
+    } catch {
+      toast.error('Logbook generation failed')
+    } finally {
+      setLogbookGenerating(false)
+    }
+  }
+
+  async function handleSaveLogbookDraft() {
+    if (!logbookEntry || !logbookDirty) return
+    setLogbookSaving(true)
+    try {
+      const res = await fetch(`/api/logbook-entries/${logbookEntry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: logbookDraftBody }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j?.error || 'Save failed')
+        return
+      }
+      const updated = await res.json()
+      setLogbookEntry(updated)
+      setLogbookDirty(false)
+      toast.success('Draft saved')
+    } finally {
+      setLogbookSaving(false)
+    }
+  }
+
+  async function handleGenerateAiSummary() {
+    setAiSummaryGenerating(true)
+    try {
+      const res = await fetch(`/api/work-orders/${wo.id}/ai-summary`, { method: 'POST' })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j?.error || 'AI summary failed')
+        return
+      }
+      setAiSummary(j.summary ?? '')
+      setAiSummaryGeneratedAt(j.generated_at ?? new Date().toISOString())
+      setAiSummaryStats(j.stats ?? null)
+      setAiSummaryDirty(false)
+      toast.success('AI summary generated')
+    } catch {
+      toast.error('AI summary failed')
+    } finally {
+      setAiSummaryGenerating(false)
+    }
+  }
+
+  async function handleSaveAiSummary() {
+    if (!aiSummaryDirty) return
+    try {
+      const res = await fetch(`/api/work-orders/${wo.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ai_summary: aiSummary }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j?.error || 'Save failed')
+        return
+      }
+      setAiSummaryDirty(false)
+      toast.success('Summary saved')
+    } catch {
+      toast.error('Save failed')
+    }
+  }
+
+  async function handleAutoGenerateInvoice() {
+    setGeneratingInvoice(true)
+    try {
+      // Save any pending summary edits first so the invoice notes match.
+      if (aiSummaryDirty) await handleSaveAiSummary()
+
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ work_order_id: wo.id }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j?.error || 'Could not generate invoice')
+        return
+      }
+      toast.success('Invoice generated')
+      router.push(`/invoices/${j.id}`)
+    } catch {
+      toast.error('Could not generate invoice')
+    } finally {
+      setGeneratingInvoice(false)
+    }
+  }
+
+  async function handleApplySignature(sig: SignatureResult) {
+    if (!logbookEntry) return
+    try {
+      // Save any unsaved body edits first so the signed version captures them.
+      if (logbookDirty) await handleSaveLogbookDraft()
+
+      const res = await fetch(`/api/logbook-entries/${logbookEntry.id}/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mechanic_name: sig.signerName,
+          mechanic_cert_number: sig.signerCert,
+          cert_type: 'A&P',
+          signature_audit: sig,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j?.error || 'Sign failed')
+        return
+      }
+      setLogbookEntry(j)
+      setShowSignatureModal(false)
+      toast.success('Logbook entry signed and sealed')
+    } catch {
+      toast.error('Sign failed')
+    }
+  }
 
   async function handleToggleChecklist(item: ChecklistItem) {
     setChecklistTogglingId(item.id)
@@ -450,6 +717,68 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                 Save
               </Button>
             )}
+            {/* Share / print / copy-link menu — single entry point for
+                everything you'd want to "send" the WO out as. Replaces the
+                separate buttons that used to live in the split-panel view. */}
+            <div className="relative" data-share-menu>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShareMenuOpen((o) => !o)}
+                aria-label="Share work order"
+                title="Share, print, or export"
+              >
+                <Share2 className="h-3.5 w-3.5 mr-1" /> Share
+                <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
+              </Button>
+              {shareMenuOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-56 rounded-xl border border-border bg-white shadow-lg z-30 overflow-hidden">
+                  <a
+                    href={`/api/work-orders/${wo.id}/pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setShareMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                  >
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1">
+                      <div className="font-medium">Download PDF</div>
+                      <div className="text-[11px] text-muted-foreground">Includes line items + totals</div>
+                    </div>
+                  </a>
+                  <button
+                    onClick={handlePrint}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left"
+                  >
+                    <Printer className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1">
+                      <div className="font-medium">Print</div>
+                      <div className="text-[11px] text-muted-foreground">Use browser print dialog</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={handleCopyLink}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left"
+                  >
+                    <Link2 className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1">
+                      <div className="font-medium">Copy link</div>
+                      <div className="text-[11px] text-muted-foreground">Share with anyone in your org</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={handleEmailCustomer}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left border-t border-border"
+                  >
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1">
+                      <div className="font-medium">Email work order</div>
+                      <div className="text-[11px] text-muted-foreground">Compose with link pre-filled</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -513,16 +842,29 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
         {/* Checklist — template-driven, AI-augmented, mechanic-toggleable */}
         {tab === 'checklist' && (
           <div className="p-6 max-w-3xl mx-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
                 <h2 className="text-base font-semibold text-foreground">Checklist</h2>
                 <p className="text-xs text-muted-foreground">
-                  Driven by your shop&rsquo;s checklist template (Settings → Shop). AI fills in any gaps automatically based on this work order&rsquo;s scope.
+                  Driven by your shop&rsquo;s template (Settings → Shop), AI-augmented from this WO&rsquo;s scope, and seeded with the aircraft&rsquo;s AD/SB compliance state at WO open. Required items must be checked off before the WO can move to Ready for Sign-off or Closed.
                 </p>
               </div>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {checklist.filter((i) => i.completed).length} / {checklist.length} done
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {checklist.filter((i) => i.completed).length} / {checklist.length} done
+                </span>
+                {checklist.some((i) => i.source === 'ad_sb' || i.source === 'ad') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setTab('adsb')}
+                    className="h-7"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                    Open AD/SB
+                  </Button>
+                )}
+              </div>
             </div>
 
             {checklistLoading && (
@@ -577,7 +919,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                                     Required
                                   </span>
                                 )}
-                                {item.source === 'ad' && (
+                                {(item.source === 'ad' || item.source === 'ad_sb') && (
                                   <span className="text-[10px] uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-semibold">
                                     AD/SB
                                   </span>
@@ -832,31 +1174,140 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
         {/* AI Summary */}
         {tab === 'aisummary' && (
           <div className="p-6 max-w-3xl mx-auto space-y-4">
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Bot className="h-4 w-4 text-violet-600" />
-                <h2 className="text-base font-semibold text-foreground">AI Summary &amp; Plan</h2>
+            {/* Header card — explains the role of AI Summary in the WO lifecycle */}
+            <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4 text-violet-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-foreground" style={{ fontWeight: 600 }}>AI Summary &amp; Auto-Generate</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Aggregates the completed checklist, resolved AD/SB items, all line items, and recent activity into a single plain-language narrative.
+                    The summary is the source for both the auto-generated invoice and the auto-generated logbook entry.
+                  </p>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Generate a structured work plan from the complaint &amp; aircraft history. Approve to land the proposed labor / parts as line items.
-              </p>
-              <Button onClick={() => setShowAIPlan(true)} disabled={isReadonly}>
-                <Sparkles className="h-4 w-4 mr-1.5" /> Generate AI Work Plan
-              </Button>
             </div>
 
-            {!isOwnerView && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Customer Complaint</Label>
-                  <textarea value={complaint} onChange={(e) => { setComplaint(e.target.value); markDirty() }} readOnly={isReadonly} rows={4} className="w-full px-3 py-2 rounded-md border border-input bg-white text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Internal Notes</Label>
-                  <textarea value={internalNotes} onChange={(e) => { setInternalNotes(e.target.value); markDirty() }} readOnly={isReadonly} rows={4} className="w-full px-3 py-2 rounded-md border border-input bg-white text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring" />
-                </div>
+            {/* Stats strip */}
+            {aiSummaryStats && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {[
+                  { label: 'Checklist',  value: `${aiSummaryStats.checklist_completed ?? 0}/${aiSummaryStats.checklist_total ?? 0}` },
+                  { label: 'AD/SB done', value: aiSummaryStats.adsb_resolved ?? 0 },
+                  { label: 'Line items', value: aiSummaryStats.line_items_count ?? 0 },
+                  { label: 'Parts',      value: aiSummaryStats.parts_count ?? 0 },
+                  { label: 'Labor',      value: aiSummaryStats.labor_count ?? 0 },
+                  { label: 'Status',     value: STATUS_LABEL[wo.status as WorkOrderStatus] ?? wo.status },
+                ].map((s) => (
+                  <div key={s.label} className="bg-white border border-border rounded-lg px-2.5 py-2">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wide" style={{ fontWeight: 600 }}>{s.label}</div>
+                    <div className="text-[14px] text-foreground tabular-nums" style={{ fontWeight: 700 }}>{s.value}</div>
+                  </div>
+                ))}
               </div>
             )}
+
+            {/* Summary editor */}
+            <div className="rounded-xl border border-border bg-white overflow-hidden">
+              <div className="px-5 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-600" />
+                  <h2 className="text-sm font-semibold text-foreground">Wrap-Up Summary</h2>
+                </div>
+                {aiSummaryGeneratedAt && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Generated {new Date(aiSummaryGeneratedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-5 space-y-3">
+                {!aiSummary ? (
+                  <div className="text-center py-8">
+                    <Sparkles className="h-10 w-10 text-violet-300 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground mb-4">No summary yet — click below to generate one from the WO's checklist + line items + activity.</p>
+                    <Button onClick={handleGenerateAiSummary} disabled={aiSummaryGenerating || isReadonly}>
+                      {aiSummaryGenerating ? (
+                        <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Generating…</>
+                      ) : (
+                        <><Sparkles className="h-4 w-4 mr-1.5" /> Generate AI Summary</>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      value={aiSummary}
+                      onChange={(e) => { setAiSummary(e.target.value); setAiSummaryDirty(true) }}
+                      readOnly={isReadonly}
+                      rows={8}
+                      className={cn(
+                        'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-primary/30',
+                        isReadonly && 'opacity-70 cursor-not-allowed bg-muted/30',
+                      )}
+                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button variant="outline" size="sm" onClick={handleGenerateAiSummary} disabled={aiSummaryGenerating || isReadonly}>
+                        {aiSummaryGenerating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                        Regenerate
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleSaveAiSummary} disabled={!aiSummaryDirty || isReadonly}>
+                        <Save className="h-3.5 w-3.5 mr-1" /> Save
+                      </Button>
+                      <div className="flex-1" />
+                      {/* Generate logbook + Generate invoice — wired to the existing handlers */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setTab('logbook'); if (!logbookEntry) handleGenerateLogbookEntry() }}
+                        disabled={isReadonly || logbookGenerating}
+                      >
+                        {logbookGenerating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <BookOpen className="h-3.5 w-3.5 mr-1" />}
+                        Generate Logbook Entry
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleAutoGenerateInvoice}
+                        disabled={isReadonly || generatingInvoice || lines.length === 0}
+                      >
+                        {generatingInvoice ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Receipt className="h-3.5 w-3.5 mr-1" />}
+                        Generate Invoice
+                      </Button>
+                    </div>
+                    {aiSummaryDirty && (
+                      <div className="flex items-start gap-1.5 text-[11px] text-amber-700">
+                        <AlertCircle className="h-3 w-3 mt-0.5" />
+                        Unsaved changes — Save before generating invoice or logbook.
+                      </div>
+                    )}
+                    {lines.length === 0 && (
+                      <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                        <AlertCircle className="h-3 w-3 mt-0.5" />
+                        No line items yet — invoice generation needs at least one billable line.
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Reveal the existing AI Plan (line-item proposer) as a secondary action */}
+            <details className="bg-white rounded-xl border border-border">
+              <summary className="px-5 py-3 cursor-pointer text-sm text-foreground flex items-center gap-2 select-none" style={{ fontWeight: 600 }}>
+                <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+                Or run AI Plan to propose line items from the complaint
+              </summary>
+              <div className="px-5 pb-4">
+                <p className="text-xs text-muted-foreground mb-3">
+                  AI Plan works in the other direction: reads the complaint &amp; aircraft history, proposes labor/parts you can accept as line items.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => setShowAIPlan(true)} disabled={isReadonly}>
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Run AI Plan
+                </Button>
+              </div>
+            </details>
           </div>
         )}
 
@@ -889,7 +1340,26 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
 
         {/* AD / SB — per-aircraft, with Add to WO buttons */}
         {tab === 'adsb' && (
-          <div className="p-6 max-w-5xl mx-auto">
+          <div className="p-6 max-w-5xl mx-auto space-y-3">
+            {/* Quick jump back to the checklist where overdue/unknown ADs
+                already live as required items at WO open. Saves the mechanic
+                from leaving the WO to verify what's queued up. */}
+            <div className="flex items-center justify-between gap-3 bg-blue-50/60 border border-blue-100 rounded-xl px-4 py-3">
+              <div className="text-[12px] text-blue-900">
+                <span className="font-semibold">Tip:</span>{' '}
+                Overdue and unverified AD/SB items are auto-added to this work order&rsquo;s checklist at creation.
+                They must be marked complete before the WO can move to Ready for Sign-off or Closed.
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 bg-white"
+                onClick={() => setTab('checklist')}
+              >
+                <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
+                Open Checklist
+              </Button>
+            </div>
             {aircraftId ? (
               <ADSBManagerPanel
                 aircraftId={aircraftId}
@@ -907,29 +1377,180 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           </div>
         )}
 
-        {/* Logbook */}
+        {/* Logbook — generate AI draft, edit, e-sign with audit trail */}
         {tab === 'logbook' && (
           <div className="p-6 max-w-3xl mx-auto">
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <BookOpen className="h-4 w-4 text-amber-700" />
-                <h2 className="text-base font-semibold text-foreground">Logbook Entry</h2>
+            {logbookLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-12 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading logbook entry…
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Generate the maintenance logbook entry for this work order. AI drafts the corrective-action language from the line items and findings; you review &amp; sign.
-              </p>
-              <Button
-                onClick={() => router.push(`/maintenance/new?work_order_id=${wo.id}`)}
-                disabled={!['ready_for_signoff', 'closed', 'invoiced', 'paid', 'completed'].includes(wo.status)}
-              >
-                <BookOpen className="h-4 w-4 mr-1.5" /> Open Logbook Drafter
-              </Button>
-              {!['ready_for_signoff', 'closed', 'invoiced', 'paid', 'completed'].includes(wo.status) && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Available once the work order is ready for sign-off or closed.
+            ) : !logbookEntry ? (
+              /* No entry yet — show the "Generate" CTA */
+              <div className="rounded-xl border border-border bg-white p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <BookOpen className="h-4 w-4 text-amber-700" />
+                  <h2 className="text-base font-semibold text-foreground">Logbook Entry</h2>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Generate a maintenance logbook entry for this work order. AI drafts the corrective-action language from the line items, completed checklist, and resolved AD/SB items — you review &amp; e-sign.
                 </p>
-              )}
-            </div>
+                <Button
+                  onClick={handleGenerateLogbookEntry}
+                  disabled={logbookGenerating || isOwnerView}
+                >
+                  {logbookGenerating ? (
+                    <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Drafting…</>
+                  ) : (
+                    <><Sparkles className="h-4 w-4 mr-1.5" /> Generate AI Logbook Entry</>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              /* Entry exists — render editor + signature flow */
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border bg-white overflow-hidden">
+                  <div className="px-5 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-amber-700" />
+                      <h2 className="text-sm font-semibold text-foreground">Logbook Entry</h2>
+                      {logbookEntry.status === 'signed' ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full" style={{ fontWeight: 700 }}>
+                          <CheckCircle2 className="h-2.5 w-2.5" /> Signed &amp; sealed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full" style={{ fontWeight: 700 }}>
+                          Draft
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {logbookEntry.entry_type ? String(logbookEntry.entry_type).replace(/_/g, ' ') : 'maintenance'}
+                    </div>
+                  </div>
+
+                  <div className="p-5 space-y-4">
+                    {/* Editable description (locked once signed) */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground" style={{ fontWeight: 600 }}>
+                        Entry Description
+                      </Label>
+                      <textarea
+                        value={logbookDraftBody}
+                        onChange={(e) => {
+                          setLogbookDraftBody(e.target.value)
+                          setLogbookDirty(true)
+                        }}
+                        disabled={logbookEntry.status === 'signed'}
+                        rows={8}
+                        className={cn(
+                          'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed font-mono outline-none focus:ring-2 focus:ring-primary/30',
+                          logbookEntry.status === 'signed' && 'opacity-70 cursor-not-allowed bg-muted/30',
+                        )}
+                      />
+                    </div>
+
+                    {/* AD / Reference chips */}
+                    {(Array.isArray(logbookEntry.ad_numbers) && logbookEntry.ad_numbers.length > 0) && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground" style={{ fontWeight: 600 }}>ADs cited:</span>
+                        {(logbookEntry.ad_numbers as string[]).map((ad) => (
+                          <span key={ad} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+                            <ShieldCheck className="h-3 w-3" /> {ad}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(Array.isArray(logbookEntry.references_used) && logbookEntry.references_used.length > 0) && (
+                      <div className="flex items-start gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground mt-0.5" style={{ fontWeight: 600 }}>References:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(logbookEntry.references_used as any[]).map((r, i) => (
+                            <span key={i} className="text-[11px] bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full" style={{ fontWeight: 500 }}>
+                              {r.type}: {r.reference}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action row */}
+                    {logbookEntry.status !== 'signed' && (
+                      <div className="flex items-center gap-2 pt-2 border-t border-border flex-wrap">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSaveLogbookDraft}
+                          disabled={!logbookDirty || logbookSaving}
+                        >
+                          {logbookSaving ? (
+                            <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Saving…</>
+                          ) : (
+                            <><Save className="h-3.5 w-3.5 mr-1" /> Save Draft</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleGenerateLogbookEntry}
+                          variant="outline"
+                          disabled={logbookGenerating}
+                          title="Re-run AI to regenerate the description from latest line items"
+                        >
+                          {logbookGenerating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                          Regenerate
+                        </Button>
+                        <div className="flex-1" />
+                        <Button
+                          size="sm"
+                          onClick={() => setShowSignatureModal(true)}
+                          disabled={logbookDirty}
+                          title={logbookDirty ? 'Save your edits before signing' : 'Sign and seal this entry'}
+                        >
+                          <PenLine className="h-3.5 w-3.5 mr-1" /> Sign Entry
+                        </Button>
+                      </div>
+                    )}
+                    {logbookDirty && logbookEntry.status !== 'signed' && (
+                      <div className="flex items-start gap-1.5 text-[11px] text-amber-700">
+                        <AlertCircle className="h-3 w-3 mt-0.5" />
+                        Unsaved changes. Save before signing.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Signed proof block */}
+                {logbookEntry.status === 'signed' && logbookEntry.signature_audit && (
+                  <SignatureBlock sig={logbookEntry.signature_audit as SignatureResult} label="Mechanic's Signature" />
+                )}
+                {logbookEntry.status === 'signed' && !logbookEntry.signature_audit && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    <CheckCircle2 className="h-4 w-4 inline -mt-0.5 mr-1.5" />
+                    Signed by <strong>{logbookEntry.mechanic_name}</strong>
+                    {logbookEntry.mechanic_cert_number ? <> ({logbookEntry.cert_type} #{logbookEntry.mechanic_cert_number})</> : null}
+                    {logbookEntry.signed_at ? <> on {new Date(logbookEntry.signed_at).toLocaleString()}</> : null}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Signature modal */}
+            {showSignatureModal && logbookEntry && (
+              <ESignatureModal
+                documentId={logbookEntry.id}
+                documentTitle={`Entry for ${wo.work_order_number}`}
+                documentType="crs"
+                signerName={profile?.full_name || profile?.email || 'Mechanic'}
+                signerTitle="A&P / IA"
+                signerCert={profile?.mechanic_cert_number || 'CERT-PENDING'}
+                context={[
+                  { label: 'Work Order',      value: wo.work_order_number },
+                  ...(((wo as any).aircraft?.tail_number) ? [{ label: 'Aircraft', value: (wo as any).aircraft.tail_number }] : []),
+                  { label: 'Entry Type',      value: String(logbookEntry.entry_type ?? 'maintenance').replace(/_/g, ' ') },
+                ]}
+                onCancel={() => setShowSignatureModal(false)}
+                onSigned={handleApplySignature}
+              />
+            )}
           </div>
         )}
 
