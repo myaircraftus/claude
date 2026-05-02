@@ -26,6 +26,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'logbook-scanning',
   'login',
   'maintenance',
+  'manuals',
   'marketplace',
   'mechanic',
   'my-aircraft',
@@ -42,6 +43,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'signup',
   'terms',
   'work-orders',
+  'workflow',
   'workspace',
 ])
 
@@ -64,6 +66,7 @@ const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/library',
   '/logbook-entries',
   '/maintenance',
+  '/manuals',
   '/marketplace',
   '/mechanic',
   '/my-aircraft',
@@ -72,6 +75,7 @@ const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/scanner',
   '/settings',
   '/work-orders',
+  '/workflow',
   '/workspace',
 ] as const
 
