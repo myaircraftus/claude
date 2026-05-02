@@ -24,6 +24,7 @@ import {
 } from "./workspace/DataStore";
 import { useAppContext } from "./AppContext";
 import { toast } from "sonner";
+import { CreateWorkOrderModal } from "@/components/work-orders/create-work-order-modal";
 import { LogbookCanaryGenerator } from "./LogbookCanaryGenerator";
 import { lookupAircraftByNNumber, FaaLookupResult } from "./faaRegistryService";
 import { formatRegistrantLocation } from "./faaDisplay";
@@ -83,24 +84,37 @@ export function MechanicPortal() {
   const tenantSlug = (pathname ?? "").split("/").filter(Boolean)[0] ?? "";
   const normalizedTenantCustomerKey = normalizeCustomerIdentity(tenantSlug.replace(/-/g, " "));
 
-  const VALID_SECTIONS: MechanicSection[] = ["dashboard","aircraft","squawks","estimates","workorders","invoices","logbook","customers","team","parts"];
+  // The "workorders" section was retired from /mechanic — work orders live
+  // at /work-orders (master-detail). Anyone landing on /mechanic?tab=workorders
+  // gets bounced to /work-orders. Same for any setSection("workorders") call.
+  const VALID_SECTIONS: MechanicSection[] = ["dashboard","aircraft","squawks","estimates","invoices","logbook","customers","team","parts"];
   const tabParam = searchParams.get("tab") as MechanicSection | null;
   // Determine the correct default section based on permissions
-  const defaultSection: MechanicSection = perm.dashboard ? "dashboard" : perm.workOrders ? "workorders" : "workorders";
+  const defaultSection: MechanicSection = perm.dashboard ? "dashboard" : "aircraft";
   const [section, _setSection] = useState<MechanicSection>(() =>
     tabParam && VALID_SECTIONS.includes(tabParam) ? tabParam : defaultSection
   );
 
   useEffect(() => {
     const t = searchParams.get("tab") as MechanicSection | null;
+    if (t === ("workorders" as MechanicSection)) {
+      router.replace("/work-orders");
+      return;
+    }
     if (t && VALID_SECTIONS.includes(t) && t !== section) _setSection(t);
   }, [searchParams]);
 
   const setSection = (s: MechanicSection) => {
+    if ((s as string) === "workorders") {
+      router.push("/work-orders");
+      return;
+    }
     _setSection(s);
     router.replace(`/mechanic?tab=${s}`);
   };
   const [selectedAircraft, setSelectedAircraft] = useState<string | null>(null);
+  // Aircraft id pre-loaded into the unified create-WO modal (null = closed)
+  const [createWoAircraftId, setCreateWoAircraftId] = useState<string | null>(null);
   // Work order detail state
   const [selectedWOId, setSelectedWOId] = useState<string | null>(null);
   const [woPartsById, setWoPartsById] = useState<Record<string, {id:string;pn:string;desc:string;qty:number;price:number;total:number;vendor?:string;requestOnly?:boolean}[]>>({});
@@ -991,25 +1005,45 @@ export function MechanicPortal() {
                       <div className="text-[13px] text-muted-foreground">{ac.model} &middot; {ac.customer}</div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button onClick={() => { setSection("squawks"); }} className="flex items-center gap-1.5 border border-border px-3 py-2 rounded-lg text-[12px] text-muted-foreground hover:bg-muted/30 transition-colors" style={{ fontWeight: 500 }}>
                       <AlertTriangle className="w-3.5 h-3.5" /> Squawks
                     </button>
+                    {/* Ask Aircraft — runs RAG against this aircraft's
+                        ingested logbooks + manuals (when the owner has
+                        purchased ingestion). The /ask page will show the
+                        paywall message itself if not ingested. */}
+                    <Link
+                      href={(() => {
+                        const matchingAircraft = aircraft.find(
+                          (a) => (a.tail_number ?? "").toUpperCase() === ac.tail.toUpperCase(),
+                        );
+                        return matchingAircraft
+                          ? `/ask?aircraft=${encodeURIComponent(matchingAircraft.id)}`
+                          : "/ask";
+                      })()}
+                      className="flex items-center gap-1.5 border border-violet-300 text-violet-700 px-3 py-2 rounded-lg text-[12px] hover:bg-violet-50 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Ask Aircraft
+                    </Link>
                     <button onClick={() => { setSelectedSquawks(squawkQueue.filter((s) => s.tail === ac.tail).map((s) => s.id)); setShowEstCreator(true); }}
                       className="flex items-center gap-1.5 border border-primary/30 text-primary px-3 py-2 rounded-lg text-[12px] hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>
                       <Plus className="w-3.5 h-3.5" /> Create Estimate
                     </button>
                     <button
                       onClick={() => {
-                        // Pre-select this aircraft and open the WO list with the
-                        // inline new-WO form expanded.
+                        // Open the unified create-WO modal pre-set to this
+                        // aircraft. Same flow as /work-orders → "+ New":
+                        // service type → scope → squawks → checklist source.
                         const matchingAircraft = aircraft.find(
                           (a) => (a.tail_number ?? "").toUpperCase() === ac.tail.toUpperCase(),
                         );
-                        if (matchingAircraft) setNewWOAircraftId(matchingAircraft.id);
-                        setSection("workorders");
-                        setSelectedWOId(null);
-                        setShowNewWOForm(true);
+                        if (!matchingAircraft) {
+                          toast.error("Could not match this tail to an aircraft record");
+                          return;
+                        }
+                        setCreateWoAircraftId(matchingAircraft.id);
                       }}
                       className="flex items-center gap-1.5 bg-primary text-white px-3 py-2 rounded-lg text-[12px] hover:bg-primary/90 transition-colors"
                       style={{ fontWeight: 600 }}
@@ -2807,12 +2841,25 @@ export function MechanicPortal() {
           )}
           <div className={`${selectedWO ? "flex-1 overflow-auto divide-y divide-border" : "space-y-3"}`}>
             {ALL_WOS_COMBINED.map((w) => (
-              <button key={w.wo} onClick={() => setSelectedWOId(w.wo === selectedWOId ? null : w.wo)}
+              <button
+                key={w.wo}
+                onClick={() => {
+                  // Real DB-backed WO → navigate straight to /work-orders/[id]
+                  // (the rich detail page is the single source of truth).
+                  // Mock seed rows that never made it to the DB fall back to
+                  // the in-page panel so the demo still works.
+                  if ((w as any).id) {
+                    router.push(`/work-orders/${(w as any).id}`);
+                  } else {
+                    setSelectedWOId(w.wo === selectedWOId ? null : w.wo);
+                  }
+                }}
                 className={`w-full text-left transition-colors ${
                   selectedWO
                     ? `p-4 hover:bg-muted/20 ${selectedWOId === w.wo ? "bg-primary/5 border-l-2 border-primary" : ""}`
                     : `bg-white rounded-xl border border-border p-5 block hover:shadow-sm hover:border-primary/20`
-                }`}>
+                }`}
+              >
                 <div className={`flex items-start justify-between gap-2 ${selectedWO ? "mb-1" : "mb-3"}`}>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -4771,6 +4818,24 @@ export function MechanicPortal() {
           />
         )}
       </AnimatePresence>
+
+      {/* Unified Create Work Order modal — opened by aircraft "Generate Work Order" */}
+      {createWoAircraftId && (
+        <CreateWorkOrderModal
+          initialAircraftId={createWoAircraftId}
+          aircraft={aircraft.map((a) => ({
+            id: a.id,
+            tail_number: a.tail_number,
+            make: (a as any).make ?? null,
+            model: (a as any).model ?? null,
+          }))}
+          onClose={() => setCreateWoAircraftId(null)}
+          onCreated={(woId) => {
+            setCreateWoAircraftId(null);
+            router.push(`/work-orders/${woId}`);
+          }}
+        />
+      )}
     </div>
   );
 }

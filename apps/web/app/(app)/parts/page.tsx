@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation'
 
-// Parts is now a tab inside the Maintenance Hub
+// Parts UX is split:
+//   /parts/library   — saved-parts inventory (mechanic role)
+//   /mechanic?tab=parts — parts ordering inside the mechanic portal
+// /parts (root) defaults to the library view.
 export default function PartsPage() {
-  redirect('/maintenance?tab=parts')
+  redirect('/parts/library')
 }

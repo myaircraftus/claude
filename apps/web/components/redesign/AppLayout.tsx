@@ -6,7 +6,7 @@ import {
   Wrench, Settings, ChevronDown, User,
   Store, BookOpen, Users, HardHat, Bot, AlertTriangle,
   Receipt, ChevronRight, ArrowLeftRight, UserRound, Package,
-  Sparkles, ShieldCheck, LogOut,
+  Sparkles, ShieldCheck, LogOut, GitBranch,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -18,7 +18,7 @@ import { BillingProvider, useBilling } from "@/components/billing/BillingProvide
 import { BillingBanner } from "@/components/billing/BillingBanner";
 import { CrossPersonaUpsell } from "@/components/billing/CrossPersonaUpsell";
 import { PaywallScreen } from "@/components/billing/PaywallScreen";
-import type { MechanicPermissions, TeamMember } from "./AppContext";
+import type { MechanicPermissions, TeamMember, Persona } from "./AppContext";
 import { PartsStoreProvider } from "./workspace/PartsStore";
 import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
@@ -35,6 +35,7 @@ type NavItem  = {
   label: string;
   href?: string;
   tab?: string;
+  badge?: number;
   children?: NavChild[];
 };
 
@@ -54,44 +55,46 @@ type OwnerAircraftSummary = {
 const ownerNavItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard",        href: "/dashboard" },
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
-  { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
+  // Owner only sees a single AI surface: the Logbook AI. It's the chat that
+  // lets them ask questions of their aircraft logbook history. Other AI
+  // commenters / chats are intentionally NOT in the owner sidebar — owner UX
+  // is "pick aircraft, then ask the logbook," nothing more.
+  { icon: Bot,             label: "Logbook AI",       href: "/ask" },
   { icon: Store,           label: "Marketplace",      href: "/marketplace" },
   { icon: UserRound,       label: "Users",            href: "/settings" },
 ];
 
 /* ─── Mechanic nav builder ───────────────────────────────────── */
+// Flat nav, no "Mechanic Portal" wrapper, no duplicate Dashboard. The
+// mechanic dashboard (/mechanic?tab=dashboard) IS the dashboard for the
+// mechanic persona — there is no separate /dashboard surface anymore.
+//   Dashboard · Aircraft · Workflow · Parts · Logbook · Documents · Marketplace
+//
+// Workflow used to live inside the /maintenance hub as a tab. That hub
+// has been retired (clicking a work order goes straight to its detail
+// page now), so Workflow gets promoted to its own top-level route.
 function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   const items: NavItem[] = [];
 
-  items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" });
-
-  if (perm.aiCommandCenter) {
-    items.push({ icon: Bot, label: "AI Command Center", href: "/workspace" });
+  if (perm.dashboard) {
+    items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/mechanic", tab: "dashboard" });
+  }
+  if (perm.aircraft) {
+    items.push({ icon: Plane, label: "Aircraft", href: "/mechanic", tab: "aircraft", badge: 3 });
+  }
+  items.push({ icon: GitBranch, label: "Workflow", href: "/workflow" });
+  items.push({ icon: Package, label: "Parts", href: "/mechanic", tab: "parts" });
+  // Manuals — mechanic's reference library (parts catalogs, AMMs, SBs).
+  // Org-scoped, separate from per-aircraft documents the owner uploads.
+  items.push({ icon: BookOpen, label: "Manuals", href: "/manuals" });
+  if (perm.logbook) {
+    items.push({ icon: BookOpen, label: "Logbook", href: "/mechanic", tab: "logbook", badge: 3 });
   }
 
-  // Mechanic Portal sub-tabs: Squawks, Estimates, Work Orders, Invoices,
-  // and Logbook are intentionally NOT here at the top level. The mechanic
-  // workflow always starts from the aircraft — pick the tail, then create
-  // the squawk / estimate / work order / invoice from inside the Aircraft
-  // → Maintenance tab. Putting them in the sidebar makes the user pick
-  // an aircraft after the fact, which is the wrong order. Marketing site
-  // can still describe these capabilities; in-app they're per-aircraft.
-  const children: NavChild[] = [];
-  if (perm.dashboard)  children.push({ icon: LayoutDashboard, label: "Dashboard",   tab: "dashboard" });
-  if (perm.aircraft)   children.push({ icon: Plane,           label: "Aircraft",    tab: "aircraft",   badge: 3 });
-  children.push({ icon: Package, label: "Parts", tab: "parts" });
-  if (perm.logbook)    children.push({ icon: BookOpen,        label: "Logbook",     tab: "logbook",    badge: 3 });
-
-  if (children.length === 1) {
-    const ch = children[0];
-    items.push({ icon: ch.icon, label: ch.label, href: "/mechanic", tab: ch.tab });
-  } else if (children.length > 1) {
-    items.push({ icon: Users, label: "Mechanic Portal", href: "/mechanic", children });
-  }
-
+  // Documents (platform-wide) lives under Admin now — mechanics don't see
+  // it. Marketplace stays for full-access mechanics.
   if (perm.settingsFull) {
-    items.push({ icon: FileText, label: "Documents",   href: "/documents" });
-    items.push({ icon: Store,    label: "Marketplace", href: "/marketplace" });
+    items.push({ icon: Store, label: "Marketplace", href: "/marketplace" });
   }
 
   return items;
@@ -143,7 +146,7 @@ function AppLayoutInner({
   const router = useTenantRouter();
   const { persona, setPersona, team, activeMechanic, setActiveMechanic } = useAppContext();
   const { status: billingStatus } = useBilling();
-  const [upsellPersona, setUpsellPersona] = useState<"owner" | "mechanic" | null>(null);
+  const [upsellPersona, setUpsellPersona] = useState<Persona | null>(null);
   const { launchTour } = useOnboarding();
 
   const effectivePathname = getDisplayPathname(pathname);
@@ -253,31 +256,39 @@ function AppLayoutInner({
     : "/ask";
 
   const ownerNavBase = ownerNavItems.map((item) => {
-    if (item.label !== "Ask / AI Command") return item;
+    if (item.label !== "Logbook AI") return item;
     return {
       ...item,
       href: ownerAskHref,
     };
   });
 
-  const ownerNav = isPlatformAdmin
-    ? [
-        ...ownerNavBase,
-        // Admin-only Documents view: monitors all uploads platform-wide,
-        // surfaces failed ingestions and the human-review queue across orgs.
-        // Owners reach their own docs via Aircraft → Documents tab.
-        { icon: FileText, label: "Documents", href: "/documents" },
-        { icon: ShieldCheck, label: "Admin", href: "/admin" },
-        { icon: AlertTriangle, label: "Ingestion Health", href: "/admin/ingestion-health" },
-        { icon: FileText, label: "Marketing CMS", href: "/admin/content" },
-      ]
-    : ownerNavBase;
+  // Admin items are now ONLY accessible from the Admin persona — they don't
+  // bleed into the owner nav anymore. Platform admins see a third persona
+  // pill ("Admin") in the switcher; non-admins don't see it at all.
+  const adminNavItems: NavItem[] = [
+    { icon: ShieldCheck,    label: "Admin Console",   href: "/admin" },
+    { icon: FileText,       label: "All Documents",   href: "/documents" },
+    { icon: AlertTriangle,  label: "Ingestion Health", href: "/admin/ingestion-health" },
+    { icon: FileText,       label: "Marketing CMS",   href: "/admin/content" },
+  ];
 
-  const navItems: NavItem[] = persona === "owner"
-    ? ownerNav
-    : buildMechanicNav(activeMechanic.permissions);
+  const navItems: NavItem[] =
+    persona === "admin"
+      ? adminNavItems
+      : persona === "owner"
+        ? ownerNavBase
+        : buildMechanicNav(activeMechanic.permissions);
 
-  function switchPersona(p: "owner" | "mechanic") {
+  function switchPersona(p: Persona) {
+    // Admins switch freely between all three personas. Owners + mechanics
+    // can only flip between owner ↔ mechanic (and only with the right
+    // entitlement). The Admin pill is hidden for non-admins below.
+    if (p === "admin") {
+      setPersona("admin");
+      router.push("/admin");
+      return;
+    }
     // If the user doesn't have an active entitlement for the target persona,
     // open the cross-persona upsell instead of navigating. canRead stays true
     // for paywalled (read-only) personas so re-subscribers can browse.
@@ -336,7 +347,7 @@ function AppLayoutInner({
           <MyAircraftLogo variant="light" height={collapsed ? 11 : 26} />
         </div>
 
-        {/* Persona switcher */}
+        {/* Persona switcher — Admin pill only renders for platform admins */}
         {!hideSidebarPersonaSwitcher && (
         <div data-tour="persona-switcher" className={`${collapsed ? "px-1 py-2" : "px-3 py-3"} border-b border-sidebar-border shrink-0`}>
           {collapsed ? (
@@ -359,16 +370,27 @@ function AppLayoutInner({
               >
                 <HardHat className="w-4 h-4" />
               </button>
+              {isPlatformAdmin && (
+                <button
+                  onClick={() => switchPersona("admin")}
+                  title="Platform Admin"
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                    persona === "admin" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
               <p className="text-[10px] text-white/35 uppercase tracking-widest px-0.5" style={{ fontWeight: 600 }}>
                 Persona
               </p>
-              <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+              <div className={`grid ${isPlatformAdmin ? "grid-cols-3" : "grid-cols-2"} gap-1 bg-white/5 rounded-lg p-1`}>
                 <button
                   onClick={() => switchPersona("owner")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
+                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
                     persona === "owner" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
                   }`}
                   style={{ fontWeight: persona === "owner" ? 600 : 400 }}
@@ -378,7 +400,7 @@ function AppLayoutInner({
                 </button>
                 <button
                   onClick={() => switchPersona("mechanic")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
+                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
                     persona === "mechanic" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
                   }`}
                   style={{ fontWeight: persona === "mechanic" ? 600 : 400 }}
@@ -386,85 +408,27 @@ function AppLayoutInner({
                   <HardHat className="w-3 h-3 shrink-0" />
                   Mechanic
                 </button>
+                {isPlatformAdmin && (
+                  <button
+                    onClick={() => switchPersona("admin")}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
+                      persona === "admin" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
+                    }`}
+                    style={{ fontWeight: persona === "admin" ? 600 : 400 }}
+                  >
+                    <ShieldCheck className="w-3 h-3 shrink-0" />
+                    Admin
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
         )}
 
-        {/* Mechanic "Viewing As" role picker */}
-        {persona === "mechanic" && !collapsed && (
-          <div className="px-3 pt-3 pb-2 border-b border-sidebar-border shrink-0 relative">
-            <p className="text-[10px] text-white/35 uppercase tracking-widest px-0.5 mb-1.5" style={{ fontWeight: 600 }}>
-              Viewing As
-            </p>
-            <button
-              onClick={() => setRolePickerOpen((o) => !o)}
-              className="w-full flex items-center gap-2 bg-white/8 hover:bg-white/12 transition-colors rounded-lg px-2.5 py-2"
-            >
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] ${activeMechanic.color}`} style={{ fontWeight: 700 }}>
-                {activeMechanic.initials}
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <div className="text-white text-[12px] truncate" style={{ fontWeight: 600 }}>
-                  {activeMechanic.name}
-                </div>
-                <div className="text-white/50 text-[10px] truncate">{activeMechanic.role}</div>
-              </div>
-              <ArrowLeftRight className="w-3.5 h-3.5 text-white/40 shrink-0" />
-            </button>
-
-            <AnimatePresence>
-              {rolePickerOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                  transition={{ duration: 0.12 }}
-                  className="absolute left-3 right-3 top-full mt-1 bg-[#1E3A5F] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden"
-                >
-                  <div className="p-1.5 space-y-0.5">
-                    {team.map((m) => {
-                      const isActive = m.id === activeMechanic.id;
-                      return (
-                        <button
-                          key={m.id}
-                          onClick={() => handleSelectMechanic(m)}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
-                            isActive ? "bg-white/15" : "hover:bg-white/8"
-                          }`}
-                        >
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[10px] ${m.color}`} style={{ fontWeight: 700 }}>
-                            {m.initials}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white text-[12px] truncate" style={{ fontWeight: isActive ? 600 : 400 }}>
-                              {m.name}
-                            </div>
-                            <div className="text-white/50 text-[10px] truncate">{m.role}</div>
-                          </div>
-                          {isActive && (
-                            <span className="text-[9px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full shrink-0" style={{ fontWeight: 700 }}>
-                              Active
-                            </span>
-                          )}
-                          {m.status === "Invited" && !isActive && (
-                            <span className="text-[9px] text-amber-400/70 shrink-0">Invited</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="px-3 py-2 border-t border-white/10">
-                    <p className="text-[10px] text-white/30 text-center">
-                      Switch to see their role view
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
+        {/* "Viewing As" team role picker was removed — the mechanic always
+            sees their own permission set; team-member impersonation was
+            confusing in production and not how shops actually use the app. */}
 
         {/* Aircraft selector — owner only */}
         {persona === "owner" && !collapsed && (
@@ -723,12 +687,15 @@ function AppLayoutInner({
 
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
-        <BillingBanner persona={persona} />
+        {/* Admin persona has no billing surface (they're staff). For owner
+            and mechanic, billing banner + paywall apply normally. */}
+        {persona !== "admin" && <BillingBanner persona={persona} />}
         <main
           className={`flex-1 ${
-            ["/workspace", "/maintenance", "/mechanic", "/invoices", "/ask", "/documents", "/settings"].includes(effectivePathname) ||
+            ["/workspace", "/maintenance", "/mechanic", "/invoices", "/ask", "/documents", "/settings", "/admin"].includes(effectivePathname) ||
             effectivePathname.startsWith("/aircraft/") ||
-            effectivePathname.startsWith("/mechanic")
+            effectivePathname.startsWith("/mechanic") ||
+            effectivePathname.startsWith("/admin/")
               ? "overflow-hidden"
               : "overflow-auto"
           }`}
@@ -736,10 +703,9 @@ function AppLayoutInner({
           <DataStoreProvider>
             <PartsStoreProvider>
               {(() => {
-                // Hard paywall: when the current persona's entitlement is
-                // paywalled (trial expired, payment failed) or fully cancelled,
-                // replace the page content with the upgrade picker. Settings
-                // stays reachable so the user can update their card.
+                // Admin persona bypasses paywall entirely — they're platform
+                // staff, not a paying customer. Owner + mechanic still pay.
+                if (persona === "admin") return children;
                 const ent = billingStatus?.[persona];
                 const isBillingScreen =
                   effectivePathname === "/settings" ||
@@ -757,17 +723,15 @@ function AppLayoutInner({
       <Toaster position="top-right" richColors closeButton />
 
       {/* ── Floating work-order chat bubble ──
-          Visible on every (app) page for both personas. Tap → drawer with
-          aircraft picker → active work orders → timeline + chat thread.
-          Uses the existing portal_threads / thread_messages infra so
-          messages flow between owner and mechanic in real time. */}
-      <WorkOrderChatBubble persona={persona} />
+          Visible on owner + mechanic personas. Admin doesn't need it.
+          Tap → drawer with aircraft picker → active work orders → timeline + chat thread. */}
+      {persona !== "admin" && <WorkOrderChatBubble persona={persona} />}
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
 
-      {/* ── Cross-persona upsell ── */}
-      {upsellPersona && (
+      {/* ── Cross-persona upsell — never fires for admin ── */}
+      {upsellPersona && upsellPersona !== "admin" && (
         <CrossPersonaUpsell
           persona={upsellPersona}
           open

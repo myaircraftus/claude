@@ -167,7 +167,8 @@ const PERM_GROUPS: { label: string; items: { key: keyof MechanicPermissions; lab
   {
     label: "Navigation & Sidebar Access",
     items: [
-      { key: "aiCommandCenter", label: "AI Command Center",  desc: "Full AI chat workspace with invoice, estimate & customer actions" },
+      // "AI Command Center" surface was retired. The permission row is
+      // intentionally not exposed in Settings — admin-only legacy field.
       { key: "dashboard",       label: "Dashboard",          desc: "Overview metrics and activity feed" },
       { key: "aircraft",        label: "Aircraft",           desc: "Assigned fleet list and cockpit detail views" },
       { key: "squawks",         label: "Squawks",            desc: "Squawk queue — view, add, and triage defects" },

@@ -566,7 +566,10 @@ export function AskExperience() {
     setQuestion('')
     setActiveCitation(null)
     autoAskedQueryRef.current = null
-    setPreviousQueries(loadRecentQueries(persona))
+    // Admin persona doesn't have its own Ask history bucket — admins
+    // viewing /ask reuse the owner storage key.
+    const askKeyPersona: AskPersona = persona === 'admin' ? 'owner' : (persona as AskPersona)
+    setPreviousQueries(loadRecentQueries(askKeyPersona))
   }, [persona])
 
   const handleAsk = useCallback(async (questionText?: string) => {
@@ -648,7 +651,7 @@ export function AskExperience() {
         ]
 
         const trimmed = next.slice(0, 20)
-        persistRecentQueries(persona, trimmed)
+        persistRecentQueries(persona === 'admin' ? 'owner' : (persona as AskPersona), trimmed)
         return trimmed
       })
     } catch {

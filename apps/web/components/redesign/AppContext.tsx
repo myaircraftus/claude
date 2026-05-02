@@ -7,7 +7,7 @@ import { MINIMAL_MECHANIC_PERMISSIONS } from "@/lib/roles";
 /* ─────────────────────────────────────────
    Types
 ───────────────────────────────────────── */
-export type Persona = "owner" | "mechanic";
+export type Persona = "owner" | "mechanic" | "admin";
 
 /* ── Mechanic assigned to a specific aircraft by an owner ── */
 export interface AircraftMechanicAssignment {

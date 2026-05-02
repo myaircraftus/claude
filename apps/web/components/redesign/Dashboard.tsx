@@ -135,7 +135,7 @@ export function Dashboard() {
       : aircraft[0]?.id ?? null;
 
   const askHref = currentAircraftId ? `/ask?aircraft=${encodeURIComponent(currentAircraftId)}` : "/ask";
-  const workspaceHref = currentAircraftId ? `/workspace?aircraft=${encodeURIComponent(currentAircraftId)}` : "/workspace";
+  // workspaceHref retired with /workspace (AI Command Center).
 
   const openWorkOrders = useMemo(() => {
     return workOrders.filter((wo) => !["Closed", "Invoice Paid", "Archived"].includes(wo.status));
@@ -154,6 +154,7 @@ export function Dashboard() {
     const actions: Array<{
       type: "workorder" | "invoice";
       id: string;
+      dbId: string;
       label: string;
       aircraft: string;
       amount: string | null;
@@ -165,6 +166,7 @@ export function Dashboard() {
       actions.push({
         type: "workorder",
         id: wo.woNumber || wo.id.slice(0, 8).toUpperCase(),
+        dbId: wo.id,
         label: wo.squawk || "Work Order Awaiting Approval",
         aircraft: wo.aircraft || "Unassigned aircraft",
         amount: formatCurrency(wo.grandTotal) ?? null,
@@ -177,6 +179,7 @@ export function Dashboard() {
       actions.push({
         type: "invoice",
         id: inv.invoiceNumber || inv.id.slice(0, 8).toUpperCase(),
+        dbId: inv.id,
         label: inv.status === "Overdue" ? "Overdue Invoice" : "Invoice awaiting action",
         aircraft: inv.aircraft || "Unassigned aircraft",
         amount: formatCurrency(inv.total) ?? null,
@@ -332,10 +335,10 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link href={workspaceHref}
+          <Link href="/workflow"
             className="inline-flex items-center gap-2 bg-gradient-to-r from-primary to-primary/80 text-white px-5 py-2.5 rounded-xl hover:opacity-90 transition-all shadow-lg shadow-primary/20 text-[13px]"
             style={{ fontWeight: 600 }}>
-            <Cpu className="w-4 h-4" /> AI Command Center
+            <Cpu className="w-4 h-4" /> Workflow
           </Link>
           <Link href={askHref}
             className="inline-flex items-center gap-2 border border-border text-foreground px-5 py-2.5 rounded-xl hover:bg-muted transition-colors text-[13px]"
@@ -363,6 +366,7 @@ export function Dashboard() {
             icon: AlertTriangle,
             color: "text-amber-600 bg-amber-50",
             trend: null,
+            href: "/work-orders",
           },
           {
             label: "Documents",
@@ -396,25 +400,37 @@ export function Dashboard() {
             color: "text-violet-600 bg-violet-50",
             trend: null,
           },
-        ].map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.4 }}
-            className="bg-white rounded-2xl border border-border p-4 hover:shadow-md hover:shadow-primary/5 transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.color}`}>
-                <s.icon className="w-[17px] h-[17px]" />
+        ].map((s, i) => {
+          const card = (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.color}`}>
+                  <s.icon className="w-[17px] h-[17px]" />
+                </div>
+                {s.trend && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.trend.startsWith("+") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`} style={{ fontWeight: 600 }}>
+                    {s.trend}
+                  </span>
+                )}
               </div>
-              {s.trend && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.trend.startsWith("+") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`} style={{ fontWeight: 600 }}>
-                  {s.trend}
-                </span>
+              <div className="text-[26px] text-foreground tracking-tight leading-none mb-1" style={{ fontWeight: 800 }}>{s.value}</div>
+              <div className="text-[11px] text-muted-foreground">{s.label}</div>
+              <div className="text-[10px] text-muted-foreground/60 mt-0.5">{s.sub}</div>
+            </>
+          );
+          const baseClass = "bg-white rounded-2xl border border-border p-4 hover:shadow-md hover:shadow-primary/5 transition-all";
+          return (
+            <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.4 }}>
+              {(s as any).href ? (
+                <Link href={(s as any).href} className={`block ${baseClass} hover:border-primary/30 cursor-pointer`}>
+                  {card}
+                </Link>
+              ) : (
+                <div className={baseClass}>{card}</div>
               )}
-            </div>
-            <div className="text-[26px] text-foreground tracking-tight leading-none mb-1" style={{ fontWeight: 800 }}>{s.value}</div>
-            <div className="text-[11px] text-muted-foreground">{s.label}</div>
-            <div className="text-[10px] text-muted-foreground/60 mt-0.5">{s.sub}</div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {/* ── Main Grid Row 2 ── */}
@@ -618,8 +634,10 @@ export function Dashboard() {
               const Icon = icons[item.type];
               return (
                 <motion.div key={item.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + i * 0.08 }}>
-                  <Link href="/workspace"
-                    className={`block bg-white border rounded-2xl p-4 hover:shadow-md transition-all border-l-4 ${item.urgency === "high" ? "border-l-red-400 hover:border-l-red-500" : "border-l-amber-400 hover:border-l-amber-500"} border-border`}>
+                  <Link
+                    href={item.type === "workorder" ? `/work-orders/${item.dbId}` : `/invoices/${item.dbId}`}
+                    className={`block bg-white border rounded-2xl p-4 hover:shadow-md transition-all border-l-4 ${item.urgency === "high" ? "border-l-red-400 hover:border-l-red-500" : "border-l-amber-400 hover:border-l-amber-500"} border-border`}
+                  >
                     <div className="flex items-start gap-3">
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${colors[item.type]}`}>
                         <Icon className="w-4 h-4" />
@@ -799,7 +817,7 @@ export function Dashboard() {
               {[
                 { icon: Upload,       label: "Upload Docs",    href: "/documents" },
                 { icon: MessageSquare,label: "Ask Aircraft",   href: askHref },
-                { icon: Cpu,          label: "Command AI",     href: workspaceHref },
+                { icon: Cpu,          label: "Workflow",       href: "/workflow" },
                 { icon: Eye,          label: "Review Queue",   href: "/documents" },
               ].map(a => (
                 <Link key={a.label} href={a.href}
@@ -813,29 +831,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* ── AI Teaser Banner ── */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
-        <Link href={workspaceHref}
-          className="block bg-gradient-to-r from-[#0A1628] to-[#1E3A5F] rounded-2xl p-6 hover:opacity-95 transition-opacity group">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
-                <Sparkles className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <div className="text-[15px] text-white mb-1" style={{ fontWeight: 700 }}>AircraftDesk AI Command Center</div>
-                <div className="text-[13px] text-white/50">
-                  Type <span className="text-primary font-mono text-[12px]">"approve estimate EST-2026-0018"</span> or <span className="text-primary font-mono text-[12px]">"what needs my attention today?"</span> — AI understands plain English
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-white/60 group-hover:text-white transition-colors shrink-0">
-              <span className="text-[13px]" style={{ fontWeight: 500 }}>Open</span>
-              <ArrowRight className="w-4 h-4" />
-            </div>
-          </div>
-        </Link>
-      </motion.div>
     </div>
   );
 }
