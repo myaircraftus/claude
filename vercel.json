@@ -1,4 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "corepack enable && pnpm install --frozen-lockfile=false",
+  "buildCommand": "pnpm --filter @myaircraft/web build",
+  "outputDirectory": "apps/web/.next",
   "crons": [
     {
       "path": "/api/invoices/reminders/send",
