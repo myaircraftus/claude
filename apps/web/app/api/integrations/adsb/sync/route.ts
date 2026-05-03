@@ -59,6 +59,23 @@ interface SyncResult {
 
 /* ─── Entrypoint ─────────────────────────────────────────────────────────── */
 
+/**
+ * Vercel Cron fires GET requests by default. We accept both:
+ *   GET  → cron-only path (rejected if x-vercel-cron header is missing)
+ *   POST → manual sync from the UI (mechanic+ auth required), with the
+ *          x-vercel-cron escape hatch for completeness if Vercel ever
+ *          posts instead of gets.
+ */
+export async function GET(req: NextRequest) {
+  if (req.headers.get('x-vercel-cron') !== '1') {
+    return NextResponse.json(
+      { error: 'GET is reserved for Vercel Cron. Use POST for manual sync.' },
+      { status: 405 }
+    )
+  }
+  return handleCron()
+}
+
 export async function POST(req: NextRequest) {
   const isCron = req.headers.get('x-vercel-cron') === '1'
 
