@@ -1312,6 +1312,16 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
             >
               <Upload className="w-3.5 h-3.5" /> Upload
             </Link>
+            {/* Spec 7.5 — Economics tab linking to per-aircraft P&L dashboard. */}
+            {aircraftId && (
+              <Link
+                href={`/aircraft/${aircraftId}/economics`}
+                className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground px-3 py-2 rounded-lg text-[13px] hover:bg-muted/30 transition-colors"
+                style={{ fontWeight: 500 }}
+              >
+                <DollarSign className="w-3.5 h-3.5" /> Economics
+              </Link>
+            )}
             <div className="relative">
               <button
                 onClick={() => setShowMoreMenu(v => !v)}
