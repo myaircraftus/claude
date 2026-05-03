@@ -105,6 +105,7 @@ function isAppRoute(pathname: string): boolean {
     '/clock',
     '/compliance',
     '/continued',
+    '/costs',
     '/customers',
     '/dashboard',
     '/documents',

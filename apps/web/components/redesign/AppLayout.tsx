@@ -9,6 +9,7 @@ import {
   Sparkles, ShieldCheck, LogOut, GitBranch, MapPin, Building2, Inbox, Gauge,
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
   Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon, CalendarClock,
+  DollarSign,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -66,6 +67,7 @@ const ownerNavItems: NavItem[] = [
   // admins as a global monitoring view.
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: ClipboardCheck,  label: "Compliance",       href: "/compliance" },
+  { icon: DollarSign,      label: "Costs",            href: "/costs" },
   { icon: CalendarClock,   label: "Expirations",      href: "/documents/expiring" },
   { icon: ClipboardList,   label: "Inspections",      href: "/inspections" },
   { icon: Bookmark,        label: "Continued",        href: "/continued" },

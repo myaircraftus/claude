@@ -1556,3 +1556,47 @@ export interface TachInferenceResult {
   /** Buffer hours per cycle applied — useful for "0.4 hr taxi/runup". */
   buffer_hours_per_cycle: number
 }
+
+/* ─── Phase 7 — Aircraft Operating Economics (Spec 7.1) ─────────────────── */
+
+export type CostSource = 'manual' | 'extracted' | 'imported' | 'estimated' | 'reconciled'
+
+/**
+ * One row per cost line. `bucket` drives the per-hour calculator
+ * (sprint 7.4); `source` + `source_priority` underpin the source-priority
+ * framework (sprint 7.8). Manual rows default to source='manual',
+ * source_priority=4, approved=true. Extracted rows from the AI vision
+ * pipeline (7.3) land approved=false until the operator reviews.
+ */
+export interface CostEntry {
+  id: string
+  organization_id: string
+  aircraft_id?: string | null
+  /** Free-form on the DB side; seed list lives in lib/costs/categories.ts. */
+  category: string
+  bucket:
+    | 'variable_per_hour'
+    | 'scheduled_per_hour'
+    | 'annual_fixed'
+    | 'monthly_fixed'
+    | 'one_time'
+    | 'loan'
+    | 'depreciation'
+  vendor_id?: string | null
+  description?: string | null
+  amount: number
+  currency: string
+  /** YYYY-MM-DD. */
+  cost_date: string
+  is_estimate: boolean
+  source: CostSource
+  /** 1=estimated → 5=official. See sprint 7.8 framework. */
+  source_priority: number
+  intake_document_id?: string | null
+  extraction_result_id?: string | null
+  approved: boolean
+  notes?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
