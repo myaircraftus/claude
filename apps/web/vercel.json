@@ -1,6 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["iad1"],
+  "installCommand": "cd ../.. && corepack enable && pnpm install --frozen-lockfile=false",
+  "buildCommand": "cd ../.. && pnpm --filter @myaircraft/web build",
+  "outputDirectory": ".next",
   "crons": [
     {
       "path": "/api/cron/heal-ingestions",
