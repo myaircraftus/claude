@@ -1061,6 +1061,13 @@ export interface ApprovalLineItem {
   resulting_continued_item?: string | null
   work_order_line_id?: string | null
   sort_order: number
+  /* ─── Spec 5.6 — Smart Customer Approvals (additive) ─── */
+  /** Plain-English Markdown explanation. NULL = use description as fallback. */
+  ai_explanation_md?: string | null
+  ai_explanation_generated_at?: string | null
+  ai_explanation_model?: string | null
+  ai_explanation_input_tokens?: number | null
+  ai_explanation_output_tokens?: number | null
   created_at: string
   updated_at: string
 }

@@ -1,18 +1,26 @@
 'use client'
 
 /**
- * CustomerApprovalView (Spec 1.5) — public, unauthenticated view.
+ * CustomerApprovalView (Spec 1.5 + 5.6) — public, unauthenticated view.
  *
  * Lives at /approve/[token]. Token is the auth — anyone with the link
  * can view + respond. No login, no app shell.
  *
+ * Spec 5.6 additions (additive — never break the existing flow):
+ *   - "Plain English" toggle: shows ai_explanation_md when present;
+ *     falls back to operator's description when NULL or toggle off.
+ *   - "Ask a question" box: posts to /api/public/approvals/[token]/ask
+ *     and renders the streamed answer below the form.
+ *
  * Uses the public API: /api/public/approvals/[token] (GET) and
- * /api/public/approvals/[token]/respond (POST).
+ * /api/public/approvals/[token]/respond (POST) and
+ * /api/public/approvals/[token]/ask (POST).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Loader2, Check, X, Hourglass, Send, AlertTriangle, Plane, ShieldCheck,
+  Sparkles, MessageSquare,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
@@ -66,6 +74,14 @@ export function CustomerApprovalView({ token }: { token: string }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [savingItemId, setSavingItemId] = useState<string | null>(null)
   const [comments, setComments] = useState<Record<string, string>>({})
+  /* Spec 5.6 — plain-English toggle (default ON when any line has an
+     ai_explanation_md; OFF if no AI explanations exist yet). */
+  const [plainEnglish, setPlainEnglish] = useState(true)
+  /* Spec 5.6 — Ask box state. */
+  const [askInput, setAskInput] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [askAnswer, setAskAnswer] = useState<string | null>(null)
+  const [askError, setAskError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -172,6 +188,38 @@ export function CustomerApprovalView({ token }: { token: string }) {
   const items = request.line_items
   const totalEstimate = items.reduce((s, i) => s + Number(i.estimated_cost ?? 0), 0)
   const allAnswered = items.every((i) => i.customer_response)
+  /* Spec 5.6 — only show the Plain-English / Technical toggle when at
+     least one line has an AI explanation. */
+  const hasAnyExplanation = useMemo(
+    () => items.some((it) => !!it.ai_explanation_md),
+    [items],
+  )
+
+  /* Spec 5.6 — Ask handler */
+  async function askQuestion() {
+    const q = askInput.trim()
+    if (!q || asking) return
+    setAsking(true)
+    setAskError(null)
+    setAskAnswer(null)
+    try {
+      const res = await fetch(`/api/public/approvals/${token}/ask`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: q }),
+      })
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAskError(out?.error ?? 'Could not get an answer right now.')
+        return
+      }
+      setAskAnswer(typeof out.answer_md === 'string' ? out.answer_md : '')
+    } catch {
+      setAskError('Could not reach the AI assistant. Please try again.')
+    } finally {
+      setAsking(false)
+    }
+  }
 
   return (
     <ShellWrapper>
@@ -206,8 +254,30 @@ export function CustomerApprovalView({ token }: { token: string }) {
             {request.message}
           </p>
         )}
-        <div className="mt-3 inline-flex items-center gap-2 text-[12px] text-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5">
-          Total estimate <span className="font-mono" style={{ fontWeight: 700 }}>${totalEstimate.toFixed(2)}</span>
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-2 text-[12px] text-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5">
+            Total estimate <span className="font-mono" style={{ fontWeight: 700 }}>${totalEstimate.toFixed(2)}</span>
+          </div>
+          {/* Spec 5.6 — Plain English toggle. Only shown when at least one
+              line has an ai_explanation_md (otherwise there's nothing to
+              switch between). */}
+          {hasAnyExplanation && (
+            <button
+              type="button"
+              onClick={() => setPlainEnglish((v) => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-[12px] rounded-full px-3 py-1.5 border transition-colors',
+                plainEnglish
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-white text-muted-foreground border-border hover:bg-muted/30',
+              )}
+              style={{ fontWeight: 600 }}
+              aria-pressed={plainEnglish}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {plainEnglish ? 'Plain English' : 'Technical view'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -225,9 +295,18 @@ export function CustomerApprovalView({ token }: { token: string }) {
                 exit={{ opacity: 0 }}
                 className="bg-white rounded-2xl border border-border p-5"
               >
-                <p className="text-[14px] text-foreground" style={{ fontWeight: 500 }}>
-                  {it.description}
-                </p>
+                {plainEnglish && it.ai_explanation_md ? (
+                  <p
+                    className="text-[14px] text-foreground whitespace-pre-line"
+                    style={{ fontWeight: 500 }}
+                  >
+                    {it.ai_explanation_md}
+                  </p>
+                ) : (
+                  <p className="text-[14px] text-foreground" style={{ fontWeight: 500 }}>
+                    {it.description}
+                  </p>
+                )}
                 <div className="mt-1 text-[12px] text-muted-foreground flex items-center gap-3 flex-wrap">
                   <span><span className="font-mono">${Number(it.estimated_cost).toFixed(2)}</span> total</span>
                   <span>· {Number(it.labor_hours).toFixed(1)} hrs labor</span>
@@ -278,6 +357,45 @@ export function CustomerApprovalView({ token }: { token: string }) {
           })}
         </AnimatePresence>
       </ul>
+
+      {/* Spec 5.6 — Ask a question (powered by AI; grounded in WO context) */}
+      <div className="mt-6 bg-white rounded-2xl border border-border p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-[13px] text-foreground" style={{ fontWeight: 700 }}>
+            Ask a question about this work
+          </h3>
+        </div>
+        <p className="text-[11.5px] text-muted-foreground mb-3">
+          Our AI can answer based on the line items above. For pricing changes or
+          scheduling, please reach out to {organization?.name || 'the shop'} directly.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            value={askInput}
+            onChange={(e) => setAskInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void askQuestion() } }}
+            disabled={asking}
+            maxLength={300}
+            placeholder="e.g. Why is replacing the cylinder so important?"
+            className="flex-1 min-w-[16rem] rounded-lg border border-border bg-white px-3 py-2 text-[13px] outline-none focus:border-primary"
+          />
+          <Button onClick={askQuestion} disabled={asking || !askInput.trim()}>
+            {asking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+            Ask
+          </Button>
+        </div>
+        {askAnswer && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[13px] text-foreground whitespace-pre-line">
+            {askAnswer}
+          </div>
+        )}
+        {askError && (
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[12.5px] text-rose-800">
+            {askError}
+          </div>
+        )}
+      </div>
 
       {/* Done banner */}
       {allAnswered && items.length > 0 && (

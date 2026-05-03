@@ -14,6 +14,7 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { sendNotification } from '@/lib/notifications/dispatch'
+import { regenerateForApprovalRequest } from '../regenerate-explanations/route'
 import type { OrgRole } from '@/types'
 
 export async function POST(
@@ -50,6 +51,17 @@ export async function POST(
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Spec 5.6 cross-wire: kick off plain-English explanation generation in
+  // the background. Don't block the send response — explanations land in
+  // <30s and the customer view falls back to operator's description until
+  // they arrive. ANTHROPIC_API_KEY missing → silent skip.
+  void regenerateForApprovalRequest({
+    organization_id: ctx.organizationId,
+    user_id: ctx.user.id,
+    approval_request_id: params.id,
+    force: false,
+  }).catch((e) => console.warn('[approvals/send] explainer background error:', e))
 
   // Cross-wire to Sprint 0d: notify the operator's org that an approval
   // is out (in-app only — email-to-customer is a separate, future

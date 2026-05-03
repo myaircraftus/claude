@@ -37,7 +37,8 @@ export async function GET(
       line_items:approval_line_items (
         id, approval_request_id, description, estimated_cost, labor_hours,
         parts_cost, photo_urls, customer_response, customer_comment,
-        responded_at, sort_order
+        responded_at, sort_order,
+        ai_explanation_md, ai_explanation_generated_at
       )
     `)
     .eq('public_token', params.token)
