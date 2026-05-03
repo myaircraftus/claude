@@ -130,6 +130,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Spec 5.5 — AI Inspector cross-wire. When the WO transitions to a
+  // finalized state (ready_for_signoff / closed / invoiced), fire the
+  // auditor in background. Non-blocking; failures only log.
+  if (typeof body.status === 'string' && ['ready_for_signoff', 'closed'].includes(body.status)) {
+    void (async () => {
+      try {
+        const { auditWorkOrder } = await import('@/lib/ai/inspectors/wo-auditor')
+        const { createServiceSupabase } = await import('@/lib/supabase/server')
+        await auditWorkOrder(createServiceSupabase(), {
+          work_order_id: params.id,
+          organization_id: orgId,
+        })
+      } catch (e) {
+        console.warn('[wo-audit hook] background audit failed:', e)
+      }
+    })()
+  }
+
   return NextResponse.json(data)
 }
 

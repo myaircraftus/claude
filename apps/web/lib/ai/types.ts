@@ -64,6 +64,8 @@ export type ActionCardCategory =
   | 'approval'
   | 'anomaly'
   | 'insight'
+  /* Spec 5.5 — emitted by lib/ai/inspectors/wo-auditor.ts */
+  | 'audit-finding'
 
 export type ActionCardSource = 'rule' | 'llm' | 'ml'
 

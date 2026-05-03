@@ -14,27 +14,29 @@ import { motion } from 'motion/react'
 import { toast } from 'sonner'
 import {
   AlertTriangle, Calendar, ClipboardCheck, Sparkles, Wrench, Mail,
-  TrendingUp, X, Check, ChevronDown, ChevronUp, Loader2,
+  TrendingUp, X, Check, ChevronDown, ChevronUp, Loader2, ShieldAlert,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ActionCard as ActionCardType, ActionCardCategory, ActionCardPriority } from '@/lib/ai/types'
 
 const CATEGORY_ICON: Record<ActionCardCategory, any> = {
-  compliance:  ClipboardCheck,
-  expiration:  Calendar,
-  maintenance: Wrench,
-  approval:    Mail,
-  anomaly:     AlertTriangle,
-  insight:     Sparkles,
+  compliance:       ClipboardCheck,
+  expiration:       Calendar,
+  maintenance:      Wrench,
+  approval:         Mail,
+  anomaly:          AlertTriangle,
+  insight:          Sparkles,
+  'audit-finding':  ShieldAlert,
 }
 
 const CATEGORY_TINT: Record<ActionCardCategory, string> = {
-  compliance:  'bg-blue-50 text-blue-700 border-blue-200',
-  expiration:  'bg-amber-50 text-amber-700 border-amber-200',
-  maintenance: 'bg-violet-50 text-violet-700 border-violet-200',
-  approval:    'bg-emerald-50 text-emerald-700 border-emerald-200',
-  anomaly:     'bg-rose-50 text-rose-700 border-rose-200',
-  insight:     'bg-slate-50 text-slate-700 border-slate-200',
+  compliance:       'bg-blue-50 text-blue-700 border-blue-200',
+  expiration:       'bg-amber-50 text-amber-700 border-amber-200',
+  maintenance:      'bg-violet-50 text-violet-700 border-violet-200',
+  approval:         'bg-emerald-50 text-emerald-700 border-emerald-200',
+  anomaly:          'bg-rose-50 text-rose-700 border-rose-200',
+  insight:          'bg-slate-50 text-slate-700 border-slate-200',
+  'audit-finding':  'bg-orange-50 text-orange-700 border-orange-200',
 }
 
 const PRIORITY_BAR: Record<ActionCardPriority, string> = {
