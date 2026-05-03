@@ -1,4 +1,8 @@
 /** @type {import('next').NextConfig} */
+// BUILD_BUSTER 2026-05-02T15:33Z — Vercel was serving a pre-Phase-1.1 build that
+// rewrote /scheduler /time-off /clock /compliance /tools /inspections /vendors
+// /meters /inbox to /dashboard. This comment exists to invalidate the build
+// cache and force a clean rebuild from origin/main HEAD.
 const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: [
