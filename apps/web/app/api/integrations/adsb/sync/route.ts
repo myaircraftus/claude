@@ -60,14 +60,25 @@ interface SyncResult {
 /* ─── Entrypoint ─────────────────────────────────────────────────────────── */
 
 /**
- * Vercel Cron fires GET requests by default. We accept both:
- *   GET  → cron-only path (rejected if x-vercel-cron header is missing)
- *   POST → manual sync from the UI (mechanic+ auth required), with the
- *          x-vercel-cron escape hatch for completeness if Vercel ever
- *          posts instead of gets.
+ * Vercel Cron fires GET requests with User-Agent: "vercel-cron/1.0".
+ * We accept both:
+ *   GET  → cron-only path (rejects non-cron User-Agents)
+ *   POST → manual sync from the UI (mechanic+ auth required)
+ *
+ * Defense-in-depth: when CRON_SECRET is set, also accept Authorization:
+ * Bearer <secret>. That's the recommended Vercel pattern for protecting
+ * cron endpoints from public-internet hits.
  */
+function isVercelCronRequest(req: NextRequest): boolean {
+  const ua = req.headers.get('user-agent') ?? ''
+  if (ua.startsWith('vercel-cron')) return true
+  const secret = process.env.CRON_SECRET
+  if (secret && req.headers.get('authorization') === `Bearer ${secret}`) return true
+  return false
+}
+
 export async function GET(req: NextRequest) {
-  if (req.headers.get('x-vercel-cron') !== '1') {
+  if (!isVercelCronRequest(req)) {
     return NextResponse.json(
       { error: 'GET is reserved for Vercel Cron. Use POST for manual sync.' },
       { status: 405 }
@@ -77,7 +88,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const isCron = req.headers.get('x-vercel-cron') === '1'
+  const isCron = isVercelCronRequest(req)
 
   if (isCron) {
     return handleCron()
