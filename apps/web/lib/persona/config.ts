@@ -35,7 +35,8 @@ export interface PersonaConfig {
 
 export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
   owner: {
-    homeRoute: '/dashboard',
+    // Spec 5.1 — Smart Home Screen replaces the legacy /dashboard for owners.
+    homeRoute: '/my-aircraft',
     sidebarSections: ['MY AIRCRAFT', 'DOCUMENTS', 'MAINTENANCE', 'FINANCES'],
     hiddenModules: ['work-orders-financials', 'labor-rates', 'shop-pricing'],
     aiSystemPrompt:
@@ -44,7 +45,8 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
     label: 'Owner',
   },
   mechanic: {
-    homeRoute: '/mechanic',
+    // Spec 5.1 — Smart Home Screen replaces the legacy /mechanic dashboard.
+    homeRoute: '/my-day',
     sidebarSections: ['MY DAY', 'WORK ORDERS', 'INSPECTIONS', 'PARTS', 'TOOLS'],
     hiddenModules: ['org-billing', 'owner-finances'],
     aiSystemPrompt:

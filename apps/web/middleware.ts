@@ -123,6 +123,7 @@ function isAppRoute(pathname: string): boolean {
     '/mechanic',
     '/meters',
     '/my-aircraft',
+    '/my-day',
     '/org',
     '/parts',
     '/procedures',

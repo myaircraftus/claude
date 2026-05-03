@@ -55,7 +55,9 @@ type OwnerAircraftSummary = {
 // The Documents page remains for platform admins as a global monitoring
 // view (failed ingestions, who uploaded what, human-review queue).
 const ownerNavItems: NavItem[] = [
-  { icon: LayoutDashboard, label: "Dashboard",        href: "/dashboard" },
+  // Spec 5.1 — Smart Home Screen as the owner home; legacy /dashboard
+  // stays accessible via direct URL for the stat-card view.
+  { icon: LayoutDashboard, label: "Home",             href: "/my-aircraft" },
   { icon: Inbox,           label: "AI Inbox",         href: "/inbox" },
   { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
   // Documents intentionally NOT in owner top-level nav (Operations Hub
@@ -108,7 +110,8 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   // no duplicate Dashboard). The mechanic dashboard at /mechanic?tab=dashboard
   // IS the dashboard for the mechanic persona.
   if (perm.dashboard) {
-    items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/mechanic", tab: "dashboard" });
+    // Spec 5.1 — Mechanic Smart Home Screen replaces /mechanic?tab=dashboard.
+    items.push({ icon: LayoutDashboard, label: "My Day", href: "/my-day" });
   }
   if (perm.aircraft) {
     items.push({ icon: Plane, label: "Aircraft", href: "/mechanic", tab: "aircraft", badge: 3 });

@@ -1,150 +1,158 @@
-import { redirect } from 'next/navigation'
+/**
+ * /(app)/my-aircraft (Spec 5.1) — Owner persona Smart Home Screen.
+ *
+ * Replaces the legacy stat-card dashboard with a persona-aware action
+ * stack + aircraft tile grid. Server component:
+ *   1. requireAppServerSession()
+ *   2. fetch aircraft + meter readings + open squawks + nearest-expiring
+ *      doc per aircraft
+ *   3. invoke generateProactiveCards() to upsert ai_action_cards rows
+ *      (idempotent via dedupe_key; covers expiring docs, due compliance,
+ *      pending approvals)
+ *   4. mount <SmartHome/> with the pre-shaped data
+ *
+ * Note: legacy MyAircraftClient (aircraft list) component is preserved
+ * on disk for now — the canonical aircraft list lives at /aircraft, so
+ * this page can repurpose to the Smart Home shell without breaking
+ * other entry points.
+ */
 import { createServerSupabase } from '@/lib/supabase/server'
+import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
-import { MyAircraftClient } from './my-aircraft-client'
-import type { UserProfile } from '@/types'
+import { SmartHome } from '@/components/home/SmartHome'
+import type { AircraftCardSummary } from '@/components/home/AircraftCard'
+import type { GreetingStatus } from '@/components/home/AIGreeting'
+import { generateProactiveCards } from '@/lib/ai/cards/generators'
 
+export const dynamic = 'force-dynamic'
 export const metadata = { title: 'My Aircraft' }
 
 export default async function MyAircraftPage() {
+  const { profile, membership } = await requireAppServerSession()
   const supabase = createServerSupabase()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const orgId = membership.organization_id
 
-  const [profileRes, membershipRes] = await Promise.all([
-    supabase.from('user_profiles').select('*').eq('id', user.id).single(),
-    supabase
-      .from('organization_memberships')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .not('accepted_at', 'is', null)
-      .single(),
-  ])
-
-  const profile = profileRes.data as UserProfile
-  if (!profile || !membershipRes.data) redirect('/onboarding')
-
-  const orgId = membershipRes.data.organization_id
-  const role = membershipRes.data.role
-
-  // Determine which aircraft the user can see
-  // Pilots see aircraft assigned to them via customer link, or all if they're org staff
-  let aircraftIds: string[] = []
-
-  if (['owner', 'admin', 'mechanic'].includes(role)) {
-    // Staff roles see all aircraft
-    const { data: allAircraft } = await supabase
-      .from('aircraft')
-      .select('id')
-      .eq('organization_id', orgId)
-      .eq('is_archived', false)
-    aircraftIds = (allAircraft ?? []).map((a: any) => a.id)
-  } else {
-    // Pilot/viewer: find via customer assignments linked to user
-    // First find customers linked to this user (where customer email matches user email)
-    const { data: customers } = await supabase
-      .from('customers')
-      .select('id')
-      .eq('organization_id', orgId)
-      .eq('email', profile.email)
-
-    if (customers && customers.length > 0) {
-      const customerIds = customers.map((c: any) => c.id)
-      const { data: assignments } = await supabase
-        .from('aircraft_customer_assignments')
-        .select('aircraft_id')
-        .eq('organization_id', orgId)
-        .in('customer_id', customerIds)
-      aircraftIds = (assignments ?? []).map((a: any) => a.aircraft_id)
-    }
-
-    // Also include aircraft where owner_customer_id matches
-    if (customers && customers.length > 0) {
-      const customerIds = customers.map((c: any) => c.id)
-      const { data: ownedAircraft } = await supabase
-        .from('aircraft')
-        .select('id')
-        .eq('organization_id', orgId)
-        .eq('is_archived', false)
-        .in('owner_customer_id', customerIds)
-      const ownedIds = (ownedAircraft ?? []).map((a: any) => a.id)
-      aircraftIds = [...new Set([...aircraftIds, ...ownedIds])]
-    }
-  }
-
-  if (aircraftIds.length === 0) {
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <Topbar
-          profile={profile}
-          breadcrumbs={[{ label: 'My Aircraft' }]}
-        />
-        <MyAircraftClient aircraft={[]} squawkCounts={{}} workOrdersByAircraft={{}} invoices={[]} role={role} />
-      </div>
-    )
-  }
-
-  // Fetch aircraft details
-  const { data: aircraft } = await supabase
+  // 1. Aircraft list — owner persona sees all org-scoped aircraft (RLS does
+  //    the filtering; we don't double-filter by user here because fleet
+  //    ownership patterns vary).
+  const { data: aircraftRaw } = await supabase
     .from('aircraft')
-    .select('id, tail_number, make, model, year, base_airport, total_time_hours')
+    .select('id, tail_number, make, model, meter_profile_id')
     .eq('organization_id', orgId)
-    .eq('is_archived', false)
-    .in('id', aircraftIds)
-    .order('tail_number')
+    .neq('is_archived', true)
+    .order('tail_number', { ascending: true })
+    .limit(50)
 
-  // Fetch squawk counts per aircraft
-  const { data: squawks } = await supabase
-    .from('squawks')
-    .select('id, aircraft_id, status')
-    .eq('organization_id', orgId)
-    .in('aircraft_id', aircraftIds)
-    .in('status', ['open', 'in_progress', 'deferred'])
-
-  const squawkCounts: Record<string, number> = {}
-  for (const s of squawks ?? []) {
-    squawkCounts[s.aircraft_id] = (squawkCounts[s.aircraft_id] ?? 0) + 1
+  const aircraft: AircraftCardSummary[] = []
+  for (const a of (aircraftRaw ?? []) as Array<{ id: string; tail_number: string; make: string | null; model: string | null; meter_profile_id: string | null }>) {
+    aircraft.push(await loadAircraftSummary(supabase, a))
   }
 
-  // Fetch open work orders per aircraft
-  const { data: workOrders } = await supabase
-    .from('work_orders')
-    .select('id, work_order_number, aircraft_id, status, created_at, updated_at')
-    .eq('organization_id', orgId)
-    .in('aircraft_id', aircraftIds)
-    .not('status', 'in', '("closed","archived","paid")')
-    .order('updated_at', { ascending: false })
-    .limit(100)
+  // 2. Greeting status — pull primary aircraft + Hobbs to drive the
+  //    headline sentence "N12345 is ready. ⛽ 38.5 Hobbs."
+  const greeting_status: GreetingStatus = aircraft.length > 0
+    ? { primary_tail: aircraft[0].tail_number, hobbs: aircraft[0].hobbs ?? null }
+    : {}
 
-  const workOrdersByAircraft: Record<string, any[]> = {}
-  for (const wo of workOrders ?? []) {
-    if (!workOrdersByAircraft[wo.aircraft_id]) workOrdersByAircraft[wo.aircraft_id] = []
-    workOrdersByAircraft[wo.aircraft_id].push(wo)
+  // 3. Proactive card generation — idempotent, runs every render. Cheap
+  //    bounded scans of expiring docs / due compliance / approvals.
+  try {
+    await generateProactiveCards(supabase, { organization_id: orgId, persona: 'owner' })
+  } catch (e) {
+    console.error('[my-aircraft] generateProactiveCards error:', e)
   }
-
-  // Fetch unpaid invoices for these aircraft
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id, invoice_number, aircraft_id, status, total, balance_due, due_date, created_at')
-    .eq('organization_id', orgId)
-    .in('aircraft_id', aircraftIds)
-    .not('status', 'in', '("paid","void","writeoff")')
-    .order('due_date', { ascending: true })
-    .limit(100)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <Topbar
-        profile={profile}
-        breadcrumbs={[{ label: 'My Aircraft' }]}
-      />
-      <MyAircraftClient
-        aircraft={(aircraft ?? []) as any}
-        squawkCounts={squawkCounts}
-        workOrdersByAircraft={workOrdersByAircraft}
-        invoices={(invoices ?? []) as any}
-        role={role}
-      />
+      <Topbar profile={profile} breadcrumbs={[{ label: 'Home' }]} />
+      <main className="flex-1 overflow-y-auto">
+        <SmartHome
+          full_name={profile.full_name ?? profile.email ?? 'there'}
+          greeting_status={greeting_status}
+          aircraft={aircraft}
+        />
+      </main>
     </div>
   )
+}
+
+async function loadAircraftSummary(
+  supabase: ReturnType<typeof createServerSupabase>,
+  a: { id: string; tail_number: string; make: string | null; model: string | null; meter_profile_id: string | null },
+): Promise<AircraftCardSummary> {
+  // Latest Hobbs + Tach via meter_definitions / meter_readings (sprint 1.1).
+  let hobbs: number | null = null
+  let tach: number | null = null
+  if (a.meter_profile_id) {
+    const { data: defs } = await supabase
+      .from('meter_definitions')
+      .select('id, name')
+      .eq('meter_profile_id', a.meter_profile_id)
+    const hobbsDef = ((defs ?? []) as Array<{ id: string; name: string }>).find((d) => /^hobbs/i.test(d.name))
+    const tachDef = ((defs ?? []) as Array<{ id: string; name: string }>).find((d) => /^tach/i.test(d.name))
+    const targets: Array<{ id: string; key: 'hobbs' | 'tach' }> = []
+    if (hobbsDef) targets.push({ id: hobbsDef.id, key: 'hobbs' })
+    if (tachDef)  targets.push({ id: tachDef.id,  key: 'tach' })
+    for (const t of targets) {
+      const { data: last } = await supabase
+        .from('meter_readings')
+        .select('value')
+        .eq('aircraft_id', a.id)
+        .eq('meter_definition_id', t.id)
+        .order('reading_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const v = (last as { value?: number } | null)?.value
+      if (v != null) {
+        if (t.key === 'hobbs') hobbs = v
+        else tach = v
+      }
+    }
+  }
+
+  // Open squawks count.
+  const { count: squawkCount } = await supabase
+    .from('squawks')
+    .select('id', { count: 'exact', head: true })
+    .eq('aircraft_id', a.id)
+    .eq('status', 'open')
+
+  // Today's airborne hours from sprint 4.3 flight_events.
+  const todayIso = new Date(); todayIso.setHours(0, 0, 0, 0)
+  const { data: todayFlights } = await supabase
+    .from('flight_events')
+    .select('airborne_hours')
+    .eq('aircraft_id', a.id)
+    .gte('start_time', todayIso.toISOString())
+  const today_airborne_hours = ((todayFlights ?? []) as Array<{ airborne_hours: number }>)
+    .reduce((acc, f) => acc + (f.airborne_hours ?? 0), 0) || null
+
+  // Nearest expiring doc (sprint 2.6.2).
+  const { data: nextExpDoc } = await supabase
+    .from('documents')
+    .select('expiration_date, expiration_category')
+    .eq('aircraft_id', a.id)
+    .eq('has_expiration', true)
+    .gte('expiration_date', new Date().toISOString().slice(0, 10))
+    .order('expiration_date', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  const exp = nextExpDoc as { expiration_date?: string | null; expiration_category?: string | null } | null
+  const days_until_next_expiration = exp?.expiration_date
+    ? Math.max(0, Math.round((Date.parse(exp.expiration_date) - Date.now()) / 86_400_000))
+    : null
+
+  return {
+    id: a.id,
+    tail_number: a.tail_number,
+    make: a.make,
+    model: a.model,
+    hobbs,
+    tach,
+    open_squawks: squawkCount ?? 0,
+    today_airborne_hours,
+    days_until_next_expiration,
+    next_expiring_label: exp?.expiration_category ?? (exp?.expiration_date ? 'Expiring doc' : null),
+  }
 }
