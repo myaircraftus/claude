@@ -14,6 +14,7 @@
 
 import { TrendingUp, TrendingDown, DollarSign, Plane } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SourceBadge } from '@/lib/ui/SourceBadge'
 
 interface Props {
   revenueTotal: number
@@ -43,9 +44,16 @@ export function ProfitabilityCard({ revenueTotal, costTotal, flightHours, rental
   return (
     <div className="rounded-2xl border border-border bg-white p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[14px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>
-          Profitability — {period.replace('d', '-day')} period
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-[14px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>
+            Profitability — {period.replace('d', '-day')} period
+          </h2>
+          {/* Spec 7.8 — confidence badge keyed on revenue source. Today
+              there's no rental ledger (logged 7.4 follow-up) so the
+              numbers are estimated. Once aircraft.rental_rate lands the
+              caller can pass an explicit source string. */}
+          <SourceBadge tier={rentalRate == null ? 'estimated' : 'verified'} />
+        </div>
         <span className="text-[10.5px] uppercase tracking-wider text-muted-foreground" style={{ fontWeight: 600 }}>
           {flightHours.toFixed(1)} hr flown
         </span>

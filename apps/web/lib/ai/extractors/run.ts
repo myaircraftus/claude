@@ -270,6 +270,51 @@ export async function runExtraction(args: { intake_document_id: string }): Promi
         .from('intake_documents')
         .update({ resulting_cost_entry_ids: ids })
         .eq('id', intake.id)
+
+      // Spec 7.8 — record an override row whenever the freshly-inserted
+      // cost_entry replaces an older same-aircraft same-category 'estimated'
+      // entry for the same month. Audit-only — we don't delete the older
+      // row; the calculator picks up the higher-priority entry naturally
+      // because cost_entries are summed independently.
+      try {
+        const { recordOverride } = await import('@/lib/source-priority/audit')
+        for (let i = 0; i < costRows.length; i++) {
+          const inserted = costRows[i]
+          const newId = ids[i]
+          if (!newId) continue
+          const date = inserted.cost_date as string
+          const month = date.slice(0, 7) // 'YYYY-MM'
+          const { data: priorEstimates } = await service
+            .from('cost_entries')
+            .select('id, source, source_priority, amount, cost_date, category')
+            .eq('organization_id', intake.organization_id)
+            .eq('aircraft_id', aircraftId)
+            .eq('category', inserted.category as string)
+            .eq('source', 'estimated')
+            .gte('cost_date', `${month}-01`)
+            .lte('cost_date', `${month}-31`)
+          for (const prior of (priorEstimates ?? [])) {
+            const p = prior as { id: string; source: string; source_priority: number; amount: number; cost_date: string }
+            if (p.id === newId) continue
+            await recordOverride(service, {
+              organization_id: intake.organization_id,
+              entity_type: 'cost_entry',
+              entity_id: newId,
+              field_name: 'amount',
+              old_value: { id: p.id, amount: p.amount, cost_date: p.cost_date },
+              new_value: { amount: inserted.amount, cost_date: inserted.cost_date },
+              old_source: p.source,
+              old_priority: p.source_priority,
+              new_source: 'extracted',
+              document_id: intake.id,
+              triggered_by: null,
+              notes: `Receipt-extracted entry replaces estimated ${inserted.category} for ${month}`,
+            })
+          }
+        }
+      } catch (e) {
+        console.warn('[source-priority] override audit failed:', e)
+      }
     }
   }
 

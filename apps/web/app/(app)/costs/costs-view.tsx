@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CostEntryForm } from './cost-entry-form'
 import { CATEGORY_LABEL, BUCKET_LABEL, type CostCategory, type CostBucket } from '@/lib/costs/categories'
+import { SourceBadge } from '@/lib/ui/SourceBadge'
 import type { CostEntry } from '@/types'
 
 type Tab = 'all' | 'pending' | 'fuel-oil' | 'fixed' | 'maintenance'
@@ -178,7 +179,7 @@ export function CostsView() {
                       <td className="px-3 py-2 tabular-nums font-mono">${Number(r.amount).toFixed(2)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{bucket}</td>
                       <td className="px-3 py-2 text-muted-foreground capitalize">
-                        {r.source}{r.is_estimate && <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-700">est</span>}
+                        <SourceBadge source={r.source} />
                       </td>
                       <td className="px-3 py-2 text-right">
                         {!r.approved && (
