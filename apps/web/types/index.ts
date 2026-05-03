@@ -742,7 +742,15 @@ export interface WorkOrderLine {
 
 export type MeterUnit = 'hours' | 'cycles' | 'landings' | 'minutes' | 'starts'
 
-export type MeterReadingSource = 'manual' | 'automatic' | 'imported'
+export type MeterReadingSource =
+  | 'manual'
+  | 'automatic'
+  | 'imported'
+  /* ─── Phase 4 telemetry sources (Spec 4.3) ─── */
+  | 'airbly'
+  | 'fsp'
+  | 'adsb-exchange'
+  | 'flightaware'
 
 /**
  * A meter profile is a *template* — bundles one or more meter definitions
@@ -1453,4 +1461,91 @@ export interface SavedView {
   sort_order: number
   created_at: string
   updated_at: string
+}
+
+/* ─── Phase 4 — Telemetry & Sync (Spec 4.3) ──────────────────────────────── */
+
+export type TelemetryProvider = 'airbly' | 'fsp' | 'adsb-exchange' | 'flightaware'
+
+/**
+ * UI badge tier derived from (source, confidence). Pure function in
+ * lib/telemetry/inference.ts — read by aircraft sync UI + dashboard widgets.
+ */
+export type TelemetryConfidenceTier = 'verified' | 'synced' | 'estimated' | 'logged'
+
+export interface TelemetryPing {
+  /** ISO timestamp the position was reported. */
+  ts: string
+  lat: number
+  lon: number
+  /** Altitude in feet MSL when the source provides it. */
+  alt?: number | null
+  /** Ground speed in knots when available. */
+  gs?: number | null
+}
+
+/**
+ * One row per detected flight. ADSB inferred = source='adsb-exchange' +
+ * confidence 0.55-0.75. Owner confirmation flips source to 'manual',
+ * confidence to 1.0, and stamps confirmed_at + confirmed_by.
+ */
+export interface FlightEvent {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  source: TelemetryProvider | 'manual'
+  confidence: number
+  start_time: string
+  end_time: string
+  airborne_hours: number
+  inferred_hobbs_delta?: number | null
+  inferred_tach_delta?: number | null
+  path: TelemetryPing[]
+  origin_icao?: string | null
+  destination_icao?: string | null
+  confirmed_at?: string | null
+  confirmed_by?: string | null
+  was_overridden: boolean
+  superseded_by?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Per-aircraft per-source config. Drives Spec 4.4 multi-source priority +
+ * holds the per-aircraft tach-inference tunables (shop can override the
+ * 0.4-hour buffer for atypical ops like ag flights).
+ */
+export interface TelemetrySourceConfig {
+  id: string
+  organization_id: string
+  aircraft_id: string
+  source: TelemetryProvider
+  enabled: boolean
+  priority: number
+  tach_buffer_hours_per_cycle: number
+  tach_to_hobbs_ratio: number
+  last_synced_at?: string | null
+  last_cursor?: string | null
+  config: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Pure result of inferring meter deltas from an airborne window. Returned
+ * by lib/telemetry/inference.ts:inferMeterDeltasFromFlight().
+ */
+export interface TachInferenceResult {
+  /** Hobbs delta in hours, including the per-cycle buffer. */
+  hobbs_delta: number
+  /** Tach delta in hours = hobbs_delta × tach_to_hobbs_ratio. */
+  tach_delta: number
+  /** 0–1 score the helper assigns based on coverage + path density. */
+  confidence: number
+  /** Ratio applied — useful for the UI to show "85% of Hobbs at cruise". */
+  tach_to_hobbs_ratio: number
+  /** Buffer hours per cycle applied — useful for "0.4 hr taxi/runup". */
+  buffer_hours_per_cycle: number
 }
