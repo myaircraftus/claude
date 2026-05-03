@@ -15,6 +15,7 @@
  */
 
 import { PERSONA_CONFIG } from '@/lib/persona/config'
+import { getNotificationToneInstruction } from '@/lib/persona/defaults'
 import type { Persona } from '@/types'
 
 interface PromptVersion {
@@ -102,8 +103,12 @@ export function composePrompt(
     user = user.replaceAll(`{{${key}}}`, value)
   }
 
+  // Spec 5.8 — append the persona's notification-tone instruction to the
+  // base aiSystemPrompt so generated text matches "plain English" /
+  // "technical/FAR-aware" / "operations-focused" per persona.
+  const tone = getNotificationToneInstruction(persona)
   return {
-    system: PERSONA_CONFIG[persona].aiSystemPrompt,
+    system: `${PERSONA_CONFIG[persona].aiSystemPrompt}\n\n${tone}`,
     user,
     version: entry.current.version,
   }

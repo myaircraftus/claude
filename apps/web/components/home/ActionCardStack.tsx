@@ -17,10 +17,22 @@ import { AnimatePresence } from 'motion/react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { useAIInbox } from '@/lib/ai/use-ai-inbox'
 import { ActionCard } from '@/components/ai/action-card'
+import { usePersona } from '@/lib/persona/use-persona'
 import type { ActionCardCategory, ActionCardPriority } from '@/lib/ai/types'
 
 const PRIORITY_RANK: Record<ActionCardPriority, number> = {
   urgent: 0, high: 1, normal: 2, low: 3,
+}
+
+/**
+ * Spec 5.8 — apply persona's homeCardPriorities order. Cards whose
+ * `category` matches an entry in homeCardPriorities sort by that index;
+ * other categories go to the bottom in their natural priority order.
+ * Falls through to the existing PRIORITY_RANK + recency tie-breakers.
+ */
+function personaCategoryRank(category: string, priorities: string[]): number {
+  const i = priorities.indexOf(category)
+  return i < 0 ? Number.MAX_SAFE_INTEGER : i
 }
 
 interface Props {
@@ -41,10 +53,16 @@ export function ActionCardStack({
   emptyHint = 'Nothing needs your attention right now.',
 }: Props) {
   const { cards, loading, dismiss, resolve } = useAIInbox()
+  const { config } = usePersona()
+  const personaPriorities = config.homeCardPriorities
 
   const filtered = (cards ?? [])
     .filter((c) => (categories ? categories.includes(c.category) : true))
     .sort((a, b) => {
+      // Persona-aware ordering first (Spec 5.8).
+      const pa = personaCategoryRank(a.category, personaPriorities)
+      const pb = personaCategoryRank(b.category, personaPriorities)
+      if (pa !== pb) return pa - pb
       const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
       if (p !== 0) return p
       return Date.parse(b.created_at) - Date.parse(a.created_at)

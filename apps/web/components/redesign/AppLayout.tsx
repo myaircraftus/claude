@@ -20,6 +20,7 @@ import { AppProvider, useAppContext } from "./AppContext";
 import { BillingProvider, useBilling } from "@/components/billing/BillingProvider";
 import { BillingBanner } from "@/components/billing/BillingBanner";
 import { CrossPersonaUpsell } from "@/components/billing/CrossPersonaUpsell";
+import { PERSONA_CONFIG } from "@/lib/persona/config";
 import { PaywallScreen } from "@/components/billing/PaywallScreen";
 import type { MechanicPermissions, TeamMember, Persona } from "./AppContext";
 import { PartsStoreProvider } from "./workspace/PartsStore";
@@ -40,6 +41,8 @@ type NavItem  = {
   tab?: string;
   badge?: number;
   children?: NavChild[];
+  /** Spec 5.8 — when set, item is hidden if PersonaConfig.hiddenModules includes this key. */
+  module?: string;
 };
 
 type OwnerAircraftSummary = {
@@ -67,7 +70,8 @@ const ownerNavItems: NavItem[] = [
   // admins as a global monitoring view.
   { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
   { icon: ClipboardCheck,  label: "Compliance",       href: "/compliance" },
-  { icon: DollarSign,      label: "Costs",            href: "/costs" },
+  // Spec 5.8 — Costs is an owner-finance surface; hidden for mechanics.
+  { icon: DollarSign,      label: "Costs",            href: "/costs",            module: "owner-finances" },
   { icon: CalendarClock,   label: "Expirations",      href: "/documents/expiring" },
   { icon: ClipboardList,   label: "Inspections",      href: "/inspections" },
   { icon: Bookmark,        label: "Continued",        href: "/continued" },
@@ -346,12 +350,21 @@ function AppLayoutInner({
     { icon: FileText,       label: "Marketing CMS",   href: "/admin/content" },
   ];
 
-  const navItems: NavItem[] =
+  const navItemsRaw: NavItem[] =
     persona === "admin"
       ? adminNavItems
       : persona === "owner"
         ? ownerNavBase
         : buildMechanicNav(activeMechanic.permissions);
+
+  // Spec 5.8 — filter nav by PersonaConfig.hiddenModules. Items without
+  // a `module` key are always visible (back-compat: existing items don't
+  // need to opt in). To hide an item per persona, set `module: 'X'` on
+  // the NavItem definition and add 'X' to PERSONA_CONFIG[p].hiddenModules.
+  const personaHidden = new Set(PERSONA_CONFIG[persona]?.hiddenModules ?? []);
+  const navItems: NavItem[] = navItemsRaw.filter(
+    (item) => !item.module || !personaHidden.has(item.module)
+  );
 
   function switchPersona(p: Persona) {
     // Admins switch freely between all three personas. Owners + mechanics

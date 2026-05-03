@@ -170,6 +170,9 @@ export interface OrganizationMembership {
   role: OrgRole
   /** Persona this membership defaults to in the UI (Spec 0.1 / 0.2). */
   persona?: Persona | null
+  /** Per-user persona preference overrides (Spec 5.8). Patches the
+   *  shared PERSONA_CONFIG defaults via lib/persona/defaults.ts. */
+  persona_overrides?: Record<string, unknown> | null
   invited_by?: string
   invited_at: string
   accepted_at?: string
