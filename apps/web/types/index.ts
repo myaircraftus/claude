@@ -1560,6 +1560,58 @@ export interface TachInferenceResult {
   buffer_hours_per_cycle: number
 }
 
+/* ─── Phase 3 — Per-aircraft Billing / Tax / Contract Pricing (Spec 3.1) ─ */
+
+export type LaborDepartment = 'airframe' | 'engine' | 'avionics' | 'interior' | 'shop'
+
+export interface ContractRate {
+  department: LaborDepartment
+  labor_rate: number
+}
+
+export interface TaxProfile {
+  rate: number
+  jurisdiction: string
+  exempt: boolean
+  exemption_id?: string | null
+}
+
+export interface BillingProfile {
+  /** Net term in days (15, 30, 45). */
+  term_days: number
+  po_required: boolean
+  /** RFC-822 emails the invoice gets cc'd to on send. */
+  email_invoice_to: string[]
+}
+
+export interface SplitBillingCustomer {
+  customer_id: string
+  /** 0-100. Sum across the array must equal 100 (validated at API layer). */
+  percentage: number
+}
+
+export interface SplitBilling {
+  customers: SplitBillingCustomer[]
+}
+
+/**
+ * Per-aircraft pricing override row. One row per aircraft (PK = aircraft_id);
+ * absence is interpreted as "use org defaults". The resolver in
+ * lib/billing/resolver.ts is the single read path — never branch on
+ * aircraft_pricing inline.
+ */
+export interface AircraftPricing {
+  aircraft_id: string
+  organization_id: string
+  contract_rates: ContractRate[]
+  default_discount_pct: number
+  tax_override?: TaxProfile | null
+  billing_profile?: BillingProfile | null
+  split_billing?: SplitBilling | null
+  created_at: string
+  updated_at: string
+}
+
 /* ─── Phase 7 — Aircraft Operating Economics (Spec 7.1) ─────────────────── */
 
 export type CostSource = 'manual' | 'extracted' | 'imported' | 'estimated' | 'reconciled'
