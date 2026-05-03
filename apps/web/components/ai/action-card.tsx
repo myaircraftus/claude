@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import {
   AlertTriangle, Calendar, ClipboardCheck, Sparkles, Wrench, Mail,
   TrendingUp, X, Check, ChevronDown, ChevronUp, Loader2, ShieldAlert,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ActionCard as ActionCardType, ActionCardCategory, ActionCardPriority } from '@/lib/ai/types'
@@ -27,6 +28,7 @@ const CATEGORY_ICON: Record<ActionCardCategory, any> = {
   anomaly:          AlertTriangle,
   insight:          Sparkles,
   'audit-finding':  ShieldAlert,
+  prediction:       Activity,
 }
 
 const CATEGORY_TINT: Record<ActionCardCategory, string> = {
@@ -37,6 +39,7 @@ const CATEGORY_TINT: Record<ActionCardCategory, string> = {
   anomaly:          'bg-rose-50 text-rose-700 border-rose-200',
   insight:          'bg-slate-50 text-slate-700 border-slate-200',
   'audit-finding':  'bg-orange-50 text-orange-700 border-orange-200',
+  prediction:       'bg-indigo-50 text-indigo-700 border-indigo-200',
 }
 
 const PRIORITY_BAR: Record<ActionCardPriority, string> = {

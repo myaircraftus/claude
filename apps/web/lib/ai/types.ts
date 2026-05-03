@@ -66,6 +66,8 @@ export type ActionCardCategory =
   | 'insight'
   /* Spec 5.5 — emitted by lib/ai/inspectors/wo-auditor.ts */
   | 'audit-finding'
+  /* Spec 5.3 — emitted by lib/ai/predictors/* nightly cron */
+  | 'prediction'
 
 export type ActionCardSource = 'rule' | 'llm' | 'ml'
 
