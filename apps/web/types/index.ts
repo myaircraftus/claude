@@ -1612,6 +1612,64 @@ export interface AircraftPricing {
   updated_at: string
 }
 
+/* ─── Phase 3 — Cores / Rotables + Serialized Components (Spec 3.2) ───── */
+
+export type ComponentClass = 'engine' | 'propeller' | 'magneto' | 'alternator' | 'starter' | 'other'
+export type ComponentStatus = 'installed' | 'in-stock' | 'in-overhaul' | 'scrapped'
+
+/**
+ * One ComponentMove row inside SerialComponent.removal_history. The
+ * row gets appended (never edited) on every install / remove / overhaul /
+ * scrap transition. Provides the audit trail for "this engine was on
+ * N12345 from 2024-03-01 to 2025-08-15."
+ */
+export interface ComponentMove {
+  date: string
+  from_aircraft_id?: string | null
+  to_aircraft_id?: string | null
+  from_status: ComponentStatus | null
+  to_status: ComponentStatus
+  work_order_id?: string | null
+  notes?: string | null
+}
+
+export interface SerialComponent {
+  id: string
+  organization_id: string
+  part_number: string
+  serial_number: string
+  description?: string | null
+  component_class: ComponentClass
+  installed_on_aircraft?: string | null
+  installed_date?: string | null
+  installed_hours?: number | null
+  hours_since_overhaul: number
+  hours_since_new: number
+  removal_history: ComponentMove[]
+  status: ComponentStatus
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type CoreObligationStatus = 'pending' | 'received' | 'overdue' | 'waived'
+
+export interface CoreObligation {
+  id: string
+  organization_id: string
+  work_order_id?: string | null
+  customer_id?: string | null
+  part_number: string
+  description?: string | null
+  core_charge: number
+  due_date?: string | null
+  status: CoreObligationStatus
+  received_date?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
 /* ─── Phase 7 — Aircraft Operating Economics (Spec 7.1) ─────────────────── */
 
 export type CostSource = 'manual' | 'extracted' | 'imported' | 'estimated' | 'reconciled'
