@@ -44,9 +44,9 @@ The full implementation spec lives at:
 
 ## 5. Current sprint
 
-**Sprint:** Open — pick next from the build order. 5.6 just shipped; suggested next is 5.2 (AI Inbox filtering/grouping enhancements).
-**Spec section:** TBD
-**Status:** Phase 4 still gated on partner credentials (Airbly / FSP). Phase 5 progressing out-of-order: 5.1 + 5.6 shipped (skipped 5.3 ML, 5.4 voice/camera, 5.5 inspector for now). 5.6 is the FIRST production LLM use; lib/ai/anthropic.ts is now reusable for future AI sprints.
+**Sprint:** `5.5 — AI Inspector` (skipping 5.3/5.4 to leverage 5.6 LLM infra immediately)
+**Spec section:** `Feature 5.5` in `/docs/Claude_Code_Implementation_Spec.md`
+**Status:** not started. Phase 4 still gated on partner credentials (Airbly / FSP). Phase 5 progressing out-of-order: 5.1 + 5.6 shipped; 5.5 next because it reuses lib/ai/anthropic.ts from 5.6 directly. 5.3 (ML) and 5.4 (voice/camera) deferred — they need separate model + media plumbing.
 
 Previous sprints:
 - `0a — Multi-Org / Multi-Location data model` shipped 2026-05-01
@@ -132,6 +132,16 @@ PHASE 6 — Org Admin (9 features)
   6.7 Bulk Update Queue
   6.8 Trash / Soft Delete
   6.9 Profile & Notification preferences
+
+PHASE 7 — Aircraft Operating Economics (8 features, owner-facing P&L + AI receipt extraction)
+  7.1 Cost Categories + Cost Entries Data Model
+  7.2 Cost Intake (Manual + Upload + Email)
+  7.3 AI Extraction (Claude Vision)
+  7.4 True Operating Cost Calculator
+  7.5 Aircraft Profitability Dashboard
+  7.6 AI Aircraft Analysis
+  7.7 Tax-Time P&L PDF Report
+  7.8 Source Priority Framework
 
 PHASE 3 — Commercial (3 features, last)
   3.1 Per-aircraft Billing/Tax/Contract Pricing
@@ -512,4 +522,5 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-03 | Customer-side Ask handler is rate-limited via row count on ai_activity_log, not a separate rate-limit table | One less table. ai_activity_log already has the per-call audit trail; counting rows in the past hour for (org, scope='approval-customer-ask', entity_id=approval_id) is the rate limit. Idempotent across deploy boundaries because the log persists. 5 questions/hour per token is generous enough for legitimate curiosity, tight enough to bound cost on a single token |
 | 2026-05-03 | LLM hard constraints baked into SYSTEM_PROMPT, not post-hoc validation | "Don't invent FAR numbers" is a string the model sees, not a regex we run on output. Cheaper, simpler, and the model trained to follow these instructions handles the long tail (e.g. "don't make up SB references", "don't promise turnaround times") without us writing N validators. Trade-off accepted: occasional system-prompt drift; mitigated by surfacing every call in ai_activity_log so we can spot regressions |
 | 2026-05-03 | answerCustomerQuestion grounds in approval line items only, not the full WO | Customer doesn't have access to the WO; they have the approval link. Bringing more context (e.g. full work_order.scope, prior compliance history) risks leaking org-internal data to a public token. The line items the customer is already reading are the safe context. Future: if/when we want richer answers, add a per-org policy toggle "include WO scope in customer Ask answers" |
+| 2026-05-02 | Added Phase 7 — Aircraft Operating Economics — 8 features. Differentiator: only platform combining MRO software with owner-facing operating economics + AI receipt extraction + tax-time P&L. | Owner-facing P&L answers "am I making money?" from real data. AI receipt extraction (Claude Vision via lib/ai/anthropic.ts from 5.6) eliminates manual data entry — forward bills, AI structures them. True per-hour cost calculator amortizes scheduled reserves + annual fixed + loan + depreciation across actual flight hours from flight_events (4.3). Tax-time P&L PDF replaces $500-2000 accountant work with one click. Source priority framework generalizes 4.3's confidence-scoring system-wide. Inserted before Phase 3 (commercial layer) in build order — owners care about Phase 7 more than per-aircraft contract pricing. Note: spec text inside Phase 7 references migrations 078-081 — those numbers are already taken (078 was used for 5.6 smart_approvals); when the Phase 7 sprints actually run, migrations will be renumbered to whatever's next. |
 ```

@@ -1,6 +1,6 @@
 # aircraft.us — Claude Code Implementation Spec
 
-_Build aircraft.us into the Tesla/Apple of aviation maintenance: AI-first, telemetry-synced, multi-location, persona-aware. **42 features across 9 phases (0, 1, 2, 2.5, 2.6, 3, 4, 5, 6).**_
+_Build aircraft.us into the Tesla/Apple of aviation maintenance: AI-first, telemetry-synced, multi-location, persona-aware. **50 features across 10 phases (0, 1, 2, 2.5, 2.6, 3, 4, 5, 6, 7).**_
 
 ## The product thesis (read this before anything else)
 
@@ -1698,6 +1698,153 @@ Already in cross-cutting earlier — page at `/app/org/trash` with restore + per
 ## Feature 6.9 — Profile & Notification preferences
 
 `/app/profile` — user-level. Avatar, name, email, password, 2FA, per-channel notification preferences, persona preference (default landing).
+
+---
+
+# PHASE 7 — Aircraft Operating Economics
+
+_Owner-facing P&L. AI receipt extraction. True per-hour cost. Tax-time reports. The unfair advantage._
+
+This phase makes aircraft.us not just MRO software for mechanics, but the only platform where aircraft owners can actually answer "am I making money?" with real data. 8 sprints. ~9 sprint-weeks of Claude Code time.
+
+## Feature 7.1 — Cost Categories + Cost Entries Data Model
+
+**Why:** Foundation for everything else in Phase 7.
+
+**Files:**
+- /supabase/migrations/078_cost_categories_and_entries.sql
+- /apps/web/types/index.ts (extend)
+- /apps/web/lib/costs/categories.ts (seed list)
+- /app/(app)/costs/page.tsx (list/filter view)
+
+**Types to add:** CostCategory enum (fuel/oil/tiedown/hangar/insurance/annual_inspection/100_hour/engine_overhaul_reserve/prop_overhaul_reserve/avionics_database/parts/labor/outside_service/tax_property/tax_use/loan_payment/depreciation/training/subscription_software/other), CostBucket enum (variable_per_hour/scheduled_per_hour/annual_fixed/monthly_fixed/one_time/loan/depreciation), CostEntry interface (id/orgId/aircraftId/category/bucket/vendor FK/description/amount/currency/date/isEstimate/source/sourcePriority 1-5/documentId/extractionResultId/approved/notes/createdAt/updatedAt).
+
+**DataStore:** addCostEntry/updateCostEntry/deleteCostEntry + helpers: getCostsForAircraft/getCostsByCategory/getTotalCostsYTD.
+
+**Acceptance:** User creates manual cost entry "Fuel $87.40 for N12345" → row appears in /costs filtered to that aircraft.
+
+## Feature 7.2 — Cost Intake (Manual + Upload + Email)
+
+**Why:** Most owners won't enter costs manually. Forward bills, upload photos, AI handles rest.
+
+**Files:**
+- /app/(app)/costs/intake/page.tsx
+- /app/api/costs/upload/route.ts
+- /app/api/costs/email-webhook/route.ts (SendGrid Inbound Parse)
+- /app/api/costs/manual/route.ts
+- /components/costs/CostIntakeForm.tsx
+- /components/costs/IntakeQueueList.tsx
+- /supabase/migrations/079_intake_documents.sql
+
+**Types:** IntakeDocument (id/orgId/uploadedBy/source 'upload'|'email'|'manual'/filename/storageUrl/emailFrom/emailSubject/status 'received'|'extracting'|'extracted'|'review'|'posted'|'rejected'/extractionStartedAt/extractionCompletedAt/resultingCostEntryIds/errorMessage/createdAt).
+
+**Email-to-cost:** Each org gets unique forwarding address (e.g. <orgId>@bills.aircraft.us). SendGrid Inbound Parse → webhook → IntakeDocument creation → triggers extraction.
+
+**Acceptance:** User uploads fuel receipt PDF → IntakeDocument row created with status='received' → appears in queue.
+
+## Feature 7.3 — AI Extraction (Claude Vision)
+
+**Why:** THE differentiator. Forward bills, AI structures them. Zero manual data entry.
+
+**Files:**
+- /lib/ai/extractors/cost-receipt.ts (general fuel/oil/parts)
+- /lib/ai/extractors/maintenance-invoice.ts (MX sheet — labor + parts)
+- /lib/ai/extractors/insurance-declaration.ts (annual policy)
+- /lib/ai/extractors/router.ts (decides extractor by doc type)
+- /app/api/costs/intake/[id]/extract/route.ts
+- /supabase/migrations/080_extraction_results.sql
+
+**Types:** ExtractionResult (id/intakeDocumentId/extractor type/modelUsed/rawText/parsedFields with vendor/aircraftMatched/aircraftMatchConfidence 0-1/date/lineItems[]/totalAmount/notes/extractionConfidence overall/costTokens with input/output/estimated_cost_usd/durationMs/status 'success'|'partial'|'failed'|'manual_review_needed'/createdAt).
+
+**Extraction logic:** Claude vision API with structured-output schema. If aircraft can't be matched → flag for review. If total mismatches line-item sum → flag. Confidence ≥0.85 → auto-create cost_entries with approved=false (queued). <0.85 → manual review flag.
+
+**Use lib/ai/anthropic.ts from sprint 5.6.** Reuse the Anthropic client wrapper.
+
+**Acceptance:** Upload real fuel receipt photo → within 30s, AI extracts vendor/date/amount/aircraft/category=fuel → cost_entries row in review queue.
+
+## Feature 7.4 — True Operating Cost Calculator
+
+**Why:** Core math. Compute each aircraft's true per-hour cost.
+
+**Files:**
+- /lib/costs/calculator.ts
+- /lib/costs/reserves.ts
+- /components/costs/CostBreakdownCard.tsx
+- /app/api/aircraft/[id]/operating-cost/route.ts
+
+**Math:** computeTrueOperatingCost takes aircraftId + lookbackPeriod. Sums flight hours from flight_events. Variable: fuelCost + oilCost = total/flight hours. Scheduled per hour: engineReserve = engineOverhaulCost / engineTBO (default $30K/2000hr=$15/hr), propReserve similar. Annual fixed amortized: insurancePerHour = annualInsurance/annualizedHours, hangarPerHour = monthly*12/annualizedHours, annualInspectionPerHour = avg/annualizedHours. Loan + depreciation amortized.
+
+Returns: fuelPerHour/oilPerHour/engineReservePerHour/propReservePerHour/insurancePerHour/hangarPerHour/annualInspectionPerHour/loanPerHour/depreciationPerHour, plus wetCostPerHour (sum) and dryCostPerHour (sum minus fuel), plus confidence score (0.85 if enough data, 0.55 if not), plus breakdown for UI.
+
+**Acceptance:** N20957 with 142 flight hours → API returns wetCostPerHour with all components broken out.
+
+## Feature 7.5 — Aircraft Profitability Dashboard
+
+**Why:** Make math visible. "Is this plane making money?"
+
+**Files:**
+- /app/(app)/aircraft/[id]/economics/page.tsx
+- /components/economics/ProfitabilityCard.tsx
+- /components/economics/CostBreakdownChart.tsx (Recharts)
+- /components/economics/RevenueVsCostChart.tsx
+- /components/economics/ReserveStatusCard.tsx
+
+**UI:** Per-aircraft card showing Revenue/True Cost/Net Profit/Per Hour, color-coded green if profit ≥0 else red. Cost breakdown pie/bar chart. Revenue vs Cost line chart over 12 months. Reserve status cards: engine TBO remaining, prop overhaul remaining.
+
+**Linked from:** AircraftDetail header tab.
+
+**Acceptance:** Owner opens N20957 → sees real revenue/cost/profit/per-hour, color-coded, with charts.
+
+## Feature 7.6 — AI Aircraft Analysis
+
+**Why:** Plain-English summary per aircraft.
+
+**Files:**
+- /lib/ai/analyzers/aircraft-analysis.ts
+- /app/api/aircraft/[id]/analysis/route.ts
+- /components/economics/AIAnalysisCard.tsx
+
+**Logic:** Given aircraft revenue YTD + costs by category + flight hours + maintenance history + Hobbs/Tach + comparable rates in region (if available), Claude generates 3-paragraph plain-English summary with: (1) overall profitability story, (2) 2-3 specific observations (underfunded reserves, fuel trending up, rate vs market), (3) recommendations.
+
+**Cache:** 24-hour cache per aircraft. Refresh button triggers new call.
+
+**Use lib/ai/anthropic.ts.**
+
+**Acceptance:** Click "Generate Analysis" on aircraft economics page → within 30s, AI summary card renders with 3 paragraphs.
+
+## Feature 7.7 — Tax-Time P&L PDF Report
+
+**Why:** Owners pay accountants $500-2000 to do this manually. We do it in one click.
+
+**Files:**
+- /app/(app)/reports/tax-pnl/page.tsx
+- /lib/reports/tax-pnl-generator.ts
+- /lib/reports/pdf-generator.ts (using @react-pdf/renderer)
+- /app/api/reports/tax-pnl/[year]/route.ts
+
+**PDF contents:** Per aircraft, full-year P&L statement matching IRS Schedule C / aircraft business categories. Revenue (rental, charter, dry lease). Operating expenses (fuel, oil, maintenance breakdowns, parts, insurance, hangar, database subs, training, property tax). MACRS depreciation schedule (5-year for aircraft). Net income. Net per flight hour. Supporting documents count + linked.
+
+**Year picker** + Generate button + history of past reports.
+
+**Acceptance:** Owner picks 2025 → clicks Generate → 10s later PDF downloads with full statement.
+
+## Feature 7.8 — Source Priority Framework
+
+**Why:** Generalizes 4.3 confidence-scoring system-wide. Uploaded receipts beat estimates, official logbooks beat ADSB-inferred, etc.
+
+**Files:**
+- /lib/source-priority.ts (the constants + helper functions)
+- /supabase/migrations/081_source_overrides.sql
+- /lib/source-priority/audit.ts (audit log)
+- Refactor sprint 4.3 confidence scores to use this framework
+
+**Constants:** SOURCE_PRIORITY = { official:5, uploaded:4, connected:3, tracked:2, estimated:1 }
+
+**Types:** SourceOverride (id/orgId/entityType 'meter_reading'|'cost_entry'|'aircraft_field'|'compliance_item'/entityId/fieldName/oldValue/newValue/oldSource/oldPriority/newSource/newPriority/documentId/triggeredBy/notes/createdAt).
+
+**Logic:** When new data arrives, check existing for same entity+field. If new priority > existing → automatic override + audit log. If ≤ existing → log as "alternate source" but don't override. UI shows badge per field: Verified (uploaded) / Synced (Airbly) / Estimated (ADSB).
+
+**Acceptance:** Estimated fuel YTD = $4,260. Owner uploads receipt totaling $4,470. System creates source_overrides row, updates cost to $4,470, audit log shows swap.
 
 ---
 
