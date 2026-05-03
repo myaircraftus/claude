@@ -185,6 +185,8 @@ export interface Aircraft {
   location_id?: string | null
   /** Spec 1.1: optional meter profile driving the aircraft's time tracking. */
   meter_profile_id?: string | null
+  /** Cross-cutting Concern 2 — parent aircraft (fleet → aircraft → engine). */
+  parent_aircraft_id?: string | null
   tail_number: string
   serial_number?: string
   make: string
@@ -1167,6 +1169,8 @@ export type VendorType = 'parts' | 'osr' | 'service' | 'freight' | 'other'
 export interface Vendor {
   id: string
   organization_id: string
+  /** Cross-cutting Concern 2 — parent vendor (vendor → branch). */
+  parent_vendor_id?: string | null
   name: string
   vendor_type: VendorType
   approved: boolean
