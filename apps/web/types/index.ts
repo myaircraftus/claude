@@ -1600,3 +1600,42 @@ export interface CostEntry {
   created_at: string
   updated_at: string
 }
+
+/**
+ * Intake document — one row per inbound bill/receipt awaiting extraction
+ * (sprint 7.2). 7.3's vision extractor reads `received` rows, flips
+ * status through `extracting` → `extracted` → `review`, then sets
+ * `resulting_cost_entry_ids` once the operator approves.
+ */
+export type IntakeSource = 'upload' | 'email' | 'manual'
+
+export type IntakeStatus =
+  | 'received'
+  | 'extracting'
+  | 'extracted'
+  | 'review'
+  | 'posted'
+  | 'rejected'
+
+export interface IntakeDocument {
+  id: string
+  organization_id: string
+  uploaded_by?: string | null
+  source: IntakeSource
+  filename: string
+  storage_path?: string | null
+  storage_url?: string | null
+  mime_type?: string | null
+  file_size_bytes?: number | null
+  email_from?: string | null
+  email_subject?: string | null
+  email_received_at?: string | null
+  status: IntakeStatus
+  extraction_started_at?: string | null
+  extraction_completed_at?: string | null
+  resulting_cost_entry_ids: string[]
+  error_message?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
