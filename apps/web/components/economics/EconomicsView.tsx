@@ -28,6 +28,7 @@ import { ProfitabilityCard } from './ProfitabilityCard'
 import { CostBreakdownChart } from './CostBreakdownChart'
 import { RevenueVsCostChart, type SeriesPoint } from './RevenueVsCostChart'
 import { ReserveStatusCard } from './ReserveStatusCard'
+import { AIAnalysisCard } from './AIAnalysisCard'
 
 interface Props {
   aircraftId: string
@@ -134,6 +135,9 @@ export function EconomicsView({
         rentalRate={rentalRate}
         period={period}
       />
+
+      {/* Spec 7.6 — AI plain-English analysis above the charts. */}
+      <AIAnalysisCard aircraftId={aircraftId} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         <CostBreakdownChart data={data} />
