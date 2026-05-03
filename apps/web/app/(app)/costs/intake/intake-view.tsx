@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { CameraButton } from '@/components/camera/CameraButton'
 import type { IntakeDocument, IntakeStatus } from '@/types'
 
 const STATUS_TONE: Record<IntakeStatus, string> = {
@@ -147,10 +148,17 @@ export function IntakeView({ orgId }: { orgId: string }) {
             Drop receipts here or forward bills via email. Claude Vision extracts vendor, totals, and line items automatically. Click any row to review.
           </p>
         </div>
-        <Button onClick={() => inputRef.current?.click()} disabled={uploading}>
-          {uploading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
-          Upload receipts
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Spec 5.4 — Scan with camera button alongside file picker. */}
+          <CameraButton
+            mode="scan-part"
+            label="Scan part tag"
+          />
+          <Button onClick={() => inputRef.current?.click()} disabled={uploading}>
+            {uploading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+            Upload receipts
+          </Button>
+        </div>
         <input
           ref={inputRef}
           type="file"

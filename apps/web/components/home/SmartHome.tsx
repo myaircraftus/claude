@@ -22,6 +22,7 @@ import { AIGreeting, type GreetingStatus } from './AIGreeting'
 import { AircraftCard, type AircraftCardSummary } from './AircraftCard'
 import { ActionCardStack } from './ActionCardStack'
 import { usePersona } from '@/lib/persona/use-persona'
+import { VoiceButton } from '@/components/voice/VoiceButton'
 
 export interface SmartHomeServerData {
   /** Sourced from user_profiles.full_name (or email fallback). */
@@ -42,6 +43,11 @@ export function SmartHome(props: SmartHomeServerData) {
       {persona === 'owner' && <OwnerLayout {...props} />}
       {persona === 'mechanic' && <MechanicLayout {...props} />}
       {(persona === 'shop' || persona === 'admin') && <OwnerLayout {...props} />}
+
+      {/* Spec 5.4 — voice input on every home surface. Floats bottom-right. */}
+      <div className="fixed bottom-4 right-4 z-40">
+        <VoiceButton />
+      </div>
     </div>
   )
 }
