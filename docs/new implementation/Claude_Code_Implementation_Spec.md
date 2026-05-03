@@ -1712,7 +1712,7 @@ This phase makes aircraft.us not just MRO software for mechanics, but the only p
 **Why:** Foundation for everything else in Phase 7.
 
 **Files:**
-- /supabase/migrations/078_cost_categories_and_entries.sql
+- /supabase/migrations/080_cost_categories_and_entries.sql
 - /apps/web/types/index.ts (extend)
 - /apps/web/lib/costs/categories.ts (seed list)
 - /app/(app)/costs/page.tsx (list/filter view)
@@ -1734,7 +1734,7 @@ This phase makes aircraft.us not just MRO software for mechanics, but the only p
 - /app/api/costs/manual/route.ts
 - /components/costs/CostIntakeForm.tsx
 - /components/costs/IntakeQueueList.tsx
-- /supabase/migrations/079_intake_documents.sql
+- /supabase/migrations/081_intake_documents.sql
 
 **Types:** IntakeDocument (id/orgId/uploadedBy/source 'upload'|'email'|'manual'/filename/storageUrl/emailFrom/emailSubject/status 'received'|'extracting'|'extracted'|'review'|'posted'|'rejected'/extractionStartedAt/extractionCompletedAt/resultingCostEntryIds/errorMessage/createdAt).
 
@@ -1752,7 +1752,7 @@ This phase makes aircraft.us not just MRO software for mechanics, but the only p
 - /lib/ai/extractors/insurance-declaration.ts (annual policy)
 - /lib/ai/extractors/router.ts (decides extractor by doc type)
 - /app/api/costs/intake/[id]/extract/route.ts
-- /supabase/migrations/080_extraction_results.sql
+- /supabase/migrations/082_extraction_results.sql
 
 **Types:** ExtractionResult (id/intakeDocumentId/extractor type/modelUsed/rawText/parsedFields with vendor/aircraftMatched/aircraftMatchConfidence 0-1/date/lineItems[]/totalAmount/notes/extractionConfidence overall/costTokens with input/output/estimated_cost_usd/durationMs/status 'success'|'partial'|'failed'|'manual_review_needed'/createdAt).
 
@@ -1834,7 +1834,7 @@ Returns: fuelPerHour/oilPerHour/engineReservePerHour/propReservePerHour/insuranc
 
 **Files:**
 - /lib/source-priority.ts (the constants + helper functions)
-- /supabase/migrations/081_source_overrides.sql
+- /supabase/migrations/083_source_overrides.sql
 - /lib/source-priority/audit.ts (audit log)
 - Refactor sprint 4.3 confidence scores to use this framework
 
