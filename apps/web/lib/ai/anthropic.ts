@@ -39,18 +39,36 @@ const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = 
   'claude-3-5-haiku-latest':    { input:  0.80, output:  4.00 },
 }
 
+/**
+ * Multimodal attachment — image or PDF document fetched by URL or
+ * inlined as base64. Used by Claude Vision for receipt/invoice
+ * extraction (Spec 7.3). Anthropic supports image (PNG/JPEG/GIF/WebP)
+ * + document (PDF) content blocks.
+ */
+export interface AnthropicAttachment {
+  kind: 'image' | 'document'
+  /** "image/png", "image/jpeg", "image/webp", "application/pdf", … */
+  media_type: string
+  /** EITHER base64 data OR a public URL Anthropic can fetch. Exactly one. */
+  data?: string
+  url?: string
+}
+
 export interface AnthropicCallArgs {
   /** System prompt — keep persona-stable, task-specific. */
   system: string
   /** User message. JSON-shaped output requests should be in the system or
    *  user prompt; we don't enforce a JSON-only schema here. */
   user: string
+  /** Optional multimodal attachments rendered alongside the user text.
+   *  When present, the request becomes multimodal (Spec 7.3 vision). */
+  attachments?: AnthropicAttachment[]
   /** Override the default model for this call. */
   model?: string
   /** Hard upper bound on output tokens. Default 1024. */
   max_tokens?: number
   temperature?: number
-  /** Per-call timeout in ms. Default 30s. */
+  /** Per-call timeout in ms. Default 30s — vision calls override to 60s. */
   timeout_ms?: number
   /** Max retry attempts on 429/5xx. Default 3. */
   max_attempts?: number
@@ -118,7 +136,7 @@ export async function callAnthropic(
           max_tokens,
           temperature: args.temperature,
           system: args.system,
-          messages: [{ role: 'user', content: args.user }],
+          messages: [{ role: 'user', content: buildMessageContent(args) }],
         }),
         signal: AbortSignal.timeout(timeout_ms),
       })
@@ -185,6 +203,34 @@ export async function callAnthropic(
 }
 
 /* ─── Helpers ────────────────────────────────────────────────────────── */
+
+/**
+ * Build the Messages API `content` field. When no attachments are present,
+ * the content is the simple string user prompt (matches the original
+ * shape from sprint 5.6). When attachments ARE present, content becomes
+ * an array with one text block + one block per attachment — required
+ * shape for Claude Vision.
+ *
+ * Source format: `data` (base64) takes precedence over `url`. Caller
+ * passes one or the other; in 7.3 we use base64 because the storage
+ * bucket is private and signed URLs add latency + a network hop.
+ */
+function buildMessageContent(args: AnthropicCallArgs): unknown {
+  if (!args.attachments || args.attachments.length === 0) return args.user
+
+  const blocks: Array<Record<string, unknown>> = []
+  for (const a of args.attachments) {
+    const source = a.data
+      ? { type: 'base64', media_type: a.media_type, data: a.data }
+      : a.url
+        ? { type: 'url', url: a.url }
+        : null
+    if (!source) continue
+    blocks.push({ type: a.kind, source })
+  }
+  blocks.push({ type: 'text', text: args.user })
+  return blocks
+}
 
 function baseBackoffMs(attempt: number): number {
   const base = 250 * Math.pow(2, attempt - 1)

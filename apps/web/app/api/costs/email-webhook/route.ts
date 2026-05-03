@@ -155,5 +155,20 @@ export async function POST(req: NextRequest) {
     if (ins) created.push((ins as { id: string }).id)
   }
 
+  // Spec 7.3 — fire extraction on each newly-created intake row in
+  // background. SendGrid only needs the 200 ack from this handler.
+  if (created.length > 0) {
+    void (async () => {
+      try {
+        const { runExtraction } = await import('@/lib/ai/extractors/run')
+        for (const id of created) {
+          await runExtraction({ intake_document_id: id })
+        }
+      } catch (e) {
+        console.warn('[email-webhook] background extraction failed:', e)
+      }
+    })()
+  }
+
   return NextResponse.json({ ok: true, created_ids: created, skipped })
 }

@@ -97,5 +97,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insErr?.message ?? 'Insert failed' }, { status: 500 })
   }
 
+  // Spec 7.3 cross-wire: kick off Claude Vision extraction in the
+  // background. Non-blocking — operator sees status='received' on the
+  // first reload, then 'extracting' → 'extracted' or 'review' as the
+  // orchestrator runs. Failure only logs.
+  void (async () => {
+    try {
+      const { runExtraction } = await import('@/lib/ai/extractors/run')
+      await runExtraction({ intake_document_id: (row as { id: string }).id })
+    } catch (e) {
+      console.warn('[upload] background extraction failed:', e)
+    }
+  })()
+
   return NextResponse.json({ intake: row }, { status: 201 })
 }

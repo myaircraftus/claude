@@ -1639,3 +1639,58 @@ export interface IntakeDocument {
   created_at: string
   updated_at: string
 }
+
+/* ─── Phase 7 — AI Extraction (Spec 7.3) ────────────────────────────── */
+
+/**
+ * Extractor types — matches the CHECK constraint on extraction_results.extractor.
+ * 'router' is the lightweight classifier that routes to one of the specialist
+ * extractors; 'unknown' is a terminal classification that bypasses extraction.
+ */
+export type ExtractorKind =
+  | 'router'
+  | 'cost-receipt'
+  | 'maintenance-invoice'
+  | 'insurance-declaration'
+  | 'unknown'
+
+export type ExtractionRunStatus =
+  | 'success'
+  | 'partial'
+  | 'failed'
+  | 'manual_review_needed'
+
+/**
+ * One row per extraction attempt. Multiple rows per intake_document_id are
+ * expected (manual re-runs after model upgrade, retries on partial failure).
+ * The detail view reads the latest by created_at.
+ *
+ * `parsed_fields` shape varies by `extractor`:
+ *   - cost-receipt: CostReceipt (schema.ts)
+ *   - maintenance-invoice: MaintenanceInvoice (schema.ts)
+ *   - insurance-declaration: InsuranceDeclaration (schema.ts)
+ *
+ * `aircraft_match_confidence` only set when a tail_number was extracted —
+ * the auto-approve gate uses it AND `extraction_confidence` (each must be
+ * >= 0.85) to flip cost_entries to status='extracted'. Below threshold →
+ * 'review' (operator handles).
+ */
+export interface ExtractionResult {
+  id: string
+  organization_id: string
+  intake_document_id: string
+  extractor: ExtractorKind
+  model_used?: string | null
+  raw_text?: string | null
+  parsed_fields: Record<string, unknown>
+  extraction_confidence: number
+  aircraft_match_confidence: number
+  aircraft_id?: string | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  cost_usd_cents?: number | null
+  duration_ms?: number | null
+  status: ExtractionRunStatus
+  error_message?: string | null
+  created_at: string
+}
