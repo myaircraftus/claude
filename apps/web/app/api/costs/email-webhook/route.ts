@@ -21,6 +21,7 @@
  *     ONLY by the recipient address.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { createServiceSupabase } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -157,8 +158,14 @@ export async function POST(req: NextRequest) {
 
   // Spec 7.3 — fire extraction on each newly-created intake row in
   // background. SendGrid only needs the 200 ack from this handler.
+  //
+  // Vercel-safe pattern: `waitUntil` from @vercel/functions keeps the
+  // function alive until the promise resolves. Previous
+  // `void (async () => …)()` pattern was killed when the 200 response
+  // flushed. Next 15's `after()` is the equivalent helper; we're on
+  // Next 14.2.
   if (created.length > 0) {
-    void (async () => {
+    waitUntil((async () => {
       try {
         const { runExtraction } = await import('@/lib/ai/extractors/run')
         for (const id of created) {
@@ -167,7 +174,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.warn('[email-webhook] background extraction failed:', e)
       }
-    })()
+    })())
   }
 
   return NextResponse.json({ ok: true, created_ids: created, skipped })

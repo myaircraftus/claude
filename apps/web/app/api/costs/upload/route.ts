@@ -9,6 +9,7 @@
  * (set in migration 081); we double-check here for clearer error messages.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -101,14 +102,21 @@ export async function POST(req: NextRequest) {
   // background. Non-blocking — operator sees status='received' on the
   // first reload, then 'extracting' → 'extracted' or 'review' as the
   // orchestrator runs. Failure only logs.
-  void (async () => {
+  //
+  // Vercel-safe pattern: `waitUntil` from @vercel/functions tells the
+  // platform "keep this function alive until the promise resolves"
+  // (bounded by maxDuration above). The previous `void (async () => …)()`
+  // pattern was killed once the response flushed — so intake rows got
+  // stuck at status='received' and ai_activity_log stayed empty. Next 15's
+  // `after()` is the equivalent helper but we're on Next 14.2.
+  waitUntil((async () => {
     try {
       const { runExtraction } = await import('@/lib/ai/extractors/run')
       await runExtraction({ intake_document_id: (row as { id: string }).id })
     } catch (e) {
       console.warn('[upload] background extraction failed:', e)
     }
-  })()
+  })())
 
   return NextResponse.json({ intake: row }, { status: 201 })
 }

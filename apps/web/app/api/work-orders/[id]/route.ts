@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
@@ -134,8 +135,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // Spec 5.5 — AI Inspector cross-wire. When the WO transitions to a
   // finalized state (ready_for_signoff / closed / invoiced), fire the
   // auditor in background. Non-blocking; failures only log.
+  //
+  // Vercel-safe pattern: `waitUntil` from @vercel/functions keeps the
+  // function alive until the audit promise resolves. Previous
+  // `void (async () => …)()` was killed by the platform once the
+  // response flushed, so audit cards never landed in production.
+  // Next 15's `after()` is the equivalent helper; we're on Next 14.2.
   if (typeof body.status === 'string' && ['ready_for_signoff', 'closed'].includes(body.status)) {
-    void (async () => {
+    waitUntil((async () => {
       try {
         const { auditWorkOrder } = await import('@/lib/ai/inspectors/wo-auditor')
         const { createServiceSupabase } = await import('@/lib/supabase/server')
@@ -146,7 +153,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       } catch (e) {
         console.warn('[wo-audit hook] background audit failed:', e)
       }
-    })()
+    })())
   }
 
   return NextResponse.json(data)
