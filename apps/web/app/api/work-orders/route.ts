@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
       customer:customer_id (id, name, company, email)
     `, { count: 'exact' })
     .eq('organization_id', orgId)
+    // Spec 6.8 — exclude soft-deleted rows from the live list.
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 

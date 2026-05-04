@@ -179,12 +179,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Only draft or archived work orders can be deleted' }, { status: 409 })
   }
 
+  // Spec 6.8 — soft-delete: stamp deleted_at instead of physical DELETE.
+  // Restore via /api/trash. The 30-day cron purges anything past retention.
   const { error } = await supabase
     .from('work_orders')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ deleted: true })
+  return NextResponse.json({ deleted: true, soft: true })
 }
