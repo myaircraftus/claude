@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useAppContext } from "./AppContext";
 import { InviteMechanicModal } from "./InviteMechanicModal";
 import { LiveTrackWidget } from "./LiveTrackWidget";
+import { VoiceButton } from "@/components/voice/VoiceButton";
 import { useIntegrationStore } from "./integrationStore";
 // ADSBManagerPanel moved to /work-orders/[id] — Mechanic flow only.
 import { DocumentProcessingTimeline } from "@/components/documents/processing-timeline";
@@ -4319,6 +4320,13 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Spec polish.voice-camera-rollout — floating voice input on the
+          aircraft detail surface (mechanic/owner can speak to log entries,
+          create WOs, etc.). z-40 sits above content + below modals. */}
+      <div className="fixed bottom-4 right-4 z-40 pointer-events-auto">
+        <VoiceButton context={aircraftId ? { aircraft_id: aircraftId } : undefined} />
+      </div>
     </div>
   );
 }

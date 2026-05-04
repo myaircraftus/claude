@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
 import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
+import { CameraButton } from '@/components/camera/CameraButton'
 import { cn } from '@/lib/utils'
 import { INSPECTION_STATUS_LABEL } from '@/lib/inspections/status'
 import { ModuleViewShell } from '@/components/views/module-view-shell'
@@ -103,10 +104,16 @@ export function InspectionsView({ userRole }: { userRole: OrgRole }) {
           </p>
         </div>
         {canMutate && !creating && (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
-            New inspection
-          </Button>
+          <div className="inline-flex items-center gap-2">
+            {/* Spec polish.voice-camera-rollout — scan an inspection
+                sheet (paper checklist photo) → /api/vision/scan-logbook
+                returns a structured draft for review. */}
+            <CameraButton mode="scan-logbook" label="Scan sheet" />
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              New inspection
+            </Button>
+          </div>
         )}
       </div>
 

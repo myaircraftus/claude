@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Plus, History, Wrench, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { CameraButton } from '@/components/camera/CameraButton'
 import { cn } from '@/lib/utils'
 import type { SerialComponent, ComponentClass, ComponentStatus, ComponentMove } from '@/types'
 
@@ -95,7 +96,11 @@ export function SerialComponentsList({ aircraftId, tailNumber, canWrite }: Props
             </p>
           </div>
           {canWrite && (
-            <div className="inline-flex gap-1 flex-wrap">
+            <div className="inline-flex gap-1 flex-wrap items-center">
+              {/* Spec polish.voice-camera-rollout — scan a component
+                  data plate from the device camera. /api/vision/scan-part
+                  returns the extracted P/N + S/N + matches inventory. */}
+              <CameraButton mode="scan-part" label="Scan tag" />
               {CLASSES.map((k) => (
                 <Button
                   key={k}

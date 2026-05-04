@@ -29,6 +29,8 @@ import {
 } from 'lucide-react'
 import { ESignatureModal, SignatureBlock, type SignatureResult } from '@/components/work-orders/e-signature-modal'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
+import { VoiceButton } from '@/components/voice/VoiceButton'
+import { CameraButton } from '@/components/camera/CameraButton'
 import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import { ADSBManagerPanel } from '@/components/aircraft/ad-sb-manager'
 import { WoToolsPanel } from '@/components/work-orders/wo-tools-panel'
@@ -1624,6 +1626,15 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
         onClose={() => setShowAIPlan(false)}
         onAcceptPlan={handleAcceptPlan}
       />
+
+      {/* Spec polish.voice-camera-rollout — voice + camera input on the
+          WO detail surface. Voice floats bottom-right; CameraButton
+          mode='scan-part' lets the mechanic scan a part tag into this WO.
+          z-30 sits below the save-bar (z-40) when both are on screen. */}
+      <div className="fixed bottom-4 right-4 z-30 pointer-events-auto flex flex-col items-end gap-2">
+        <CameraButton mode="scan-part" label="Scan part tag" />
+        <VoiceButton context={{ work_order_id: wo.id, aircraft_id: wo.aircraft_id ?? undefined }} />
+      </div>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
 import { Topbar } from '@/components/shared/topbar'
 import { DocumentsTable } from '@/components/documents/documents-table'
+import { CameraButton } from '@/components/camera/CameraButton'
 import { Button } from '@/components/ui/button'
 import { Upload, FileText, CheckCircle2, Loader2 } from 'lucide-react'
 import { DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
@@ -524,12 +525,18 @@ export default async function DocumentsPage({
         profile={profile}
         breadcrumbs={[{ label: 'Documents' }]}
         actions={
-          <Button size="sm" asChild>
-            <Link href="/documents/upload">
-              <Upload className="mr-1.5 h-4 w-4" />
-              Upload
-            </Link>
-          </Button>
+          <div className="inline-flex items-center gap-2">
+            {/* Spec polish.voice-camera-rollout — scan a logbook page or
+                tag from the device camera. /api/vision/scan-logbook
+                returns a structured draft for operator review. */}
+            <CameraButton mode="scan-logbook" label="Scan with camera" />
+            <Button size="sm" asChild>
+              <Link href="/documents/upload">
+                <Upload className="mr-1.5 h-4 w-4" />
+                Upload
+              </Link>
+            </Button>
+          </div>
         }
       />
 
