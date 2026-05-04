@@ -54,8 +54,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!['owner', 'admin'].includes(ctx.role)) {
     return NextResponse.json({ error: 'Only owner/admin can delete tools' }, { status: 403 })
   }
+  // Spec polish.cross-rollout — soft-delete via deleted_at; trash + 30d purge.
   const supabase = createServerSupabase()
-  const { error } = await supabase.from('tools').delete().eq('id', params.id).eq('organization_id', ctx.organizationId)
+  const { error } = await supabase.from('tools')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', params.id).eq('organization_id', ctx.organizationId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, soft: true })
 }

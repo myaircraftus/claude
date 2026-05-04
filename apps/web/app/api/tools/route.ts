@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
     .from('tools')
     .select('*')
     .eq('organization_id', ctx.organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('next_calibration_date', { ascending: true, nullsFirst: false })
     .limit(500)
 

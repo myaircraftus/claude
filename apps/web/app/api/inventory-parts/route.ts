@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
     .from('inventory_parts')
     .select('*')
     .eq('organization_id', ctx.organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('part_number', { ascending: true })
     .limit(limit)
 

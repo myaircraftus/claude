@@ -41,6 +41,8 @@ export async function GET(req: NextRequest) {
     .from('compliance_items')
     .select('*')
     .eq('organization_id', ctx.organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('next_due_date', { ascending: true, nullsFirst: false })
     .limit(limit)
 

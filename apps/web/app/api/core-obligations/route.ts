@@ -48,6 +48,8 @@ export async function GET(req: NextRequest) {
     .from('core_obligations')
     .select('*')
     .eq('organization_id', membership.organization_id)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
   if (status && VALID_STATUS.has(status as CoreObligationStatus)) q = q.eq('status', status)
   if (woId) q = q.eq('work_order_id', woId)
 

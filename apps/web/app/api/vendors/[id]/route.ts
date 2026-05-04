@@ -131,10 +131,13 @@ export async function DELETE(
   const hard = req.nextUrl.searchParams.get('hard') === '1'
 
   if (hard) {
-    // FKs are ON DELETE SET NULL, so referrers preserve history.
+    // Spec polish.cross-rollout — "hard" now means soft-delete via
+    // deleted_at (recoverable from /org/trash). 30-day purge cron handles
+    // permanent removal. FKs are ON DELETE SET NULL so referrers preserve
+    // history through both the soft-delete and the eventual purge.
     const { error } = await supabase
       .from('vendors')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', params.id)
       .eq('organization_id', ctx.organizationId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

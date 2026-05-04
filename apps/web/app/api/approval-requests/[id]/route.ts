@@ -116,13 +116,14 @@ export async function DELETE(
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
+  // Spec polish.cross-rollout — soft-delete via deleted_at; trash + 30d purge.
   const supabase = createServerSupabase()
   const { error } = await supabase
     .from('approval_requests')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('organization_id', ctx.organizationId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, soft: true })
 }

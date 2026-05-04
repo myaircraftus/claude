@@ -61,6 +61,8 @@ export async function GET(req: NextRequest) {
     .from('approval_requests')
     .select(SELECT_REQUEST)
     .eq('organization_id', ctx.organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit)
 

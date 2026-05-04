@@ -101,11 +101,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!DELETE_ROLES.has(c.membership.role)) {
     return NextResponse.json({ error: 'Only admin/owner can delete cost entries' }, { status: 403 })
   }
+  // Spec polish.cross-rollout — soft-delete via deleted_at; trash + 30d purge.
   const { error } = await c.supabase
     .from('cost_entries')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('organization_id', c.membership.organization_id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, soft: true })
 }

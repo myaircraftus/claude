@@ -42,6 +42,8 @@ export async function GET(req: NextRequest) {
     .from('continued_items')
     .select('*')
     .eq('organization_id', ctx.organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     // Order: priority desc (urgent first), then most-recently-discovered.
     // Postgres orders strings lexically; we sort by priority CASE on the
     // client (small lists) and use created_at as the primary ORDER BY.

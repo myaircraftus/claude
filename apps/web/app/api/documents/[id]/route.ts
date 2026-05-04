@@ -434,20 +434,13 @@ export async function DELETE(_req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: 'Document not found' }, { status: 404 })
   }
 
-  // Delete from Storage
-  const { error: storageError } = await serviceClient.storage
-    .from('documents')
-    .remove([doc.file_path])
-
-  if (storageError) {
-    console.error('[documents DELETE] storage removal error:', storageError)
-    // Non-fatal: proceed to delete DB record; storage can be cleaned up separately
-  }
-
-  // Delete DB record (cascades to chunks, citations, etc. via FK constraints)
+  // Spec polish.cross-rollout — soft-delete: stamp deleted_at instead of
+  // physical DELETE + storage.remove. Restore-from-trash brings the row +
+  // file back together. The 30-day purge cron is the right place to also
+  // remove the storage object (logged follow-up).
   const { error: deleteError } = await serviceClient
     .from('documents')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
     .eq('organization_id', membership.organization_id)
 

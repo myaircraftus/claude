@@ -147,13 +147,15 @@ export async function DELETE(
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
+  // Spec polish.cross-rollout — soft-delete: stamps deleted_at instead of
+  // physical DELETE. Restore via /api/trash. Cron purges after 30 days.
   const supabase = createServerSupabase()
   const { error } = await supabase
     .from('inspections')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('organization_id', ctx.organizationId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, soft: true })
 }

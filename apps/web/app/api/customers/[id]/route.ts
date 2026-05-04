@@ -117,13 +117,14 @@ export async function DELETE(
     return NextResponse.json({ error: 'Only owner or admin can delete customers' }, { status: 403 })
   }
 
+  // Spec polish.cross-rollout — soft-delete via deleted_at; trash + 30d purge.
   const { error } = await supabase
     .from('customers')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', params.id)
     .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, soft: true })
 }

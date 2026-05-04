@@ -130,17 +130,19 @@ export async function DELETE(
   const hard = req.nextUrl.searchParams.get('hard') === '1'
 
   if (hard) {
+    // Spec polish.cross-rollout — "hard" now means soft-delete via
+    // deleted_at (recoverable from /org/trash, purged after 30 days).
+    // True physical delete is no longer reachable from the API; the
+    // 30-day purge cron handles permanent removal.
     const { error } = await supabase
       .from('inventory_parts')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', params.id)
       .eq('organization_id', ctx.organizationId)
-    // RESTRICT on purchase_order_lines means any PO line referencing this
-    // part will block the delete with a 23503 (foreign_key_violation).
     if (error) {
       if ((error as any).code === '23503') {
         return NextResponse.json(
-          { error: 'Cannot hard-delete a part referenced by purchase orders. Archive instead.' },
+          { error: 'Cannot delete a part referenced by purchase orders. Archive instead.' },
           { status: 409 },
         )
       }

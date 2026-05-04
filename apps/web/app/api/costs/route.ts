@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
     .from('cost_entries')
     .select('*')
     .eq('organization_id', membership.organization_id)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('cost_date', { ascending: false })
     .limit(limit)
   if (aircraftId) q = q.eq('aircraft_id', aircraftId)

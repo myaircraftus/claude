@@ -23,6 +23,12 @@ export const BULK_ENTITY_TABLES = {
   approval_requests: 'approval_requests',
   purchase_orders: 'purchase_orders',
   tools: 'tools',
+  // Spec polish.cross-rollout — extended for the per-list rollout.
+  vendors: 'vendors',
+  documents: 'documents',
+  customers: 'customers',
+  serial_components: 'serial_components',
+  core_obligations: 'core_obligations',
 } as const
 export type BulkEntityType = keyof typeof BULK_ENTITY_TABLES
 
@@ -37,6 +43,14 @@ const FIELD_WHITELIST: Record<BulkEntityType, Set<string>> = {
   approval_requests: new Set(['status', 'reminder_offsets']),
   purchase_orders:   new Set(['status', 'due_date', 'reminder_offsets', 'notes']),
   tools:             new Set(['status', 'notes', 'reminder_offsets']),
+  // Spec polish.cross-rollout — extended for the per-list rollout. These
+  // sets are intentionally narrow; widen via review when a new bulk-edit
+  // surface needs a field.
+  vendors:           new Set(['vendor_type', 'approved', 'is_archived', 'description']),
+  documents:         new Set(['doc_type', 'document_subtype', 'visibility', 'allow_download', 'expiration_category']),
+  customers:         new Set(['preferred_communication', 'tags', 'portal_access']),
+  serial_components: new Set(['status', 'notes']),
+  core_obligations:  new Set(['status', 'due_date', 'core_charge', 'notes']),
 }
 
 export interface BulkJob {

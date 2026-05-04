@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
       { count: 'exact' }
     )
     .eq('organization_id', membership.organization_id)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('uploaded_at', { ascending: false })
     .range(offset, offset + limit - 1)
 

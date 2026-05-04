@@ -114,6 +114,8 @@ export async function GET(req: NextRequest) {
       )
     `, { count: 'exact' })
     .eq('organization_id', organizationId)
+    // Spec polish.cross-rollout — exclude soft-deleted rows.
+    .is('deleted_at', null)
     .order('name', { ascending: true })
     .range(offset, offset + limit - 1)
 

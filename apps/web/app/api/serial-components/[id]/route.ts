@@ -100,11 +100,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: 'Owner/admin only' }, { status: 403 })
   }
 
+  // Spec polish.cross-rollout — soft-delete via deleted_at; trash + 30d purge.
+  // For SerialComponent the conventional path is status='scrapped'; this
+  // soft-delete is for "I created this row by mistake" recoverability.
   const { error } = await supabase
     .from('serial_components')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('organization_id', membership.organization_id)
     .eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, soft: true })
 }
