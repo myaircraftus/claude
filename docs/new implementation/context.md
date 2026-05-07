@@ -172,6 +172,8 @@ CROSS-CUTTING (do alongside late phases)
   Bulk Update Queue
   Soft-delete Trash
   Configurable Dashboard widgets
+
+PHASE 8 — Vision RAG Layer (deferred — ~6 weeks, starts after current sequence + Colab/RunPod credentials)
 ```
 
 **MVP cut:** Sprints 0a–0d + 1.1 + 1.2 + 1.5 + 4.1 + 4.3 + 5.1 + 5.2 → ship a sellable demo.
@@ -628,4 +630,5 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-03 | RevenueVsCostChart uses even-distribution bucketing as MVP | The chart's job at MVP is to communicate "revenue line vs cost line over time"; flat lines with the right totals fulfills the spec. Right fix is SQL group-by cost_date in calculator.ts — flagged as 7.5 follow-up. Avoids a multi-day detour into bucketing math that 7.6 (AI analysis) doesn't depend on |
 | 2026-05-03 | Revenue is rental rate × flight hours stand-in until a real rental ledger exists | Spec acknowledges this — "for now use a simple lookup of aircraft.rentalRate * flightHoursInPeriod (we don't have a real rental ledger yet)". Even without the column today, the math is wired so flipping aircraft.rental_rate → real value is a one-line change. Future: rental_sessions table per the spec's "real rental ledger" hint, joined by aircraft_id + date range |
 | 2026-05-03 | ReserveStatusCard uses aircraft.total_time_hours as time-since-overhaul proxy | Same simplification spec calls for. Wrong by exactly the previous engine's hours-at-swap for aircraft that have been overhauled. Acceptable for MVP because most owner-flown singles ARE on their first engine; correction logic adds complexity not in the 7.5 spec. Logged as 7.5 follow-up: read maintenance_events tagged 'engine_overhaul' + compute the delta |
+| 2026-05-03 | Phase 8 — Vision RAG Layer spec'd and deferred | Aviation-grade visual retrieval (ColPali/ColQwen2) as complementary layer to existing OCR/text RAG. Existing 234K embeddings + 351 docs preserved (no re-embed, no reprocess). Triggers when current sequence completes + GPU worker accounts ready (Colab Pro $10/mo OR RunPod $30 minimum). Stub appended to Claude_Code_Implementation_Spec.md — sprints 8.1–8.8 sketched, pre-conditions + hard rules listed. Full Phase 8 architecture document was uploaded to a Cowork session, not yet transferred to repo. Will be added at /docs/new implementation/Phase8_Vision_RAG_Spec.md when available. Stub in main spec file captures sprint plan + pre-conditions + hard rules sufficient for build start |
 ```

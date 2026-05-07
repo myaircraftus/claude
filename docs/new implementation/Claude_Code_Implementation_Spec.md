@@ -1,6 +1,6 @@
 # aircraft.us — Claude Code Implementation Spec
 
-_Build aircraft.us into the Tesla/Apple of aviation maintenance: AI-first, telemetry-synced, multi-location, persona-aware. **50 features across 10 phases (0, 1, 2, 2.5, 2.6, 3, 4, 5, 6, 7).**_
+_Build aircraft.us into the Tesla/Apple of aviation maintenance + the only platform where aircraft owners know their true cost & profit per hour. **58 features across 11 phases (0, 1, 2, 2.5, 2.6, 3, 4, 5, 6, 7, 8-deferred).**_
 
 ## The product thesis (read this before anything else)
 
@@ -2177,3 +2177,38 @@ Refactor `Dashboard.tsx`:
 ---
 
 That's the full spec. Hand this file to Claude Code one section at a time — pick a sprint, start coding.
+
+---
+
+# PHASE 8 — Vision RAG Layer (DEFERRED)
+
+_Aviation-grade document intelligence. Adds ColPali/ColQwen2-style visual retrieval as a complementary layer to existing OCR + text RAG. Do not start until current sequence (Phase 4 telemetry credentials, Phase 6 stubs, polish) is complete._
+
+**Status: spec'd, not started. ~6 weeks of focused work. New ML stack required.**
+
+**Source spec document:** preserved at /docs/new implementation/Phase8_Vision_RAG_Spec.md (full architecture, migration strategy, GPU worker design, query orchestration, human review integration).
+
+**Phase 8 sprints (proposed, fleshed out when Phase 8 starts):**
+- 8.1 Document registry + file-hash dedup + processing status table
+- 8.2 Page rendering pipeline (PDFJS → PNG @ 150 DPI, cached)
+- 8.3 GPU worker (Colab + RunPod portable, ColQwen2/ColPali embedding generation)
+- 8.4 Vision index storage + import-results endpoint
+- 8.5 Hybrid retriever (text RAG → confidence check → vision RAG fallback)
+- 8.6 OpenAI Vision answer generation (top 1-5 pages only)
+- 8.7 Human review queue integration
+- 8.8 Confidence scoring + UI badges (HIGH/MEDIUM/LOW/REVIEW)
+
+**Pre-conditions before starting Phase 8:**
+- Current build sequence complete (47/50 minimum, ideally Phase 6 stubs done)
+- Google Colab Pro account ($10/mo) OR RunPod credit ($30 minimum)
+- Audit current 351 documents to identify which would benefit most from vision retrieval (handwritten / scanned / poor OCR confidence)
+- Decision on which model: ColQwen2 (newer) vs ColPali (more battle-tested)
+
+**Hard rules during Phase 8:**
+- Existing OCR/text RAG remains untouched and operational
+- Existing 234K embeddings preserved (no re-embedding)
+- Existing 351 documents preserved (no reprocessing without explicit force_reindex flag)
+- File-hash registry prevents duplicate work
+- Top 1-5 pages only sent to OpenAI Vision (cost control)
+- Human review queue is the source of truth when AI confidence is low
+- All Phase 7/Phase 5 features continue working unchanged
