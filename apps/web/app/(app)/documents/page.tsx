@@ -6,6 +6,7 @@ import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
 import { Topbar } from '@/components/shared/topbar'
 import { DocumentsTable } from '@/components/documents/documents-table'
 import { CameraButton } from '@/components/camera/CameraButton'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 import { Button } from '@/components/ui/button'
 import { Upload, FileText, CheckCircle2, Loader2 } from 'lucide-react'
 import { DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
@@ -589,6 +590,9 @@ export default async function DocumentsPage({
 
           {/* Pagination */}
           <Pagination page={page} totalPages={totalPages} searchParams={searchParams} />
+
+          {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+          <EntityBulkPanel entityType="documents" />
         </div>
       </main>
     </div>

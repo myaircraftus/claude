@@ -1,6 +1,7 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { ContinuedItemsPageView } from '@/components/continued/continued-page-view'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 import type { OrgRole } from '@/types'
 
 export const metadata = { title: 'Continued Items' }
@@ -16,6 +17,8 @@ export default async function ContinuedItemsPage() {
       <Topbar profile={profile} breadcrumbs={[{ label: 'Continued Items' }]} />
       <main className="flex-1 overflow-y-auto">
         <ContinuedItemsPageView userRole={membership.role as OrgRole} />
+        {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+        <div className="px-6 pb-6 max-w-4xl mx-auto"><EntityBulkPanel entityType="continued_items" /></div>
       </main>
     </div>
   )

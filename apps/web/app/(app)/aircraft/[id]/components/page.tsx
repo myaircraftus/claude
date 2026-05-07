@@ -3,6 +3,7 @@ import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { SerialComponentsList } from '@/components/aircraft/SerialComponentsList'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Engines & Props' }
@@ -40,8 +41,10 @@ export default async function AircraftComponentsPage({
           { label: 'Engines & Props' },
         ]}
       />
-      <main className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full">
+      <main className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto w-full space-y-4">
         <SerialComponentsList aircraftId={params.id} tailNumber={tail} canWrite={canWrite} />
+        {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+        <EntityBulkPanel entityType="serial_components" />
       </main>
     </div>
   )

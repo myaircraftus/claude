@@ -1,6 +1,7 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { CostsView } from './costs-view'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Costs' }
@@ -16,8 +17,10 @@ export default async function CostsPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar profile={profile} breadcrumbs={[{ label: 'Costs' }]} />
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-y-auto">
         <CostsView />
+        {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+        <div className="px-6 pb-6 max-w-4xl mx-auto"><EntityBulkPanel entityType="cost_entries" /></div>
       </main>
     </div>
   )

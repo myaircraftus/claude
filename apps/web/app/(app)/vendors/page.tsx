@@ -1,6 +1,7 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { VendorsView } from '@/components/vendors/vendors-view'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 import type { OrgRole } from '@/types'
 
 export const metadata = { title: 'Vendors' }
@@ -17,6 +18,8 @@ export default async function VendorsPage() {
       <Topbar profile={profile} breadcrumbs={[{ label: 'Vendors' }]} />
       <main className="flex-1 overflow-y-auto">
         <VendorsView userRole={membership.role as OrgRole} />
+        {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+        <div className="px-6 pb-6 max-w-4xl mx-auto"><EntityBulkPanel entityType="vendors" /></div>
       </main>
     </div>
   )

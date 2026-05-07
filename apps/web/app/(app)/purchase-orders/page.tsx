@@ -1,6 +1,7 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { PurchaseOrdersView } from '@/components/parts/pos-view'
+import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
 import type { OrgRole } from '@/types'
 
 export const metadata = { title: 'Purchase orders' }
@@ -17,6 +18,8 @@ export default async function PurchaseOrdersListPage() {
       <Topbar profile={profile} breadcrumbs={[{ label: 'Purchase orders' }]} />
       <main className="flex-1 overflow-y-auto">
         <PurchaseOrdersView userRole={membership.role as OrgRole} />
+        {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
+        <div className="px-6 pb-6 max-w-4xl mx-auto"><EntityBulkPanel entityType="purchase_orders" /></div>
       </main>
     </div>
   )
