@@ -25,6 +25,18 @@
     {
       "path": "/api/cron/trash-purge",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/airbly-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/fsp-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/telemetry-inference",
+      "schedule": "*/15 * * * *"
     }
   ],
   "headers": [
