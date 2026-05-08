@@ -35,6 +35,13 @@ export function AIGreeting({
 }) {
   const { persona } = usePersona()
   const firstName = useMemo(() => (fullName ?? '').split(/\s+/)[0] || 'there', [fullName])
+  // `new Date().getHours()` reads the runtime's local clock — server (Vercel
+  // Node, typically iad1/UTC) vs the user's browser yield different values
+  // for users outside Eastern Time, producing a hydration mismatch on the
+  // greeting headline. The greeting is text-only and harmless, so we use
+  // suppressHydrationWarning on the `<h1>` per the React-sanctioned escape
+  // hatch — server prints the iad1-local greeting, client re-paints with
+  // the user's local greeting, and React doesn't log #425/#418/#423.
   const timeOfDay = useMemo(() => {
     const h = new Date().getHours()
     if (h < 12) return 'Good morning'
@@ -47,7 +54,7 @@ export function AIGreeting({
 
   return (
     <div className="bg-gradient-to-br from-[#0A1628] to-[#1E3A5F] rounded-2xl p-6 text-white">
-      <h1 className="text-[24px] tracking-tight" style={{ fontWeight: 700 }}>
+      <h1 className="text-[24px] tracking-tight" style={{ fontWeight: 700 }} suppressHydrationWarning>
         {headline}
       </h1>
       {subline && (

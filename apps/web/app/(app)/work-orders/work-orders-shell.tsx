@@ -286,7 +286,11 @@ export function WorkOrdersEmptyState() {
 function formatDate(iso?: string | null) {
   if (!iso) return ''
   try {
-    return new Date(iso).toLocaleDateString(undefined, {
+    // Pin to en-US so server (iad1/Node) and client (browser locale) produce
+    // the SAME string. The previous `undefined` first arg used the runtime's
+    // default locale, which differs between the Vercel server and any
+    // non-en-US browser → hydration mismatch on every WO row in the list.
+    return new Date(iso).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: '2-digit',
