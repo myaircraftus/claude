@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import OpenAI from 'openai'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`wo-ai-plan:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

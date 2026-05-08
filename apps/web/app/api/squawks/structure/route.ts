@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 type StructuredSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
 
@@ -44,6 +45,10 @@ function heuristicStructure(text: string, grounded: boolean) {
 }
 
 export async function POST(req: NextRequest) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`squawks-structure:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

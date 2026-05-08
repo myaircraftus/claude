@@ -6,16 +6,23 @@
  * direct-SDK) — the /org/billing page consumes this stub-routed path.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { getStripeClient, isStripeMock } from '@/lib/billing/stripe-client'
+import { parseJsonBody, safeShortStr, safeUrl } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 
-interface Body {
-  price_id?: string
-  success_url?: string
-  cancel_url?: string
-}
+// Reference zod implementation per security-audit §5.4. All fields are
+// strings under the audit's max-10000 rule (price IDs are short Stripe
+// price_xxx slugs; URLs are bounded at 2048). Replicate this pattern in
+// other mutating /api/* routes — see lib/validation/common.ts for
+// shared building blocks.
+const Body = z.object({
+  price_id: safeShortStr,
+  success_url: safeUrl.optional(),
+  cancel_url: safeUrl.optional(),
+})
 
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -33,9 +40,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Owner/admin only' }, { status: 403 })
   }
 
-  let body: Body
-  try { body = (await req.json()) as Body } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
-  if (!body.price_id) return NextResponse.json({ error: 'price_id required' }, { status: 400 })
+  const parsed = await parseJsonBody(req, Body)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? ''
   const session = await getStripeClient().createCheckoutSession({

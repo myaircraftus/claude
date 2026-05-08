@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import OpenAI from 'openai'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 function inferKind(mimeType: string): 'image' | 'audio' | 'file' {
   if (mimeType.startsWith('image/')) return 'image'
@@ -15,6 +16,10 @@ function getExtension(filename: string): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // OpenAI cost (Vision when images uploaded) — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`wo-msg-upload:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import OpenAI from 'openai'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -10,6 +11,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`analyze-discrepancies:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

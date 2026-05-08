@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import OpenAI from 'openai'
 import {
   extractChecklistTemplateReferenceLibrary,
@@ -94,6 +95,10 @@ function buildDraftTitle(params: {
 }
 
 export async function POST(req: NextRequest) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`maintenance-generate:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const supabase = createServerSupabase()
   const {
     data: { user },

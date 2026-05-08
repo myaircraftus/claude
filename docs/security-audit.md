@@ -128,16 +128,16 @@ Strong. No improvements needed.
 | 5.1 | Endpoint auth | PASS (smoke test) | — |
 | 5.2 | Org isolation | DEFER (needs 2 orgs) | — |
 | 5.3 | Persona escalation | DEFER (needs N personas) | — |
-| 5.4 | Input validation (zod) | 11/253 routes | 🟡 MEDIUM |
+| 5.4 | Input validation (zod) | 12/253 routes + reusable helpers in lib/validation/common.ts; one reference impl on `/api/billing/stub-checkout`. Remaining ~241 routes are a follow-up rollout, one PR per route, using the established pattern. | 🟡 MEDIUM (in progress — first pass landed) |
 | 5.5 | SQL injection | PASS | — |
 | 5.6 | XSS / dangerouslySetInnerHTML | All controlled JSON-LD or escaped MD | 🟢 LOW |
 | 5.7 | CSRF (SameSite=lax) | PASS | — |
-| 5.8 | Rate limiting | Util exists, not applied to AI routes | 🟡 MEDIUM |
+| 5.8 | Rate limiting | All 10 AI/LLM/Whisper/Vision routes now apply `rateLimit({limit:10, windowSeconds:60})` per IP. Existing AI routes that already had it remain unchanged. | 🟢 CLOSED |
 | 5.9 | Sensitive logs | PASS (false alarm on ebay token log) | — |
 | 5.10 | Public URL tokens | PASS (160-bit Crockford base32) | — |
 | 5.11 | File upload | PASS (whitelist + size + random key) | — |
 | 5.12 | Webhook signatures | PASS (Stripe + QBO) | — |
-| 5.13 | Security headers | XFO + XCTO + Referrer set; HSTS implicit; CSP missing | 🟡 MEDIUM |
+| 5.13 | Security headers | CSP added (permissive starting policy with Stripe.js, PostHog, Sentry, Vercel Insights, Supabase, Anthropic, OpenAI allowlisted), Strict-Transport-Security `max-age=63072000; includeSubDomains; preload`, X-Frame-Options DENY (with SAMEORIGIN override on `/api/documents/:id/preview` for in-app PDF iframes), Permissions-Policy. All in `next.config.ts`. | 🟢 CLOSED |
 | 5.14 | OCR/RAG (untouched) | — | — |
 
 **Headline:** no CRITICAL or HIGH findings. Three MEDIUMs (zod coverage, AI rate limiting, CSP) — all defense-in-depth, all touch many routes, none auto-fixed in this autonomous run because the blast radius isn't worth the risk of breaking legitimate input/integration paths without supervised testing.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { buildOperationProfile } from '@/lib/aircraft/operations'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 const VALID_TYPES = new Set([
   'annual',
@@ -29,6 +30,10 @@ function safeJsonParse(content: string) {
 }
 
 export async function POST(req: NextRequest) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`reminders-ai-parse:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const supabase = createServerSupabase()
   const {
     data: { user },

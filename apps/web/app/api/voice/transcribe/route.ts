@@ -12,6 +12,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -22,6 +23,10 @@ const ALLOWED_MIME = new Set([
 const MAX_BYTES = 25 * 1024 * 1024
 
 export async function POST(req: NextRequest) {
+  // Whisper costs real money per request — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`voice-transcribe:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

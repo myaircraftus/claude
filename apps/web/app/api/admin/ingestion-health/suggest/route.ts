@@ -29,6 +29,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { classifyIngestionFailure } from '@/lib/ingestion/failure-classifier'
+import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -286,6 +287,10 @@ interface SuggestionRequest {
 }
 
 export async function POST(req: NextRequest) {
+  // OpenAI cost — rate-limit per IP (security-audit §5.8).
+  const rl = rateLimit(`admin-ingestion-suggest:${getClientIp(req.headers)}`, { limit: 10, windowSeconds: 60 })
+  if (!rl.success) return rateLimitResponse(rl)
+
   // 1. Auth — platform-admin only.
   const supabase = createServerSupabase()
   const {
