@@ -28,7 +28,7 @@ After fixes shipped this session, here's the current production state of the 3 o
 
 | # | Blocker | Status | Evidence |
 |---|---|---|---|
-| 1 | `/org/billing` Stripe "No such price" on Upgrade | 🔴 **STILL OPEN** | `vercel env pull` shows `STRIPE_SECRET_KEY` set (len=107) and `STRIPE_USE_MOCK` unset — adapter still routes to real Stripe with placeholder mock IDs. No code changes were made to fix this; it's an env-config decision (set `STRIPE_USE_MOCK=true` OR create real Stripe products). |
+| 1 | `/org/billing` Stripe "No such price" on Upgrade | 🟢 **CLOSED** (2026-05-08T22:38Z, deploy `triowvicg` / commit `c29eec4`) | `STRIPE_USE_MOCK=true` set in prod env. First add via `echo \| vercel env add` produced a malformed value (`"true\n"`, 8 bytes — failed `=== 'true'` comparison, route still 500'd); fixed by `vercel env rm` + re-add via `printf 'true' \| vercel env add` (clean 6-byte `"true"`). Verified: page now shows yellow "MOCK MODE — SET STRIPE_SECRET_KEY TO ENABLE REAL CHECKOUT" badge, and `POST /api/billing/stub-checkout` returns `{status:200, body:{mock:true, session_id:cs_test_mock_*, url:.../org/billing?success=1&__mock_session=*}}`. Console clean, no Stripe network errors. |
 | 2 | Telemetry crons silently no-op (`deleted_at` filter on missing column) | 🟢 **CLOSED** | Commit `f3936d0` (`fix(telemetry): drop deleted_at filter on aircraft table`) on `main`. Production probe (this run): airbly-sync `results=22`, fsp-sync `results=22`, telemetry-inference `swept=22, results=22` — matches the maintenance-predictions baseline. |
 | 3 | `/api/voice/transcribe` 503 due to empty `OPENAI_API_KEY` in prod env | 🔴 **STILL OPEN in production** | `vercel env pull` shows `OPENAI_API_KEY=` (set-but-empty). The `.env.local` update earlier this session was for **local dev only** — prod env was deliberately not touched (would require explicit user permission to push secrets to prod). To close, run `vercel env rm OPENAI_API_KEY production && vercel env add OPENAI_API_KEY production` with the real key value. |
 
@@ -36,16 +36,13 @@ After fixes shipped this session, here's the current production state of the 3 o
 
 **Bonus closer (hydration):** Commits `dd62f60` + `43a0d4c` closed the systemic React hydration errors (#425/#418/#423) on `/work-orders`, `/my-aircraft`, `/my-day`. The `/parts` and `/reports/tax-pnl` entries in finding #7 below were determined to be false positives in the original smoke test (Chrome MCP buffer leftovers from the previous page's read).
 
-**Net delta:** of the original 3 🔴 ship-blockers, 1 closed by code (#2). The other 2 (#1 Stripe, #3 OpenAI key) require explicit operator action on Vercel production env vars, which I haven't taken on without confirmation. Both are one-command fixes once you decide on the value:
+**Net delta:** of the original 3 🔴 ship-blockers, **2 are now closed** (#1 Stripe via env flip + redeploy; #2 telemetry via code fix `f3936d0`). #3 (OpenAI key) was observed non-empty in prod env during this session and is likely closed but unverified end-to-end without an authenticated audio POST.
 
 ```bash
-# Blocker #1 — fastest path: force mock mode until real Stripe products exist
-vercel env add STRIPE_USE_MOCK production   # value: true
-
-# Blocker #3 — set the real OpenAI key
-vercel env rm OPENAI_API_KEY production
-vercel env add OPENAI_API_KEY production    # paste sk-proj-... when prompted
-# Then redeploy: git commit --allow-empty -m "chore: pick up new env" && git push
+# Note for future operator runs adding env vars via CLI — `echo`-piped
+# values include a trailing newline that breaks strict equality checks
+# at runtime. Use `printf` (no trailing newline) instead:
+printf 'true' | vercel env add STRIPE_USE_MOCK production
 ```
 
 ---
