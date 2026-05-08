@@ -55,7 +55,11 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
     label: 'Mechanic',
   },
   shop: {
-    homeRoute: '/dashboard/ops',
+    // Skip the /dashboard/ops → /workflow redirect that would otherwise
+    // burn a hop on every sign-in. The redirect file at
+    // apps/web/app/(app)/dashboard/ops/page.tsx remains for saved
+    // bookmarks; the canonical shop landing is /workflow.
+    homeRoute: '/workflow',
     sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
     hiddenModules: [],
     aiSystemPrompt:

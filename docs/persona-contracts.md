@@ -128,10 +128,10 @@ The mechanic nav is **permission-gated**, not just persona-gated. Each item appe
 
 #### B. Currently-sees
 - **`shop` is NOT cased in the dispatch.** Falls through to `buildMechanicNav(activeMechanic.permissions)`. So shop sees the same nav as mechanic — gated by `MechanicPermissions`, not by `shop`-specific items.
-- `homeRoute='/dashboard/ops'` is set in PERSONA_CONFIG but **the route `/dashboard/ops` doesn't exist** (smoke test never hit it). Loading would 404 or fall through to default.
+- `homeRoute='/workflow'` (✅ updated 2026-05-08, was `/dashboard/ops`). The previous `/dashboard/ops` route exists as a server-side redirect to `/workflow`, so sign-in as shop never 404'd — but it added a wasted hop. Pointing `homeRoute` directly at `/workflow` skips the redirect.
 
 #### C. Diff
-- **CRITICAL gap:** PERSONA_CONFIG says `shop.homeRoute = '/dashboard/ops'`, but that route doesn't exist. Sign-in as `shop` persona may redirect to a 404. Flagged for product call (create the route, OR change PERSONA_CONFIG to point at an existing route, OR alias).
+- ~~**CRITICAL gap:** PERSONA_CONFIG says `shop.homeRoute = '/dashboard/ops'`, but that route doesn't exist.~~ **RESOLVED 2026-05-08.** Audit-doc finding was incorrect: `/dashboard/ops` does exist as a redirect-only route at `apps/web/app/(app)/dashboard/ops/page.tsx` that redirects to `/workflow`. Shop persona never 404'd; it landed on `/workflow` after one hop. To skip the hop, `PERSONA_CONFIG.shop.homeRoute` was changed to `/workflow` directly. The redirect file is preserved for saved bookmarks.
 - Shop persona doesn't see distinct shop-only items (invoices/billing-rates/QBO push) because those don't exist as routes either.
 - Effectively shop ≈ mechanic-with-full-permissions today.
 
@@ -171,7 +171,7 @@ The Phase 2 nav reorg references many routes that aren't in `apps/web/app/(app)/
 | `/ai/receipts` | Does not exist. Receipt intake is `/costs/intake`. |
 | `/org/customer-portal` | Does not exist. Customer-portal config lives in `/org/settings`. |
 | `/org/notifications` | Does not exist. Notification prefs live in `/org/settings`. |
-| `/dashboard/ops` (shop home) | Does not exist (see Shop section above — broken homeRoute). |
+| `/dashboard/ops` (shop home) | EXISTS as redirect → `/workflow`. (Was incorrectly logged as missing in the first-pass audit; corrected 2026-05-08.) |
 
 ---
 
@@ -197,7 +197,7 @@ There is **no `<RequirePersona>` component** in the codebase (grep confirmed). A
 Phase 1 produced this contract document as the read-only deliverable. The brief's "auto-fix missing personas[] arrays" instruction doesn't map onto the actual nav architecture. The brief's "auto-add `<RequirePersona>` wrapper" instruction would create a parallel auth layer that competes with the existing RLS-first server-side model. Both were logged and skipped per HARD STOP rule 8 (ambiguous → log, skip).
 
 Concrete items the operator should triage:
-1. **Shop persona has a broken `homeRoute`** (`/dashboard/ops` doesn't exist) — sign-in as `shop` likely 404s or fallbacks. Worth a product call.
+1. ~~**Shop persona has a broken `homeRoute`** (`/dashboard/ops` doesn't exist) — sign-in as `shop` likely 404s or fallbacks.~~ **RESOLVED 2026-05-08:** `/dashboard/ops` actually exists as a redirect to `/workflow`; `PERSONA_CONFIG.shop.homeRoute` updated to point directly at `/workflow` to skip the redirect hop.
 2. **Owner nav contains many shop/mechanic items** (parts, vendors, scheduler, time-off, etc.) — possibly intentional for single-aircraft owners but worth verifying against the persona spec.
 3. **Admin persona's sidebar omits all `/org/*` paths** — admin can only reach them by switching to owner. May or may not be intended.
 4. **12 routes in the brief don't exist** in the deployed app (table above) — Phase 2 nav reorg should be revised before any nav restructuring lands.
