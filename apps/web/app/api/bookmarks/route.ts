@@ -6,17 +6,23 @@
  *   DELETE ?entity_type=&entity_id= → remove the matching star
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { parseJsonBody, safeUrl } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 
-interface PostBody {
-  entity_type?: string
-  entity_id?: string
-  label?: string
-  url?: string
-  position?: number
-}
+// Spec 5.4 — runtime body validation. Field caps mirror the slice
+// values applied in the upsert below (entity_type:64, entity_id:128,
+// label:200, url:500); the schema enforces them at parse time so
+// oversized inputs are rejected with 400 before hitting Postgres.
+const PostBody = z.object({
+  entity_type: z.string().min(1).max(64),
+  entity_id: z.string().min(1).max(128),
+  label: z.string().min(1).max(200),
+  url: safeUrl.max(500),
+  position: z.number().int().optional(),
+})
 
 export async function GET() {
   const supabase = createServerSupabase()
@@ -46,22 +52,20 @@ export async function POST(req: NextRequest) {
     .eq('user_id', user.id).not('accepted_at', 'is', null).single()
   if (!caller) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
-  let body: PostBody
-  try { body = (await req.json()) as PostBody } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
-  if (!body.entity_type || !body.entity_id || !body.label || !body.url) {
-    return NextResponse.json({ error: 'entity_type, entity_id, label, url required' }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(req, PostBody)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const { data, error } = await supabase
     .from('bookmarks')
     .upsert({
       user_id: user.id,
       organization_id: caller.organization_id,
-      entity_type: body.entity_type.slice(0, 64),
-      entity_id: body.entity_id.slice(0, 128),
-      label: body.label.slice(0, 200),
-      url: body.url.slice(0, 500),
-      position: typeof body.position === 'number' ? body.position : 0,
+      entity_type: body.entity_type,
+      entity_id: body.entity_id,
+      label: body.label,
+      url: body.url,
+      position: body.position ?? 0,
     }, { onConflict: 'user_id,organization_id,entity_type,entity_id' })
     .select('*').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

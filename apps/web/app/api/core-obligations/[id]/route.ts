@@ -6,7 +6,9 @@
  *   DELETE → owner/admin only
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { parseJsonBody, safeStrOptional } from '@/lib/validation/common'
 import type { CoreObligation, CoreObligationStatus } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -15,13 +17,15 @@ const VALID_STATUS = new Set<CoreObligationStatus>(['pending', 'received', 'over
 const WRITE_ROLES = new Set(['owner', 'admin', 'mechanic'])
 const DELETE_ROLES = new Set(['owner', 'admin'])
 
-interface PatchBody {
-  status?: CoreObligationStatus
-  received_date?: string | null
-  due_date?: string | null
-  core_charge?: number
-  notes?: string | null
-}
+// Spec 5.4 — runtime body validation. Status is the same enum as
+// VALID_STATUS above; the rest are dates / monetary / freeform notes.
+const PatchBody = z.object({
+  status: z.enum(['pending', 'received', 'overdue', 'waived']).optional(),
+  received_date: z.string().max(64).nullable().optional(),
+  due_date: z.string().max(64).nullable().optional(),
+  core_charge: z.number().finite().optional(),
+  notes: safeStrOptional.nullable(),
+})
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createServerSupabase()
@@ -39,8 +43,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  let body: PatchBody
-  try { body = (await req.json()) as PatchBody } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, PatchBody)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const patch: Record<string, unknown> = {}
   if (body.status && VALID_STATUS.has(body.status)) {

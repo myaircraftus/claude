@@ -6,7 +6,9 @@
  *   DELETE → hard delete (rare; usually status='scrapped' instead)
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { parseJsonBody, safeStrOptional } from '@/lib/validation/common'
 import type { ComponentStatus, SerialComponent } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -15,13 +17,15 @@ const VALID_STATUS = new Set<ComponentStatus>(['installed', 'in-stock', 'in-over
 const WRITE_ROLES = new Set(['owner', 'admin', 'mechanic'])
 const DELETE_ROLES = new Set(['owner', 'admin'])
 
-interface PatchBody {
-  description?: string | null
-  hours_since_overhaul?: number
-  hours_since_new?: number
-  status?: ComponentStatus
-  notes?: string | null
-}
+// Spec 5.4 — runtime body validation. Hour fields are bounded to a
+// realistic engine-life ceiling (50,000 hr; way above any TBO).
+const PatchBody = z.object({
+  description: safeStrOptional.nullable(),
+  hours_since_overhaul: z.number().finite().min(0).max(50_000).optional(),
+  hours_since_new: z.number().finite().min(0).max(50_000).optional(),
+  status: z.enum(['installed', 'in-stock', 'in-overhaul', 'scrapped']).optional(),
+  notes: safeStrOptional.nullable(),
+})
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createServerSupabase()
@@ -62,8 +66,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  let body: PatchBody
-  try { body = (await req.json()) as PatchBody } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, PatchBody)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const patch: Record<string, unknown> = {}
   if (body.description !== undefined) patch.description = body.description

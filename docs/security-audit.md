@@ -128,7 +128,7 @@ Strong. No improvements needed.
 | 5.1 | Endpoint auth | PASS (smoke test) | — |
 | 5.2 | Org isolation | DEFER (needs 2 orgs) | — |
 | 5.3 | Persona escalation | DEFER (needs N personas) | — |
-| 5.4 | Input validation (zod) | 12/253 routes + reusable helpers in lib/validation/common.ts; one reference impl on `/api/billing/stub-checkout`. Remaining ~241 routes are a follow-up rollout, one PR per route, using the established pattern. | 🟡 MEDIUM (in progress — first pass landed) |
+| 5.4 | Input validation (zod) | 19/253 routes + reusable helpers in `lib/validation/common.ts`. Initial reference impl on `/api/billing/stub-checkout` (commit `5dc8efe`); +7 routes this pass (commit pending) — `/api/voice/intent`, `/api/bookmarks`, `/api/core-obligations/[id]`, `/api/costs/intake/[id]`, `/api/integrations/qbo/sync`, `/api/memberships/[id]`, `/api/serial-components/[id]`. Remaining ~234 routes still need per-route schemas; the established pattern (Body→z.object→parseJsonBody) makes each one a 5-min change. SKIPPED `/api/costs/[id]` PATCH because it uses the `'X' in body` membership-check pattern that doesn't survive zod's `.optional()` semantics — needs a deliberate `Object.keys(body).filter(...)` refactor first. | 🟡 MEDIUM (in progress — second pass landed) |
 | 5.5 | SQL injection | PASS | — |
 | 5.6 | XSS / dangerouslySetInnerHTML | All controlled JSON-LD or escaped MD | 🟢 LOW |
 | 5.7 | CSRF (SameSite=lax) | PASS | — |

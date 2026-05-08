@@ -12,7 +12,9 @@
  *   - intake_documents.status='rejected'
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { parseJsonBody } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,10 +74,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   })
 }
 
-interface PatchBody {
-  action?: 'approve' | 'reject' | 'edit_status'
-  status?: 'review' | 'rejected'
-}
+// Spec 5.4 — runtime body validation. Both fields are tightly bounded
+// enums; reject anything else as 400 instead of letting the downstream
+// switch silently fall through.
+const PatchBody = z.object({
+  action: z.enum(['approve', 'reject', 'edit_status']).optional(),
+  status: z.enum(['review', 'rejected']).optional(),
+})
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = createServerSupabase()
@@ -93,8 +98,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  let body: PatchBody
-  try { body = (await req.json()) as PatchBody } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, PatchBody)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const { data: intake } = await supabase
     .from('intake_documents')

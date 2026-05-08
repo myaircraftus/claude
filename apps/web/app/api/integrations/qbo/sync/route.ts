@@ -10,17 +10,20 @@
  * (best-effort — local invoices schema may vary; logs failures).
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { getQboClient } from '@/lib/integrations/qbo-client'
+import { parseJsonBody, safeUuidOptional } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-interface Body {
-  action?: 'push_invoice' | 'pull_payments'
-  local_invoice_id?: string
-  since?: string
-}
+// Spec 5.4 — runtime body validation.
+const Body = z.object({
+  action: z.enum(['push_invoice', 'pull_payments']).optional(),
+  local_invoice_id: safeUuidOptional,
+  since: z.string().max(64).optional(),
+})
 
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -32,8 +35,9 @@ export async function POST(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No org' }, { status: 403 })
   if (!['owner', 'admin'].includes(membership.role)) return NextResponse.json({ error: 'Owner/admin only' }, { status: 403 })
 
-  let body: Body
-  try { body = (await req.json()) as Body } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, Body)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   const service = createServiceSupabase()
   const { data: stateRow } = await service.from('qbo_sync_state').select('*')

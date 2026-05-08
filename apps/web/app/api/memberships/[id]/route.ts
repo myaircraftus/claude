@@ -7,18 +7,24 @@
  * Owner/admin only. Cannot demote the last owner. Cannot deactivate self.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { parseJsonBody } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 
 const VALID_ROLES = new Set(['owner', 'admin', 'mechanic', 'pilot', 'viewer', 'auditor'])
 const VALID_PERSONAS = new Set(['owner', 'mechanic', 'shop', 'admin'])
 
-interface PatchBody {
-  role?: string
-  persona?: string | null
-  action?: 'deactivate' | 'reactivate'
-}
+// Spec 5.4 — runtime body validation. Role/persona caps mirror the
+// VALID_ROLES / VALID_PERSONAS sets below; we keep the runtime sets
+// as an additional layer (so adding a new role to z.enum without
+// updating the runtime set still requires a deliberate code change).
+const PatchBody = z.object({
+  role: z.string().max(64).optional(),
+  persona: z.string().max(64).nullable().optional(),
+  action: z.enum(['deactivate', 'reactivate']).optional(),
+})
 
 async function requireAdmin(supabase: ReturnType<typeof createServerSupabase>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -37,8 +43,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status })
   const caller = auth.caller!
 
-  let body: PatchBody
-  try { body = (await req.json()) as PatchBody } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, PatchBody)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
 
   // Load target.
   const { data: target } = await supabase

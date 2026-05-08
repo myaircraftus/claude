@@ -12,8 +12,10 @@
  * No DB writes — pure classifier. Audit row written via callAnthropic.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { callAnthropic } from '@/lib/ai/anthropic'
+import { parseJsonBody, safeUuidOptional } from '@/lib/validation/common'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -35,10 +37,16 @@ Rules:
 - Numbers in "log 38.5 hobbs" → meter='hobbs', value=38.5.
 - If you cannot confidently classify, return intent='unknown' with confidence < 0.4.`
 
-interface Body {
-  text?: string
-  context?: { aircraft_id?: string; work_order_id?: string }
-}
+// Spec 5.4 — runtime body validation. Schema mirrors the original
+// `interface Body` shape; max-800 on text matches the existing
+// `.slice(0, 800)` cap below (kept in place as defense-in-depth).
+const Body = z.object({
+  text: z.string().max(800).optional(),
+  context: z.object({
+    aircraft_id: safeUuidOptional,
+    work_order_id: safeUuidOptional,
+  }).optional(),
+})
 
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -53,8 +61,9 @@ export async function POST(req: NextRequest) {
     .single()
   if (!membership) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
-  let body: Body
-  try { body = (await req.json()) as Body } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = await parseJsonBody(req, Body)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.data
   const text = (body.text ?? '').trim().slice(0, 800)
   if (!text) return NextResponse.json({ error: 'text required' }, { status: 400 })
 
