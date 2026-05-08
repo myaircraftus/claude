@@ -283,19 +283,26 @@ export function WorkOrdersEmptyState() {
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+
 function formatDate(iso?: string | null) {
   if (!iso) return ''
-  try {
-    // Pin to en-US so server (iad1/Node) and client (browser locale) produce
-    // the SAME string. The previous `undefined` first arg used the runtime's
-    // default locale, which differs between the Vercel server and any
-    // non-en-US browser → hydration mismatch on every WO row in the list.
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: '2-digit',
-    })
-  } catch {
-    return ''
-  }
+  // Hydration-safe: parse the ISO calendar fields directly instead of via
+  // `new Date(...).toLocaleDateString(...)`. The Date+toLocaleDateString
+  // pair is sensitive to BOTH the runtime locale (en-US vs other) AND the
+  // runtime timezone (server is iad1, client is the user's browser tz);
+  // the timezone difference shifts the day across the UTC midnight
+  // boundary, so the same ISO renders as "Apr 27, 26" server-side and
+  // "Apr 28, 26" client-side. Pure-string parsing yields the SAME calendar
+  // date on both sides regardless of locale or timezone.
+  const head = iso.slice(0, 10) // "YYYY-MM-DD" prefix; works for full ISO and date-only.
+  const parts = head.split('-')
+  if (parts.length !== 3) return ''
+  const [yStr, mStr, dStr] = parts
+  const y = Number(yStr)
+  const m = Number(mStr)
+  const d = Number(dStr)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return ''
+  if (m < 1 || m > 12) return ''
+  return `${MONTH_ABBR[m - 1]} ${d}, ${String(y).slice(-2)}`
 }
