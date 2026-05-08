@@ -32,7 +32,6 @@ export async function GET(req: NextRequest) {
   const { data: aircraft } = await service.from('aircraft')
     .select('id, organization_id, tail_number, total_time_hours')
     .eq('is_archived', false)
-    .is('deleted_at', null)
     .limit(50)
 
   const results: Array<{ tail: string; winners: number; overrides: number }> = []
