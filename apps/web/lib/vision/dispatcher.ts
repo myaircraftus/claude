@@ -36,6 +36,7 @@ import {
 } from './registry'
 import type { VisionPage, VisionIndexJob } from './types'
 import { getGpuWorker } from './workers/factory'
+import { insertVisionEmbedding, stubVectorsForPage } from './index-query'
 
 export interface DispatchResult {
   jobId: string
@@ -151,6 +152,23 @@ export async function dispatchVisionJob(
     result.pagesProcessed++
     try {
       if (er.success) {
+        // Sprint 8.4 — insert the embedding row alongside the page
+        // status update. Stub mode generates deterministic 128-dim
+        // summary + 64-patch matrix from the page id; real worker
+        // (future) will return real embeddings via the EmbedResult
+        // and the insertVisionEmbedding call here will move into
+        // the worker's response path. For now we synthesize the
+        // shape so retrieval (Sprint 8.5) has data to query against.
+        const stub = stubVectorsForPage(er.vision_page_id)
+        await insertVisionEmbedding(supabase, {
+          organization_id: orgId,
+          vision_page_id: er.vision_page_id,
+          model_used: er.model_used,
+          embedding_dim: stub.embedding_dim,
+          summary_vector: stub.summary_vector,
+          patch_vectors: stub.patch_vectors,
+        })
+
         await updateVisionPage(supabase, er.vision_page_id, {
           status: 'indexed',
           vision_index_id: er.vision_index_id,

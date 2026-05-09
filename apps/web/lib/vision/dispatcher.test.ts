@@ -84,6 +84,17 @@ vi.mock('./workers/factory', () => ({
   getGpuWorker: vi.fn(),
 }))
 
+// Sprint 8.4 — dispatcher now writes vision_embeddings on success.
+// Mock the insert so we don't need a real supabase client.
+vi.mock('./index-query', () => ({
+  insertVisionEmbedding: vi.fn().mockResolvedValue({ id: 'emb-x' }),
+  stubVectorsForPage: vi.fn().mockReturnValue({
+    summary_vector: new Array(128).fill(0),
+    patch_vectors: { patches: [] },
+    embedding_dim: 128,
+  }),
+}))
+
 import { dispatchVisionJob } from './dispatcher'
 import * as registry from './registry'
 import * as factory from './workers/factory'

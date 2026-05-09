@@ -9,7 +9,7 @@ import {
   Sparkles, ShieldCheck, LogOut, GitBranch, MapPin, Building2, Inbox, Gauge,
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
   Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon, CalendarClock,
-  DollarSign,
+  DollarSign, Eye,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -347,6 +347,8 @@ function AppLayoutInner({
     { icon: ShieldCheck,    label: "Admin Console",   href: "/admin" },
     { icon: FileText,       label: "All Documents",   href: "/documents" },
     { icon: AlertTriangle,  label: "Ingestion Health", href: "/admin/ingestion-health" },
+    // Phase 8 Sprint 8.4 — vision-RAG operational dashboard.
+    { icon: Eye,            label: "Vision Index",    href: "/admin/vision" },
     { icon: FileText,       label: "Marketing CMS",   href: "/admin/content" },
   ];
 
