@@ -392,3 +392,43 @@ export function requiresAircraftId(documentType: DocumentType): boolean {
 export function isDocumentType(value: unknown): value is DocumentType {
   return typeof value === 'string' && (DOCUMENT_TYPES as readonly string[]).includes(value)
 }
+
+/**
+ * Map a legacy `doc_type` (mig 004 enum) → new `document_type`. Mirrors the
+ * backfill CASE in mig 103. Used by the upload route as a fallback when a
+ * client sends only the legacy field.
+ */
+export function inferDocumentTypeFromLegacy(legacy: string | null | undefined): DocumentType {
+  switch (legacy) {
+    case 'logbook':
+      return 'aircraft_logbook'
+    case 'poh':
+      return 'aircraft_poh'
+    case 'afm':
+    case 'afm_supplement':
+      return 'aircraft_afm'
+    case 'maintenance_manual':
+    case 'service_manual':
+      return 'maintenance_manual'
+    case 'parts_catalog':
+      return 'parts_catalog'
+    case 'service_bulletin':
+      return 'service_bulletin'
+    case 'airworthiness_directive':
+      return 'airworthiness_directive'
+    case 'work_order':
+      return 'work_order_attachment'
+    case 'inspection_report':
+      return 'aircraft_annual'
+    case 'lease_ownership':
+      return 'aircraft_registration'
+    case 'insurance':
+      return 'aircraft_insurance'
+    case 'form_337':
+    case 'form_8130':
+    case 'compliance':
+    case 'miscellaneous':
+    default:
+      return 'other'
+  }
+}

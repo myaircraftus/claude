@@ -3,6 +3,8 @@ import { cookies } from 'next/headers'
 import Link from '@/components/shared/tenant-link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
+import { getCurrentPersona } from '@/lib/persona/server'
+import { PersonaAwareUploadButton } from '@/components/documents/persona-aware-upload-button'
 import { Topbar } from '@/components/shared/topbar'
 import { DocumentsTable } from '@/components/documents/documents-table'
 import { CameraButton } from '@/components/camera/CameraButton'
@@ -401,6 +403,21 @@ export default async function DocumentsPage({
 
   const aircraftList = (aircraftRows ?? []) as { id: string; tail_number: string }[]
 
+  // Phase 13.2 — persona-aware upload entry point. Resolve full 4-value
+  // persona (owner | mechanic | shop | admin) for the persona-strict modal.
+  // Falls back to owner if resolution fails (won't crash the page).
+  let phase13Persona: 'owner' | 'mechanic' | 'shop' | 'admin' = 'owner'
+  try {
+    const resolved = await getCurrentPersona()
+    phase13Persona = resolved.persona
+  } catch {
+    // page already redirects on no-session; this catch is defense-in-depth
+  }
+  const aircraftOptions = aircraftList.map((a) => ({
+    id: a.id,
+    display: a.tail_number,
+  }))
+
   // ── Build documents query with filters ────────────────────────────────────
   let query = supabase
     .from('documents')
@@ -531,10 +548,21 @@ export default async function DocumentsPage({
                 tag from the device camera. /api/vision/scan-logbook
                 returns a structured draft for operator review. */}
             <CameraButton mode="scan-logbook" label="Scan with camera" />
-            <Button size="sm" asChild>
+            {/* Phase 13.2 persona-aware uploader. Renders a different label
+                + scoped category list per persona; submits to the existing
+                /api/upload/complete with the new document_type taxonomy. */}
+            <PersonaAwareUploadButton
+              persona={phase13Persona}
+              organizationId={orgId}
+              aircraftOptions={aircraftOptions}
+              size="sm"
+            />
+            {/* Legacy upload page kept for the structured 4-level taxonomy
+                flow (logbook batches, scanner sessions). */}
+            <Button size="sm" variant="outline" asChild>
               <Link href="/documents/upload">
                 <Upload className="mr-1.5 h-4 w-4" />
-                Upload
+                Advanced
               </Link>
             </Button>
           </div>

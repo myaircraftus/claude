@@ -1,0 +1,89 @@
+'use client'
+
+/**
+ * Phase 13.2 — persona-aware upload button.
+ *
+ * Thin trigger that owns the modal's open state. Drop into any page as
+ * the new persona-strict alternative to the legacy upload dropzone. Per
+ * the Phase 13 brief, every persona sees a different label + scope:
+ *
+ *   - Owner    → "Upload Aircraft Document"
+ *   - Mechanic → "Upload Reference Doc"
+ *   - Shop     → "Upload Document"
+ *   - Admin    → "Upload Any"
+ *
+ * Pre-selecting an aircraft (e.g. when launched from /aircraft/[id]) locks
+ * the aircraft selector inside the modal.
+ */
+import { useState } from 'react'
+import { Upload } from 'lucide-react'
+import type { Persona } from '@/types'
+import { Button } from '@/components/ui/button'
+import {
+  PersonaAwareUploadModal,
+  type AircraftOption,
+} from './persona-aware-upload-modal'
+import type { DocumentCategory, DocumentType } from '@/lib/documents/persona-taxonomy'
+
+export interface PersonaAwareUploadButtonProps {
+  persona: Persona
+  organizationId: string
+  aircraftOptions: AircraftOption[]
+  defaultAircraftId?: string
+  defaultCategory?: DocumentCategory
+  /** Override the auto-generated label. */
+  label?: string
+  /** Variant for the trigger button. */
+  variant?: 'default' | 'outline' | 'secondary' | 'ghost'
+  size?: 'default' | 'sm' | 'lg'
+  onUploaded?: (documentId: string, documentType: DocumentType) => void
+}
+
+export function PersonaAwareUploadButton({
+  persona,
+  organizationId,
+  aircraftOptions,
+  defaultAircraftId,
+  defaultCategory,
+  label,
+  variant = 'default',
+  size = 'default',
+  onUploaded,
+}: PersonaAwareUploadButtonProps) {
+  const [open, setOpen] = useState(false)
+  const buttonLabel = label ?? defaultLabelForPersona(persona)
+
+  return (
+    <>
+      <Button variant={variant} size={size} onClick={() => setOpen(true)}>
+        <Upload className="mr-1.5 h-4 w-4" />
+        {buttonLabel}
+      </Button>
+      <PersonaAwareUploadModal
+        persona={persona}
+        organizationId={organizationId}
+        aircraftOptions={aircraftOptions}
+        defaultAircraftId={defaultAircraftId}
+        defaultCategory={defaultCategory}
+        open={open}
+        onOpenChange={setOpen}
+        onUploaded={onUploaded}
+      />
+    </>
+  )
+}
+
+function defaultLabelForPersona(persona: Persona): string {
+  switch (persona) {
+    case 'owner':
+      return 'Upload Aircraft Document'
+    case 'mechanic':
+      return 'Upload Reference Doc'
+    case 'shop':
+      return 'Upload Document'
+    case 'admin':
+      return 'Upload Any'
+    default:
+      return 'Upload'
+  }
+}

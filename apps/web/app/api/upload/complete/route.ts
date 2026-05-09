@@ -13,6 +13,14 @@ import {
 } from '@/lib/documents/taxonomy'
 import { queueDocumentIngestion } from '@/lib/ingestion/server'
 import { personaCanUpload, buildPersonaRejection, type Persona } from '@/lib/documents/persona-scope'
+import {
+  canPersonaUpload as canPersonaUploadV2,
+  inferDocumentTypeFromLegacy,
+  isDocumentType,
+  requiresAircraftId,
+  type DocumentType,
+} from '@/lib/documents/persona-taxonomy'
+import type { Persona as Persona4 } from '@/types'
 
 const VALID_DOC_TYPES: DocType[] = [
   'logbook',
@@ -117,6 +125,10 @@ export async function POST(req: NextRequest) {
     checksumSha256?: string | null
     /** Active UI persona at time of upload — drives the strict scope check. */
     persona?: Persona
+    /** Phase 13.1 — new persona-strict document_type taxonomy value. */
+    documentType?: string
+    /** Phase 13.1 — full 4-persona enum (owner | mechanic | shop | admin). */
+    uploadedByPersona?: Persona4
   }
 
   try {
@@ -248,6 +260,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Phase 13.1: persona-strict document_type validation ──────────────────
+  // The new `document_type` column lives alongside the legacy `doc_type`.
+  // Clients upgraded for Phase 13.2 send `documentType` + `uploadedByPersona`;
+  // older clients send only legacy fields and we infer.
+  const explicitDocumentType =
+    typeof body.documentType === 'string' && isDocumentType(body.documentType)
+      ? (body.documentType as DocumentType)
+      : null
+  const inferredDocumentType: DocumentType =
+    explicitDocumentType ?? inferDocumentTypeFromLegacy(docType)
+
+  // Resolve effective uploader persona for the v2 check. Prefer the explicit
+  // body field; fall back to the legacy `persona` (which is owner|mechanic).
+  const effectiveUploaderPersona: Persona4 =
+    body.uploadedByPersona && ['owner', 'mechanic', 'shop', 'admin'].includes(body.uploadedByPersona)
+      ? body.uploadedByPersona
+      : (submittedPersona as Persona4)
+
+  if (!canPersonaUploadV2(effectiveUploaderPersona, inferredDocumentType)) {
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      {
+        error: `Persona "${effectiveUploaderPersona}" cannot upload "${inferredDocumentType}" documents. ` +
+          'See document type taxonomy for which personas can upload which types.',
+        code: 'PERSONA_TYPE_BLOCKED_V2',
+        persona: effectiveUploaderPersona,
+        document_type: inferredDocumentType,
+      },
+      { status: 403 }
+    )
+  }
+
+  if (requiresAircraftId(inferredDocumentType) && !aircraftId) {
+    await serviceClient.storage.from('documents').remove([storagePath])
+    return NextResponse.json(
+      {
+        error: `Document type "${inferredDocumentType}" requires an aircraft to be selected.`,
+        code: 'AIRCRAFT_ID_REQUIRED',
+        document_type: inferredDocumentType,
+      },
+      { status: 400 }
+    )
+  }
+
   if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
     return NextResponse.json(
       { error: 'Invalid structured document classification selected.' },
@@ -327,6 +383,11 @@ export async function POST(req: NextRequest) {
       aircraft_id: aircraftId ?? null,
       title,
       doc_type: docType,
+      // Phase 13.1: persona-strict taxonomy + uploader persona audit. Both
+      // are NOT NULL; column defaults provide a safety net for older insert
+      // paths that haven't been updated yet.
+      document_type: inferredDocumentType,
+      uploaded_by_persona: effectiveUploaderPersona,
       document_group_id: documentGroupId,
       document_detail_id: documentDetailId,
       document_subtype: documentSubtype,
