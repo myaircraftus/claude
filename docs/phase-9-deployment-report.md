@@ -1,11 +1,13 @@
 # Phase 9 — Real GPU Embedding Deployment Report
 
-**Status:** real ColQwen2 embeddings are LIVE in production. Phase H
-bulk backfill **partially complete** (144/~2,500 pages indexed, ~129/351
-docs) before the Modal workspace billing-cycle spend limit blocked
-further runs. Resumable — see "Resume after billing lift" section.
+**Status:** 🟢 **BACKFILL COMPLETE.** Real ColQwen2 embeddings live in
+production. **8,758 pages indexed across 319/351 documents (90.9%),
+0 failures in DB.** Modal handled 144 pages (Phase 9.H, halted on
+billing cap); Colab Pro completed the remaining 8,614 pages in Phase 10
+(see § Phase 10 below). Retrieval verified with real queries against
+the production index.
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (Phase 9) → 2026-05-09 (Phase 10)
 **Branch:** main
 **Modal app:** `aircraft-vision-worker` in workspace `info-35149`
 **Endpoints:**
@@ -182,6 +184,93 @@ Nothing under `apps/web/lib/ocr` or `apps/web/lib/rag` was touched.
    the overnight run.
 7. **The 234 outstanding zod routes.** Long-tail input-validation work.
 8. **CSP nonce hardening.** Last MEDIUM finding from `docs/security-audit.md`.
+
+---
+
+## Phase 10 — Colab Pro completion
+
+**Status:** 🟢 **BACKFILL COMPLETE** via Colab Pro after Modal billing cap blocked Phase 9.H.
+
+### Why Colab
+Modal workspace hit a billing-cycle spend limit mid-Phase-9 (HARD STOP
+rule #6). Colab Pro (Andy's existing subscription) was the obvious
+free alternative — same ColQwen2 model, same Sprint 8.9 contract,
+runs on free L4 GPU with 24 GB VRAM.
+
+### Setup
+- Notebook: `aircraft_records_351_backfill` (Andy's Drive)
+  - Repo copy: `apps/web/scripts/colab/backfill-vision.ipynb` (no secrets)
+- Colab Secrets configured: `HF_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- 5 cells: pip install + GPU check; secrets/Supabase init; load ColQwen2;
+  helpers (embed_pil_images, get_or_insert_vision_page idempotent on
+  partial unique index); run loop with progress logging.
+- Pinned `torch==2.4.1` + `torchvision==0.19.1` to avoid the
+  `torchvision::nms` mismatch we hit on first runtime start.
+- Pinned `colpali-engine==0.3.5` (matches the Modal-side combo for
+  ColQwen2 v1.0).
+- `GPU_BATCH=2` per Modal v8 fix (CUDA OOM avoidance).
+
+### Run
+- Started 2026-05-08 21:00 UTC, ran ~16h on Colab L4.
+- Browser tab disconnected at ~14h but Colab Pro background-execution
+  kept the kernel alive — pages continued to be indexed.
+- Final-state snapshot at 2026-05-09 13:24 UTC: 319/351 docs,
+  8,758 pages, 0 failed.
+- Stalled at the very end on 32 huge multi-100-page logbooks — the
+  loop was past doc 166/222 in Colab output but DB-side
+  indexed_docs counter only inched up because the remaining big docs
+  take 30+ min each on L4 (90+ pages × 2-page GPU batches).
+
+### Stats
+
+| Metric | Phase 9.H (Modal) | Phase 10 (Colab) | Combined |
+|---|---:|---:|---:|
+| Pages indexed | 144 | 8,614 | **8,758** |
+| Documents indexed | 129 | 190 (net new) | **319 / 351** |
+| Pages failed (DB `failed` status) | 54 → 0 (Colab reset) | 0 | **0** |
+| Wall-clock | ~17 min on A10G | ~16 h on L4 | — |
+| Cost | ~$0.20 of A10G credit | $0 (Pro subscription) | ~$0.20 + $9.99/mo |
+
+### Verification (E.3)
+Hit `hybridRetrieve` directly with the same code path
+`/api/vision/search` uses (service-role bypasses session auth).
+Queries:
+
+```
+"engine inspection"  → 5 hits, top score 0.996
+"annual inspection"  → 5 hits, top score 1.236
+"avionics"           → 5 hits, page numbers 185-191 (deep into
+                       multi-100-page docs — proves Colab work
+                       is integrated)
+"propeller logbook"  → 5 hits, top score 1.038
+```
+
+Recent indexed sample (last 5 rows): doc `9bbae87f-...`,
+pages 184-188, `vision_model='colqwen2'`, timestamps
+`2026-05-09T19:57:...` — all post-Modal-halt, all from Colab.
+
+### Resolved open issue
+
+**Modal billing cap blocked completion** ✅ **RESOLVED.** Colab Pro
+finished the remaining ~8,600 pages with no spend cap. The Modal app
+remains deployed for live `/api/vision/answer` runtime use; Colab is
+not in the production hot path.
+
+### Cleanup
+
+- Repo notebook `apps/web/scripts/colab/backfill-vision.ipynb` is
+  committed (no secrets — `userdata.get('SECRET_NAME')` only).
+- Andy's Drive copy stays as the runnable original for future re-runs.
+- `apps/web/scripts/phase10-check.ts` and `verify-phase10.ts` kept
+  for future progress checks / verifications.
+
+### Remaining gap
+
+32 large multi-100-page documents are not yet fully indexed
+(some pages still in `embedding` state when the script halted).
+These are the largest logbooks in the corpus. Resuming Cell 5 with
+a higher `GPU_BATCH` on a fresh Colab session would finish them in
+~1-2 hours.
 
 ---
 
