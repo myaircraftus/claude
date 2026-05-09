@@ -85,7 +85,10 @@ MAX_PATCHES_PER_PAGE = 64
 
 # Dispatch / batching.
 EMBED_BATCH_SIZE = 8        # pages per /embed call (Vercel-side already caps)
-BACKFILL_GPU_BATCH_SIZE = 8 # pages per ColQwen2 forward pass inside /backfill
+# A10G has 22 GB VRAM. ColQwen2 weights ~2.2 GB + activations grow with
+# (n_pages × patch_count × hidden) — Phase 9 saw OOM on 6+ page batches
+# (9.3-12.9 GB allocations). 2 pages/forward pass fits comfortably.
+BACKFILL_GPU_BATCH_SIZE = 2
 
 VISION_BUCKET = "vision-pages"
 SIGNED_URL_TTL_SECONDS = 300
@@ -185,6 +188,11 @@ class VisionWorker:
         all_results: List[Dict[str, Any]] = []
         for batch_start in range(0, len(images), BACKFILL_GPU_BATCH_SIZE):
             batch = images[batch_start : batch_start + BACKFILL_GPU_BATCH_SIZE]
+            # Drop cached activations from the previous mini-batch so the
+            # OOM ceiling resets. Cheap on A10G; without it, fragmentation
+            # accumulates across multi-batch forward passes.
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             with torch.no_grad():
                 processed = self.processor.process_images(batch).to(self.model.device)
                 # ColQwen2 returns (batch, n_tokens, hidden_dim). hidden_dim = 128
