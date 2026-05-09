@@ -1,0 +1,10 @@
+# Same package list as the Modal Image, kept here for local dev reference.
+# The Modal app pins these inside main.py via image.pip_install().
+torch>=2.1
+transformers>=4.45
+colpali-engine>=0.3
+pillow>=10.0
+pdf2image>=1.17
+requests>=2.31
+supabase>=2.4
+fastapi>=0.115

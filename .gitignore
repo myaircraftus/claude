@@ -82,3 +82,6 @@ docs/*-key.json
 
 # Personal session notes (not repo history)
 TOMORROW.md
+
+# Phase 9 — runtime-only state (modal api key, etc.)
+.claude/_phase9_state/
