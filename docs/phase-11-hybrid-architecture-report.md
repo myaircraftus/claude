@@ -134,21 +134,23 @@ of Phase 11)
 - **Calibrator tuning** — still needs ≥1 week of telemetry from
   `/api/vision/search` and `/api/vision/answer` before tuning the
   weights in `lib/vision/confidence.ts`.
-- **The 32 stalled docs from Phase 10** — Phase 10.5 is in progress
-  in parallel (live Colab kernel still indexing as of this writing,
-  9724 indexed / 0 failed). Will be finalized by the existing backfill
-  notebook OR by spinning up the new queue worker (Phase 11.3) which
-  will pick up any vision_index_jobs in 'queued' state.
-- **Webhook from doc upload to dispatch** — currently new doc uploads
-  do NOT auto-create a vision_index_jobs row. Add this in a future
-  sprint; in queue mode it'll be a one-line addition to
-  `lib/ingestion/server.ts`.
-- **Multi-org worker affinity** — currently any worker can claim any
-  job. If a particular org's workload becomes a problem, add an
-  `org_filter` column to `vision_worker_heartbeat` and have
-  `claim_job()` honor it. Not needed yet at our scale.
-- **`apply-102.ts` script** — not authored in this session per the
-  HARD STOP rule on migrations. Andy adds it when applying 102.
+- ~~**The 32 stalled docs from Phase 10**~~ ✅ **RESOLVED Phase 12 Task C** — 24 enqueued (2 had stale pages from earlier attempts and were skipped). Awaiting Colab worker pickup OR Modal fallback (with PNG-render fix; see "Modal-side rendering gap" below).
+- ~~**Webhook from doc upload to dispatch**~~ ✅ **RESOLVED Phase 12 Task B** (`a4ddf40`) — `lib/vision/auto-dispatch.ts` + ingestion-side fire-and-forget hook gated by `VISION_AUTO_DISPATCH=true`.
+- ~~**`apply-102.ts` script**~~ ✅ **RESOLVED Phase 12 Task A** (`d849d31`) — migration 102 applied to production.
+- **Multi-org worker affinity** — still open. Not needed at our scale yet.
+- **Modal-side rendering gap** (NEW, found in Phase 12 Task F) — the
+  Modal worker (`lib/vision/workers/modal.ts`) calls
+  `getPageImageUrl(supabase, page.page_image_path, 300)` and expects
+  the PNG to already exist in storage. The Phase 12 auto-dispatch
+  helper (`enqueueDocumentForVision`) creates `vision_pages` rows
+  with placeholder paths only — no actual PNGs uploaded. The Colab
+  queue worker handles this naturally (downloads parent PDF and
+  rasterizes on its end), but Modal direct-mode dispatch fails with
+  "signed url" errors when it tries to fetch missing PNGs.
+  Fix options: (a) make `enqueueDocumentForVision` render+upload PNGs
+  before returning; (b) add parent-PDF rasterization to the Modal
+  worker (mirror Colab's behavior). (a) is more bandwidth on the
+  enqueue side; (b) makes Modal slower per call but more flexible.
 
 ## Related docs
 
