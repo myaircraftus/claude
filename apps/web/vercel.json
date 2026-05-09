@@ -41,6 +41,10 @@
     {
       "path": "/api/cron/extract-receipts-sweep",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/vision-dispatch-sweep",
+      "schedule": "*/10 * * * *"
     }
   ],
   "headers": [
