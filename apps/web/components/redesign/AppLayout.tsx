@@ -344,12 +344,15 @@ function AppLayoutInner({
   // bleed into the owner nav anymore. Platform admins see a third persona
   // pill ("Admin") in the switcher; non-admins don't see it at all.
   const adminNavItems: NavItem[] = [
-    { icon: ShieldCheck,    label: "Admin Console",   href: "/admin" },
-    { icon: FileText,       label: "All Documents",   href: "/documents" },
+    { icon: ShieldCheck,    label: "Admin Console",    href: "/admin" },
+    { icon: FileText,       label: "All Documents",    href: "/documents" },
     { icon: AlertTriangle,  label: "Ingestion Health", href: "/admin/ingestion-health" },
+    // Phase 13.3 — global ingestion progress + error log.
+    { icon: AlertTriangle,  label: "Ingestion Progress", href: "/admin/ingestion/progress" },
+    { icon: AlertTriangle,  label: "Errors",           href: "/admin/errors" },
     // Phase 8 Sprint 8.4 — vision-RAG operational dashboard.
-    { icon: Eye,            label: "Vision Index",    href: "/admin/vision" },
-    { icon: FileText,       label: "Marketing CMS",   href: "/admin/content" },
+    { icon: Eye,            label: "Vision Index",     href: "/admin/vision" },
+    { icon: FileText,       label: "Marketing CMS",    href: "/admin/content" },
   ];
 
   const navItemsRaw: NavItem[] =
