@@ -24,6 +24,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation/common'
 import { hybridRetrieve, type HybridMode } from '@/lib/vision/retriever'
+import { logRetrieval, calibrateForLogging } from '@/lib/vision/telemetry'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -73,14 +74,70 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[vision/search] hybridRetrieve failed:', message)
+    // Best-effort telemetry on the failure path too.
+    void logRetrieval(service, {
+      organization_id: membership.organization_id,
+      user_id: user.id,
+      route: 'search',
+      mode: (mode ?? 'hybrid') as HybridMode,
+      search_query: query,
+      result_count: 0,
+      total_ms: Date.now() - t0,
+      status: 'error',
+      error_message: message,
+    })
     return NextResponse.json({ error: message }, { status: 500 })
   }
   const elapsed_ms = Date.now() - t0
+
+  // Resolve calibration for the top hit (if any) and log telemetry.
+  // Fire-and-forget — never blocks the response.
+  const top = results[0]
+  let raw_confidence: number | null = null
+  let calibrated_confidence: number | null = null
+  let topVisionPageId: string | null = null
+  if (top) {
+    raw_confidence = top.score_combined
+    // Resolve top page id from (org, doc, page_number) so the calibrator
+    // can read review-queue + feedback signals.
+    const { data: page } = await service
+      .from('vision_pages')
+      .select('id')
+      .eq('organization_id', membership.organization_id)
+      .eq('source_document_id', top.source_document_id)
+      .eq('page_number', top.page_number)
+      .is('deleted_at', null)
+      .maybeSingle()
+    topVisionPageId = (page as any)?.id ?? null
+    const { calibrated } = await calibrateForLogging(service, {
+      organizationId: membership.organization_id,
+      searchQuery: query,
+      visionPageId: topVisionPageId,
+      rawScore: top.score_combined,
+    })
+    calibrated_confidence = calibrated
+  }
+
+  void logRetrieval(service, {
+    organization_id: membership.organization_id,
+    user_id: user.id,
+    route: 'search',
+    mode: (mode ?? 'hybrid') as HybridMode,
+    search_query: query,
+    result_count: results.length,
+    top_combined_score: top?.score_combined ?? null,
+    raw_confidence,
+    calibrated_confidence,
+    retrieval_ms: elapsed_ms,
+    total_ms: elapsed_ms,
+  })
 
   return NextResponse.json({
     results,
     elapsed_ms,
     mode: mode ?? 'hybrid',
     org_id: membership.organization_id,
+    raw_confidence,
+    calibrated_confidence,
   })
 }

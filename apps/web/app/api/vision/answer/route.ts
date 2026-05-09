@@ -35,6 +35,7 @@ import {
 } from '@/lib/vision/openai-fallback'
 import { getVisionPage } from '@/lib/vision/registry'
 import { enqueueLowConfidence } from '@/lib/vision/review-queue'
+import { logRetrieval, calibrateForLogging } from '@/lib/vision/telemetry'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -156,6 +157,54 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const total_ms = Date.now() - t0
+
+  // Telemetry — fire-and-forget. Calibrate against the top retrieval
+  // page so /admin/vision/telemetry can show drift over time.
+  const top = results[0]
+  let raw_confidence: number | null = null
+  let calibrated_confidence: number | null = null
+  let topVisionPageId: string | null = null
+  if (top) {
+    raw_confidence = top.score_combined
+    const { data: page } = await service
+      .from('vision_pages')
+      .select('id')
+      .eq('organization_id', membership.organization_id)
+      .eq('source_document_id', top.source_document_id)
+      .eq('page_number', top.page_number)
+      .is('deleted_at', null)
+      .maybeSingle()
+    topVisionPageId = (page as any)?.id ?? null
+    const fallbackCitedTopPage =
+      fallbackResult.fallback_used &&
+      fallbackResult.citations.includes(top.page_number)
+    const { calibrated } = await calibrateForLogging(service, {
+      organizationId: membership.organization_id,
+      searchQuery: query,
+      visionPageId: topVisionPageId,
+      rawScore: top.score_combined,
+      fallbackCitedTopPage,
+    })
+    calibrated_confidence = calibrated
+  }
+
+  void logRetrieval(service, {
+    organization_id: membership.organization_id,
+    user_id: user.id,
+    route: 'answer',
+    mode: 'hybrid',
+    search_query: query,
+    result_count: results.length,
+    top_combined_score: top?.score_combined ?? null,
+    raw_confidence,
+    calibrated_confidence,
+    fallback_invoked: fallbackResult.fallback_used,
+    fallback_model: fallbackResult.fallback_used ? fallbackResult.model : null,
+    fallback_citations: fallbackResult.fallback_used ? fallbackResult.citations.length : null,
+    total_ms,
+  })
+
   return NextResponse.json({
     answer: fallbackResult.answer,
     confidence: fallbackResult.confidence,
@@ -164,6 +213,8 @@ export async function POST(req: NextRequest) {
     model: fallbackResult.model,
     threshold,
     retrieval_results: results,
-    elapsed_ms: Date.now() - t0,
+    elapsed_ms: total_ms,
+    raw_confidence,
+    calibrated_confidence,
   })
 }
