@@ -14,6 +14,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { DocumentViewerPage } from '@/components/documents/document-viewer-page'
+import { IngestionProgressCard } from '@/components/documents/ingestion-progress-card'
 import type { AnswerCitation } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -72,13 +73,22 @@ export default async function DocumentPage({ params, searchParams }: PageProps) 
       : null
 
   return (
-    <DocumentViewerPage
-      documentId={doc.id}
-      title={doc.title ?? doc.file_name ?? 'Document'}
-      docType={(doc.doc_type as string | null) ?? null}
-      pageCount={doc.page_count ?? null}
-      aircraftId={doc.aircraft_id ?? null}
-      citation={citation}
-    />
+    <div className="flex flex-col gap-3">
+      {/* Phase 13.3 — live timeline subscribed via realtime. Hides 5s after
+          stage='indexed'; persists if the document never finishes. */}
+      <IngestionProgressCard
+        documentId={doc.id}
+        organizationId={membership.organization_id}
+        className="mx-4 mt-3"
+      />
+      <DocumentViewerPage
+        documentId={doc.id}
+        title={doc.title ?? doc.file_name ?? 'Document'}
+        docType={(doc.doc_type as string | null) ?? null}
+        pageCount={doc.page_count ?? null}
+        aircraftId={doc.aircraft_id ?? null}
+        citation={citation}
+      />
+    </div>
   )
 }
