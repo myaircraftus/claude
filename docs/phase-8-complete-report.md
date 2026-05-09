@@ -119,10 +119,14 @@ verified per-sprint via `git diff --stat HEAD <baseline> apps/web/lib/ocr apps/w
 
 | Migration | Status | Notes |
 |---|---|---|
-| 098_vision_pages_and_jobs.sql | **APPLIED** | `b44299a` |
-| 099_vision_embeddings.sql | **APPLIED** | `b44299a` (HNSW idx confirmed) |
-| 100_vision_review_queue.sql | **NOT APPLIED** | Andy applies via `apps/web/scripts/apply-100.ts` or psql |
-| 101_vision_retrieval_log.sql | **NOT APPLIED** | Andy applies via `apps/web/scripts/apply-101.ts` or psql. Telemetry page renders a banner if missing. |
+| 098_vision_index_registry.sql | 🟢 **APPLIED** | `b44299a` |
+| 099_vision_embeddings.sql | 🟢 **APPLIED** | `b44299a` (HNSW idx confirmed) |
+| 100_vision_review_queue.sql | 🟢 **APPLIED 2026-05-08** | `vision_review_queue` (13 cols) + `vision_feedback` (7 cols), RLS on, all indexes verified. Smoke test: insert/read/delete on both tables ✓ |
+| 101_vision_retrieval_log.sql | 🟢 **APPLIED 2026-05-08** | `vision_retrieval_log` (18 cols), RLS on, 4 indexes incl. partial low-confidence idx. Smoke test ✓ |
+
+**Review queue + telemetry are LIVE in production as of 2026-05-08.**
+Apply scripts (`apply-100.ts`, `apply-101.ts`, `smoke-100-101.ts`) are
+one-shot — deleted after success per the no-rerun convention.
 
 `vision-pages` storage bucket: created (private).
 
@@ -156,8 +160,8 @@ decide before the real GPU run:
    ColQwen2 weights for the first backfill.
 2. **VISION_GPU_HOST + creds** — Modal endpoint URL + signing key.
    Stub worker is the default until these are set.
-3. **Apply migrations 100 + 101** — review queue + telemetry tables.
-   The UI surfaces have graceful fallbacks until applied.
+3. ~~**Apply migrations 100 + 101** — review queue + telemetry tables.~~
+   ✅ DONE 2026-05-08 — both applied + smoke-tested in production.
 4. **Run real GPU embedding batch on the existing 351 documents** —
    Colab notebook in `docs/new implementation/colab-backfill.ipynb`
    (to be authored before the run).
