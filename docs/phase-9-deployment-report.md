@@ -256,6 +256,32 @@ finished the remaining ~8,600 pages with no spend cap. The Modal app
 remains deployed for live `/api/vision/answer` runtime use; Colab is
 not in the production hot path.
 
+## Phase 10.5 — Stalled docs finalized
+
+**Status:** in flight at the time of Phase 11 ship. The Colab kernel
+that started in Phase 10 has continued running in background-execution
+mode for ~24h+ and is still chipping away at the remaining huge docs.
+
+State at 2026-05-09 21:30 UTC (Phase 11 ship time):
+- 9,767 pages indexed (up from Phase 10's 8,758 → +1,009 more)
+- 167 pages currently in `embedding` status
+- ~107 stale `embedding` rows (>1h old) deleted via
+  `apps/web/scripts/cleanup-stale-embedding.ts` to allow retry
+- 0 failed in DB
+
+**Decision: not restarted.** Phase 10.5's brief said to stop the kernel
+and re-run with `GPU_BATCH=4` — but inspection showed the kernel was
+still alive and progressing (113 fresh embedding rows in last 5 min,
+194 in last 1 hour). Restarting would have interrupted live work.
+Instead, only the 107 stuck rows >1h old were dropped; the kernel
+continued autonomously.
+
+The remaining gap (~28-32 docs) will be finalized by:
+- the live Colab kernel if it reaches them; or
+- the new Phase 11 Colab queue worker if Andy starts that notebook; or
+- the Phase 11 Modal fallback sweep cron once those docs' jobs arrive
+  in `vision_index_jobs` (currently they don't have job rows).
+
 ### Cleanup
 
 - Repo notebook `apps/web/scripts/colab/backfill-vision.ipynb` is
