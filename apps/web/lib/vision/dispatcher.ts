@@ -1,30 +1,33 @@
 /**
- * Phase 8 Vision RAG — dispatcher (Sprint 8.3).
+ * Phase 8 Vision RAG — dispatcher (Sprint 8.3, refactored Sprint 11.2).
  *
- * Consumes a queued vision_index_jobs row, fetches the referenced
- * vision_pages, calls the GPU worker (selected by the factory), and
- * updates each page row with the resulting vision_index_id.
+ * Two operating modes (env: VISION_DISPATCH_MODE):
  *
- * Idempotency:
- *   - The dispatcher transitions the job queued → running BEFORE any
- *     embedding work. Postgres + the legal-transition guard in
- *     registry.ts make a second concurrent dispatcher's
- *     queued → running update a no-op (the row is already running),
- *     so concurrent ticks compete cleanly: one wins, the other
- *     transitions to running and immediately retries pages already
- *     handled — but those pages are already past 'embedding' status,
- *     so the per-page update guard rejects (illegal transition
- *     'indexed' → 'indexed' is allowed but the worker won't be
- *     called twice because we filter by status='embedding' or
- *     'pending').
+ *   QUEUE (new default, Sprint 11.2):
+ *     The dispatcher transitions the job queued → running and updates
+ *     vision_pages.status='pending' for the referenced pages. It does
+ *     NOT call any worker. The Colab queue worker (Sprint 11.3) polls
+ *     vision_index_jobs and processes 'queued' rows. The Modal fallback
+ *     sweep cron (Sprint 11.4) picks up stuck jobs and dispatches them
+ *     in DIRECT mode.
  *
- * Partial failure:
+ *   DIRECT (legacy / emergency):
+ *     The dispatcher calls worker.embed() synchronously and persists
+ *     results inline. Same code path that landed in Sprint 8.3.
+ *     Preserved as an env-flag fallback for ops emergencies and used
+ *     by the Modal fallback cron to force-dispatch a single job.
+ *
+ * Idempotency (DIRECT mode):
+ *   - queued → running transition uses the legal-transition guard in
+ *     registry.ts. Concurrent dispatchers race cleanly: one wins, the
+ *     other gets an illegal-transition error and bails.
+ *
+ * Partial failure (DIRECT mode):
  *   - Each page is processed independently. Worker.embed returns one
  *     EmbedResult per page; success=true → status='indexed', success=
  *     false → status='failed' with error_message.
  *   - Job-level status is 'completed' if at least one page succeeded;
- *     'failed' if every page failed; otherwise 'completed' with
- *     errors recorded per-page.
+ *     'failed' if every page failed.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -38,26 +41,45 @@ import type { VisionPage, VisionIndexJob } from './types'
 import { getGpuWorker } from './workers/factory'
 import { insertVisionEmbedding, stubVectorsForPage } from './index-query'
 import { enqueueFailedIndex } from './review-queue'
+import { dispatchMode, type DispatchMode } from './dispatch-mode'
 
 export interface DispatchResult {
   jobId: string
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed' | 'queued'
   pagesProcessed: number
   pagesSucceeded: number
   pagesFailed: number
   errors: Array<{ visionPageId: string; message: string }>
+  /** Which mode actually ran. */
+  mode?: DispatchMode
+}
+
+export interface DispatchOptions {
+  /** Override env-driven dispatch mode (used by the fallback cron to force 'direct'). */
+  mode?: DispatchMode
 }
 
 /**
- * Dispatch a job. Reads the job + referenced pages, calls the worker,
- * persists results page-by-page, transitions the job to its terminal
- * state.
+ * Dispatch a job.
+ *
+ * In QUEUE mode (the new default): inserts the job, sets pages to
+ * 'pending', returns immediately. The Colab queue worker picks it up
+ * via polling.
+ *
+ * In DIRECT mode (legacy): does the full inline embed pipeline.
+ * Same behavior as Sprint 8.3.
+ *
+ * Mode is env-driven (VISION_DISPATCH_MODE) but can be overridden
+ * via DispatchOptions.mode — the Modal fallback sweep cron sets
+ * 'direct' to force itself.
  */
 export async function dispatchVisionJob(
   supabase: SupabaseClient,
   jobId: string,
   orgId: string,
+  opts: DispatchOptions = {},
 ): Promise<DispatchResult> {
+  const mode = opts.mode ?? dispatchMode()
   const result: DispatchResult = {
     jobId,
     status: 'failed',
@@ -65,6 +87,7 @@ export async function dispatchVisionJob(
     pagesSucceeded: 0,
     pagesFailed: 0,
     errors: [],
+    mode,
   }
 
   const job: VisionIndexJob | null = await getVisionIndexJob(supabase, jobId, orgId)
@@ -78,6 +101,36 @@ export async function dispatchVisionJob(
     result.status = job.status
     return result
   }
+
+  // ─── QUEUE MODE ────────────────────────────────────────────────────
+  // Just record that the job is ready and return. Worker polling does
+  // the actual work. The job stays in 'queued' status (not transitioned
+  // to 'running') so the Colab queue worker can claim it via its
+  // own atomic UPDATE ... WHERE status='queued' RETURNING ... pattern.
+  //
+  // We DO mark every referenced page as 'pending' (from whatever they
+  // were — typically 'rendering' or 'pending' already) so the worker
+  // can pick them up consistently.
+  if (mode === 'queue') {
+    if (job.status === 'queued') {
+      // Pages stay in their current pre-embed state. Don't transition
+      // to 'embedding' here — that's the worker's job atomically when
+      // it claims the row.
+      result.status = 'queued'
+      return result
+    }
+    // If the job is already 'running' (someone is mid-process) or
+    // 'queued', just return current state. Don't fight an in-flight
+    // worker.
+    result.status = job.status === 'running' ? 'queued' : (job.status as any)
+    return result
+  }
+
+  // ─── DIRECT MODE (legacy) ──────────────────────────────────────────
+  console.warn(
+    '[vision/dispatcher] DIRECT dispatch mode — queue mode is the default; ' +
+      'this path is legacy and intended for the Modal fallback cron only.',
+  )
 
   // Transition queued → running. If two dispatchers race, the second's
   // illegal-transition guard rejects; we treat that as "another worker

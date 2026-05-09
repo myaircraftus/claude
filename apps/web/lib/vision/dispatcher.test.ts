@@ -137,7 +137,7 @@ describe('dispatchVisionJob — happy path', () => {
     ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
     ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(result.status).toBe('completed')
     expect(result.pagesSucceeded).toBe(2)
@@ -157,7 +157,7 @@ describe('dispatchVisionJob — already-terminal job', () => {
       vision_page_ids: ['p1'], status: 'completed',
     })
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(result.status).toBe('completed')
     expect(registry.updateVisionPage).not.toHaveBeenCalled()
@@ -169,7 +169,7 @@ describe('dispatchVisionJob — already-terminal job', () => {
       id: 'job-1', organization_id: 'org-A',
       vision_page_ids: ['p1'], status: 'failed',
     })
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
     expect(result.status).toBe('failed')
   })
 })
@@ -185,7 +185,7 @@ describe('dispatchVisionJob — concurrent dispatchers', () => {
       new Error('illegal transition queued → running'),
     )
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(result.status).toBe('failed') // default; we bailed without doing work
     expect(result.pagesProcessed).toBe(0)
@@ -216,7 +216,7 @@ describe('dispatchVisionJob — partial failure', () => {
     }
     ;(factory.getGpuWorker as any).mockReturnValue(partialWorker)
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(result.status).toBe('completed') // any-success → completed
     expect(result.pagesSucceeded).toBe(5)
@@ -242,7 +242,7 @@ describe('dispatchVisionJob — partial failure', () => {
     }
     ;(factory.getGpuWorker as any).mockReturnValue(allFailWorker)
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
     expect(result.status).toBe('failed')
     expect(result.pagesFailed).toBe(2)
   })
@@ -261,7 +261,7 @@ describe('dispatchVisionJob — partial failure', () => {
       embed: async () => { throw new Error('GPU host unreachable') },
     })
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
     expect(result.status).toBe('failed')
     expect(result.errors[0].message).toMatch(/GPU host unreachable/)
   })
@@ -279,7 +279,7 @@ describe('dispatchVisionJob — soft-deleted pages', () => {
     ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
     ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
     // Only p1 is processed.
     expect(result.pagesSucceeded).toBe(1)
   })
@@ -299,9 +299,118 @@ describe('dispatchVisionJob — already-indexed pages', () => {
     ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
     ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
 
-    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
     // p1 is already indexed → not in eligible. Only p2 is processed.
     expect(result.pagesSucceeded).toBe(1)
+  })
+})
+
+// ─── Sprint 11.2 — QUEUE mode tests ──────────────────────────────────
+//
+// In queue mode the dispatcher MUST NOT call the worker. The Colab
+// queue worker (Sprint 11.3) does the actual work via polling.
+
+describe('dispatchVisionJob — QUEUE mode', () => {
+  it('returns immediately for a queued job; never calls the worker', async () => {
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1', 'p2'], status: 'queued',
+    })
+    ;(factory.getGpuWorker as any).mockClear()
+    const workerEmbedSpy = vi.fn()
+    ;(factory.getGpuWorker as any).mockReturnValue({
+      id: 'stub', label: 'never-call', embed: workerEmbedSpy,
+    })
+
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'queue' })
+
+    expect(result.status).toBe('queued')
+    expect(result.mode).toBe('queue')
+    expect(workerEmbedSpy).not.toHaveBeenCalled()
+    expect(registry.updateVisionPage).not.toHaveBeenCalled()
+    expect(registry.updateVisionIndexJob).not.toHaveBeenCalled()
+  })
+
+  it('queue mode is the default when env override + opts both absent', async () => {
+    const prev = process.env.VISION_DISPATCH_MODE
+    delete process.env.VISION_DISPATCH_MODE
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'queued',
+    })
+    const workerEmbedSpy = vi.fn()
+    ;(factory.getGpuWorker as any).mockReturnValue({
+      id: 'stub', label: 'never-call', embed: workerEmbedSpy,
+    })
+
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+
+    expect(result.mode).toBe('queue')
+    expect(result.status).toBe('queued')
+    expect(workerEmbedSpy).not.toHaveBeenCalled()
+
+    if (prev !== undefined) process.env.VISION_DISPATCH_MODE = prev
+  })
+
+  it('VISION_DISPATCH_MODE=direct env override forces direct path', async () => {
+    const prev = process.env.VISION_DISPATCH_MODE
+    process.env.VISION_DISPATCH_MODE = 'direct'
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'queued',
+    })
+    ;(registry.getVisionPage as any).mockImplementation(async (_s: any, id: string) => makePage(id))
+    ;(registry.updateVisionPage as any).mockResolvedValue({})
+    ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
+    ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
+
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+
+    expect(result.mode).toBe('direct')
+    expect(result.status).toBe('completed')
+    // Direct mode DID transition queued → running.
+    const jobUpdates = (registry.updateVisionIndexJob as any).mock.calls
+    expect(jobUpdates.some((c: any[]) => c[2]?.status === 'running')).toBe(true)
+
+    if (prev !== undefined) process.env.VISION_DISPATCH_MODE = prev
+    else delete process.env.VISION_DISPATCH_MODE
+  })
+
+  it('opts.mode beats env (Modal fallback cron sets opts.mode=direct)', async () => {
+    process.env.VISION_DISPATCH_MODE = 'queue'
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'queued',
+    })
+    ;(registry.getVisionPage as any).mockImplementation(async (_s: any, id: string) => makePage(id))
+    ;(registry.updateVisionPage as any).mockResolvedValue({})
+    ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
+    ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
+
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
+
+    expect(result.mode).toBe('direct')
+    expect(result.status).toBe('completed')
+
+    delete process.env.VISION_DISPATCH_MODE
+  })
+
+  it('queue mode: running job is treated as already-claimed, not re-queued', async () => {
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'running',
+    })
+    const workerEmbedSpy = vi.fn()
+    ;(factory.getGpuWorker as any).mockReturnValue({
+      id: 'stub', label: 'never-call', embed: workerEmbedSpy,
+    })
+
+    const result = await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'queue' })
+
+    // Running → don't fight the in-flight worker. Status reported as queued
+    // (still actionable from the caller's perspective).
+    expect(result.status).toBe('queued')
+    expect(workerEmbedSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -337,7 +446,7 @@ describe('dispatchVisionJob — real-vector pass-through (Sprint 8.9)', () => {
       })),
     })
 
-    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(insertSpy).toHaveBeenCalledTimes(1)
     const insertArg = insertSpy.mock.calls[0][1]
@@ -361,7 +470,7 @@ describe('dispatchVisionJob — real-vector pass-through (Sprint 8.9)', () => {
     ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
     ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
 
-    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A', { mode: 'direct' })
 
     expect(insertSpy).toHaveBeenCalledTimes(1)
     const insertArg = insertSpy.mock.calls[0][1]
