@@ -37,6 +37,7 @@ import {
 import type { VisionPage, VisionIndexJob } from './types'
 import { getGpuWorker } from './workers/factory'
 import { insertVisionEmbedding, stubVectorsForPage } from './index-query'
+import { enqueueFailedIndex } from './review-queue'
 
 export interface DispatchResult {
   jobId: string
@@ -201,6 +202,26 @@ export async function dispatchVisionJob(
       ? `${result.pagesFailed} pages failed, 0 succeeded`
       : null,
   }, orgId)
+
+  // Sprint 8.7 — auto-enqueue review for failed-index pages when
+  // > 50% of the batch failed. Fire-and-forget; errors logged but
+  // not propagated (review-queue insert failure should never break
+  // the dispatcher's terminal transition).
+  if (result.pagesProcessed > 0 && result.pagesFailed / result.pagesProcessed > 0.5) {
+    const failedIds = result.errors
+      .map((e) => e.visionPageId)
+      .filter((id) => id && id !== '-')
+    if (failedIds.length > 0) {
+      try {
+        await enqueueFailedIndex(supabase, {
+          organizationId: orgId,
+          visionPageIds: failedIds,
+        })
+      } catch (err) {
+        console.warn('[vision/dispatcher] enqueueFailedIndex failed:', err)
+      }
+    }
+  }
 
   result.status = jobStatus
   return result

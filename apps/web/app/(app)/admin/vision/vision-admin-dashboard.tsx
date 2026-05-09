@@ -71,15 +71,23 @@ export function VisionAdminDashboard(props: Props) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>
-          Vision Index — Admin
-        </h1>
-        <p className="text-[13px] text-muted-foreground mt-1">
-          Phase 8 vision-RAG operational dashboard. The pipeline is FOUNDATION
-          (stub mode) — real GPU embedding requires VISION_GPU_HOST + creds.
-          See <code className="font-mono text-[12px]">docs/phase-8-foundation-report.md</code>.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[22px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>
+            Vision Index — Admin
+          </h1>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            Phase 8 vision-RAG operational dashboard. The pipeline is FOUNDATION
+            (stub mode) — real GPU embedding requires VISION_GPU_HOST + creds.
+            See <code className="font-mono text-[12px]">docs/phase-8-foundation-report.md</code>.
+          </p>
+        </div>
+        <a
+          href="/admin/vision/review"
+          className="shrink-0 px-3 py-1.5 rounded border border-border bg-muted/20 hover:bg-muted/40 text-[12.5px]"
+        >
+          Review queue →
+        </a>
       </div>
 
       {/* Status counts */}

@@ -34,6 +34,7 @@ import {
   FALLBACK_MAX_PAGES,
 } from '@/lib/vision/openai-fallback'
 import { getVisionPage } from '@/lib/vision/registry'
+import { enqueueLowConfidence } from '@/lib/vision/review-queue'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -114,6 +115,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (pages.length > 0) {
+      // Sprint 8.7 — auto-enqueue the top page for human review.
+      // Best-effort; failure logs but doesn't block the answer.
+      try {
+        await enqueueLowConfidence(service, {
+          organizationId: membership.organization_id,
+          visionPageId: pages[0].id,
+          searchQuery: query,
+          confidenceScore: topScore,
+        })
+      } catch {
+        // already swallowed inside enqueueLowConfidence
+      }
+
       try {
         const f = await openAiVisionAnswer(service, {
           organizationId: membership.organization_id,
