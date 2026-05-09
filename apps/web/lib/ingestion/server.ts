@@ -2116,6 +2116,30 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       }
     })()
 
+    // Phase 12 Task B — auto-enqueue the doc for vision embedding via
+    // the Phase 11 hybrid queue (Colab primary, Modal fallback).
+    // Fire-and-forget; gated by VISION_AUTO_DISPATCH=true env. The
+    // helper is idempotent on (org × doc) so re-ingestion won't
+    // double-enqueue.
+    void (async () => {
+      try {
+        const { enqueueDocumentForVision } = await import('@/lib/vision/auto-dispatch')
+        const pageCountForVision = (document as any)?.page_count ?? fallbackPageCount
+        const result = await enqueueDocumentForVision(supabase as any, {
+          documentId,
+          organizationId: (document as any).organization_id,
+          pageCount: pageCountForVision,
+        })
+        if (result.enqueued) {
+          console.log(
+            `[ingestion] vision-dispatch enqueued doc ${documentId} → job ${result.jobId}`,
+          )
+        }
+      } catch (err) {
+        console.warn(`[ingestion] vision auto-dispatch failed for ${documentId}:`, err)
+      }
+    })()
+
     return { mode: 'inline', status: 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'
