@@ -84,6 +84,12 @@ export function VisionAdminDashboard(props: Props) {
         </div>
         <div className="shrink-0 flex gap-2">
           <a
+            href="/admin/vision/workers"
+            className="px-3 py-1.5 rounded border border-border bg-muted/20 hover:bg-muted/40 text-[12.5px]"
+          >
+            Workers →
+          </a>
+          <a
             href="/admin/vision/telemetry"
             className="px-3 py-1.5 rounded border border-border bg-muted/20 hover:bg-muted/40 text-[12.5px]"
           >
