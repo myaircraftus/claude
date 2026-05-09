@@ -86,6 +86,28 @@ verified per-sprint via `git diff --stat HEAD <baseline> apps/web/lib/ocr apps/w
   the answer or dispatcher's terminal transition.
 - 50 tests.
 
+### Sprint 8.9 — Real Modal worker + dispatcher rewire
+
+- `lib/vision/workers/modal.ts` — real ColQwen2 worker that calls a
+  Modal-hosted endpoint over HTTPS. Mints private signed URLs (5-min
+  expiry) for each page image. Batches at `MODAL_BATCH_SIZE` (default
+  8) so a 100-page ingestion doesn't blow up serverless cold-start
+  memory. Per-page validation rejects malformed dim / shape so
+  bad vectors never reach `vision_embeddings`.
+- `lib/vision/gpu-worker.ts` — `EmbedResult` now optionally carries
+  `summary_vector` + `patch_vectors`. Backward-compatible: stub
+  worker omits them and the dispatcher falls back to
+  `stubVectorsForPage`.
+- `lib/vision/dispatcher.ts` — when the worker returns real vectors
+  it writes them straight to `vision_embeddings`; when not, it
+  synthesizes stubs as before.
+- `lib/vision/workers/factory.ts` — routes `VISION_GPU_HOST=modal` to
+  the real `createModalWorker` only when both `MODAL_API_KEY` and
+  `MODAL_ENDPOINT_URL` are set. Missing either → fallback-to-stub
+  with a one-line warning.
+- 20 tests (15 modal worker + 3 new factory + 2 new dispatcher
+  pass-through) — all hermetic via mocked fetch.
+
 ### Sprint 8.8 — Confidence calibration + telemetry (`0d791a9`)
 
 - Migration `101_vision_retrieval_log.sql` written (NOT applied).
@@ -159,7 +181,9 @@ decide before the real GPU run:
 1. **HF token + Colab Pro signup** — needed to actually pull the
    ColQwen2 weights for the first backfill.
 2. **VISION_GPU_HOST + creds** — Modal endpoint URL + signing key.
-   Stub worker is the default until these are set.
+   The factory routes to the **real** Modal worker (Sprint 8.9) the
+   moment `VISION_GPU_HOST=modal`, `MODAL_API_KEY`, and
+   `MODAL_ENDPOINT_URL` are set. Until then it falls back to stub.
 3. ~~**Apply migrations 100 + 101** — review queue + telemetry tables.~~
    ✅ DONE 2026-05-08 — both applied + smoke-tested in production.
 4. **Run real GPU embedding batch on the existing 351 documents** —

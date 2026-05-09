@@ -153,21 +153,37 @@ export async function dispatchVisionJob(
     result.pagesProcessed++
     try {
       if (er.success) {
-        // Sprint 8.4 — insert the embedding row alongside the page
-        // status update. Stub mode generates deterministic 128-dim
-        // summary + 64-patch matrix from the page id; real worker
-        // (future) will return real embeddings via the EmbedResult
-        // and the insertVisionEmbedding call here will move into
-        // the worker's response path. For now we synthesize the
-        // shape so retrieval (Sprint 8.5) has data to query against.
-        const stub = stubVectorsForPage(er.vision_page_id)
+        // Sprint 8.4 / 8.9 — insert the embedding row alongside the
+        // page status update.
+        //
+        // Real worker (Modal, Sprint 8.9) returns summary_vector +
+        // patch_vectors directly on the EmbedResult — we trust those
+        // and write them straight in.
+        //
+        // Stub mode (no vectors on the result) synthesizes a
+        // deterministic 128-dim summary + 64-patch matrix from the
+        // page id so retrieval (Sprint 8.5) has data to query against.
+        const hasRealVectors =
+          Array.isArray(er.summary_vector) &&
+          er.summary_vector.length > 0 &&
+          er.patch_vectors !== undefined
+        const summary_vector = hasRealVectors
+          ? (er.summary_vector as number[])
+          : stubVectorsForPage(er.vision_page_id).summary_vector
+        const patch_vectors = hasRealVectors
+          ? (er.patch_vectors as { patches: number[][] })
+          : stubVectorsForPage(er.vision_page_id).patch_vectors
+        const embedding_dim = hasRealVectors
+          ? er.embedding_dim
+          : stubVectorsForPage(er.vision_page_id).embedding_dim
+
         await insertVisionEmbedding(supabase, {
           organization_id: orgId,
           vision_page_id: er.vision_page_id,
           model_used: er.model_used,
-          embedding_dim: stub.embedding_dim,
-          summary_vector: stub.summary_vector,
-          patch_vectors: stub.patch_vectors,
+          embedding_dim,
+          summary_vector,
+          patch_vectors,
         })
 
         await updateVisionPage(supabase, er.vision_page_id, {

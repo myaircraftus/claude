@@ -16,15 +16,18 @@
  * should keep working in development against the stub even when
  * production credentials aren't set.
  */
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { GpuWorker } from '../gpu-worker'
 import { modalStubWorker } from './modal-stub'
+import { createModalWorker } from './modal'
 import { replicateWorker } from './replicate'
 import { runpodWorker } from './runpod'
 import { colabWorker } from './colab'
+import { createServiceSupabase } from '@/lib/supabase/server'
 
 const HOSTS_WITH_REAL_IMPL = new Set<string>([
   'stub',
-  // 'modal',     // ← uncomment when modal.ts (real) lands
+  'modal',
   // 'replicate', // ← uncomment when replicate.ts is implemented
   // 'runpod',
   // 'colab',
@@ -34,6 +37,8 @@ interface FactoryDeps {
   /** Override env-var read for testability. */
   envHost?: string
   envHasKey?: Record<string, boolean>
+  /** Supabase client used by real workers that mint signed URLs. */
+  supabase?: SupabaseClient
 }
 
 export function getGpuWorker(deps: FactoryDeps = {}): GpuWorker {
@@ -55,7 +60,10 @@ export function getGpuWorker(deps: FactoryDeps = {}): GpuWorker {
 
   // 3. Real impl exists; check credentials.
   const keyPresent =
-    host === 'modal'     ? (deps.envHasKey?.MODAL_API_KEY     ?? !!process.env.MODAL_API_KEY) :
+    host === 'modal'     ? (
+        (deps.envHasKey?.MODAL_API_KEY     ?? !!process.env.MODAL_API_KEY) &&
+        (deps.envHasKey?.MODAL_ENDPOINT_URL ?? !!process.env.MODAL_ENDPOINT_URL)
+      ) :
     host === 'replicate' ? (deps.envHasKey?.REPLICATE_API_TOKEN ?? !!process.env.REPLICATE_API_TOKEN) :
     host === 'runpod'    ? (deps.envHasKey?.RUNPOD_API_KEY    ?? !!process.env.RUNPOD_API_KEY) :
     host === 'colab'     ? (deps.envHasKey?.COLAB_NGROK_URL   ?? !!process.env.COLAB_NGROK_URL) :
@@ -66,6 +74,12 @@ export function getGpuWorker(deps: FactoryDeps = {}): GpuWorker {
     return modalStubWorker
   }
 
-  // Today, only the stub is wired up. Future sprints add real workers.
+  // 4. Build the real worker.
+  if (host === 'modal') {
+    const supabase = deps.supabase ?? createServiceSupabase()
+    return createModalWorker({ supabase })
+  }
+
+  // Real impl set on the host but not yet wired here → stub.
   return modalStubWorker
 }

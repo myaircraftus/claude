@@ -304,3 +304,69 @@ describe('dispatchVisionJob — already-indexed pages', () => {
     expect(result.pagesSucceeded).toBe(1)
   })
 })
+
+// Sprint 8.9 — verify the dispatcher passes real worker vectors
+// straight through to insertVisionEmbedding (not the stub vectors).
+describe('dispatchVisionJob — real-vector pass-through (Sprint 8.9)', () => {
+  it('uses worker-supplied summary_vector + patch_vectors when present', async () => {
+    const indexQueryModule = await import('./index-query')
+    const insertSpy = (indexQueryModule.insertVisionEmbedding as any) as ReturnType<typeof vi.fn>
+    insertSpy.mockClear()
+
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'queued',
+    })
+    ;(registry.getVisionPage as any).mockImplementation(async (_s: any, id: string) => makePage(id))
+    ;(registry.updateVisionPage as any).mockResolvedValue({})
+    ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
+
+    const realVecSummary = Array.from({ length: 128 }, (_, i) => i / 128)
+    const realVecPatches = [Array.from({ length: 128 }, () => 0.5)]
+
+    ;(factory.getGpuWorker as any).mockReturnValue({
+      id: 'modal', label: 'real',
+      embed: async (pages: any[]) => pages.map((p) => ({
+        vision_page_id: p.id,
+        vision_index_id: `modal_${p.id}`,
+        embedding_dim: 128,
+        model_used: 'colqwen2',
+        success: true,
+        summary_vector: realVecSummary,
+        patch_vectors: { patches: realVecPatches },
+      })),
+    })
+
+    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    const insertArg = insertSpy.mock.calls[0][1]
+    expect(insertArg.summary_vector).toBe(realVecSummary)        // identity, not a stub
+    expect(insertArg.patch_vectors.patches).toBe(realVecPatches) // identity
+    expect(insertArg.embedding_dim).toBe(128)
+    expect(insertArg.model_used).toBe('colqwen2')
+  })
+
+  it('falls back to stub vectors when worker omits summary_vector', async () => {
+    const indexQueryModule = await import('./index-query')
+    const insertSpy = (indexQueryModule.insertVisionEmbedding as any) as ReturnType<typeof vi.fn>
+    insertSpy.mockClear()
+
+    ;(registry.getVisionIndexJob as any).mockResolvedValue({
+      id: 'job-1', organization_id: 'org-A',
+      vision_page_ids: ['p1'], status: 'queued',
+    })
+    ;(registry.getVisionPage as any).mockImplementation(async (_s: any, id: string) => makePage(id))
+    ;(registry.updateVisionPage as any).mockResolvedValue({})
+    ;(registry.updateVisionIndexJob as any).mockResolvedValue({})
+    ;(factory.getGpuWorker as any).mockReturnValue(modalStubWorker)
+
+    await dispatchVisionJob(mockSupabase, 'job-1', 'org-A')
+
+    expect(insertSpy).toHaveBeenCalledTimes(1)
+    const insertArg = insertSpy.mock.calls[0][1]
+    // The stub mock returns a 128-zero array — different identity from any real vector.
+    expect(insertArg.summary_vector.length).toBe(128)
+    expect(insertArg.embedding_dim).toBe(128)
+  })
+})

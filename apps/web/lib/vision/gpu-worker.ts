@@ -20,6 +20,14 @@ export interface EmbedResult {
   model_used: string
   success: boolean
   error?: string
+  /**
+   * Real workers (Sprint 8.9 — Modal) return the actual ColQwen2
+   * output here. The dispatcher writes these vectors directly into
+   * vision_embeddings. When omitted (stub mode), the dispatcher
+   * synthesizes deterministic vectors via stubVectorsForPage.
+   */
+  summary_vector?: number[]
+  patch_vectors?: { patches: number[][] }
 }
 
 export interface GpuWorker {

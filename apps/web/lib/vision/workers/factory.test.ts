@@ -49,4 +49,31 @@ describe('getGpuWorker — routing', () => {
     expect(getGpuWorker({ envHost: 'STUB' }).id).toBe('stub')
     expect(getGpuWorker({ envHost: 'Modal-Stub' }).id).toBe('stub')
   })
+
+  it('falls back to stub when VISION_GPU_HOST=modal but creds are missing', () => {
+    const w = getGpuWorker({
+      envHost: 'modal',
+      envHasKey: { MODAL_API_KEY: false, MODAL_ENDPOINT_URL: false },
+    })
+    expect(w.id).toBe('stub')
+  })
+
+  it('falls back to stub when MODAL_API_KEY is set but MODAL_ENDPOINT_URL is missing', () => {
+    const w = getGpuWorker({
+      envHost: 'modal',
+      envHasKey: { MODAL_API_KEY: true, MODAL_ENDPOINT_URL: false },
+      // supabase undefined — won't be reached because creds missing
+    })
+    expect(w.id).toBe('stub')
+  })
+
+  it('returns the real Modal worker when host=modal and both creds are set', () => {
+    const w = getGpuWorker({
+      envHost: 'modal',
+      envHasKey: { MODAL_API_KEY: true, MODAL_ENDPOINT_URL: true },
+      supabase: {} as any, // not used by the factory itself, only by embed()
+    })
+    expect(w.id).toBe('modal')
+    expect(w.label).toMatch(/ColQwen2/)
+  })
 })
