@@ -46,6 +46,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import modal
+from fastapi import Request
 
 # ─── Modal image + app definition ─────────────────────────────────────
 
@@ -53,13 +54,18 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("poppler-utils")  # pdf2image needs pdftoppm
     .pip_install(
-        "torch>=2.1",
-        "transformers>=4.45",
-        "colpali-engine>=0.3",
+        # Older colpali 0.3.5 explicitly pins transformers 4.x + peft
+        # 0.11.x — a tested combo. Newer 0.3.15 wants transformers 5.x
+        # but the runtime fails when transformers 5.8 calls into peft
+        # 0.18 (missing `_maybe_shard_state_dict_for_tp`). Sticking on
+        # 4.x avoids the moving target.
+        "torch==2.4.1",
+        "colpali-engine==0.3.5",
+        "accelerate>=1.0,<2.0",
         "pillow>=10.0",
         "pdf2image>=1.17",
         "requests>=2.31",
-        "supabase>=2.4",
+        "supabase>=2.4,<3.0",
         "fastapi>=0.115",
     )
 )
@@ -145,6 +151,10 @@ class VisionWorker:
         token = os.environ.get("HUGGINGFACE_API_KEY")
         if not token:
             raise RuntimeError("HUGGINGFACE_API_KEY missing from Modal Secret")
+        # huggingface_hub auto-detects HF_TOKEN; set it so internal
+        # secondary fetches (tokeniser config, etc.) authenticate too.
+        os.environ["HF_TOKEN"] = token
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = token
 
         print(f"[vision-worker] loading {MODEL_NAME} on A10G...")
         t0 = time.time()
@@ -215,16 +225,22 @@ class VisionWorker:
     # ── /embed ────────────────────────────────────────────────────────
 
     @modal.fastapi_endpoint(method="POST", label="embed")
-    def embed(self, payload: Dict[str, Any], authorization: str = "") -> Dict[str, Any]:
+    async def embed(self, request: Request) -> Dict[str, Any]:
         """
         POST /embed
         Auth:  Authorization: Bearer <MODAL_API_KEY>
         Body:  { pages: [ { vision_page_id, image_url } ] }
         Resp:  { results: [ ... per Sprint 8.9 contract ... ] }
         """
-        from fastapi import Header
         import requests
         from PIL import Image
+
+        # Read auth header + body from the raw FastAPI Request.
+        authorization = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
 
         auth_err = _check_bearer(authorization)
         if auth_err:
@@ -335,7 +351,7 @@ class VisionWorker:
     # ── /backfill ─────────────────────────────────────────────────────
 
     @modal.fastapi_endpoint(method="POST", label="backfill")
-    def backfill(self, payload: Dict[str, Any], authorization: str = "") -> Dict[str, Any]:
+    async def backfill(self, request: Request) -> Dict[str, Any]:
         """
         POST /backfill
         Body:  { source_document_ids: string[], organization_id: string }
@@ -344,7 +360,7 @@ class VisionWorker:
                  ] }
 
         For each document:
-          1. SELECT documents row (storage_path, page_count)
+          1. SELECT documents row (file_path, page_count)
           2. Download PDF from supabase storage
           3. pdf2image → list of PIL images
           4. For each page:
@@ -358,6 +374,12 @@ class VisionWorker:
         from PIL import Image
         from pdf2image import convert_from_bytes
         from supabase import create_client
+
+        authorization = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
 
         auth_err = _check_bearer(authorization)
         if auth_err:
@@ -385,30 +407,31 @@ class VisionWorker:
             }
 
             try:
-                # 1. Document metadata.
+                # 1. Document metadata. Schema uses `file_path`, not
+                # `storage_path` (verified Phase 9.G against production).
                 doc_row_resp = (
                     sb.table("documents")
-                    .select("id, storage_path, file_name, organization_id, page_count")
+                    .select("id, file_path, file_name, organization_id, page_count")
                     .eq("id", doc_id)
                     .eq("organization_id", org_id)
                     .maybe_single()
                     .execute()
                 )
-                doc_row = doc_row_resp.data
+                doc_row = doc_row_resp.data if doc_row_resp else None
                 if not doc_row:
                     doc_result["errors"].append("document not found in this org")
                     document_results.append(doc_result)
                     continue
 
-                storage_path = doc_row.get("storage_path")
-                if not storage_path:
-                    doc_result["errors"].append("document has no storage_path")
+                file_path = doc_row.get("file_path")
+                if not file_path:
+                    doc_result["errors"].append("document has no file_path")
                     document_results.append(doc_result)
                     continue
 
                 # 2. Download PDF. Documents bucket is private; service role
                 # downloads via .storage.from_().download().
-                pdf_bytes = sb.storage.from_("documents").download(storage_path)
+                pdf_bytes = sb.storage.from_("documents").download(file_path)
                 if not pdf_bytes:
                     doc_result["errors"].append(f"empty download from {storage_path}")
                     document_results.append(doc_result)
@@ -450,17 +473,21 @@ class VisionWorker:
                         # Continue — the page row insert will surface the failure
                         doc_result["errors"].append(f"page {n} upload: {e}")
 
-                    # Insert vision_pages row in 'embedding' status.
+                    # Upsert vision_pages row. Idempotent on
+                    # (org, doc, page_number) so a re-run of a partially-
+                    # failed backfill picks up where it left off rather
+                    # than 23505-ing.
                     page_row = (
                         sb.table("vision_pages")
-                        .insert(
+                        .upsert(
                             {
                                 "organization_id": org_id,
                                 "source_document_id": doc_id,
                                 "page_number": n,
                                 "page_image_path": image_path,
                                 "status": "embedding",
-                            }
+                            },
+                            on_conflict="organization_id,source_document_id,page_number",
                         )
                         .execute()
                     )
