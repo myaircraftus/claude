@@ -473,25 +473,52 @@ class VisionWorker:
                         # Continue — the page row insert will surface the failure
                         doc_result["errors"].append(f"page {n} upload: {e}")
 
-                    # Upsert vision_pages row. Idempotent on
-                    # (org, doc, page_number) so a re-run of a partially-
-                    # failed backfill picks up where it left off rather
-                    # than 23505-ing.
-                    page_row = (
-                        sb.table("vision_pages")
-                        .upsert(
-                            {
-                                "organization_id": org_id,
-                                "source_document_id": doc_id,
-                                "page_number": n,
-                                "page_image_path": image_path,
-                                "status": "embedding",
-                            },
-                            on_conflict="organization_id,source_document_id,page_number",
+                    # Insert vision_pages row. The unique index is
+                    # PARTIAL (WHERE deleted_at IS NULL) so Postgres
+                    # ON CONFLICT (cols) won't match without the same
+                    # WHERE clause, and supabase-py's upsert can't
+                    # express it. Plain insert + handle the rare
+                    # duplicate-key path manually: on 23505, SELECT
+                    # the existing row to get its id and proceed
+                    # (idempotent partial-failure recovery).
+                    try:
+                        page_row = (
+                            sb.table("vision_pages")
+                            .insert(
+                                {
+                                    "organization_id": org_id,
+                                    "source_document_id": doc_id,
+                                    "page_number": n,
+                                    "page_image_path": image_path,
+                                    "status": "embedding",
+                                }
+                            )
+                            .execute()
                         )
-                        .execute()
-                    )
-                    vision_page_ids.append(page_row.data[0]["id"])
+                        vision_page_ids.append(page_row.data[0]["id"])
+                    except Exception as e:
+                        if "23505" in str(e) or "duplicate key" in str(e):
+                            existing = (
+                                sb.table("vision_pages")
+                                .select("id")
+                                .eq("organization_id", org_id)
+                                .eq("source_document_id", doc_id)
+                                .eq("page_number", n)
+                                .is_("deleted_at", "null")
+                                .limit(1)
+                                .execute()
+                            )
+                            if existing.data:
+                                # Reset to 'embedding' so we re-embed.
+                                vid = existing.data[0]["id"]
+                                sb.table("vision_pages").update(
+                                    {"status": "embedding", "error_message": None}
+                                ).eq("id", vid).execute()
+                                vision_page_ids.append(vid)
+                            else:
+                                raise
+                        else:
+                            raise
 
                 # GPU embed in batches.
                 try:
@@ -542,9 +569,10 @@ class VisionWorker:
                         doc_result["errors"].append(f"page {n} insert: {e}")
 
             except Exception as e:
-                tb = traceback.format_exc(limit=5)
+                tb = traceback.format_exc(limit=15)
                 print(f"[vision-worker] /backfill outer failure on doc {doc_id}:\n{tb}")
                 doc_result["errors"].append(f"outer: {e}")
+                doc_result["errors"].append(f"trace: {tb[:1500]}")
 
             document_results.append(doc_result)
 
