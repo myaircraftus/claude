@@ -1,10 +1,10 @@
 # Phase 12 — Hybrid Architecture Activation Report
 
-**Status:** 🟡 **Partial activation.** Phase 11 code paths are live in
-production; the Modal fallback path was end-to-end tested through the
-cron and Modal API; Colab worker activation deferred to Andy's manual
-clicks (Google auth + GitHub OAuth blockers I can't bypass per safety
-rules).
+**Status:** 🟡 **Partial activation + retry attempted 2026-05-09 post-Phase 13.**
+Phase 11 code paths are live in production; Modal fallback path tested
+end-to-end. Colab worker still NOT alive — second activation attempt
+hit a colpali-engine 0.3.5 dependency contradiction that requires Andy
+to upgrade the library version (details in `docs/phase-13-task2-colab-blocked.md`).
 
 **Date:** 2026-05-09
 **Branch:** main
