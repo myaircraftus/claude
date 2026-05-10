@@ -122,3 +122,69 @@ export async function parseJsonBody<T>(
 
   return { ok: true, data: result.data }
 }
+
+/** Result of parsePatchBody — discriminated union for ergonomic checks. */
+export type ParsePatchResult<T> =
+  | { ok: true; data: T; keys: ReadonlySet<string> }
+  | { ok: false; response: NextResponse }
+
+/**
+ * PATCH-aware variant of parseJsonBody.
+ *
+ * Returns the validated body PLUS a `keys` set listing which top-level
+ * fields the caller actually sent. Lets the route distinguish three
+ * states for every field:
+ *   - field omitted             → leave existing column untouched
+ *   - field set to null         → write NULL to the column
+ *   - field set to a real value → write that value
+ *
+ * Without this distinction, an `undefined` deserialization round-trips
+ * to "set to null" and PATCH endpoints accidentally clear unsent fields.
+ *
+ * Pattern:
+ *
+ *   const parsed = await parsePatchBody(req, Schema)
+ *   if (!parsed.ok) return parsed.response
+ *   const { data, keys } = parsed
+ *   const patch: Record<string, unknown> = { updated_at: ... }
+ *   for (const k of FIELDS) if (keys.has(k)) patch[k] = data[k]
+ */
+export async function parsePatchBody<T extends Record<string, unknown>>(
+  req: NextRequest,
+  schema: z.ZodType<T>,
+): Promise<ParsePatchResult<T>> {
+  let raw: unknown
+  try {
+    raw = await req.json()
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }),
+    }
+  }
+
+  // Snapshot the keys BEFORE zod strips/transforms anything.
+  const keys: ReadonlySet<string> =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? new Set(Object.keys(raw as Record<string, unknown>))
+      : new Set<string>()
+
+  const result = schema.safeParse(raw)
+  if (!result.success) {
+    const first = result.error.issues[0]
+    const path = first?.path.join('.') ?? '(root)'
+    const message = first?.message ?? 'Invalid input'
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error: `Validation failed at ${path}: ${message}`,
+          details: result.error.issues,
+        },
+        { status: 400 },
+      ),
+    }
+  }
+
+  return { ok: true, data: result.data, keys }
+}
