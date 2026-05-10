@@ -35,6 +35,7 @@ import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContex
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { TourOverlay } from "./onboarding/TourOverlay";
 import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
+import { HelpWidget } from "@/components/support/HelpWidget";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
 
@@ -1010,6 +1011,9 @@ function AppLayoutInner({
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
+
+      {/* ── In-app help widget (Phase 16 Sprint 16.2) — every persona ── */}
+      <HelpWidget />
 
       {/* ── Cross-persona upsell — only owner/mechanic have billing surfaces ── */}
       {upsellPersona && (upsellPersona === "owner" || upsellPersona === "mechanic") && (

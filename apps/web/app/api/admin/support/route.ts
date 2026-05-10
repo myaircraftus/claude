@@ -1,18 +1,20 @@
+/**
+ * /api/admin/support — platform-admin support inbox + status mutations.
+ *
+ * Phase 16 Sprint 16.2 — full rewrite of the schema-collision shim that
+ * Phase 15.5 Task 1 left in place. Now uses lib/support/tickets.ts and
+ * the Phase 16 ops-spine schema directly.
+ *
+ *   GET   → list ALL tickets (admin only).
+ *   PATCH → update status / resolution_summary / admin_assigned_to.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
-
-/**
- * Phase 15.5 Task 1.5 — schema-collision shim.
- *
- * Sprint 16.2 will rewrite the admin support inbox against the new
- * Phase 16 schema (with AI triage, escalation, severity routing, etc.).
- * Until then this route reads from the new table with the new column
- * names. The legacy SupportTable consumer expects old field names, so
- * the GET response aliases new → old at the boundary so the UI keeps
- * compiling. PATCH maps legacy 'open|triaged|in_progress' to the new
- * status enum values where applicable, and ignores unrecognized inputs
- * rather than 500ing.
- */
+import {
+  listTicketsForAdmin,
+  updateTicketStatus,
+  isValidTicketStatus,
+} from '@/lib/support/tickets'
 
 async function requirePlatformAdmin() {
   const supabase = createServerSupabase()
@@ -29,72 +31,62 @@ async function requirePlatformAdmin() {
   return { user }
 }
 
-// Legacy → new status enum. Anything unmapped is left alone so we don't
-// silently mutate state into garbage.
-const LEGACY_STATUS_MAP: Record<string, string> = {
-  open: 'new',
-  triaged: 'awaiting_admin',
-  in_progress: 'awaiting_admin',
-  resolved: 'resolved',
-  closed: 'closed',
-}
-
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const guard = await requirePlatformAdmin()
-  if (guard.error) return guard.error
+  if ('error' in guard) return guard.error
+
+  const url = new URL(req.url)
+  const status = url.searchParams.get('status')
+  const severity = url.searchParams.get('severity')
+  const category = url.searchParams.get('category')
+  const orgId = url.searchParams.get('organization_id')
+  const q = url.searchParams.get('q')
+  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? 200)))
+  const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0))
 
   const service = createServiceSupabase()
-  const { data, error } = await service
-    .from('support_tickets')
-    .select(
-      'id, category, severity, status, subject, body, created_at, updated_at, organization_id, organizations(name), submitter_user_id, user_profiles!support_tickets_submitter_user_id_fkey(full_name, email)'
+  try {
+    const { tickets, total } = await listTicketsForAdmin(service, {
+      status: status ? (status.split(',') as any) : undefined,
+      severity: severity ? (severity.split(',') as any) : undefined,
+      category: category ? (category.split(',') as any) : undefined,
+      organization_id: orgId ?? undefined,
+      q: q ?? undefined,
+      limit,
+      offset,
+    })
+    return NextResponse.json({ tickets, total })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to list tickets' },
+      { status: 500 },
     )
-    .order('created_at', { ascending: false })
-    .limit(300)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // Alias new column names → the legacy shape SupportTable consumes.
-  const tickets = (data ?? []).map((row: Record<string, unknown>) => ({
-    id: row.id,
-    type: row.category, // SupportTable shows row.type as a generic label
-    severity: row.severity,
-    status: row.status,
-    subject: row.subject,
-    description: row.body,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    organization_id: row.organization_id,
-    organizations: row.organizations,
-    user_id: row.submitter_user_id,
-    user_profiles: row.user_profiles,
-  }))
-  return NextResponse.json({ tickets })
+  }
 }
 
 export async function PATCH(req: NextRequest) {
   const guard = await requirePlatformAdmin()
-  if (guard.error) return guard.error
+  if ('error' in guard) return guard.error
 
   const body = await req.json().catch(() => null)
-  if (!body?.id || !body?.status) {
-    return NextResponse.json({ error: 'id and status required' }, { status: 400 })
+  if (!body?.id) {
+    return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
-  // The SupportTable dropdown still uses legacy values; map them.
-  const newStatus = LEGACY_STATUS_MAP[body.status as string]
-  if (!newStatus) {
-    return NextResponse.json({ error: `unsupported status: ${body.status}` }, { status: 400 })
+  // Status update path.
+  if (body.status !== undefined) {
+    if (!isValidTicketStatus(body.status)) {
+      return NextResponse.json({ error: `invalid status: ${body.status}` }, { status: 400 })
+    }
+    const service = createServiceSupabase()
+    const result = await updateTicketStatus(service, body.id, body.status, {
+      resolution_summary: typeof body.resolution_summary === 'string' ? body.resolution_summary : undefined,
+      admin_assigned_to: body.admin_assigned_to !== undefined ? body.admin_assigned_to : undefined,
+    })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 })
+    return NextResponse.json({ ok: true, id: body.id, status: body.status })
   }
 
-  const service = createServiceSupabase()
-  const { data, error } = await service
-    .from('support_tickets')
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
-    .eq('id', body.id)
-    .select('id, status')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ id: data.id, status: data.status })
+  // Otherwise nothing to update.
+  return NextResponse.json({ error: 'no update fields provided' }, { status: 400 })
 }

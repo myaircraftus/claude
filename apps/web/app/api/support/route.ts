@@ -1,50 +1,42 @@
+/**
+ * /api/support — authenticated in-app help drawer.
+ *
+ * Phase 16 Sprint 16.2 — full rewrite of the schema-collision shim that
+ * Phase 15.5 Task 1 left in place. Now uses the Phase 16 ops-spine
+ * support_tickets schema directly via lib/support/tickets.ts.
+ *
+ *   GET  → list tickets visible to the caller's org (RLS + RLS submitter
+ *          policy — admin sees all, org member sees own org, submitter
+ *          sees their own across orgs).
+ *   POST → create a new ticket. submitter_email defaults to user.email.
+ *          source = 'in_app'. AI triage worker (Sprint 16.3) picks it up
+ *          on next tick.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
-
-/**
- * Phase 15.5 Task 1.5 — schema-collision shim.
- *
- * Migration 109 (Phase 16 Sprint 16.1) reshaped `support_tickets` from
- * the legacy 11-text-column scaffold into the AI-ops-spine enum schema.
- * This route was the legacy GET/POST surface for in-app support tickets.
- *
- * Sprint 16.2 will rewrite this with the full ticket service
- * (lib/support/tickets.ts, AI triage, etc.). Until then we keep the
- * route compiling + functional with the new schema:
- *
- *   GET  → returns the org's tickets in a shape the legacy
- *          SupportDialog UI doesn't actually consume (it's a fire-and-
- *          forget submit). Empty array on the new (empty) table is fine.
- *   POST → maps the legacy {subject, description, type, severity}
- *          payload onto the new (subject, body, category, severity)
- *          schema with sensible defaults so the in-app help dialog
- *          still works.
- */
-
-const LEGACY_TYPE_TO_CATEGORY: Record<string, string> = {
-  technical: 'technical',
-  billing: 'billing',
-  feature_request: 'feature_request',
-  bug: 'bug',
-  account: 'account',
-  general: 'other',
-}
+import {
+  createTicket,
+  listTicketsForOrg,
+  isValidTicketCategory,
+} from '@/lib/support/tickets'
 
 export async function GET(req: NextRequest) {
   const context = await resolveRequestOrgContext(req)
   if (!context) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('support_tickets')
-    .select('id, category, severity, status, subject, body, created_at, updated_at')
-    .eq('organization_id', context.organizationId)
-    .order('created_at', { ascending: false })
-    .limit(200)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ tickets: data ?? [] })
+  try {
+    const { tickets, total } = await listTicketsForOrg(supabase, context.organizationId, {
+      limit: 200,
+    })
+    return NextResponse.json({ tickets, total })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Failed to list tickets' },
+      { status: 500 },
+    )
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -52,35 +44,41 @@ export async function POST(req: NextRequest) {
   if (!context) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => null)
-  if (!body?.subject || !body?.description) {
-    return NextResponse.json({ error: 'subject and description are required' }, { status: 400 })
-  }
+  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
-  // Email is required by the new schema; fall back to user.email.
-  const submitterEmail = context.user.email
+  const submitterEmail = (body.submitter_email as string | undefined) ?? context.user.email
   if (!submitterEmail) {
-    return NextResponse.json({ error: 'submitter email missing on user' }, { status: 400 })
+    return NextResponse.json({ error: 'No email available for the submitter' }, { status: 400 })
   }
 
-  const category = LEGACY_TYPE_TO_CATEGORY[body.type as string] ?? 'other'
+  const category = isValidTicketCategory(body.category) ? body.category : undefined
 
   const supabase = createServerSupabase()
-  const { data, error } = await supabase
-    .from('support_tickets')
-    .insert({
+  const result = await createTicket(
+    supabase,
+    {
       organization_id: context.organizationId,
-      submitter_user_id: context.user.id,
-      submitter_email: submitterEmail,
-      source: 'in_app',
-      category,
-      severity: 'P2', // legacy 'medium' default; AI triage will re-rank in Sprint 16.3
-      status: 'new',
       subject: body.subject,
-      body: body.description,
-    })
-    .select('id, ticket_number, category, severity, status, subject, body, created_at')
-    .single()
+      body: body.body ?? body.description, // legacy callers still send 'description'
+      submitter_email: submitterEmail,
+      submitter_user_id: context.user.id,
+      category,
+      tags: Array.isArray(body.tags) ? body.tags.filter((t: unknown) => typeof t === 'string') : [],
+      related_doc_id: body.related_doc_id ?? null,
+      related_aircraft_id: body.related_aircraft_id ?? null,
+    },
+    'in_app',
+  )
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { status: 201 })
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+
+  return NextResponse.json(
+    {
+      id: result.ticket.id,
+      ticket_number: result.ticket.ticket_number,
+      status: result.ticket.status,
+      created_at: result.ticket.created_at,
+    },
+    { status: 201 },
+  )
 }
