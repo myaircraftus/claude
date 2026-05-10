@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { PublicLayout } from '@/components/marketing/vite/PublicLayout'
-import { PricingPage } from '@/components/marketing/vite/PricingPage'
+import { PricingPagePhase14 } from '@/components/marketing/PricingPagePhase14'
+import { TIER_DEFINITIONS } from '@/lib/billing/pricing-config'
 
 export const metadata: Metadata = {
   title: 'Pricing — Simple plans for owners, mechanics, and fleets',
@@ -23,40 +24,43 @@ export const metadata: Metadata = {
   },
 }
 
-// JSON-LD Product schema for pricing page — shown to search crawlers.
+// JSON-LD Product schema for pricing page — derived from pricing-config
+// so search crawlers always see the locked prices.
 const pricingJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'Product',
-  name: 'myaircraft.us',
-  description: 'Aviation-specific AI records intelligence platform for aircraft owners, mechanics, and fleet operators.',
-  brand: { '@type': 'Brand', name: 'myaircraft.us' },
+  name: 'aircraft.us',
+  description:
+    'Aviation maintenance AI: per-aircraft pricing, real-time or batch processing, no long contracts.',
+  brand: { '@type': 'Brand', name: 'aircraft.us' },
   offers: [
     {
       '@type': 'Offer',
-      name: 'Owner',
-      price: '29',
+      name: 'Beta',
+      price: '0',
       priceCurrency: 'USD',
       category: 'subscription',
       availability: 'https://schema.org/InStock',
       url: 'https://www.myaircraft.us/pricing',
     },
-    {
+    ...((TIER_DEFINITIONS.standard.priceTiers ?? []).map((bracket, i) => ({
       '@type': 'Offer',
-      name: 'Mechanic',
-      price: '79',
+      name: `Standard (${bracket.minAircraft}-${bracket.maxAircraft ?? '∞'} aircraft)`,
+      price: String(bracket.pricePerAircraft),
       priceCurrency: 'USD',
       category: 'subscription',
       availability: 'https://schema.org/InStock',
       url: 'https://www.myaircraft.us/pricing',
-    },
-    {
+    }))),
+    ...((TIER_DEFINITIONS.pro.priceTiers ?? []).map((bracket, i) => ({
       '@type': 'Offer',
-      name: 'Fleet',
+      name: `Pro (${bracket.minAircraft}-${bracket.maxAircraft ?? '∞'} aircraft)`,
+      price: String(bracket.pricePerAircraft),
       priceCurrency: 'USD',
       category: 'subscription',
       availability: 'https://schema.org/InStock',
       url: 'https://www.myaircraft.us/pricing',
-    },
+    }))),
   ],
 }
 
@@ -69,7 +73,7 @@ export default function Page() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(pricingJsonLd) }}
       />
       <PublicLayout>
-        <PricingPage />
+        <PricingPagePhase14 />
       </PublicLayout>
     </>
   )

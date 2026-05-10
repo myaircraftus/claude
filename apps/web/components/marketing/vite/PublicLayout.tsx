@@ -268,6 +268,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                     {[
                       { label: "Privacy Policy",   href: "/privacy" },
                       { label: "Terms of Service", href: "/terms" },
+                      { label: "Security",         href: "/security" },
                     ].map((l) => (
                       <li key={l.href}>
                         <Link href={l.href} className="text-white/40 hover:text-white/80 text-[13px] transition-colors">
@@ -275,7 +276,6 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                         </Link>
                       </li>
                     ))}
-                    <li><span className="text-white/25 text-[13px]">Security</span></li>
                     <li><span className="text-white/25 text-[13px]">Cookie Policy</span></li>
                   </ul>
                 </div>

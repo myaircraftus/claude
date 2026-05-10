@@ -1,5 +1,10 @@
 import { ScrollText } from "lucide-react";
 import Link from "next/link";
+import {
+  TIER_DEFINITIONS,
+  HUMAN_REVIEW_RATES,
+  PROCESSING_RULES,
+} from "@/lib/billing/pricing-config";
 
 const SECTIONS = [
   {
@@ -15,8 +20,16 @@ const SECTIONS = [
     content: "You must provide accurate and complete information when creating an account. You are responsible for maintaining the security of your account credentials. You must notify us immediately at security@myaircraft.us if you suspect unauthorized access to your account. We reserve the right to terminate accounts that provide false information or violate these terms.",
   },
   {
-    title: "4. Subscription and Billing",
-    content: "The Service is provided on a subscription basis. Current pricing is $99 per aircraft per month (owner plan) or $99 per mechanic per month (mechanic plan), with an annual plan available at $79/month paid annually. All fees are non-refundable except as required by applicable law. We reserve the right to change pricing with 30 days' notice to current subscribers. Billing is processed monthly or annually depending on your selected plan.",
+    title: "4. Subscription and Billing — Per-Aircraft Tiers",
+    content: `The Service is offered on three tiers, billed monthly per aircraft. Beta is currently free for everyone. Standard ($${TIER_DEFINITIONS.standard.priceTiers?.[0].pricePerAircraft}/aircraft/mo at 1-5 aircraft, with volume discounts at 6 and 16 aircraft) provides 24-hour batch processing. Pro ($${TIER_DEFINITIONS.pro.priceTiers?.[0].pricePerAircraft}/aircraft/mo at 1-5 aircraft, with the same volume tiers) provides real-time processing. All fees are non-refundable except as required by applicable law. We reserve the right to change pricing with 30 days' notice to current subscribers. Pricing details + the full volume table are at https://www.myaircraft.us/pricing.`,
+  },
+  {
+    title: "4a. Processing Tiers — SLA Promises",
+    content: `${TIER_DEFINITIONS.standard.name}: ${TIER_DEFINITIONS.standard.slaCopy} ${TIER_DEFINITIONS.pro.name}: ${TIER_DEFINITIONS.pro.slaCopy} Beta: ${TIER_DEFINITIONS.beta.slaCopy} Documents over ${PROCESSING_RULES.largeDocPageThreshold} pages always process in batch overnight regardless of tier — we make this clear before upload.`,
+  },
+  {
+    title: "4b. Human Review (Available v2)",
+    content: `If a document contains more than ${Math.round(PROCESSING_RULES.handwritingThreshold * 100)}% handwritten content, we offer optional human review: ${HUMAN_REVIEW_RATES.expertAp.name} at $${HUMAN_REVIEW_RATES.expertAp.hourlyRate}/hr (A&P/IA reviews regulatory content) or ${HUMAN_REVIEW_RATES.standardQa.name} at $${HUMAN_REVIEW_RATES.standardQa.hourlyRate}/hr (general accuracy). We always show an estimated cost before any work begins; you can accept, request the cheaper alternative, or skip review. Currently this is a workflow-only feature — no charges in v1. Charging activates in v2 with explicit per-customer notice.`,
   },
   {
     title: "5. Free Trial",
