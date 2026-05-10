@@ -84,9 +84,9 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({}), { params: { id: 'c1' } })
-    expect(res.status).toBe(200)
+    expect(res!.status).toBe(200)
     expect(captured.update).toBeUndefined()
-    const json = await res.json()
+    const json = await res!.json()
     expect(json.entry.id).toBe('c1')
   })
 
@@ -95,7 +95,7 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ category: 'oil' }), { params: { id: 'c1' } })
-    expect(res.status).toBe(200)
+    expect(res!.status).toBe(200)
     expect(captured.update).toBeDefined()
     expect(Object.keys(captured.update!).sort()).toEqual(['category', 'updated_at'])
     expect(captured.update!.category).toBe('oil')
@@ -106,7 +106,7 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ notes: null }), { params: { id: 'c1' } })
-    expect(res.status).toBe(200)
+    expect(res!.status).toBe(200)
     expect(captured.update!.notes).toBeNull()
   })
 
@@ -115,7 +115,7 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ category: 'oil' }), { params: { id: 'c1' } })
-    expect(res.status).toBe(200)
+    expect(res!.status).toBe(200)
     expect(captured.update).toBeDefined()
     expect('notes' in captured.update!).toBe(false)
   })
@@ -125,8 +125,8 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ amount: 'abc' }), { params: { id: 'c1' } })
-    expect(res.status).toBe(400)
-    const json = await res.json()
+    expect(res!.status).toBe(400)
+    const json = await res!.json()
     expect(json.error).toMatch(/Validation failed at amount/)
   })
 
@@ -135,7 +135,7 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ bucket: 'not_a_bucket' }), { params: { id: 'c1' } })
-    expect(res.status).toBe(400)
+    expect(res!.status).toBe(400)
   })
 
   it('amount rounded to 2 decimals when sent', async () => {
@@ -143,7 +143,7 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ amount: 12.345 }), { params: { id: 'c1' } })
-    expect(res.status).toBe(200)
+    expect(res!.status).toBe(200)
     expect(captured.update!.amount).toBe(12.35)
   })
 
@@ -155,6 +155,6 @@ describe('PATCH /api/costs/[id]', () => {
     ;(createServerSupabase as any).mockReturnValue(sb)
 
     const res = await PATCH(makeReq({ amount: 1 }), { params: { id: 'c1' } })
-    expect(res.status).toBe(403)
+    expect(res!.status).toBe(403)
   })
 })

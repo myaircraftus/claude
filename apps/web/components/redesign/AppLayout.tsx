@@ -216,7 +216,10 @@ function AppLayoutInner({
   const effectivePathname = getDisplayPathname(pathname);
   const hideSidebarPersonaSwitcher = effectivePathname === "/ask" || effectivePathname.startsWith("/ask/");
 
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  // null = not yet loaded; false = confirmed non-admin; true = admin.
+  // Used to gate the BillingBanner so we don't briefly render "14 days
+  // left in your trial" on every page nav before /api/me resolves.
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState<boolean | null>(null);
   const [ownerAircraft, setOwnerAircraft] = useState<OwnerAircraftSummary[]>([]);
   const [ownerAircraftLoaded, setOwnerAircraftLoaded] = useState(false);
   const [persistedAircraftId, setPersistedAircraftId] = useState<string | null>(null);
@@ -956,8 +959,17 @@ function AppLayoutInner({
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Admin persona has no billing surface (they're staff). For owner
-            and mechanic, billing banner + paywall apply normally. */}
-        {(persona === "owner" || persona === "mechanic") && <BillingBanner persona={persona} />}
+            and mechanic, billing banner + paywall apply normally — UNLESS
+            the user is a platform admin (Phase 15.5 Task 6). Platform
+            admins aren't on a real trial; suppressing the banner avoids
+            "14 days left in your Aircraft Owner trial" showing up on
+            every page when an admin is QAing in customer view. */}
+        {/* Wait until isPlatformAdmin is known (not null) before deciding
+            whether to show the banner — avoids a flash of trial copy on
+            every page nav for admin sessions. */}
+        {(persona === "owner" || persona === "mechanic") && isPlatformAdmin === false && (
+          <BillingBanner persona={persona} />
+        )}
         <main
           className={`flex-1 ${
             ["/workspace", "/maintenance", "/mechanic", "/invoices", "/ask", "/documents", "/settings", "/admin"].includes(effectivePathname) ||
