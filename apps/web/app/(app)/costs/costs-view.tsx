@@ -99,7 +99,7 @@ export function CostsView() {
             Costs
           </h1>
           <p className="text-[12px] text-muted-foreground mt-0.5">
-            Operating costs ledger. Forward bills via email or upload receipts — AI extracts the rest (sprint 7.2 / 7.3).
+            Operating costs ledger. Forward bills via email or upload receipts — AI extracts the rest.
           </p>
         </div>
         <Button onClick={() => setShowForm(true)}>
