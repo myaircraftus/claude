@@ -14,6 +14,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { getTicketByNumber, listReplies, describeSlaWindow } from '@/lib/support/tickets'
 import type { UserProfile } from '@/types'
 import { AdminReplyForm } from './admin-reply-form'
+import { GeneratePromptButton } from '@/components/admin/GeneratePromptButton'
 
 export const metadata = { title: 'Admin — Ticket' }
 
@@ -172,15 +173,11 @@ export default async function AdminTicketDetailPage({ params }: PageProps) {
                 <CardTitle className="text-sm">Tools</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {/* Sprint 16.11 wires the click handler. */}
-                <button
-                  type="button"
-                  disabled
-                  title="Sprint 16.11 wires this"
-                  className="w-full rounded-md border border-border px-3 py-2 text-sm opacity-60"
-                >
-                  Generate Claude Code Prompt
-                </button>
+                <GeneratePromptButton
+                  sourceType="support_ticket"
+                  sourceId={ticket.id}
+                  disabled={ticket.status === 'resolved' || ticket.status === 'closed'}
+                />
                 <Link
                   href={`/admin/support/all?q=${encodeURIComponent(ticket.submitter_email)}`}
                   className="block rounded-md border border-border bg-white px-3 py-2 text-center text-sm hover:bg-muted/40"
