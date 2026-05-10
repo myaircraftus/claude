@@ -2,9 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createServerSupabase } from '@/lib/supabase/server'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-04-10' })
+// Phase 17 Sprint 17.5 — refuse to instantiate Stripe with the
+// placeholder key from Phase 14 mock-mode. The route returns 503 in
+// that case so /org/billing surfaces a "needs config" state cleanly.
+function hasRealStripeKey(): boolean {
+  const k = process.env.STRIPE_SECRET_KEY?.trim()
+  return Boolean(k) && !k!.startsWith('sk_placeholder')
+}
+
+const stripe = hasRealStripeKey()
+  ? new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-04-10' })
+  : null
 
 export async function POST(req: NextRequest) {
+  if (!stripe) {
+    return NextResponse.json({ error: 'Stripe not configured', hint: 'Set STRIPE_SECRET_KEY (sk_test_… for testing).' }, { status: 503 })
+  }
+
   const supabase = createServerSupabase()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
