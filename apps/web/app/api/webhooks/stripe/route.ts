@@ -4,6 +4,7 @@ import { createServiceSupabase } from '@/lib/supabase/server'
 import { generateReport } from '@/lib/intelligence/generateReport'
 import { PRODUCTS, skuForPriceId } from '@/lib/billing/products'
 import type { Persona } from '@/lib/billing/gate'
+import { recordReceived, markProcessed, markFailed } from '@/lib/billing/stripe-webhook-dedup'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-04-10' })
 
@@ -138,6 +139,28 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceSupabase()
 
+  // Phase 17 Sprint 17.4 — idempotency. Insert event.id into
+  // stripe_webhook_events; if Stripe redelivered, short-circuit.
+  let dedup: { duplicate: boolean; event_id: string }
+  try {
+    dedup = await recordReceived(supabase, {
+      id: event.id,
+      type: event.type,
+      livemode: event.livemode,
+      api_version: event.api_version,
+      payload: event,
+    })
+  } catch (err) {
+    // The dedup table may not be migrated yet (migration 117). Tolerate
+    // by treating it as a fresh event so launch-day delivery works
+    // even if migration order slipped. Apply migration 117 ASAP.
+    console.warn('[stripe webhook] dedup insert failed, processing anyway:', err)
+    dedup = { duplicate: false, event_id: event.id }
+  }
+  if (dedup.duplicate) {
+    return NextResponse.json({ received: true, duplicate: true })
+  }
+
   try {
     switch (event.type) {
       case 'customer.subscription.created':
@@ -251,8 +274,10 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error('Stripe webhook handler error:', err)
+    try { await markFailed(supabase, dedup.event_id, err instanceof Error ? err.message : String(err)) } catch { /* tolerate */ }
     return NextResponse.json({ error: 'Handler error' }, { status: 500 })
   }
 
+  try { await markProcessed(supabase, dedup.event_id) } catch { /* tolerate */ }
   return NextResponse.json({ received: true })
 }
