@@ -4,13 +4,13 @@ import { PricingPagePhase14 } from '@/components/marketing/PricingPagePhase14'
 import { TIER_DEFINITIONS } from '@/lib/billing/pricing-config'
 
 export const metadata: Metadata = {
-  title: 'Pricing — Simple plans for owners, mechanics, and fleets',
+  title: 'Pricing — Pay per aircraft, no long contracts',
   description:
-    'Transparent pricing for aircraft owners, A&P mechanics, and fleet operators. Start free. Free scanning for subscribers.',
+    'Three tiers. Same features on every paid plan. The only difference is how fast your documents become searchable. Beta free during launch; Standard from $99/aircraft/mo; Pro from $149/aircraft/mo.',
   alternates: { canonical: 'https://www.myaircraft.us/pricing' },
   openGraph: {
     title: 'Pricing · myaircraft.us',
-    description: 'Plans for owners, mechanics, and fleet operators. Free scanning included with paid subscriptions.',
+    description: 'Pay per aircraft. Beta free. Standard from $99/mo. Pro from $149/mo. No long contracts.',
     url: 'https://www.myaircraft.us/pricing',
     siteName: 'myaircraft.us',
     type: 'website',
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Pricing · myaircraft.us',
-    description: 'Plans for owners, mechanics, and fleet operators. Free scanning included with paid subscriptions.',
+    description: 'Pay per aircraft. Beta free. Standard from $99/mo. Pro from $149/mo.',
     images: ['/redesign/MY_AIRCRAFT_LOGO.svg'],
   },
 }

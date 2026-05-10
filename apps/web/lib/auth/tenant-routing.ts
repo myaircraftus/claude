@@ -55,6 +55,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'scanner',
   'scanning',
   'scheduler',
+  'security',
   'settings',
   'signin',
   'signup',
