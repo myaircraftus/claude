@@ -43,9 +43,13 @@ The full implementation spec lives at:
 8. **Persona-aware rendering:** every navigation/dashboard read must consult `usePersona()`. Don't hardcode "Owner sees X" — read from `PERSONA_CONFIG`.
 9. **Pricing config is the single source of truth** (Phase 14, locked 2026-05-09). `apps/web/lib/billing/pricing-config.ts` owns the per-aircraft tier model. Marketing pages, code logic, terms, all derive from it. Never hardcode prices anywhere. See Section 12 for the full locked strategy.
 
+10. **Sacred boundaries** (Phase 8 onward): `apps/web/lib/ocr/`, `apps/web/lib/rag/`, `apps/web/lib/embeddings/` are read-only. Verify zero diff at the end of every sprint via `git diff --stat origin/main...HEAD -- apps/web/lib/{ocr,rag,embeddings}`.
+
+11. **AI ops assistant is read-only** (Phase 16, locked 2026-05-10). The agent at `apps/web/lib/ops/assistant.ts` has 10 tools — every one of them is a SELECT against an existing table. NEVER add a mutating tool to that registry. Mutations always require admin click-through in the proper admin UI. The "Generate Claude Code Prompt" feature (Sprint 16.11) packages context for a HUMAN to act on, not for the AI to apply directly. See Section 13 for the full locked architecture.
+
 ## 5. Current sprint
 
-**Sprint:** **Phase 15.5 cleanup complete (2026-05-09). Phase 16 ready to resume from Sprint 16.2.** All 8 cleanup tasks shipped: F1+F3+F5+F6+F7 fixed, F2 deferred to v2 (route guards needed first, not view-as), support_tickets schema collision resolved (mig 109+115 applied to production), /api/costs/[id] PATCH zod-validated (security audit §5.4 row closed), 683 stalled vision pages reconciled (117 recovered as indexed, 566 reset to pending), trial banner suppressed for platform admins. Test suite 583/583 green (up from 575). See [phase-15.5-cleanup-report.md](../phase-15.5-cleanup-report.md). Phase 16 Sprint 16.2 starts the customer support form + ticket service against the new ops_inbox spine.
+**Sprint:** **Phase 16 complete (2026-05-10). AI Ops Command Center is the new platform spine.** All 11 sprints (16.2 through 16.12) shipped: customer support service + AI triage + admin inbox + error capture + system health dashboard + unified `/admin/command-center` (now admin homeRoute) + read-only AI ops assistant + feedback widget + churn detector + public `/status` + `/support/help` KB + the killer "Generate Claude Code Prompt" feature with audit trail. Test suite 654/654 green (up from 583, +71 new tests). Sacred boundary (`lib/ocr` / `lib/rag` / `lib/embeddings`) untouched. Migrations 110-113 written + committed but NOT applied to production — Andy applies via tsx-pg per the established pattern. See [phase-16-command-center-report.md](../phase-16-command-center-report.md) for the full ledger + rollout plan. Section 13 of this file captures the locked architecture.
 
 **Sprint:** Open — stub-layer-batch just shipped. **Spec is now 50/50.** 5.2 (AI Inbox filters) is the only remaining feature.
 **Spec section:** Stub layer for credential-blocked features (3.3 + 4.1 + 4.2 + 4.4 + 5.7 + 6.3)
@@ -428,6 +432,7 @@ _Append a table after each sprint listing the files created/modified. Helps futu
 ```
 | Sprint | New files | Modified files |
 |--------|-----------|----------------|
+| 2026-05-10 — Phase 16 AI Ops Command Center (235200b → 7f51905, 11 sprints) | supabase/migrations/110_ticket_replies.sql · 111_cost_snapshots.sql · 112_ops_assistant_conversations.sql · 113_ops_event_prompts.sql · apps/web/lib/support/{tickets,ai-triage}.ts (+ tests) · apps/web/lib/observability/error-capture.ts (+ test) · apps/web/lib/ops/{cost-tracker,assistant,status-check,prompt-generator}.ts (+ tests) · apps/web/app/api/{public/support/{submit,reply},webhooks/support-email,cron/{support-triage,health-alerts,churn-signals},observability/error,admin/support/{counts,[id]/reply},admin/ops-assistant,admin/ops-prompt}/route.ts · apps/web/app/{support/{page,support-form,tickets/[ticketNumber]/{page,reply-form}},support/help/page,status/page}.tsx · apps/web/app/(app)/admin/{support/{page (rewrite),inbox,all,[ticketNumber]/{page,admin-reply-form}},observability/errors/page,health/page,command-center/{page,AutoRefresh},ops-assistant/{page,ops-chat},customer-signals/page}.tsx · apps/web/components/{support/HelpWidget,observability/ClientErrorBoundary,feedback/FeedbackWidget,admin/{SupportBanner,GeneratePromptButton}}.tsx · docs/runbooks/email-ingestion.md · docs/phase-16-command-center-report.md | apps/web/app/api/support/route.ts (rewrite) · apps/web/app/api/admin/support/route.ts (rewrite) · apps/web/app/(app)/admin/support/page.tsx (rewrite) · apps/web/app/(app)/admin/page.tsx (legacy feedback → feedback_items) · apps/web/app/api/feedback/route.ts (legacy feedback → feedback_items, dual-payload accept) · apps/web/components/redesign/AppLayout.tsx (mounts HelpWidget + ClientErrorBoundary + FeedbackWidget) · apps/web/app/(app)/admin/layout.tsx (mounts SupportBanner) · apps/web/lib/persona/config.ts (admin homeRoute → /admin/command-center) · apps/web/lib/persona/home-widgets.test.ts (homeRoute assertion updated) · apps/web/vercel.json (+3 cron schedules) · DELETED: apps/web/components/admin/support-table.tsx (orphaned legacy). Test suite 583 → 654 green (+71 new). Sacred boundaries untouched (zero diff in lib/ocr, lib/rag, lib/embeddings). Migrations 110-113 NOT applied to production. |
 | 2026-05-09 — Phase 15.5 cleanup (711c186, 9bf101b, 91a4cb2, d8a4433, 042926d, cc9492d, b5c6a1c) | docs/phase-15-f2-verification.md · docs/v2-backlog.md · docs/phase-15.5-cleanup-report.md · supabase/migrations/115_drop_legacy_support_tickets.sql · apps/web/app/api/costs/[id]/route.test.ts | apps/web/lib/validation/common.ts (parsePatchBody helper) · apps/web/app/api/costs/[id]/route.ts (zod refactor) · apps/web/app/api/support/route.ts + apps/web/app/api/admin/support/route.ts + apps/web/app/(app)/admin/support/page.tsx + apps/web/app/(app)/admin/page.tsx (schema-collision shims) · apps/web/app/(app)/manuals/page.tsx + manuals-view.tsx (SLA banner F5) · apps/web/components/redesign/AircraftDetail.tsx (uploadHref → /documents F7) · apps/web/app/(app)/approvals/page.tsx + apps/web/components/approvals/approvals-view.tsx (persona-aware copy F6) · apps/web/components/redesign/AppLayout.tsx (trial banner gated on isPlatformAdmin) · docs/phase-15-qa-report.md (F1/F2/F3/F5/F6/F7 status updated) · docs/phase-9-deployment-report.md (vision counts) · docs/security-audit.md (§5.4 row updated) · migration 109 + 115 APPLIED to production. Vision cleanup: 117 stalled-but-embedded pages → indexed; 566 stalled-no-embedding → pending. Test suite 575 → 583 green. |
 | 2026-05-09 — Phase 16 recovery (95930a9, 7ffc761, dc212fa) | docs/phase-16-recovery-inventory.md · docs/phase-16-resume-prompt-context.md | (no migrations applied) |
 | 2026-05-09 — Phase 16 sprint 16.1 (95930a9) | supabase/migrations/109_ops_spine.sql · apps/web/lib/ops/spine.ts | (none — migration NOT applied to prod due to support_tickets schema conflict; see open decisions §8) |
@@ -658,6 +663,7 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-08 | Modal for production GPU host, Colab Pro for one-shot 351-doc backfill | Two distinct lifecycle moments. Modal: pay-per-second runtime inference, cold-start ~10s on T4, scales to zero when idle (~$0.0004 per page on a T4 — ~$94 to embed all 351 docs assuming 7 pages avg, but in practice we only embed pages the OCR pipeline scored low-confidence on, ~50–100 docs subset). Colab Pro: $10/mo for the initial backfill notebook that runs the embedding job once with a tunneled API; cheaper than Modal for a single batch run, but not appropriate for live retrieval. The two play well together — Colab handles the backfill, Modal handles ongoing per-document indexing. VISION_GPU_HOST env var swaps between them. |
 | 2026-05-08 | Phase 8 second-half setup — migrations 098 + 099 APPLIED to production via tsx + pg one-shot | Same pattern that landed migrations 096 + 097 earlier this session. Verification: 3 tables present (vision_pages 15 cols, vision_index_jobs 11 cols, vision_embeddings 9 cols), pgvector 0.8.0 active, HNSW index `vision_embeddings_summary_hnsw` confirmed on summary_vector. Storage bucket `vision-pages` created via direct INSERT into storage.buckets (public=false). |
 | 2026-05-09 | Pricing tiers locked: Beta (free) / Standard ($99/$79/$59 per aircraft) / Pro ($149/$129/$109 per aircraft) with volume tiers at 1-5/6-15/16+ aircraft. Pro = Standard + $50 across all brackets. Expert A&P review $150/hr + Standard QA $50/hr deferred to v2. | Andy + planning session. Locked into apps/web/lib/billing/pricing-config.ts as the single source of truth. Marketing pages, code routing logic, terms — all derive from that file. Master kill-switch at organizations.tier_billing_disabled (default true; flip per org when v1 launches). Human-review billing kill-switch at HUMAN_REVIEW_BILLING_ENABLED env var (default false; flip when v2 launches). |
+| 2026-05-10 | Built AI Ops Command Center for solo operations (Phase 16 — 11 sprints). Single ops_inbox spine across support_tickets / error_events / alert_events / feedback_items / churn_signals. Locked AI tier model (T0 classify, T1 auto-resolve, T2 escalate-with-draft, T3 generate Claude Code prompt). Read-only AI ops assistant — strictly invariant in Section 4 hard rule 11. Generate-Claude-Code-Prompt killer feature with audit trail. /admin/command-center is the admin homeRoute. | Phase 16 build, see Section 13. Migrations 110-113 written + committed; Andy applies via tsx-pg. Real email send / SMS / Slack deferred to Phase 17+. Persona-strict route guards (Phase 15 F2) still on v2-backlog. |
 | 2026-05-09 | Phase 15 F2 (persona-strict guards bypassed) deferred to v2 — verification proved F2 is real but cause is missing route guards entirely, not admin override. View-as alone fixes nothing. Scope = `requirePersona()` helper + 5-route gate + view-as cookie + tests = 1 sprint. | Phase 15.5 Task 2 (commit `91a4cb2`). Captured in `docs/v2-backlog.md`. Unfreeze trigger: first non-admin owner customer onboards OR Phase 16.4 needs view-as for cross-org QA. |
 | 2026-05-09 | support_tickets schema collision resolved — drop legacy table (mig 115) + apply Phase 16 ops_inbox spine (mig 109). 4 referencing files shimmed (POST translates legacy `{type, severity, description}` → new `{category, severity:'P2', body}`; GET aliases new columns back to legacy SupportTable shape). | Phase 15.5 Task 1 (commit `9bf101b`). Sprint 16.2 will fully rewrite the 4 routes; shims keep build green in the interim. |
 | 2026-05-09 | `parsePatchBody` helper added to `lib/validation/common.ts` — returns validated body PLUS `Set<string>` of explicitly-sent keys, so PATCH routes can distinguish omitted vs null vs value. Closes the audit pattern that previously blocked zod adoption on PATCH routes. | Phase 15.5 Task 4 (commit `042926d`). Reference impl on `/api/costs/[id]` PATCH; remaining ~233 PATCH-style routes can follow the same pattern. |
@@ -739,3 +745,120 @@ User flow:
 ### Hard Rule (also in Section 4)
 
 **Pricing config (`lib/billing/pricing-config.ts`) is the single source of truth.** Marketing pages, code logic, terms, all derive from it. Never hardcode prices anywhere.
+
+---
+
+## 13. Ops Command Center (LOCKED — Phase 16, 2026-05-10)
+
+**This section is the source of truth for the AI ops command center.** Code, schemas, AI tier model — all read from the locked decisions below. Any future Claude Code session that wants to change the architecture must (1) get Andy's explicit approval and (2) update this section + the relevant code together.
+
+### Single spine data model
+
+Five entity tables, one unified VIEW (`ops_inbox`):
+
+| Table | Purpose | Migration |
+|---|---|---|
+| `support_tickets` | Customer questions, AI-triaged | `109_ops_spine.sql` |
+| `error_events` | Client + server errors, stack-hash grouped | `109_ops_spine.sql` |
+| `alert_events` | System alerts (worker_stale, cost_spike, queue_depth, …) | `109_ops_spine.sql` |
+| `feedback_items` | Thumbs / NPS / CSAT / praise / complaint | `109_ops_spine.sql` |
+| `churn_signals` | Daily-detected risk signals (no_login_30d, tier_downgrade, …) | `109_ops_spine.sql` |
+| `ticket_replies` | Customer/AI/admin replies to tickets | `110_ticket_replies.sql` |
+| `email_log` | Outbound transactional queue | `110_ticket_replies.sql` |
+| `cost_snapshots` | Daily cost roll-ups by source | `111_cost_snapshots.sql` |
+| `ops_assistant_conversations` + `_messages` | AI ops assistant chat history | `112_ops_assistant_conversations.sql` |
+| `ops_event_prompts` | Claude Code prompt audit trail | `113_ops_event_prompts.sql` |
+
+Common shape exposed by `ops_inbox` view: `id, source_type, source_id, organization_id, severity, status, summary, created_at, updated_at, resolved_at, metadata`. Service layer at `apps/web/lib/ops/spine.ts`.
+
+### AI tier model
+
+| Tier | What | Code |
+|---|---|---|
+| T0 | Auto-categorize, label, route — no customer-visible action | `lib/support/ai-triage.ts:classifyTicket` |
+| T1 | AI drafts response, attempts auto-resolve via locked patterns | `lib/support/ai-triage.ts:findAutoResolvePattern` |
+| T2 | AI escalates to admin queue with summary + suggested action | `lib/support/ai-triage.ts:draftReply` |
+| T3 | AI generates Claude Code prompt for code-level fixes | `lib/ops/prompt-generator.ts:generateClaudeCodePrompt` |
+
+### Auto-resolve patterns (locked)
+
+Four high-volume questions resolve without admin involvement:
+
+1. `password_reset` — regex match on "reset/forgot password" → reset-link reply.
+2. `tier_lookup` — DB lookup of org.tier + billing_disabled status.
+3. `doc_indexing_status` — DB lookup of ingestion_progress with %.
+4. `pricing_question` — `/pricing` page summary + tier breakdown.
+
+Anything else falls through to T2 escalation with an AI-drafted reply staged in `support_tickets.suggested_response` for admin review.
+
+### Escalation rules (SLA windows)
+
+| Severity | First-admin-response SLA | Detection / cron |
+|---|---|---|
+| P0 | 15 minutes (instant alert + `/admin/*` red banner) | `SupportBanner` polls `/api/admin/support/counts` every 60s |
+| P1 | 1 hour | Admin sees in command-center "Needs you now" |
+| P2 | 4 hours | Admin sees on dashboard |
+| P3 | 24 hours | Daily digest (deferred to Phase 17 — currently surfaces on dashboard) |
+
+Constants locked in `lib/support/tickets.ts:TICKET_SLA_WINDOW_MS` and `lib/ops/spine.ts:SLA_WINDOW_MS`.
+
+### "Generate Claude Code prompt" feature
+
+Available on any unresolved support_ticket / error_event / alert_event detail page. One click packages:
+
+- Full source context (ticket thread / error stack / alert metadata)
+- Repo grep — files referenced in stack/route, plus guessed page.tsx + route.ts files
+- AI's analysis of the failure (optional Sonnet call)
+- 7-section markdown: Fix / Reproduction / Affected / Relevant files / Suggested fix / Test requirements / Hard rules
+- Sacred-boundary block in every prompt
+- Audit row in `ops_event_prompts` with outcome tracking (pending → used → fixed/partial/wont_fix/duplicate)
+
+Service: `apps/web/lib/ops/prompt-generator.ts`. UI: `components/admin/GeneratePromptButton.tsx`.
+
+### AI ops assistant — read-only invariant
+
+Chat surface at `/admin/ops-assistant`. Tool-using Sonnet agent with 10 tools:
+
+```
+querySupportTickets · queryErrorEvents · queryWorkerHealth · queryQueueState
+queryCostSnapshots · queryCustomerSignals · queryDocumentStats · listOrgsByActivity
+searchKnowledgeBase · generateClaudeCodePrompt
+```
+
+🚨 **Every tool is READ-ONLY.** No mutations, no email sends, no tier flips, no deletes. This is a load-bearing invariant — see Section 4 hard rule 11. Adding a mutating tool requires (a) explicit human review, (b) a fresh sprint that's NOT a Claude Code-driven autonomous session, and (c) an admin click-through in the UI for every mutation.
+
+Service: `apps/web/lib/ops/assistant.ts`. Tool-hop budget: 5 per question. Rate limit: 30 queries/min/admin.
+
+### Notification channels (v1 scope)
+
+- ✅ In-app: `SupportBanner` (P0 breach), `FeedbackWidget` (passive),
+  `ClientErrorBoundary` (errors), `/admin/command-center` (everything).
+- ✅ Email: queued in `email_log` with `delivery_status='queued'`.
+- ⏳ Real provider send (SendGrid/Postmark): runbook in
+  `docs/runbooks/email-ingestion.md`.
+- ⏳ SMS: Phase 17.
+- ⏳ Slack / PagerDuty: Phase 17.
+
+### Cron schedule (Vercel)
+
+| Path | Cadence | Role |
+|---|---|---|
+| `/api/cron/support-triage` | every minute | T0 + T1 triage on new tickets |
+| `/api/cron/health-alerts` | every 5 minutes | Cost roll-up + worker/queue/cost/burst alerts |
+| `/api/cron/churn-signals` | daily 7:30am UTC | no_login_30d + tier_downgrade + negative_feedback |
+
+### File map
+
+- Spine view: `apps/web/lib/ops/spine.ts`
+- AI ops assistant: `apps/web/lib/ops/assistant.ts`
+- Prompt generator: `apps/web/lib/ops/prompt-generator.ts`
+- Cost tracker: `apps/web/lib/ops/cost-tracker.ts`
+- Status check: `apps/web/lib/ops/status-check.ts`
+- Ticket service: `apps/web/lib/support/tickets.ts`
+- AI triage: `apps/web/lib/support/ai-triage.ts`
+- Error capture: `apps/web/lib/observability/error-capture.ts`
+- Admin homeRoute: `/admin/command-center` (per `PERSONA_CONFIG.admin.homeRoute`)
+
+### Hard Rule (also in Section 4 as rule 11)
+
+**AI ops assistant is read-only.** Never mutates data, never sends emails, never executes side effects. Mutations always require admin click-through in the proper UI.
