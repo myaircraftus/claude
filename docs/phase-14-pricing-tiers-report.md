@@ -1,9 +1,8 @@
 # Phase 14 — Pricing Tier Infrastructure Report
 
-**Status:** 🟢 **All 8 sprints shipped.** Migrations 105–108 written but
-NOT applied (HARD STOP rule 2 — Andy applies via tsx-pg). Stripe stays in
-mock mode per HARD STOP rule 3. Human review billing OFF per HARD STOP
-rule 4.
+**Status:** 🟢 **All 8 sprints shipped + migrations 105–108 APPLIED 2026-05-09.**
+RLS + integrity smoke 7/7 green. Stripe stays in mock mode per HARD
+STOP rule 3. Human review billing OFF per HARD STOP rule 4.
 
 **Date:** 2026-05-09
 **Branch:** main
@@ -211,22 +210,36 @@ Strategy is locked into `/docs/new implementation/context.md` Section 12.
 
 | Migration | Status | Notes |
 |---|---|---|
-| 105_billing_tiers.sql | 🟡 NOT APPLIED | org+aircraft tier columns + tier_history |
-| 106_vision_jobs_scheduled_for.sql | 🟡 NOT APPLIED | tier-aware dispatch ready-time |
-| 107_handwriting_pct.sql | 🟡 NOT APPLIED | documents.handwriting_pct + suggests_review |
-| 108_document_review_requests.sql | 🟡 NOT APPLIED | review workflow table |
+| 105_billing_tiers.sql | 🟢 **APPLIED 2026-05-09** | 3 orgs all defaulted to tier='beta' + billing_disabled=true. 4 columns + 4 CHECK constraints + tier_history (7 cols) + RLS verified. |
+| 106_vision_jobs_scheduled_for.sql | 🟢 **APPLIED 2026-05-09** | scheduled_for column NOT NULL DEFAULT NOW() + partial index `idx_vision_jobs_queued_scheduled` verified. Backfill: 0 NULLs. |
+| 107_handwriting_pct.sql | 🟢 **APPLIED 2026-05-09** | documents.handwriting_pct (numeric) + documents.suggests_review (boolean) verified. |
+| 108_document_review_requests.sql | 🟢 **APPLIED 2026-05-09** | 16-col workflow table + 3 indexes + RLS enabled. INSERT/SELECT round-trip via service role verified. |
 
-**Apply order (none have circular deps but apply in this order for clean logs):**
+### RLS + integrity smoke (7/7 green) — 2026-05-09
 
-```bash
-cd apps/web
-npx tsx scripts/apply-105.ts
-npx tsx scripts/apply-106.ts
-npx tsx scripts/apply-107.ts
-npx tsx scripts/apply-108.ts
+```
+✅ defaults — 3 orgs all tier='beta' AND tier_billing_disabled=true
+✅ defaults — 24 aircraft all tier_override IS NULL
+✅ pricing-config — std×5=$99, pro×5=$149, std@10=$790, pro@20=$2180
+✅ pricing-config — TIER_DEFINITIONS shape matches (standard=batch, pro=realtime)
+✅ scheduled_for — default=now(), insertion sets ageMs<50
+✅ document_review_requests — INSERT+SELECT round-trip via service role
+✅ tier_history audit — beta→standard→beta recorded 2 rows with correct from/to
 ```
 
-Delete each apply-*.ts script after success per the one-shot convention.
+### Baseline state (post-apply)
+
+| Metric | Value |
+|---|---:|
+| organizations total | 3 |
+| organizations on tier='beta' AND tier_billing_disabled=true | 3 (100%) |
+| aircraft total | 24 |
+| aircraft with tier_override=null | 24 (100%) |
+| tier_history rows | 0 |
+| documents with handwriting_pct set | 0 |
+| document_review_requests rows | 0 |
+
+Apply scripts deleted post-success per the one-shot convention.
 
 ## Stripe status
 
