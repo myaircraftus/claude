@@ -1,10 +1,53 @@
-# Phase 13 Task 2 — Colab Worker Activation: BLOCKED on colpali-engine deps
+# Phase 13 Task 2 — Colab Worker Activation: ✅ RESOLVED
 
-**Status:** 🟡 **Halted at Cell 3.** Task 1 (migrations) ✅ done; Task 2
-(Colab worker) blocked on an upstream dependency contradiction in
-`colpali-engine==0.3.5`. Need Andy to upgrade.
+**Status:** 🟢 **Worker LIVE 2026-05-09 after the colpali-engine bump.**
+The original block (`colpali-engine==0.3.5`'s contradictory deps) was
+resolved by bumping to `0.3.13` + explicit `transformers>=4.55,<4.58`
++ `numpy>=2.0` pins. ColQwen2 loads cleanly, poll loop is active,
+heartbeat is emitting, jobs are flipping through the queue.
 
-**Date:** 2026-05-09
+**Date:** 2026-05-09 (initial block) → resolved same-day
+
+## Final state
+
+```
+heartbeat:
+  worker_id: colab-c43d6206
+  gpu_host: colab
+  status: busy
+  last_seen_at: <30s old, refreshing every 30s
+
+jobs:
+  3 failed (modal, PNG-render gap)
+  16 queued
+  1 running gpu_host=colab     ← worker active
+  4 running gpu_host=modal     (will fail on PNG-render gap)
+```
+
+The Modal `running` count keeps draining as those jobs hit the PNG-render
+gap and get re-routed. The Colab worker is the primary path now;
+Modal failures get reset back to queued for the Colab worker to consume.
+
+## What unblocked it (commits e72b5a5 + e4de478)
+
+Two-step fix:
+1. Bumped `colpali-engine` from 0.3.5 → 0.3.13 in both Colab notebooks.
+   Drops the `numpy<2.0` constraint and stays on `transformers 4.x`
+   (avoids the major `transformers 5.x` bump in colpali-engine 0.3.14+).
+2. Added explicit `transformers>=4.55,<4.58` pin + `pip -U` flag.
+   colpali-engine 0.3.13 declares `transformers>=4.53.1` but its actual
+   code needs `is_flash_attn_3_available` which was added in 4.55. Without
+   the explicit pin, pip's quiet resolver was leaving Colab's pre-installed
+   transformers 4.46 in place. `-U` forces clean upgrades.
+
+Modal worker (`modal/vision-worker/main.py`) untouched — its image is
+built+cached on 0.3.5 and works for the fallback path.
+
+## Original (resolved) failure
+
+(Kept below for archeology.)
+
+---
 
 ## Summary
 
