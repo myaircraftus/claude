@@ -123,21 +123,33 @@ deliverables that are functioning correctly in production:
   - **Andy applies**: `cd apps/web && npx tsx scripts/apply-114.ts`.
     Then logs out / in to refresh the cached JWT.
 
-#### F2: persona-strict guards bypassed for platform admin
+#### F2: persona-strict guards bypassed for platform admin — ⏸ DEFERRED to v2
 
 - **Detail**: see [phase-15-owner-walkthrough.md](./phase-15-owner-walkthrough.md)
   + [phase-15-mechanic-walkthrough.md](./phase-15-mechanic-walkthrough.md)
+  + [phase-15-f2-verification.md](./phase-15-f2-verification.md)
 - **Symptom**: Owner persona reaches /scheduler, /work-orders, /clock with
   full mechanic write access; /admin → /dashboard instead of /my-aircraft.
-- **Fix path**: design call needed. Options:
-  - **A** (defensive): persona-strict guards run BEFORE is_platform_admin
-    short-circuit; admin still sees persona-strict UI when persona switcher
-    is active.
-  - **B** (documented bypass): banner "Platform admin — persona checks
-    bypassed" + audit log.
-- **Cannot verify** with current test users (only platform admin available).
-  Would need a non-admin owner test user to confirm whether non-admin owners
-  are also leaking past these guards (which would be a true P0 production bug).
+- **Phase 15.5 verification (Task 0)**: re-tested under `andy@horf.us`
+  after migration 114 made the same account a platform admin. **All three
+  routes still render fully under owner persona** — same behavior pre-
+  and post-elevation. The original framing ("admin override bypasses
+  guards") was wrong: **there are no route-level persona guards at all**.
+  `grep -rn "persona === 'owner'\|isModuleHidden\|hiddenModules"` across
+  `apps/web/app/(app)/scheduler|work-orders|clock|time-off|tools`
+  returns zero hits. The persona system is enforced only at sidebar
+  nav + Phase 13.2 upload modal.
+- **Resolution**: deferred to a dedicated sprint (see
+  [docs/v2-backlog.md](./v2-backlog.md) — "Persona-strict route enforcement").
+  Scope = `requirePersona()` server-component helper mirroring
+  `requireRole(ADMIN_AND_ABOVE)` + single-line guard at the top of each
+  persona-restricted page + admin view-as cookie + tests. ~1 sprint.
+- **Why deferred**: building view-as mode alone (the original CASE A
+  scope) doesn't fix anything because the guards it would bypass don't
+  exist. Adding the guards is a multi-route refactor that should ship
+  as one focused sprint, not crammed into cleanup. No real owner
+  customers have hit this yet (sidebar hides the links; production org
+  count = 3, only the platform admin's QA org has activity).
 
 #### F3: persona switcher missing Shop tab
 
