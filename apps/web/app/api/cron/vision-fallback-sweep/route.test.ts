@@ -266,3 +266,250 @@ describe('vision-fallback-sweep — failure isolation', () => {
     expect(body.errors[0].error).toMatch(/modal http 500/)
   })
 })
+
+// ─── Phase 12 architecture-gap fix: dual-path /embed vs /backfill ─────
+
+describe('vision-fallback-sweep — dual-path routing', () => {
+  /**
+   * Sophisticated mock that returns vision_pages on SELECT, plus a
+   * controllable storage HEAD probe. Used by the dual-path tests.
+   */
+  function makeDualPathMock(opts: {
+    queuedJobs: any[]
+    pagesByJob: Record<string, any[]>
+    /** Whether HEAD on signed URLs returns 200 (true) or 404 (false). */
+    pngsExist: boolean
+    /** Backfill response — defaults to one success per docId. */
+    backfillResponse?: { document_results: any[]; error?: string }
+    backfillThrows?: Error
+  }) {
+    const calls: CallLog[] = []
+    const deletedPageIds: string[][] = []
+    const fetchCalls: string[] = []
+    let backfillCallCount = 0
+
+    function makeChain(table: string) {
+      const log: CallLog = { table, ops: [] }
+      calls.push(log)
+      const chain: any = new Proxy({}, {
+        get(_t, prop) {
+          if (prop === 'then') {
+            const methods = log.ops.map((o) => o.method)
+            const eqs = log.ops.filter((o) => o.method === 'eq').map((o) => o.args)
+            if (table === 'vision_index_jobs') {
+              if (methods.includes('update')) {
+                return (resolve: (v: unknown) => void) => resolve({ data: null, error: null })
+              }
+              const statusEq = eqs.find((e) => e[0] === 'status')
+              if (statusEq?.[1] === 'queued') {
+                return (resolve: (v: unknown) => void) =>
+                  resolve({ data: opts.queuedJobs, error: null })
+              }
+              if (statusEq?.[1] === 'running') {
+                return (resolve: (v: unknown) => void) =>
+                  resolve({ data: [], error: null })
+              }
+            }
+            if (table === 'vision_pages') {
+              // SELECT: return pages keyed by job (use the .in() arg for matching).
+              if (methods.includes('select') && !methods.includes('update') && !methods.includes('delete')) {
+                const inArgs = log.ops.find((o) => o.method === 'in')?.args
+                const ids = (inArgs?.[1] as string[]) ?? []
+                // Find which job's pages match these ids
+                for (const [_jobId, pageList] of Object.entries(opts.pagesByJob)) {
+                  if (pageList.some((p: any) => ids.includes(p.id))) {
+                    return (resolve: (v: unknown) => void) =>
+                      resolve({ data: pageList, error: null })
+                  }
+                }
+                return (resolve: (v: unknown) => void) => resolve({ data: [], error: null })
+              }
+              // DELETE: capture the ids so tests can assert
+              if (methods.includes('delete')) {
+                const inArgs = log.ops.find((o) => o.method === 'in')?.args
+                const ids = (inArgs?.[1] as string[]) ?? []
+                deletedPageIds.push(ids)
+                return (resolve: (v: unknown) => void) => resolve({ data: null, error: null })
+              }
+              return (resolve: (v: unknown) => void) => resolve({ data: null, error: null })
+            }
+            return (resolve: (v: unknown) => void) => resolve({ data: [], error: null })
+          }
+          return (...args: unknown[]) => {
+            log.ops.push({ method: String(prop), args })
+            return chain
+          }
+        },
+      })
+      return chain
+    }
+
+    const fetchFn = vi.fn().mockImplementation((url: string) => {
+      fetchCalls.push(url)
+      if (url.includes('backfill.modal.run')) {
+        backfillCallCount += 1
+        if (opts.backfillThrows) throw opts.backfillThrows
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              opts.backfillResponse ?? {
+                document_results: Object.entries(opts.pagesByJob).map(([_jobId, pages]: any) => ({
+                  source_document_id: pages[0].source_document_id,
+                  pages_processed: pages.length,
+                  pages_failed: 0,
+                  errors: [],
+                })),
+              },
+            ),
+            { status: 200 },
+          ),
+        )
+      }
+      // Storage HEAD probe — return 200 if pngsExist, 404 otherwise
+      return Promise.resolve(new Response(null, { status: opts.pngsExist ? 200 : 404 }))
+    })
+
+    const supabase = {
+      from: (table: string) => makeChain(table),
+      storage: {
+        from: vi.fn().mockReturnValue({
+          createSignedUrl: vi.fn().mockResolvedValue({
+            data: { signedUrl: 'https://storage.test/signed?token=x' },
+            error: null,
+          }),
+        }),
+      },
+    } as any
+
+    return { supabase, calls, deletedPageIds, fetchCalls, getBackfillCallCount: () => backfillCallCount, fetchFn }
+  }
+
+  beforeEach(() => {
+    process.env.MODAL_API_KEY = 'sk-test'
+    process.env.MODAL_ENDPOINT_URL = 'https://info-test--embed.modal.run'
+  })
+
+  it('routes to /backfill when pages have placeholder paths (null page_image_path)', async () => {
+    const queuedJobs = [
+      { id: 'job-1', organization_id: 'org-A', vision_page_ids: ['p1', 'p2'], created_at: '2026-05-09T00:00:00Z' },
+    ]
+    const pages = [
+      { id: 'p1', organization_id: 'org-A', source_document_id: 'doc-1', page_number: 0, page_image_path: null, status: 'pending' },
+      { id: 'p2', organization_id: 'org-A', source_document_id: 'doc-1', page_number: 1, page_image_path: null, status: 'pending' },
+    ]
+    const mock = makeDualPathMock({
+      queuedJobs,
+      pagesByJob: { 'job-1': pages },
+      pngsExist: false, // doesn't matter — needsRendering() trips on null path first
+    })
+    ;(createServiceSupabase as any).mockReturnValue(mock.supabase)
+    ;(countAvailableWorkers as any).mockResolvedValue(0)
+
+    // Inject our fetch into the global so the cron's createModalBackfillClient picks it up
+    const origFetch = global.fetch
+    global.fetch = mock.fetchFn as unknown as typeof fetch
+    try {
+      const res = await GET(makeRequest({ authorization: 'Bearer test-secret' }))
+      const body = await res.json()
+      expect(body.modal_backfill_dispatches).toBe(1)
+      expect(body.modal_dispatches).toBe(0)
+      expect(dispatchVisionJob).not.toHaveBeenCalled()
+      expect(mock.getBackfillCallCount()).toBe(1)
+      // Placeholder pages should have been deleted before backfill
+      expect(mock.deletedPageIds.length).toBeGreaterThanOrEqual(1)
+      expect(mock.deletedPageIds[0]).toEqual(['p1', 'p2'])
+    } finally {
+      global.fetch = origFetch
+    }
+  })
+
+  it('routes to /backfill when pages have canonical paths but PNGs missing in storage (auto-dispatch case)', async () => {
+    const queuedJobs = [
+      { id: 'job-2', organization_id: 'org-A', vision_page_ids: ['p3'], created_at: '2026-05-09T00:00:00Z' },
+    ]
+    const pages = [
+      // canonical-looking path but PNG won't exist in storage
+      { id: 'p3', organization_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', source_document_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', page_number: 0, page_image_path: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/page_0.png', status: 'pending' },
+    ]
+    const mock = makeDualPathMock({
+      queuedJobs,
+      pagesByJob: { 'job-2': pages },
+      pngsExist: false, // HEAD on signed URL returns 404 — PNG isn't there
+    })
+    ;(createServiceSupabase as any).mockReturnValue(mock.supabase)
+    ;(countAvailableWorkers as any).mockResolvedValue(0)
+
+    const origFetch = global.fetch
+    global.fetch = mock.fetchFn as unknown as typeof fetch
+    try {
+      const res = await GET(makeRequest({ authorization: 'Bearer test-secret' }))
+      const body = await res.json()
+      expect(body.modal_backfill_dispatches).toBe(1)
+      expect(body.modal_dispatches).toBe(0)
+      expect(dispatchVisionJob).not.toHaveBeenCalled()
+    } finally {
+      global.fetch = origFetch
+    }
+  })
+
+  it('routes to /embed when pages have canonical paths AND PNGs exist in storage', async () => {
+    const queuedJobs = [
+      { id: 'job-3', organization_id: 'org-A', vision_page_ids: ['p4'], created_at: '2026-05-09T00:00:00Z' },
+    ]
+    const pages = [
+      { id: 'p4', organization_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', source_document_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', page_number: 0, page_image_path: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/page_0.png', status: 'pending' },
+    ]
+    const mock = makeDualPathMock({
+      queuedJobs,
+      pagesByJob: { 'job-3': pages },
+      pngsExist: true, // HEAD returns 200 — PNG is there
+    })
+    ;(createServiceSupabase as any).mockReturnValue(mock.supabase)
+    ;(countAvailableWorkers as any).mockResolvedValue(0)
+    ;(dispatchVisionJob as any).mockResolvedValue({ status: 'completed', errors: [] })
+
+    const origFetch = global.fetch
+    global.fetch = mock.fetchFn as unknown as typeof fetch
+    try {
+      const res = await GET(makeRequest({ authorization: 'Bearer test-secret' }))
+      const body = await res.json()
+      expect(body.modal_dispatches).toBe(1)
+      expect(body.modal_backfill_dispatches).toBe(0)
+      expect(dispatchVisionJob).toHaveBeenCalledTimes(1)
+      expect(mock.getBackfillCallCount()).toBe(0)
+      // Should NOT delete pages on the /embed path
+      expect(mock.deletedPageIds.length).toBe(0)
+    } finally {
+      global.fetch = origFetch
+    }
+  })
+
+  it('marks job failed if /backfill returns top-level error', async () => {
+    const queuedJobs = [
+      { id: 'job-4', organization_id: 'org-A', vision_page_ids: ['p5'], created_at: '2026-05-09T00:00:00Z' },
+    ]
+    const pages = [
+      { id: 'p5', organization_id: 'org-A', source_document_id: 'doc-x', page_number: 0, page_image_path: null, status: 'pending' },
+    ]
+    const mock = makeDualPathMock({
+      queuedJobs,
+      pagesByJob: { 'job-4': pages },
+      pngsExist: false,
+      backfillResponse: { document_results: [], error: 'unauthorized' },
+    })
+    ;(createServiceSupabase as any).mockReturnValue(mock.supabase)
+    ;(countAvailableWorkers as any).mockResolvedValue(0)
+
+    const origFetch = global.fetch
+    global.fetch = mock.fetchFn as unknown as typeof fetch
+    try {
+      const res = await GET(makeRequest({ authorization: 'Bearer test-secret' }))
+      const body = await res.json()
+      expect(body.modal_backfill_dispatches).toBe(0)
+      expect(body.errors.length).toBe(1)
+      expect(body.errors[0].error).toMatch(/unauthorized/)
+    } finally {
+      global.fetch = origFetch
+    }
+  })
+})

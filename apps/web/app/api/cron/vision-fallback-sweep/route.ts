@@ -23,6 +23,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { dispatchVisionJob } from '@/lib/vision/dispatcher'
 import { countAvailableWorkers } from '@/lib/vision/heartbeat'
+import {
+  needsRendering,
+  probePageImageExists,
+} from '@/lib/vision/render-detector'
+import { createModalBackfillClient } from '@/lib/vision/workers/modal'
+import type { VisionPage } from '@/lib/vision/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +58,8 @@ export async function GET(req: NextRequest) {
     swept_queued: 0,
     swept_running: 0,
     modal_dispatches: 0,
+    /** Phase 12 fix — dispatches that went through /backfill instead of /embed. */
+    modal_backfill_dispatches: 0,
     skipped_capped: 0,
     errors: [] as Array<{ jobId: string; error: string }>,
   }
@@ -97,13 +105,115 @@ export async function GET(req: NextRequest) {
   const toDispatch = allCandidates.slice(0, remaining)
   result.skipped_capped = Math.max(0, allCandidates.length - toDispatch.length)
 
+  // Lazy-build the /backfill client only if we end up needing it (most
+  // ticks won't — the auto-dispatch case is bounded by upload volume).
+  let backfillClient: ReturnType<typeof createModalBackfillClient> | null = null
+  function getBackfillClient() {
+    if (!backfillClient) {
+      backfillClient = createModalBackfillClient({ supabase: service })
+    }
+    return backfillClient
+  }
+
   for (const job of toDispatch) {
     try {
+      // 1. Load this job's vision_pages to drive the routing decision.
+      const pageIds = (job as any).vision_page_ids ?? []
+      let pages: VisionPage[] = []
+      if (pageIds.length > 0) {
+        const { data: pageRows } = await service
+          .from('vision_pages')
+          .select('*')
+          .in('id', pageIds)
+          .is('deleted_at', null)
+        pages = (pageRows ?? []) as VisionPage[]
+      }
+
+      // 2. Decide /backfill vs /embed:
+      //    - sync needsRendering() catches obvious null/non-canonical paths
+      //    - async storage HEAD on the first page catches the auto-
+      //      dispatch case (paths look real but PNG isn't uploaded)
+      let mustBackfill = needsRendering(pages)
+      if (!mustBackfill && pages.length > 0) {
+        const firstByPageNumber = [...pages].sort((a, b) => a.page_number - b.page_number)[0]
+        const exists = await probePageImageExists(service, firstByPageNumber)
+        if (!exists) mustBackfill = true
+      }
+
+      if (mustBackfill && pages.length > 0) {
+        // ── Modal /backfill path (Phase 12 architecture-gap fix) ──
+        // Modal will create fresh vision_pages rows during the backfill
+        // pipeline. Delete the placeholder rows first so the unique
+        // index doesn't collide.
+        const docIds = Array.from(new Set(pages.map((p) => p.source_document_id)))
+
+        // Mark job 'running' on Modal up-front so the admin dashboard
+        // sees movement; we'll flip to completed/failed after the call.
+        await service
+          .from('vision_index_jobs')
+          .update({ status: 'running', gpu_host: 'modal', started_at: new Date().toISOString() })
+          .eq('id', (job as any).id)
+
+        // Delete the placeholder vision_pages rows (Modal /backfill
+        // creates fresh ones with the canonical layout).
+        await service.from('vision_pages').delete().in('id', pageIds)
+
+        try {
+          const docResults = await getBackfillClient().backfillDocuments({
+            sourceDocumentIds: docIds,
+            organizationId: (job as any).organization_id,
+          })
+          const totalProcessed = docResults.reduce((sum, r) => sum + r.pages_processed, 0)
+          const totalFailed = docResults.reduce((sum, r) => sum + r.pages_failed, 0)
+          const allErrors = docResults.flatMap((r) => r.errors)
+          const allSucceeded = totalFailed === 0 && allErrors.length === 0
+
+          await service
+            .from('vision_index_jobs')
+            .update({
+              status: allSucceeded ? 'completed' : 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: allSucceeded
+                ? null
+                : `backfill: ${totalFailed} pages failed, ${totalProcessed} succeeded; ${allErrors[0] ?? ''}`.slice(0, 1000),
+              metadata: {
+                gpu_host: 'modal',
+                mode: 'backfill',
+                document_results: docResults,
+              },
+            })
+            .eq('id', (job as any).id)
+
+          if (allSucceeded) {
+            result.modal_backfill_dispatches += 1
+          } else {
+            result.errors.push({
+              jobId: (job as any).id,
+              error: `backfill partial failure: ${allErrors[0] ?? `${totalFailed} pages failed`}`,
+            })
+          }
+        } catch (err) {
+          // Top-level transport / auth failure on /backfill. Mark the
+          // job failed so the next sweep tick doesn't retry forever.
+          const message = err instanceof Error ? err.message : String(err)
+          await service
+            .from('vision_index_jobs')
+            .update({
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: `backfill transport: ${message}`.slice(0, 1000),
+            })
+            .eq('id', (job as any).id)
+          result.errors.push({ jobId: (job as any).id, error: `backfill: ${message}` })
+        }
+        continue
+      }
+
+      // ── Existing /embed path (pages already rendered) ──
       // For stuck-running jobs, roll any 'embedding' pages back to
       // 'pending' so the Modal direct-mode dispatch will pick them up.
       // (Direct mode filters eligible pages by status='pending'|'rendering'.)
       if (job.kind === 'running') {
-        const pageIds = (job as any).vision_page_ids ?? []
         if (pageIds.length > 0) {
           await service
             .from('vision_pages')
@@ -111,15 +221,11 @@ export async function GET(req: NextRequest) {
             .in('id', pageIds)
             .eq('status', 'embedding')
         }
-        // Reset job back to 'queued' so the dispatcher's queued→running
-        // transition succeeds in DIRECT mode.
         await service
           .from('vision_index_jobs')
           .update({ status: 'queued', gpu_host: 'modal', started_at: null })
           .eq('id', (job as any).id)
       } else {
-        // Stuck-queued: just mark gpu_host = modal so we know who
-        // owned it (audit trail) and dispatch.
         await service
           .from('vision_index_jobs')
           .update({ gpu_host: 'modal' })
