@@ -99,25 +99,39 @@ lib/billing/stripe-webhook-dedup.ts (PK insert into stripe_webhook_events)
 
 ## Deferred — what still needs Andy
 
-1. **Real Stripe test keys.** Replace `sk_placeholder_…` and
-   `whsec_placeholder_…` in `apps/web/.env.local` (and the matching
-   Vercel env vars) with `sk_test_…` / `whsec_…`. The MCP shows
-   `livemode: true`; the user should restart the MCP after re-pointing
-   it at the test mode account, OR provide the test secret directly so
-   I can drive `syncPricingToStripe` from a follow-up session.
+1. ~~**Real Stripe test keys.**~~ ✅ **DONE 2026-05-10.** `sk_test_…`,
+   `pk_test_…` (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY), and `whsec_…` all
+   landed in `apps/web/.env.local`. Stripe `/v1/balance` probe confirmed
+   `livemode:false`. `whsec_` round-tripped through Stripe SDK
+   `generateTestHeaderString` + `constructEvent` cleanly — production
+   webhook deliveries will verify.
 2. ~~**Apply migrations 116, 117, 118**~~ ✅ **DONE 2026-05-10.** All
    three applied + verified via tsx-pg one-shot scripts (then deleted
    per the established lifecycle). Smoke verifications:
-   - 116 — `tier_pricing_skus` table + columns + UNIQUE + RLS in place; row count 0 (waits for sync).
+   - 116 — `tier_pricing_skus` table + columns + UNIQUE + RLS in place; row count now **6** after sync.
    - 117 — `stripe_webhook_events` PK on text id, 4-value enum, RLS on; row count 0.
    - 118 — sentinel row exists (`id=00000000-0000-0000-0000-000000000000`, `slug=system`, `tier=beta`, `tier_billing_disabled=true`); ai_activity_log smoke insert with that org_id was ACCEPTED — Phase 16 FK error officially closed.
-3. **Run `/api/admin/billing/sync-stripe`** (POST, platform admin
-   only) once the test keys are live. Result populates
-   `tier_pricing_skus` with 6 rows (standard×3 + pro×3).
+3. ~~**Run `/api/admin/billing/sync-stripe`**~~ ✅ **DONE 2026-05-10.**
+   Driven via tsx smoke script using the same `syncPricingToStripe()`
+   lib. Created 6 test-mode Stripe Products (Standard 1-5/6-15/16+, Pro
+   1-5/6-15/16+) and 6 Prices with stable `lookup_keys`. All 6 rows in
+   `tier_pricing_skus` (`is_test_mode=true`). Re-run idempotency
+   verified — second run reused the same Price IDs. One bug caught
+   here: `lookup_keys` query needs bracket-array syntax;
+   fix + regression test shipped at commit `cfb8e88`.
 4. **Webhook endpoint URL.** Register the Vercel deployment URL in the
    Stripe dashboard:
    `https://www.myaircraft.us/api/webhooks/stripe` (production) or
    `https://staging.myaircraft.us/api/webhooks/stripe` (test).
+   (The `whsec_…` you already provided is presumably from this
+   registration — if not, register and grab a fresh one.)
+5. **Push env vars to Vercel.** `RESEND_API_KEY`,
+   `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
+   `STRIPE_WEBHOOK_SECRET` need to be set in the Vercel Production env
+   (currently only in local `.env.local`). After that, deploy.
+6. **Flip `tier_billing_disabled=false`** for the first paying org via
+   `/admin/billing/orgs` once 4 + 5 are done. The kill-switch is the
+   last gate.
 
 ## Test suite
 
