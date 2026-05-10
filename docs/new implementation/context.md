@@ -41,6 +41,7 @@ The full implementation spec lives at:
 6. **Reuse existing UI primitives:** rounded-xl card, Tailwind tokens from `theme.css`, Motion fade-ins, Sonner toasts, Lucide icons.
 7. **Multi-org scoping:** every list query must filter by `currentOrgId`. Get it from `useOrg()` hook (built in Phase 0.1).
 8. **Persona-aware rendering:** every navigation/dashboard read must consult `usePersona()`. Don't hardcode "Owner sees X" — read from `PERSONA_CONFIG`.
+9. **Pricing config is the single source of truth** (Phase 14, locked 2026-05-09). `apps/web/lib/billing/pricing-config.ts` owns the per-aircraft tier model. Marketing pages, code logic, terms, all derive from it. Never hardcode prices anywhere. See Section 12 for the full locked strategy.
 
 ## 5. Current sprint
 
@@ -646,4 +647,81 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-08 | ColQwen2 over ColPali for vision embeddings | Newer (Sept 2024 vs Aug 2024), better recall on document images per ColPali authors' own benchmarks, smaller weights (~2.2 GB vs 5.5 GB so cheaper to load on Modal cold-start), API-shape-compatible (both produce 128-dim per-token multi-vectors). Reversible — STUB_MODEL_NAME constant in modal-stub.ts is a one-line flip if a future benchmark on aircraft logbooks reverses the call. |
 | 2026-05-08 | Modal for production GPU host, Colab Pro for one-shot 351-doc backfill | Two distinct lifecycle moments. Modal: pay-per-second runtime inference, cold-start ~10s on T4, scales to zero when idle (~$0.0004 per page on a T4 — ~$94 to embed all 351 docs assuming 7 pages avg, but in practice we only embed pages the OCR pipeline scored low-confidence on, ~50–100 docs subset). Colab Pro: $10/mo for the initial backfill notebook that runs the embedding job once with a tunneled API; cheaper than Modal for a single batch run, but not appropriate for live retrieval. The two play well together — Colab handles the backfill, Modal handles ongoing per-document indexing. VISION_GPU_HOST env var swaps between them. |
 | 2026-05-08 | Phase 8 second-half setup — migrations 098 + 099 APPLIED to production via tsx + pg one-shot | Same pattern that landed migrations 096 + 097 earlier this session. Verification: 3 tables present (vision_pages 15 cols, vision_index_jobs 11 cols, vision_embeddings 9 cols), pgvector 0.8.0 active, HNSW index `vision_embeddings_summary_hnsw` confirmed on summary_vector. Storage bucket `vision-pages` created via direct INSERT into storage.buckets (public=false). |
+| 2026-05-09 | Pricing tiers locked: Beta (free) / Standard ($99/$79/$59 per aircraft) / Pro ($149/$129/$109 per aircraft) with volume tiers at 1-5/6-15/16+ aircraft. Pro = Standard + $50 across all brackets. Expert A&P review $150/hr + Standard QA $50/hr deferred to v2. | Andy + planning session. Locked into apps/web/lib/billing/pricing-config.ts as the single source of truth. Marketing pages, code routing logic, terms — all derive from that file. Master kill-switch at organizations.tier_billing_disabled (default true; flip per org when v1 launches). Human-review billing kill-switch at HUMAN_REVIEW_BILLING_ENABLED env var (default false; flip when v2 launches). |
 ```
+
+---
+
+## 12. Pricing Strategy (LOCKED — do not modify without Andy's explicit approval)
+
+**This section is the source of truth for the per-aircraft tier model.** Code, marketing pages, terms — all read from `apps/web/lib/billing/pricing-config.ts`. Any future Claude Code session that wants to change pricing must (1) get Andy's explicit approval and (2) update this section + the config file together.
+
+### Tier Names (customer-facing)
+- **"Standard"** — batch processing, 24-hour SLA
+- **"Pro"** — real-time processing, 5-15 minute SLA
+- **"Beta"** — current state, everything free
+
+### Volume Pricing (per aircraft per month)
+
+**Standard tier:**
+- 1-5 aircraft: $99/aircraft
+- 6-15 aircraft: $79/aircraft
+- 16+ aircraft: $59/aircraft
+
+**Pro tier (Standard + $50):**
+- 1-5 aircraft: $149/aircraft
+- 6-15 aircraft: $129/aircraft
+- 16+ aircraft: $109/aircraft
+
+### What customers get on each tier
+- **Standard**: All features. Documents searchable within 24 hours of upload. Nightly batch processing at 02:00 UTC.
+- **Pro**: All features. Documents searchable in minutes. Real-time embedding pipeline.
+- **Beta**: Identical to Pro for now (real-time). No billing.
+
+### Human Review (DESIGNED, NOT BILLED in v1)
+Workflow visible in UI; pricing displayed for transparency; toggle to charge is OFF until v2.
+
+Two review types:
+- **"Standard QA Review"** — $50/hr — general accuracy, typo correction
+- **"Expert A&P Verification"** — $150/hr — A&P/IA reviews handwritten logbooks, regulatory verification
+
+User flow:
+1. Document uploaded
+2. System runs handwriting detection (ColQwen2 patch heuristic OR Claude Vision pre-flight)
+3. If handwritten % > 30%: show banner "We detected X% handwritten content. Recommended: Expert A&P Verification, estimated <hours> hrs × $150/hr = $<total>"
+4. User clicks: Accept / Decline / Request Standard QA instead
+5. If accepted: doc enters review queue; an admin/A&P processes it; user sees status: "Pending Expert Review (est completion: <date>)"
+6. **NOTE FOR V1**: Steps 1-5 work as workflow. Step 6 (charging) is gated by feature flag `HUMAN_REVIEW_BILLING_ENABLED=false`.
+
+### SLA Promises (customer-facing copy)
+- **Standard**: "Your documents will be searchable within 24 hours of upload. Most are processed by 06:00 in your time zone the morning after upload."
+- **Pro**: "Your documents will be searchable in 5-15 minutes after upload. You'll see live progress while we index them."
+- **Both**: "If a document needs Expert Verification (handwritten logbooks etc.), we'll show an estimate before any work or billing begins."
+
+### Soft Cap on Pro Tier
+- Documents over 200 pages process in batch regardless of tier (prevents single 500-page logbook eating an entire month's GPU margin).
+- User sees: "This document is large (XXX pages). It'll be ready by tomorrow morning even on Pro tier."
+
+### Beta → Launch Plan
+- **Beta** (current): free, everything Pro
+- **Launch v1**: Standard + Pro live. No human review billing.
+- **Launch v2** (after 10+ paying customers): human review billing turns on
+- **Launch v3** (50+ customers): negotiated enterprise tiers
+
+### Source-of-truth references
+- Pricing config: `apps/web/lib/billing/pricing-config.ts` — any change MUST go through that file
+- Marketing pages: `/pricing`, `/terms`, `/privacy`, `/security` — all auto-derive from the config; never hardcode prices in HTML
+- DB:
+  - `organizations.tier` (default 'beta') — source of truth for org's tier
+  - `organizations.tier_billing_disabled` (default true) — master kill-switch; while true, code's `getEffectiveTier()` collapses to 'beta'
+  - `aircraft.tier_override` — per-aircraft override
+  - `tier_history` table — audit trail
+  - `vision_index_jobs.scheduled_for` — when a doc becomes ready to process (Pro/Beta = NOW; Standard = next 02:00 UTC; >200 pages always batch)
+  - `documents.handwriting_pct` + `documents.suggests_review` — handwriting detector output
+  - `document_review_requests` — workflow rows for human review (v1: workflow only)
+- Tier billing kill-switch: `organizations.tier_billing_disabled` (default true; flip per org when v1 launches)
+- Human review billing kill-switch: `HUMAN_REVIEW_BILLING_ENABLED` env var (default false; flip when v2 launches)
+
+### Hard Rule (also in Section 4)
+
+**Pricing config (`lib/billing/pricing-config.ts`) is the single source of truth.** Marketing pages, code logic, terms, all derive from it. Never hardcode prices anywhere.
