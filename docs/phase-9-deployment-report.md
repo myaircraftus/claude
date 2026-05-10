@@ -7,6 +7,17 @@ billing cap); Colab Pro completed the remaining 8,614 pages in Phase 10
 (see § Phase 10 below). Retrieval verified with real queries against
 the production index.
 
+**Latest (2026-05-09 Phase 15.5 cleanup):**
+- vision_pages.indexed = 11,724 (+2,966 since Phase 9.H baseline)
+- vision_pages.pending = 3,742 (queued for next embedding sweep)
+- vision_pages.embedding = 245 (active, all <1h old after stale cleanup)
+- vision_pages.failed = 802
+- vision_embeddings = 12,970 rows live in HNSW index
+- 117 stalled-in-embedding pages flipped to 'indexed' (their embeddings
+  had completed but the page status field got stuck — Phase 15.5 Task 5).
+- 566 stalled-and-missing-embedding pages reset to 'pending' so the
+  queue worker can re-pick them.
+
 **Date:** 2026-05-08 (Phase 9) → 2026-05-09 (Phase 10)
 **Branch:** main
 **Modal app:** `aircraft-vision-worker` in workspace `info-35149`
