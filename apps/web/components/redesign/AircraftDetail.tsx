@@ -492,9 +492,15 @@ export function AircraftDetail({ aircraftId, aircraftTail, aircraft }: AircraftD
   const askHref = aircraftId
     ? `/ask?aircraft=${encodeURIComponent(aircraftId)}`
     : '/ask';
+  // Phase 15.5 F7 — was pointing at the legacy /documents/upload page.
+  // Now lands on the docs listing filtered by aircraft, where the
+  // Phase 13.2 PersonaAwareUploadButton (with SLA banner + persona-
+  // scoped category list) is visible at the top of the page. Single
+  // extra click for the user; no more legacy upload form for aircraft-
+  // owned docs.
   const uploadHref = aircraftId
-    ? `/documents/upload?aircraft=${encodeURIComponent(aircraftId)}`
-    : `/documents/upload?aircraft_tail=${encodeURIComponent(tail)}`;
+    ? `/documents?aircraft=${encodeURIComponent(aircraftId)}`
+    : `/documents?aircraft_tail=${encodeURIComponent(tail)}`;
   const fallbackSquawks = useMemo(() => SQUAWKS_DB[tail] || [], [tail]);
   const reminders = REMINDERS_DB[tail] || [];
   const assignments = ASSIGNMENTS_DB[tail] || [];

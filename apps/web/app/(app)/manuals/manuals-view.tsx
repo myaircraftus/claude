@@ -21,7 +21,9 @@ import { cn, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SlaBanner } from '@/components/billing/SlaBanner'
 import type { Document, DocType } from '@/types'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 
 interface AircraftOption {
   id: string
@@ -49,9 +51,11 @@ type ManualDoc = Document & {
 interface ManualsViewProps {
   manuals: Document[]
   aircraft: AircraftOption[]
+  /** Org's effective tier — drives the SLA banner copy on the upload modal (Phase 15.5 F5). */
+  effectiveTier?: TierSlug
 }
 
-export function ManualsView({ manuals: initialManuals, aircraft }: ManualsViewProps) {
+export function ManualsView({ manuals: initialManuals, aircraft, effectiveTier = 'beta' }: ManualsViewProps) {
   const [manuals, setManuals] = useState<ManualDoc[]>(initialManuals as ManualDoc[])
   const [activeCategory, setActiveCategory] = useState<DocType | 'all'>('all')
   const [searchQ, setSearchQ] = useState('')
@@ -282,6 +286,7 @@ export function ManualsView({ manuals: initialManuals, aircraft }: ManualsViewPr
         <UploadManualModal
           aircraft={aircraft}
           defaultDocType={activeCategory === 'all' ? 'maintenance_manual' : activeCategory}
+          effectiveTier={effectiveTier}
           onClose={() => setShowUpload(false)}
           onUploaded={() => {
             setShowUpload(false)
@@ -298,11 +303,13 @@ export function ManualsView({ manuals: initialManuals, aircraft }: ManualsViewPr
 function UploadManualModal({
   aircraft,
   defaultDocType,
+  effectiveTier,
   onClose,
   onUploaded,
 }: {
   aircraft: AircraftOption[]
   defaultDocType: DocType
+  effectiveTier: TierSlug
   onClose: () => void
   onUploaded: () => void
 }) {
@@ -383,6 +390,10 @@ function UploadManualModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Phase 14 SLA banner — same component the /documents
+              PersonaAwareUploadModal mounts (Phase 15.5 F5 fix). */}
+          <SlaBanner tier={effectiveTier} />
+
           {/* File picker */}
           <div className="space-y-1.5">
             <Label className="text-[11px] uppercase tracking-wide text-muted-foreground" style={{ fontWeight: 600 }}>

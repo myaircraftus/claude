@@ -1,7 +1,10 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { ManualsView } from './manuals-view'
+import { getOrgTier } from '@/lib/billing/tier-service'
+import { createServiceSupabase } from '@/lib/supabase/server'
 import type { Document, DocType } from '@/types'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 
 export const metadata = { title: 'Manuals' }
 
@@ -33,6 +36,15 @@ export default async function ManualsPage() {
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
 
+  // Phase 14 SLA banner needs the org's effective tier — same source the
+  // /documents PersonaAwareUploadModal uses (Phase 15.5 F5 fix).
+  let effectiveTier: TierSlug = 'beta'
+  try {
+    effectiveTier = await getOrgTier(createServiceSupabase() as any, orgId)
+  } catch {
+    /* fall back to 'beta' default — page still renders */
+  }
+
   const [manualsRes, aircraftRes] = await Promise.all([
     supabase
       .from('documents')
@@ -63,6 +75,7 @@ export default async function ManualsPage() {
         <ManualsView
           manuals={(manualsRes.data ?? []) as unknown as Document[]}
           aircraft={(aircraftRes.data ?? []) as Array<{ id: string; tail_number: string; make: string | null; model: string | null; year: number | null }>}
+          effectiveTier={effectiveTier}
         />
       </main>
     </div>

@@ -151,7 +151,7 @@ deliverables that are functioning correctly in production:
   customers have hit this yet (sidebar hides the links; production org
   count = 3, only the platform admin's QA org has activity).
 
-#### F3: persona switcher missing Shop tab
+#### F3: persona switcher missing Shop tab — ✅ FIXED in dc212fa
 
 - **Detail**: see [phase-15-shop-walkthrough.md](./phase-15-shop-walkthrough.md)
 - **Source**: `apps/web/components/shared/persona-switcher.tsx` (or wherever
@@ -170,20 +170,20 @@ deliverables that are functioning correctly in production:
 
 ### 🟡 P2
 
-#### F5: /manuals upload modal missing Phase 14 SLA banner
+#### F5: /manuals upload modal missing Phase 14 SLA banner — ✅ FIXED in Phase 15.5 Task 3
 
 - **Detail**: see [phase-15-mechanic-walkthrough.md](./phase-15-mechanic-walkthrough.md)
 - **Source**: the /manuals upload modal component
 - **Fix path**: import + render `<TierSlaBanner />` like Phase 13.2 modal.
 
-#### F6: /approvals shows shop-perspective for Owner
+#### F6: /approvals shows shop-perspective for Owner — ✅ FIXED in Phase 15.5 Task 3
 
 - **Detail**: see [phase-15-owner-walkthrough.md](./phase-15-owner-walkthrough.md)
 - **Source**: `apps/web/app/approvals/page.tsx`
 - **Fix path**: persona branch — Owner view = "Approvals waiting on me",
   Shop view = "Send quoted work to customers".
 
-#### F7: aircraft detail Upload button uses legacy /documents/upload
+#### F7: aircraft detail Upload button uses legacy /documents/upload — ✅ FIXED in Phase 15.5 Task 3
 
 - **Detail**: see [phase-15-owner-walkthrough.md](./phase-15-owner-walkthrough.md)
 - **Source**: `apps/web/app/aircraft/[id]/page.tsx` action-bar

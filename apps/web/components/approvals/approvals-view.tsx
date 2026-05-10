@@ -12,7 +12,7 @@ import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ApprovalForm } from './approval-form'
-import type { ApprovalRequest, ApprovalRequestStatus, ApprovalLineItem, OrgRole } from '@/types'
+import type { ApprovalRequest, ApprovalRequestStatus, ApprovalLineItem, OrgRole, Persona } from '@/types'
 
 const READ_ONLY_ROLES = new Set<OrgRole>(['viewer', 'auditor', 'pilot'])
 
@@ -37,8 +37,12 @@ interface CustomerLite { id: string; name: string }
 
 type FullRequest = ApprovalRequest & { line_items: ApprovalLineItem[] }
 
-export function ApprovalsView({ userRole }: { userRole: OrgRole }) {
+export function ApprovalsView({ userRole, persona }: { userRole: OrgRole; persona?: Persona }) {
   const canMutate = !READ_ONLY_ROLES.has(userRole)
+  // Phase 15.5 F6 — owner persona gets the receiving framing
+  // ("Approvals waiting on me"), shop/mechanic/admin keep the original
+  // sending framing ("Send quoted work to customers …").
+  const isOwnerView = persona === 'owner'
   const [requests, setRequests] = useState<FullRequest[]>([])
   const [aircraft, setAircraft] = useState<AircraftLite[]>([])
   const [customers, setCustomers] = useState<CustomerLite[]>([])
@@ -95,14 +99,17 @@ export function ApprovalsView({ userRole }: { userRole: OrgRole }) {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-[22px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>
-            Customer Approvals
+            {isOwnerView ? 'Approvals' : 'Customer Approvals'}
           </h1>
           <p className="text-[13px] text-muted-foreground mt-1">
-            Send quoted work to customers for per-line approval. They approve, deny,
-            or defer each item via a public link — no login required.
+            {isOwnerView
+              ? 'Quoted work waiting for your approval. Each line can be approved, declined, or deferred — your shop sees responses immediately.'
+              : 'Send quoted work to customers for per-line approval. They approve, deny, or defer each item via a public link — no login required.'}
           </p>
         </div>
-        {canMutate && !creating && (
+        {/* Owner persona doesn't create approvals (shop does), so the
+            "+ New approval" button is hidden in the owner view. */}
+        {canMutate && !isOwnerView && !creating && (
           <Button onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             New approval

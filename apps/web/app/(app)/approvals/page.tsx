@@ -1,4 +1,5 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { ApprovalsView } from '@/components/approvals/approvals-view'
 import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
@@ -13,11 +14,12 @@ export const metadata = { title: 'Customer Approvals' }
  */
 export default async function ApprovalsListPage() {
   const { profile, membership } = await requireAppServerSession()
+  const { persona } = await getCurrentPersona()
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar profile={profile} breadcrumbs={[{ label: 'Approvals' }]} />
       <main className="flex-1 overflow-y-auto">
-        <ApprovalsView userRole={membership.role as OrgRole} />
+        <ApprovalsView userRole={membership.role as OrgRole} persona={persona} />
         {/* Spec polish.bulk-ui-rollout — multi-select + bulk patch panel. */}
         <div className="px-6 pb-6 max-w-4xl mx-auto"><EntityBulkPanel entityType="approval_requests" /></div>
       </main>
