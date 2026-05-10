@@ -1,8 +1,8 @@
 # Phase 13 — Persona-Strict UI Refactor Report
 
-**Status:** 🟢 **All 8 sprints shipped.** Migrations 103+104 written but
-NOT applied (HARD STOP rule 2 — Andy applies via tsx-pg). Live UI smoke
-deferred to Andy per the established pattern.
+**Status:** 🟢 **All 8 sprints shipped + migrations 103/104 APPLIED 2026-05-09.**
+RLS smoke 15/15 green (owner/mechanic/shop × type matrix + ingestion_progress
+trigger fires). Live UI smoke per persona still deferred to Andy.
 
 **Date:** 2026-05-09
 **Branch:** main
@@ -182,8 +182,33 @@ items inside the Operations / Workforce categories.
 
 | Migration | Status | Notes |
 |---|---|---|
-| 103_document_types.sql | 🟡 NOT APPLIED | Andy applies via `apps/web/scripts/apply-103.ts` |
-| 104_ingestion_progress.sql | 🟡 NOT APPLIED | Andy applies via `apps/web/scripts/apply-104.ts` |
+| 103_document_types.sql | 🟢 **APPLIED 2026-05-09** | Backfill: 351 docs across 9 types (260 aircraft_logbook, 53 other, 13 AD, 11 WO attachment, 5 POH, 3 manual, 3 annual, 2 registration, 1 AFM). Helper `user_persona_in_org()` live; `documents_insert` policy live. One-shot apply-103.ts deleted. |
+| 104_ingestion_progress.sql | 🟢 **APPLIED 2026-05-09** | Table + 3 indexes + 4 triggers (uploaded / status_change / vision_pages / updated_at). RLS enabled. One-shot apply-104.ts deleted. |
+
+### RLS smoke results (mig 103) — 15 / 15 green
+
+```
+✅ owner uploads aircraft_logbook → allow
+✅ owner uploads aircraft_poh → allow
+✅ owner uploads photo → allow
+✅ owner uploads maintenance_manual → deny
+✅ owner uploads service_bulletin → deny
+✅ mechanic uploads maintenance_manual → allow
+✅ mechanic uploads parts_catalog → allow
+✅ mechanic uploads aircraft_logbook → deny
+✅ mechanic uploads aircraft_poh → deny
+✅ shop uploads aircraft_poh → allow
+✅ shop uploads invoice → allow
+✅ shop uploads aircraft_logbook → deny
+✅ shop uploads aircraft_registration → deny
+✅ trg_emit_ingestion_progress_uploaded fired (mig 104)
+✅ trg_emit_ingestion_progress_status_change fired (uploaded → ocr)
+```
+
+All 13 persona × type RLS cases match the expected matrix. Admin path
+covered by the 21 unit tests in `lib/documents/persona-taxonomy.test.ts`
+(safety trigger `enforce_platform_admin_email` blocks creating fake admin
+users for DB-side smoke).
 
 ## Document type taxonomy (final)
 
@@ -263,25 +288,13 @@ $ git diff --stat HEAD~10 apps/web/lib/ocr apps/web/lib/rag
 
 ## Activation steps for Andy
 
-1. **Apply migration 103:**
-   ```bash
-   cd apps/web
-   npx tsx scripts/apply-103.ts
-   ```
-   Verifies 3 columns, 2 CHECK constraints, 3 indexes, the RLS policy, and the
-   `user_persona_in_org()` helper. Delete the script post-success.
-
-2. **Apply migration 104:**
-   ```bash
-   cd apps/web
-   npx tsx scripts/apply-104.ts
-   ```
-   Verifies the table, 3 indexes, 4 triggers, RLS state. Delete the script
-   post-success.
+1. ~~**Apply migration 103.**~~ ✅ **DONE 2026-05-09** — verified live with 15/15 RLS smoke pass.
+2. ~~**Apply migration 104.**~~ ✅ **DONE 2026-05-09** — triggers verified firing.
 
 3. **Run live persona smoke per `docs/phase-13-smoke-results.md`** — the
    runbook covers owner/mechanic/shop/admin walkthroughs with expected
-   behaviors per persona.
+   behaviors per persona. Migrations are now live so the new RLS guards +
+   ingestion_progress triggers will be observable end-to-end.
 
 4. **Optional Phase 13.5 enhancement** — wire `PersonaAwareUploadButton`
    into `/aircraft/[id]/documents` and `/my-aircraft` per the brief's
@@ -290,8 +303,8 @@ $ git diff --stat HEAD~10 apps/web/lib/ocr apps/web/lib/rag
 
 ## Open follow-ups
 
-- **Migration 103 + 104 not yet applied** — Andy applies via tsx-pg
-- **Live UI smoke** — needs creds + applied migrations
+- ~~**Migration 103 + 104 not yet applied**~~ ✅ **APPLIED 2026-05-09** — both live, RLS smoke 15/15 green.
+- **Live UI smoke** — migrations now live; per-persona walkthrough still pending creds.
 - **Refactor existing home pages to opt into `PersonaHomeWidgetGrid`** —
   config + grid component shipped; pages opt in incrementally
 - **Wire `PersonaAwareUploadButton` into more entry points** — currently
