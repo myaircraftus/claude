@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { callAnthropic } from '@/lib/ai/anthropic'
+import { sendTicketReply } from '@/lib/email/send-helpers'
 import {
   addTicketReply,
   updateTicketStatus,
@@ -474,20 +475,26 @@ async function queueEmail(
   body: string,
 ): Promise<void> {
   try {
-    await supabase.from('email_log').insert({
-      organization_id: ticket.organization_id,
-      to_email: ticket.submitter_email,
-      to_user_id: ticket.submitter_user_id,
-      subject: `Re: ${ticket.subject} [${ticket.ticket_number}]`,
-      body_text: body,
-      kind,
-      related_ticket_id: ticket.id,
-      status: 'queued',
-    })
+    await sendTicketReply(
+      supabase,
+      {
+        to_email: ticket.submitter_email,
+        to_user_id: ticket.submitter_user_id,
+        organization_id: ticket.organization_id,
+        related_ticket_id: ticket.id,
+      },
+      {
+        ticket_number: ticket.ticket_number,
+        subject: ticket.subject,
+        reply_body: body,
+        author_label: 'aircraft.us AI',
+        is_resolution: kind === 'ticket_resolution',
+        viewer_url: null,
+      },
+    )
   } catch {
-    // email_log not yet applied (migration 110) — tolerate; admin can
-    // still see the AI reply in the inbox. Real provider hand-off is
-    // deferred regardless.
+    // email_log row insert failed — tolerate; admin can still see the
+    // AI reply in the inbox. The cron worker handles real send.
   }
 }
 

@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { addTicketReply, updateTicketStatus, type SupportTicket } from '@/lib/support/tickets'
+import { sendTicketReply } from '@/lib/email/send-helpers'
 
 async function requirePlatformAdmin() {
   const supabase = createServerSupabase()
@@ -91,21 +92,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     resolution_summary: body.resolve === true ? (typeof body.resolution_summary === 'string' ? body.resolution_summary : 'Resolved by admin') : undefined,
   })
 
-  // Queue outbound email (mock — real provider deferred).
+  // Queue outbound email through the Phase 17 send helper. The cron
+  // worker (lib/email/queue-worker.ts) hands the row off to Resend.
   if (body.send_email !== false) {
     try {
-      await service.from('email_log').insert({
-        organization_id: ticket.organization_id,
-        to_email: ticket.submitter_email,
-        to_user_id: ticket.submitter_user_id,
-        subject: `Re: ${ticket.subject} [${ticket.ticket_number}]`,
-        body_text: replyBody,
-        kind: nextStatus === 'resolved' ? 'ticket_resolution' : 'ticket_reply',
-        related_ticket_id: ticket.id,
-        related_reply_id: replyResult.reply_id,
-        status: 'queued',
-      })
-    } catch { /* tolerate email_log not yet applied */ }
+      await sendTicketReply(
+        service,
+        {
+          to_email: ticket.submitter_email,
+          to_user_id: ticket.submitter_user_id,
+          organization_id: ticket.organization_id,
+          related_ticket_id: ticket.id,
+          related_reply_id: replyResult.reply_id,
+        },
+        {
+          ticket_number: ticket.ticket_number,
+          subject: ticket.subject,
+          reply_body: replyBody,
+          author_label: 'aircraft.us team',
+          is_resolution: nextStatus === 'resolved',
+          viewer_url: null,
+        },
+      )
+    } catch { /* tolerate — admin can still see the reply in the inbox */ }
   }
 
   return NextResponse.json({ ok: true, reply_id: replyResult.reply_id, status: nextStatus })

@@ -12,6 +12,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { sendTicketReceived } from '@/lib/email/send-helpers'
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -205,7 +206,32 @@ export async function createTicket(
     .single()
 
   if (error) return { ok: false, error: error.message }
-  return { ok: true, ticket: data as SupportTicket }
+  const ticket = data as SupportTicket
+
+  // Send the ticket_received confirmation. Failure to queue the email
+  // does NOT roll back the ticket — admin can still see it in the
+  // inbox. We also tolerate the helper throwing (defensive belt against
+  // a schema mismatch in dev).
+  try {
+    await sendTicketReceived(
+      supabase,
+      {
+        to_email: ticket.submitter_email,
+        to_user_id: ticket.submitter_user_id,
+        organization_id: ticket.organization_id,
+        related_ticket_id: ticket.id,
+      },
+      {
+        ticket_number: ticket.ticket_number,
+        subject: ticket.subject,
+        severity: ticket.severity,
+        sla_window: describeSlaWindow(ticket.severity),
+        viewer_url: null,  // public-link generation is a follow-up
+      },
+    )
+  } catch { /* tolerate — see comment above */ }
+
+  return { ok: true, ticket }
 }
 
 function applyFilters<Q extends { in: any; eq: any; gte: any; lte: any; or: any; is: any; range: any; order: any }>(
