@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { requireRole } from '@/lib/auth/require-role'
 import { ADMIN_AND_ABOVE } from '@/lib/roles'
+import { SupportBanner } from '@/components/admin/SupportBanner'
 
 /**
  * Server-side gate for /admin and all /admin/* routes.
@@ -62,5 +63,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect('/dashboard')
   }
 
-  return <>{children}</>
+  return (
+    <>
+      <SupportBanner />
+      {children}
+    </>
+  )
 }
