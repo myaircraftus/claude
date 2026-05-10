@@ -30,7 +30,10 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import type { ContentType } from '@/lib/marketing/content'
+// IMPORTANT: import types from content-types (pure module), NOT content.ts.
+// content.ts imports lib/supabase/server which uses next/headers — pulling
+// that into a 'use client' Component breaks the Next.js build.
+import type { ContentType } from '@/lib/marketing/content-types'
 import { toEmbedUrl } from '@/lib/marketing/embed'
 import type { ContentDefault } from '@/lib/marketing/defaults'
 

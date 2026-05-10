@@ -1,5 +1,16 @@
 import { createServerSupabase } from '@/lib/supabase/server'
 
+// Re-export the pure type & constant definitions from content-types so
+// existing server-side callers don't need to change their import paths.
+// Client Components must import directly from './content-types' to
+// avoid pulling the server-only createServerSupabase into the bundle.
+export {
+  MARKETING_PAGES,
+  CONTENT_TYPES,
+  type MarketingPage,
+  type ContentType,
+} from './content-types'
+
 /**
  * Fetch CMS-managed content for a marketing page.
  * Falls back to the provided `defaults` record when a slot has no DB override
@@ -52,34 +63,5 @@ export async function getContent(
 
   return result
 }
-
-/** All marketing pages managed by the CMS. Keep in sync with admin UI. */
-export const MARKETING_PAGES = [
-  'home',
-  'about',
-  'features',
-  'pricing',
-  'scanning',
-  'contact',
-  'privacy',
-  'terms',
-  'blog',
-  'brand',
-] as const
-
-export type MarketingPage = (typeof MARKETING_PAGES)[number]
-
-export const CONTENT_TYPES = [
-  'text',
-  'rich_text',
-  'image',
-  'video',
-  'embed',
-  'link',
-  'number',
-  'json',
-] as const
-
-export type ContentType = (typeof CONTENT_TYPES)[number]
 
 export { toEmbedUrl } from './embed'
