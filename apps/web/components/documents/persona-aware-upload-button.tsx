@@ -24,6 +24,7 @@ import {
   type AircraftOption,
 } from './persona-aware-upload-modal'
 import type { DocumentCategory, DocumentType } from '@/lib/documents/persona-taxonomy'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 
 export interface PersonaAwareUploadButtonProps {
   persona: Persona
@@ -37,6 +38,8 @@ export interface PersonaAwareUploadButtonProps {
   variant?: 'default' | 'outline' | 'secondary' | 'ghost'
   size?: 'default' | 'sm' | 'lg'
   onUploaded?: (documentId: string, documentType: DocumentType) => void
+  /** Phase 14 — effective tier for the SLA banner inside the modal. */
+  effectiveTier?: TierSlug
 }
 
 export function PersonaAwareUploadButton({
@@ -49,6 +52,7 @@ export function PersonaAwareUploadButton({
   variant = 'default',
   size = 'default',
   onUploaded,
+  effectiveTier,
 }: PersonaAwareUploadButtonProps) {
   const [open, setOpen] = useState(false)
   const buttonLabel = label ?? defaultLabelForPersona(persona)
@@ -68,6 +72,7 @@ export function PersonaAwareUploadButton({
         open={open}
         onOpenChange={setOpen}
         onUploaded={onUploaded}
+        effectiveTier={effectiveTier}
       />
     </>
   )

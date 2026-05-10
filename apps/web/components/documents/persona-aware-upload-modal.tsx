@@ -41,6 +41,8 @@ import {
   type DocumentCategory,
   type DocumentType,
 } from '@/lib/documents/persona-taxonomy'
+import { SlaBanner } from '@/components/billing/SlaBanner'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -81,6 +83,8 @@ export interface PersonaAwareUploadModalProps {
   onUploaded?: (documentId: string, documentType: DocumentType) => void
   /** Org id is needed by the server contract. */
   organizationId: string
+  /** Phase 14: effective tier for the SLA banner. Optional — defaults to beta. */
+  effectiveTier?: TierSlug
 }
 
 interface UploadStatus {
@@ -98,6 +102,7 @@ export function PersonaAwareUploadModal({
   onOpenChange,
   onUploaded,
   organizationId,
+  effectiveTier = 'beta',
 }: PersonaAwareUploadModalProps) {
   const allowedCategories = useMemo(() => getAllowedCategories(persona), [persona])
   const initialCategory: DocumentCategory =
@@ -207,6 +212,9 @@ export function PersonaAwareUploadModal({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Phase 14: tier-aware SLA banner above the picker. */}
+          <SlaBanner tier={effectiveTier} />
+
           {/* Category accordion — persona-filtered. */}
           <div>
             <Label>Category</Label>

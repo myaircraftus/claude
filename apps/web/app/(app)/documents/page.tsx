@@ -5,6 +5,8 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { PersonaAwareUploadButton } from '@/components/documents/persona-aware-upload-button'
+import { getOrgTier } from '@/lib/billing/tier-service'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 import { Topbar } from '@/components/shared/topbar'
 import { DocumentsTable } from '@/components/documents/documents-table'
 import { CameraButton } from '@/components/camera/CameraButton'
@@ -418,6 +420,15 @@ export default async function DocumentsPage({
     display: a.tail_number,
   }))
 
+  // Phase 14: load the org's effective tier for the SLA banner. Fail-safe
+  // to beta if the call errors (matches default for new/missing orgs).
+  let effectiveTier: TierSlug = 'beta'
+  try {
+    effectiveTier = await getOrgTier(serviceClient as any, orgId)
+  } catch {
+    // ignore — beta default already set
+  }
+
   // ── Build documents query with filters ────────────────────────────────────
   let query = supabase
     .from('documents')
@@ -555,6 +566,7 @@ export default async function DocumentsPage({
               persona={phase13Persona}
               organizationId={orgId}
               aircraftOptions={aircraftOptions}
+              effectiveTier={effectiveTier}
               size="sm"
             />
             {/* Legacy upload page kept for the structured 4-level taxonomy
