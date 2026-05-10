@@ -92,14 +92,36 @@ deliverables that are functioning correctly in production:
 
 ### 🔴 P0 (release-blocking)
 
-#### F1: /admin/\* unreachable for platform admin
+#### F1: /admin/\* unreachable for platform admin — ✅ RESOLVED
 
 - **Detail**: see [phase-15-admin-walkthrough.md](./phase-15-admin-walkthrough.md)
 - **Source**: `apps/web/app/(app)/admin/layout.tsx`
-- **Fix path**: identify schema-of-record for is_platform_admin flag
-  (`auth.users.raw_user_meta_data` or new `user_profiles` table or
-  `organization_memberships.role='platform_admin'`); rewrite layout query
-  accordingly; add try/catch + Sentry log so future schema drift is visible.
+- **Resolution (Phase 15.5)**:
+  - **F1 was a misdiagnosis.** The schema and query in `admin/layout.tsx`
+    are correct. `user_profiles.is_platform_admin` is the canonical
+    column (migration 002).
+  - **Real cause**: a production trigger
+    `trg_enforce_platform_admin_email` (function
+    `enforce_platform_admin_email()`, SECURITY DEFINER) raises
+    `EXCEPTION ... USING ERRCODE='check_violation'` when
+    `is_platform_admin=true` is set on any account whose email isn't
+    in a hard-coded whitelist. The trigger was applied directly to
+    production and existed in NO local migration.
+  - The QA Chrome session was logged in as `andy@horf.us`, NOT
+    `info@myaircraft.us`. Per the trigger, andy@horf.us could not be
+    elevated. /admin redirected — correctly per the auth model — but
+    the redirect was silent.
+  - **Fixed in commit `7ffc761`**: silent redirect → `console.warn` with
+    cause (no profile / lookup error / not platform admin), so any
+    future redirect investigation is one log line away.
+  - **Fixed in migration 114** (`de32cdd`): trigger function whitelist
+    expanded from `info@myaircraft.us` only → `info@myaircraft.us` +
+    `andy@horf.us`. Both the trigger and function are now captured in
+    a local migration file. `andy@horf.us` is_platform_admin is
+    flipped to true in the same migration. tier_history audit row
+    inserted with the elevation reason.
+  - **Andy applies**: `cd apps/web && npx tsx scripts/apply-114.ts`.
+    Then logs out / in to refresh the cached JWT.
 
 #### F2: persona-strict guards bypassed for platform admin
 
