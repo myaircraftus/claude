@@ -409,6 +409,9 @@ function AppLayoutInner({
     // Phase 13.3 — global ingestion progress + error log.
     { icon: AlertTriangle,  label: "Ingestion Progress", href: "/admin/ingestion/progress" },
     { icon: AlertTriangle,  label: "Errors",           href: "/admin/errors" },
+    // Phase 14 Sprint 14.5 — billing tier management.
+    { icon: DollarSign,     label: "Billing — Batch",  href: "/admin/billing/batch" },
+    { icon: DollarSign,     label: "Billing — Orgs",   href: "/admin/billing/orgs" },
     // Phase 8 Sprint 8.4 — vision-RAG operational dashboard.
     { icon: Eye,            label: "Vision Index",     href: "/admin/vision" },
     { icon: FileText,       label: "Marketing CMS",    href: "/admin/content" },
