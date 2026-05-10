@@ -9,7 +9,10 @@
  * pre-login.
  */
 import { useEffect } from 'react'
-import { installClientErrorHandlers } from '@/lib/observability/error-capture'
+// IMPORTANT: import from client-handlers (pure module), NOT error-capture.
+// error-capture.ts imports lib/supabase/server which uses next/headers —
+// pulling that into this 'use client' Component breaks the Next.js build.
+import { installClientErrorHandlers } from '@/lib/observability/client-handlers'
 
 export function ClientErrorBoundary({ persona }: { persona?: string | null }) {
   useEffect(() => {
