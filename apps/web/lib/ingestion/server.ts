@@ -2129,6 +2129,10 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           documentId,
           organizationId: (document as any).organization_id,
           pageCount: pageCountForVision,
+          // Phase 14: pass aircraft_id so the dispatcher can resolve the
+          // tier (aircraft override > org tier). null when the doc isn't
+          // tied to an aircraft (reference manual etc.).
+          aircraftId: (document as any).aircraft_id ?? null,
         })
         if (result.enqueued) {
           console.log(

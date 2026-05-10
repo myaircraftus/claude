@@ -73,13 +73,17 @@ export async function GET(req: NextRequest) {
     console.warn('[fallback-sweep] countAvailableWorkers error', err)
   }
 
-  // 2. Find stuck-queued jobs.
+  // 2. Find stuck-queued jobs. Phase 14: also gate on scheduled_for —
+  //    don't fall over to Modal for a Standard-tier job that's still
+  //    waiting for its 02:00 UTC batch window.
   const stuckQueuedCutoff = new Date(Date.now() - STUCK_QUEUED_MIN * 60_000).toISOString()
+  const nowIso = new Date().toISOString()
   const { data: stuckQueued } = await service
     .from('vision_index_jobs')
-    .select('id, organization_id, vision_page_ids, created_at')
+    .select('id, organization_id, vision_page_ids, created_at, scheduled_for')
     .eq('status', 'queued')
     .lt('created_at', stuckQueuedCutoff)
+    .lte('scheduled_for', nowIso)
     .order('created_at', { ascending: true })
     .limit(MAX_DISPATCHES_PER_TICK)
   result.swept_queued = (stuckQueued ?? []).length

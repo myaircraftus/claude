@@ -17,6 +17,9 @@
  * for one specific page).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getOrgTier, getAircraftTier } from '@/lib/billing/tier-service'
+import { computeScheduledFor } from './dispatch-scheduler'
+import type { TierSlug } from '@/lib/billing/pricing-config'
 
 export interface AutoDispatchInput {
   /** The document that just finished ingestion. */
@@ -24,6 +27,12 @@ export interface AutoDispatchInput {
   organizationId: string
   /** Page count from documents.page_count (post-OCR). Required. */
   pageCount: number
+  /**
+   * Optional aircraft id. When set, the dispatcher resolves the
+   * effective tier via getAircraftTier (which honors the per-aircraft
+   * override). When null/undefined, falls back to the org's tier.
+   */
+  aircraftId?: string | null
 }
 
 export interface AutoDispatchResult {
@@ -110,6 +119,25 @@ export async function enqueueDocumentForVision(
     throw new Error('enqueueDocumentForVision: pages inserted but no IDs returned')
   }
 
+  // Resolve the effective tier (Phase 14). Aircraft override > org tier;
+  // org's tier_billing_disabled kill-switch collapses to beta if set.
+  // We swallow tier-lookup errors to fail-safe to beta — never break
+  // ingestion because of a tier resolution bug.
+  let effectiveTier: TierSlug = 'beta'
+  try {
+    if (input.aircraftId) {
+      effectiveTier = await getAircraftTier(supabase, input.aircraftId)
+    } else {
+      effectiveTier = await getOrgTier(supabase, input.organizationId)
+    }
+  } catch (err) {
+    console.warn('[auto-dispatch] tier resolution failed, defaulting to beta:', err)
+  }
+
+  // Tier + page-count → scheduled_for. Pro/Beta + small doc = NOW();
+  // Standard or any-tier + >200 pages = next 02:00 UTC.
+  const scheduledFor = computeScheduledFor(effectiveTier, input.pageCount)
+
   // Create the vision_index_jobs row. status='queued' is what the
   // Colab queue worker polls for.
   const { data: job, error: jobErr } = await supabase
@@ -118,6 +146,7 @@ export async function enqueueDocumentForVision(
       organization_id: input.organizationId,
       vision_page_ids: visionPageIds,
       status: 'queued',
+      scheduled_for: scheduledFor,
       // gpu_host left null — whichever worker claims it fills this in.
     })
     .select('id')
