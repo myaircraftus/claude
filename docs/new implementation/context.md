@@ -45,6 +45,8 @@ The full implementation spec lives at:
 
 ## 5. Current sprint
 
+**Sprint:** **Phase 16 paused mid-Sprint 16.1** — ops command center build was interrupted to ship Phase 15 F1+F3 hot-fixes (admin/layout silent-redirect logging + Shop tab in persona switcher), now both live on `main`. Sprint 16.1 (unified ops spine + inbox view) is **code committed (`95930a9`)** but **migration 109 NOT applied** due to a schema conflict with a pre-existing `support_tickets` table from commit `9cc7e10` (April Codex snapshot). See [phase-16-recovery-inventory.md](../phase-16-recovery-inventory.md) and [phase-16-resume-prompt-context.md](../phase-16-resume-prompt-context.md) before resuming. Sprints 16.2–16.12 not started. F2 (persona-strict bypass) still pending Andy's design call. Test suite green at 575/575.
+
 **Sprint:** Open — stub-layer-batch just shipped. **Spec is now 50/50.** 5.2 (AI Inbox filters) is the only remaining feature.
 **Spec section:** Stub layer for credential-blocked features (3.3 + 4.1 + 4.2 + 4.4 + 5.7 + 6.3)
 **Status:** All 6 credential-blocked features ship with mock clients matching real-API shapes. Stripe (6.3), QBO (3.3 + 5.7), Airbly (4.1), FSP (4.2), and multi-source telemetry inference (4.4) all work end-to-end via mock data; flipping `*_USE_MOCK=false` + dropping credentials swaps to live integrations with zero UI rework.
@@ -239,6 +241,8 @@ _Append a one-line entry per completed sprint. Keep newest at top._
 _List anything you're waiting on Andy for. Anything that came up during a sprint that needs human judgment._
 
 ```
+- [ ] **(Phase 16 BLOCKING)** `support_tickets` schema reconciliation — migration 109 from Sprint 16.1 cannot apply because a pre-existing `support_tickets` table (commit `9cc7e10`, April Codex snapshot, 0 rows) has incompatible text-only schema. Three options in `docs/phase-16-recovery-inventory.md`. Recommended: drop+recreate (4 referencing files get rewritten in Sprint 16.2 anyway). MUST resolve before any Phase 16 resume.
+- [ ] **(Phase 15 F2)** Persona-strict guards × `is_platform_admin` interaction — owner persona reaches `/scheduler`, `/work-orders`, `/clock`, `/admin → /dashboard` instead of `/my-aircraft` when admin uses the system. Two paths: A=defensive (persona-strict wins), B=documented bypass with banner+audit. Andy decides before Phase 16.4 lands.
 - [ ] (example) Need Airbly API key — Andy to create developer account
 - [ ] (example) Need Stripe account for Phase 6.3
 - [ ] (0a follow-up) Filter-by-location dropdown on Aircraft / Work Orders / Invoices / Documents lists — `active_location_id` cookie + /api/me/active-location route exist; consumers not yet wired
@@ -424,6 +428,10 @@ _Append a table after each sprint listing the files created/modified. Helps futu
 ```
 | Sprint | New files | Modified files |
 |--------|-----------|----------------|
+| 2026-05-09 — Phase 16 recovery (95930a9, 7ffc761, dc212fa) | docs/phase-16-recovery-inventory.md · docs/phase-16-resume-prompt-context.md | (no migrations applied) |
+| 2026-05-09 — Phase 16 sprint 16.1 (95930a9) | supabase/migrations/109_ops_spine.sql · apps/web/lib/ops/spine.ts | (none — migration NOT applied to prod due to support_tickets schema conflict; see open decisions §8) |
+| 2026-05-09 — Phase 15 F3 (dc212fa) | (none) | apps/web/components/redesign/AppLayout.tsx (added Shop tab to persona switcher; fixed switchPersona shop branch routing to /workflow not /dashboard) |
+| 2026-05-09 — Phase 15 F1 (7ffc761) | (none) | apps/web/app/(app)/admin/layout.tsx (silent redirect → console.warn with reason; user_profiles.is_platform_admin schema confirmed correct) |
 | 2026-05-09 — Phase 14 mig apply | (no new code; one-shot apply scripts deleted) | applied 105_billing_tiers + 106_vision_jobs_scheduled_for + 107_handwriting_pct + 108_document_review_requests to production. RLS smoke 7/7 green. Baseline: 3 orgs all tier='beta' + tier_billing_disabled=true; 24 aircraft tier_override=null; tier_history empty; document_review_requests empty. |
 | 0a — Multi-Org / Multi-Location | supabase/migrations/059_locations_and_multi_org.sql · apps/web/lib/org/context.ts · apps/web/lib/org/use-org.ts · apps/web/app/api/me/orgs/route.ts · apps/web/app/api/me/active-org/route.ts · apps/web/app/api/me/active-location/route.ts · apps/web/app/api/locations/route.ts · apps/web/app/api/locations/[id]/route.ts · apps/web/app/(app)/locations/page.tsx · apps/web/app/(app)/locations/locations-view.tsx · apps/web/app/(app)/org/switch/page.tsx · apps/web/app/(app)/org/switch/org-switch-view.tsx | apps/web/types/index.ts · apps/web/components/redesign/AppLayout.tsx · apps/web/lib/auth/tenant-routing.ts (already fixed in Phase 1 debug) · apps/web/middleware.ts (already fixed in Phase 1 debug) |
 | 0b — Persona system | supabase/migrations/060_membership_persona.sql · apps/web/lib/persona/config.ts · apps/web/lib/persona/server.ts · apps/web/lib/persona/use-persona.ts · apps/web/app/api/me/persona/route.ts | apps/web/app/api/me/orgs/route.ts (embeds active_persona) · apps/web/components/redesign/AppContext.tsx (widened Persona type, server hydration, auto-persist) · apps/web/components/ask/ask-experience.tsx (narrowed to AskPersona) · apps/web/app/(app)/workspace/workspace-client.tsx (narrowed ArtifactEmptyState persona) |
