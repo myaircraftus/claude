@@ -247,10 +247,12 @@ export default async function AdminDashboardPage() {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'open'),
 
+    // Phase 15.5 Task 1.5 — open-ticket count under the new Phase 16
+    // schema (status enum: 'new'|'ai_triaging'|'awaiting_customer'|'awaiting_admin'|'resolved'|'closed').
     service
       .from('support_tickets')
       .select('id', { count: 'exact', head: true })
-      .in('status', ['open', 'triaged', 'in_progress']),
+      .in('status', ['new', 'ai_triaging', 'awaiting_customer', 'awaiting_admin']),
 
     // Stuck documents: failed + needs_ocr + queued-over-5min + stalled-parsing.
     // We fetch a superset (all statuses that can be stuck) and filter the

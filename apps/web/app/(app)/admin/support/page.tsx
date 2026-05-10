@@ -65,12 +65,33 @@ export default async function AdminSupportPage() {
     )
   }
 
+  // Phase 15.5 Task 1.5 — schema-collision shim. Reads from the new
+  // Phase 16 ops-spine schema and aliases columns back to the shape
+  // SupportTable consumes (type ← category, description ← body,
+  // user_id ← submitter_user_id). Sprint 16.2 will replace this whole
+  // page with the proper /admin/support/inbox.
   const service = createServiceSupabase()
-  const { data } = await service
+  const { data: rows } = await service
     .from('support_tickets')
-    .select('id, type, severity, status, subject, description, created_at, organization_id, organizations(name), user_id, user_profiles(full_name, email)')
+    .select(
+      'id, category, severity, status, subject, body, created_at, organization_id, organizations(name), submitter_user_id, user_profiles!support_tickets_submitter_user_id_fkey(full_name, email)'
+    )
     .order('created_at', { ascending: false })
     .limit(500)
+
+  const data = (rows ?? []).map((row: Record<string, unknown>) => ({
+    id: row.id,
+    type: row.category,
+    severity: row.severity,
+    status: row.status,
+    subject: row.subject,
+    description: row.body,
+    created_at: row.created_at,
+    organization_id: row.organization_id,
+    organizations: row.organizations,
+    user_id: row.submitter_user_id,
+    user_profiles: row.user_profiles,
+  }))
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

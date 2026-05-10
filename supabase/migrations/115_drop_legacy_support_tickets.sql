@@ -1,0 +1,35 @@
+-- Migration 115: Phase 15.5 — drop the legacy support_tickets table
+--
+-- Context: an early-prototype `support_tickets` table was created in
+-- production by commit 9cc7e10 (April Codex snapshot, 11 text columns,
+-- 0 rows). It blocked migration 109 from Phase 16 Sprint 16.1, which
+-- defines a richer enum-typed support_tickets schema for the AI ops
+-- command center.
+--
+-- Defensive probe (run pre-drop via apps/web/scripts/probe-support-
+-- tickets.ts) confirmed:
+--   - 0 rows
+--   - 0 views referencing the table
+--   - 0 incoming foreign keys
+--   - 3 RLS policies + 4 indexes that will be dropped with the table
+--
+-- Four files in apps/web/ reference the legacy schema:
+--   apps/web/app/api/support/route.ts
+--   apps/web/app/api/admin/support/route.ts
+--   apps/web/app/(app)/admin/support/page.tsx
+--   apps/web/app/(app)/admin/page.tsx (line ~251)
+--
+-- Those are updated in the same commit that lands this migration so
+-- the build doesn't break between drop and Phase 16 Sprint 16.2's
+-- full route rewrite.
+--
+-- This migration is NOT applied automatically. Andy applies via
+-- apps/web/scripts/apply-115.ts (deleted after success).
+
+DROP TABLE IF EXISTS public.support_tickets CASCADE;
+
+-- Verification (run by apply-115.ts post-COMMIT):
+--   SELECT 1 FROM information_schema.tables
+--    WHERE table_schema='public' AND table_name='support_tickets';
+-- expects 0 rows. Migration 109 then re-creates the table with the
+-- Phase 16 enum-typed schema.
