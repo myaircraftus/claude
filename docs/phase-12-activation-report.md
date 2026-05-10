@@ -116,6 +116,60 @@ just needs either (a) PNGs pre-rendered before queueing or (b)
 parent-PDF rasterization added (mirroring Colab's behavior). This
 is documented as a follow-up in `phase-11-hybrid-architecture-report.md`.
 
+### 🟢 ARCHITECTURE GAP RESOLVED (2026-05-09 evening, commits 85652f5 + cb6c7c0 + f9fa498)
+
+The Modal /backfill endpoint already existed (Phase 9 deployment) — it
+does the FULL pipeline: PDF download → pdf2image → upload PNG → embed
+→ DB writes. The fix was to make the fallback cron auto-route to
+/backfill when it detects unrendered docs, instead of always calling
+/embed.
+
+Three commits:
+  - `85652f5` feat(vision): add Modal /backfill client + needs-render detector
+    * `createModalBackfillClient()` factory in `lib/vision/workers/modal.ts`
+    * `needsRendering()` (sync path-pattern check) + `probePageImageExists()`
+      (async storage HEAD) in `lib/vision/render-detector.ts`
+    * 18 tests (11 detector + 7 client) — all green
+
+  - `cb6c7c0` feat(vision): fallback cron auto-routes Modal to /backfill for unrendered docs
+    * `vision-fallback-sweep` cron now: load pages → detect render
+      need → if unrendered, delete placeholders + call /backfill;
+      else call /embed via existing dispatcher path
+    * 12 cron tests (8 existing + 4 new dual-path scenarios) — all green
+    * New response field `modal_backfill_dispatches` for telemetry
+
+  - `f9fa498` chore(vision): recover 24 failed-on-PNG-gap Modal jobs back to queued
+    * 24 jobs reset → queued, 6,357 placeholder vision_pages refreshed
+    * Ready for the new dual-path cron OR a Colab worker pickup
+
+Modal worker (`modal/vision-worker/main.py`) untouched — its image is
+built/cached and works. No redeploy.
+
+**Smoke test results (2026-05-09):**
+  - Triggered /api/cron/vision-fallback-sweep with the production CRON_SECRET
+  - 24 stuck-queued jobs picked up, capped at 10/tick per design
+  - Cron correctly identified all as needs-rendering (storage HEAD
+    probe returned 404 on the placeholder paths) and dispatched
+    via /backfill (not /embed)
+  - Modal /backfill response: 6,357 fresh vision_pages rows created
+    with canonical paths
+  - Doc 2b3eb867 had 108 pages in 'embedding' status mid-test
+    (ColQwen2 was actively running on the GPU)
+  - Vercel function timed out at maxDuration=300 (expected — Modal
+    /backfill is much slower than /embed). The next cron tick picks
+    up the remaining queued jobs cleanly.
+
+**Modal stays as a true equal fallback** — both paths now work:
+  - Colab handles auto-dispatch placeholders natively (renders inline)
+  - Modal handles auto-dispatch placeholders via /backfill when the
+    fallback cron detects unrendered docs
+
+**Open follow-up:** Modal /backfill itself has occasional per-doc
+failures (e.g. one doc reported "10 pages failed, 0 succeeded" on a
+274-page job). Likely Modal-side GPU memory or worker code issue,
+NOT an architecture-gap concern. Investigate separately if it
+becomes a bottleneck.
+
 ### Task G — Final report (this commit) ✅
 
 ## Final state at end of Phase 12

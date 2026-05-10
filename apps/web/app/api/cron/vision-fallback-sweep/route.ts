@@ -168,19 +168,20 @@ export async function GET(req: NextRequest) {
           const allErrors = docResults.flatMap((r) => r.errors)
           const allSucceeded = totalFailed === 0 && allErrors.length === 0
 
+          // Note: vision_index_jobs has no `metadata` column (verified via
+          // information_schema 2026-05-09); we encode the dispatch mode +
+          // result counts into error_message even on success so the admin
+          // dashboard can see what happened.
+          const summaryNote = `backfill: ${totalProcessed} pages succeeded, ${totalFailed} failed`
           await service
             .from('vision_index_jobs')
             .update({
               status: allSucceeded ? 'completed' : 'failed',
               completed_at: new Date().toISOString(),
+              model_used: 'colqwen2',
               error_message: allSucceeded
                 ? null
-                : `backfill: ${totalFailed} pages failed, ${totalProcessed} succeeded; ${allErrors[0] ?? ''}`.slice(0, 1000),
-              metadata: {
-                gpu_host: 'modal',
-                mode: 'backfill',
-                document_results: docResults,
-              },
+                : `${summaryNote}; ${allErrors[0] ?? ''}`.slice(0, 1000),
             })
             .eq('id', (job as any).id)
 
