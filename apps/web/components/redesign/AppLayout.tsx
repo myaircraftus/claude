@@ -463,11 +463,13 @@ function AppLayoutInner({
       router.push("/admin");
       return;
     }
-    // Shop persona has no billing surface yet (Phase 5 — Smart Home Screen).
-    // Switch without an entitlement check; falls back to /dashboard.
+    // Shop persona: Phase 14 paywall isn't wired to a shop SKU yet, so we
+    // skip the entitlement gate (consistent with the Phase 5 decision —
+    // shop has no separate billing surface). Lands on /workflow which is
+    // PERSONA_CONFIG.shop.homeRoute (was /dashboard, fixed in Phase 15 F3).
     if (p === "shop") {
       setPersona("shop");
-      router.push("/dashboard");
+      router.push("/workflow");
       return;
     }
     // If the user doesn't have an active entitlement for the target persona,
@@ -551,6 +553,15 @@ function AppLayoutInner({
               >
                 <HardHat className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => switchPersona("shop")}
+                title="Shop / Dispatcher"
+                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                  persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
+                }`}
+              >
+                <Store className="w-4 h-4" />
+              </button>
               {isPlatformAdmin && (
                 <button
                   onClick={() => switchPersona("admin")}
@@ -568,7 +579,10 @@ function AppLayoutInner({
               <p className="text-[10px] text-white/35 uppercase tracking-widest px-0.5" style={{ fontWeight: 600 }}>
                 Persona
               </p>
-              <div className={`grid ${isPlatformAdmin ? "grid-cols-3" : "grid-cols-2"} gap-1 bg-white/5 rounded-lg p-1`}>
+              {/* Three or four columns depending on platform-admin visibility.
+                  Phase 15 F3: Shop tab added so shop-persona users can flip
+                  into /workflow without needing direct URL nav. */}
+              <div className={`grid ${isPlatformAdmin ? "grid-cols-4" : "grid-cols-3"} gap-1 bg-white/5 rounded-lg p-1`}>
                 <button
                   onClick={() => switchPersona("owner")}
                   className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
@@ -588,6 +602,16 @@ function AppLayoutInner({
                 >
                   <HardHat className="w-3 h-3 shrink-0" />
                   Mechanic
+                </button>
+                <button
+                  onClick={() => switchPersona("shop")}
+                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
+                    persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
+                  }`}
+                  style={{ fontWeight: persona === "shop" ? 600 : 400 }}
+                >
+                  <Store className="w-3 h-3 shrink-0" />
+                  Shop
                 </button>
                 {isPlatformAdmin && (
                   <button
