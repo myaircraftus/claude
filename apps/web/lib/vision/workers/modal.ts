@@ -1,17 +1,24 @@
 /**
  * Phase 8 Vision RAG — Modal worker (real, Sprint 8.9).
  *
- * Calls a Modal-hosted ColQwen2 endpoint over HTTPS. The endpoint is
- * expected to expose a single POST that takes a list of
- * { vision_page_id, image_url } and returns a list of
- * { vision_page_id, summary_vector[128], patch_vectors[64×128],
- *   model_used } per page.
+ * Calls a Modal-hosted ColQwen2 endpoint over HTTPS. Two endpoints:
+ *
+ *   /embed     — Sprint 8.9. Takes pre-rendered page images (signed
+ *                URLs) and returns embeddings. Fast (~1s/page).
+ *
+ *   /backfill  — Phase 9 / Phase 12 architecture-gap fix. Takes a list
+ *                of source_document_ids; Modal does the FULL pipeline
+ *                (PDF download → pdf2image → upload PNG → embed → DB
+ *                writes). Slower per page (~3-5s/page) but handles the
+ *                "auto-dispatched but not yet rendered" case the Phase
+ *                12 helper produces.
  *
  * Configuration (env):
  *   VISION_GPU_HOST=modal             # routes via factory
  *   MODAL_API_KEY=<bearer token>      # sent as Authorization header
- *   MODAL_ENDPOINT_URL=<https://...>  # full POST URL
- *   MODAL_TIMEOUT_MS=120000           # optional, default 2 min
+ *   MODAL_ENDPOINT_URL=<https://...>  # /embed POST URL
+ *   MODAL_TIMEOUT_MS=120000           # optional, default 2 min (per call)
+ *   MODAL_BACKFILL_TIMEOUT_MS=600000  # optional, default 10 min
  *   MODAL_BATCH_SIZE=8                # optional, default 8 pages/call
  *
  * Failure modes:
@@ -37,10 +44,42 @@ export const MODAL_EMBEDDING_DIM = 128
 export const MODAL_PATCH_COUNT_EXPECTED = 64
 export const MODAL_DEFAULT_TIMEOUT_MS = 120_000
 export const MODAL_DEFAULT_BATCH_SIZE = 8
+/** /backfill is much slower than /embed — 10 min default for big docs. */
+export const MODAL_DEFAULT_BACKFILL_TIMEOUT_MS = 600_000
 
 interface ModalPageRequest {
   vision_page_id: string
   image_url: string
+}
+
+// ─── /backfill request/response types ──────────────────────────────────
+
+export interface ModalBackfillDocResult {
+  source_document_id: string
+  pages_processed: number
+  pages_failed: number
+  errors: string[]
+}
+
+interface ModalBackfillResponse {
+  document_results: ModalBackfillDocResult[]
+  /** Modal returns a top-level error string on auth/payload failure. */
+  error?: string
+}
+
+export interface ModalBackfillClient {
+  /**
+   * POST /backfill — dispatches a full render+embed pipeline on Modal.
+   * Each docId becomes one document_result. Modal runs them serially
+   * inside the call, so the timeout must be generous (default 10 min).
+   *
+   * Throws on top-level transport errors or auth failures. Per-doc
+   * failures surface in the returned ModalBackfillDocResult.errors[].
+   */
+  backfillDocuments(input: {
+    sourceDocumentIds: string[]
+    organizationId: string
+  }): Promise<ModalBackfillDocResult[]>
 }
 
 interface ModalPageResponse {
@@ -248,6 +287,84 @@ export function createModalWorker(deps: ModalWorkerDeps): GpuWorker {
         else orderedResults.push(failResult(pageById.get(p.id)!, 'lost track of page'))
       }
       return orderedResults
+    },
+  }
+}
+
+// ─── /backfill client ──────────────────────────────────────────────────
+
+/**
+ * Derive the /backfill URL from MODAL_ENDPOINT_URL by swapping `embed`
+ * → `backfill` in the path component. Mirrors apps/web/scripts/
+ * backfill-vision.ts (Phase 9). If the env var doesn't follow the
+ * `--embed.modal.run` convention this returns null and the client
+ * fails fast.
+ */
+function deriveBackfillUrl(embedUrl: string | undefined): string | null {
+  if (!embedUrl) return null
+  const swapped = embedUrl.replace(/embed/g, 'backfill')
+  return swapped === embedUrl ? null : swapped
+}
+
+/**
+ * Build a Modal /backfill client. Decoupled from `createModalWorker`
+ * because the GpuWorker interface is purely embed-shaped — backfill is
+ * a Modal-specific capability invoked by the fallback cron when it
+ * detects unrendered docs.
+ */
+export function createModalBackfillClient(
+  deps: ModalWorkerDeps,
+): ModalBackfillClient {
+  const fetchFn = deps.fetchFn ?? fetch
+  return {
+    async backfillDocuments(input) {
+      const apiKey = readEnv(deps, 'MODAL_API_KEY')
+      const embedUrl = readEnv(deps, 'MODAL_ENDPOINT_URL')
+      const backfillUrl = deriveBackfillUrl(embedUrl)
+      if (!apiKey) throw new Error('MODAL_API_KEY missing')
+      if (!backfillUrl) {
+        throw new Error(
+          `Cannot derive /backfill URL from MODAL_ENDPOINT_URL=${embedUrl ?? '<unset>'}`,
+        )
+      }
+      const timeoutMs =
+        Number(readEnv(deps, 'MODAL_BACKFILL_TIMEOUT_MS')) ||
+        MODAL_DEFAULT_BACKFILL_TIMEOUT_MS
+
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const res = await fetchFn(backfillUrl, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            source_document_ids: input.sourceDocumentIds,
+            organization_id: input.organizationId,
+          }),
+          signal: controller.signal,
+        })
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          throw new Error(
+            `modal /backfill ${res.status}: ${text.slice(0, 200)}`,
+          )
+        }
+        const json = (await res.json()) as ModalBackfillResponse
+        if (json.error) {
+          throw new Error(`modal /backfill: ${json.error}`)
+        }
+        if (!Array.isArray(json.document_results)) {
+          throw new Error(
+            'modal /backfill returned malformed body (no document_results[])',
+          )
+        }
+        return json.document_results
+      } finally {
+        clearTimeout(timer)
+      }
     },
   }
 }
