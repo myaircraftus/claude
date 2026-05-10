@@ -189,7 +189,11 @@ async function createProduct(secret: string, name: string, lookup_key: string): 
 }
 
 async function findPrice(secret: string, lookup_key: string, expected_cents: number): Promise<StripePrice | null> {
-  const params = new URLSearchParams({ lookup_keys: lookup_key, active: 'true', limit: '1' })
+  // Stripe expects array bracket syntax for repeated query params.
+  const params = new URLSearchParams()
+  params.append('lookup_keys[]', lookup_key)
+  params.append('active', 'true')
+  params.append('limit', '1')
   const resp = await stripeFetch<StripeListResponse<StripePrice>>(secret, `/prices?${params}`)
   const found = resp.data[0]
   // Reuse only if the unit_amount matches; otherwise we'll create a
