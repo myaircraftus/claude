@@ -72,7 +72,10 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
   // dedicated platform-admin layout exists. Phase 5 may give admins their own
   // sidebar; for now this entry just keeps the Record<Persona, …> exhaustive.
   admin: {
-    homeRoute: '/admin',
+    // Phase 16 Sprint 16.7 — admin homeRoute moved from /admin to the
+    // unified command-center. Legacy /admin still works for bookmarks
+    // but isn't where new sessions land.
+    homeRoute: '/admin/command-center',
     sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
     hiddenModules: [],
     aiSystemPrompt:

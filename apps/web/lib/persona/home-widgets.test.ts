@@ -89,8 +89,8 @@ describe('homeRoute integrity', () => {
   it('shop.homeRoute is /workflow', () => {
     expect(PERSONA_CONFIG.shop.homeRoute).toBe('/workflow')
   })
-  it('admin.homeRoute is /admin', () => {
-    expect(PERSONA_CONFIG.admin.homeRoute).toBe('/admin')
+  it('admin.homeRoute is /admin/command-center (Phase 16 Sprint 16.7)', () => {
+    expect(PERSONA_CONFIG.admin.homeRoute).toBe('/admin/command-center')
   })
 })
 
