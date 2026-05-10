@@ -37,6 +37,7 @@ import { TourOverlay } from "./onboarding/TourOverlay";
 import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
 import { HelpWidget } from "@/components/support/HelpWidget";
 import { ClientErrorBoundary } from "@/components/observability/ClientErrorBoundary";
+import { FeedbackWidget } from "@/components/feedback/FeedbackWidget";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
 
@@ -1018,6 +1019,9 @@ function AppLayoutInner({
 
       {/* ── Client error capture (Phase 16 Sprint 16.5) ── */}
       <ClientErrorBoundary persona={persona} />
+
+      {/* ── Feedback widget (Phase 16 Sprint 16.9) ── */}
+      <FeedbackWidget />
 
       {/* ── Cross-persona upsell — only owner/mechanic have billing surfaces ── */}
       {upsellPersona && (upsellPersona === "owner" || upsellPersona === "mechanic") && (

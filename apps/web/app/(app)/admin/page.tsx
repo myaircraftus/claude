@@ -242,10 +242,12 @@ export default async function AdminDashboardPage() {
       .order('updated_at', { ascending: false })
       .limit(5),
 
+    // Phase 16 Sprint 16.9 — open-feedback count under the new ops-spine
+    // schema (was reading legacy `feedback` table; now reads `feedback_items`).
     service
-      .from('feedback')
+      .from('feedback_items')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'open'),
+      .eq('status', 'new'),
 
     // Phase 15.5 Task 1.5 — open-ticket count under the new Phase 16
     // schema (status enum: 'new'|'ai_triaging'|'awaiting_customer'|'awaiting_admin'|'resolved'|'closed').
