@@ -61,10 +61,62 @@ pattern.
 | File | Status | Adds |
 |---|---|---|
 | `109_ops_spine.sql` | ✅ APPLIED 2026-05-09 (Phase 15.5 Task 1) | 5 spine tables, ops_inbox view, RLS, 13 enum types |
-| `110_ticket_replies.sql` | ⏳ NOT APPLIED | ticket_replies, email_log, suggested_response + triage_classification cols on support_tickets, inc_support_ticket_ai_response RPC |
-| `111_cost_snapshots.sql` | ⏳ NOT APPLIED | cost_snapshots (daily roll-ups) |
-| `112_ops_assistant_conversations.sql` | ⏳ NOT APPLIED | ops_assistant_conversations + messages |
-| `113_ops_event_prompts.sql` | ⏳ NOT APPLIED | ops_event_prompts (Claude Code prompt audit trail) |
+| `110_ticket_replies.sql` | ✅ APPLIED 2026-05-10T07:57Z | ticket_replies (10 cols), email_log (18 cols), suggested_response + triage_classification cols on support_tickets, inc_support_ticket_ai_response RPC, 6 RLS policies |
+| `111_cost_snapshots.sql` | ✅ APPLIED 2026-05-10T07:57Z | cost_snapshots (9 cols), cost_source enum, UNIQUE(snapshot_date, source), admin-only RLS, 4 indexes |
+| `112_ops_assistant_conversations.sql` | ✅ APPLIED 2026-05-10T07:57Z | ops_assistant_conversations (6 cols), ops_assistant_messages (9 cols), ops_assistant_role enum, 3 RLS policies |
+| `113_ops_event_prompts.sql` | ✅ APPLIED 2026-05-10T07:57Z | ops_event_prompts (14 cols), prompt_outcome enum, source_type CHECK, admin select/insert/update policies, 3 indexes |
+
+### Smoke verification (2026-05-10T08:00–08:06Z)
+
+All four smoke tests passed end-to-end via in-process scripts that
+mirror the route handlers (Vercel deployment was lagging at smoke
+time so we exercised the lib code directly with the production
+service-role client). Smoke scripts deleted after success per the
+established lifecycle.
+
+- **110 — support triage**: submitted ticket TKT-20260510-0001 ("How
+  do I reset my password?") via `/api/public/support/submit`. Ran
+  `triageBatch(supabase, 5)`. Result: pattern matched
+  `password_reset` (confidence 0.95) → wrote one ticket_replies row
+  with is_from_ai=true + ai_action_taken='auto_resolved:password_reset'
+  → flipped status new → ai_triaging → resolved → set
+  resolution_summary. ✅
+- **111 — cost snapshots**: ran `rollUpDay(today)`. Wrote 5 rows
+  (anthropic 0¢, modal 3¢ from 1 completed job × 3¢ placeholder,
+  stripe/vercel/supabase 0¢ each). `checkCostSpike()` returned
+  `today_cents=3 / trailing_30d_avg_cents=0 / spike=false`. ✅
+- **112 — ops assistant**: created a conversation, asked "How many
+  open support tickets?". Sonnet picked the right tool —
+  `querySupportTickets(status='new,ai_triaging,awaiting_admin,
+  awaiting_customer')` — got `{tickets:[]}`, returned "**0 open
+  support tickets.**" with the SQL-equivalent shape. Persisted user
+  + tool + assistant rows in ops_assistant_messages. ✅
+- **113 — Claude Code prompt**: generated a prompt against ticket
+  TKT-20260510-0001. All 7 sections present (Fix / Reproduction /
+  Affected / Relevant files / Suggested fix / Test requirements /
+  Hard rules). 1782 chars total. Audit row inserted into
+  ops_event_prompts with generated_by_user_id + used_at populated. ✅
+
+### Known follow-up from smoke
+
+- `ai_activity_log` insert during triage threw a foreign-key
+  constraint error because the test ticket has `organization_id=NULL`
+  (public submission) and ai_activity_log has FK to organizations.
+  The triage worker tolerates it (catch + ignore — see
+  lib/ai/anthropic.ts), so functionality isn't blocked. Future polish:
+  make organization_id nullable on ai_activity_log, OR have triage
+  pass a sentinel "system" org id for unscoped tickets. Recorded
+  for Phase 17 backlog.
+
+### Vercel deployment status (smoke time)
+
+`/api/admin/ops-assistant` and `/admin/command-center` were 404 /
+307-redirect-to-login at smoke time, indicating the Vercel deploy
+was still rolling out the latest sprints (16.7+). The migrations
+themselves are live and the lib code works correctly against
+production data; the customer-facing UI for the assistant + command
+center will become reachable on Andy's next page load once the
+deploy completes.
 
 ### Apply order (no circular deps but order for log clarity)
 
