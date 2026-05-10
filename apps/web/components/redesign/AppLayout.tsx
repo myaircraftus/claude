@@ -21,6 +21,12 @@ import { BillingProvider, useBilling } from "@/components/billing/BillingProvide
 import { BillingBanner } from "@/components/billing/BillingBanner";
 import { CrossPersonaUpsell } from "@/components/billing/CrossPersonaUpsell";
 import { PERSONA_CONFIG } from "@/lib/persona/config";
+import {
+  groupNavItemsByCategory,
+  navCategoriesStorageKey,
+  categoriesForPersona,
+  type NavCategoryDef,
+} from "@/lib/nav/categories";
 import { PaywallScreen } from "@/components/billing/PaywallScreen";
 import type { MechanicPermissions, TeamMember, Persona } from "./AppContext";
 import { PartsStoreProvider } from "./workspace/PartsStore";
@@ -220,6 +226,10 @@ function AppLayoutInner({
   const [collapsed,         setCollapsed]         = useState(false);
   const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Mechanic Portal"]));
   const [rolePickerOpen,    setRolePickerOpen]    = useState(false);
+  // Phase 13.5 — collapsible category state, persisted to localStorage per user.
+  const [profileId,           setProfileId]           = useState<string | null>(null);
+  const [expandedCategories,  setExpandedCategories]  = useState<Set<string>>(new Set());
+  const [categoryStateLoaded, setCategoryStateLoaded] = useState(false);
 
   const activeTab = searchParams?.get("tab") ?? "dashboard";
 
@@ -232,6 +242,8 @@ function AppLayoutInner({
         const payload = await res.json();
         if (cancelled) return;
         setIsPlatformAdmin(Boolean(payload?.profile?.is_platform_admin));
+        // Phase 13.5 — capture user id for nav category persistence.
+        if (payload?.profile?.id) setProfileId(payload.profile.id as string);
       } catch {
         // noop
       }
@@ -256,6 +268,53 @@ function AppLayoutInner({
     loadOrgs();
     return () => { cancelled = true; };
   }, []);
+
+  // Phase 13.5 — load expanded-category state from localStorage once we know
+  // the user id. Default-expand the brief's "always-on" categories so the
+  // nav isn't fully collapsed on first paint.
+  useEffect(() => {
+    if (!profileId || categoryStateLoaded) return;
+    try {
+      const raw = window.localStorage.getItem(navCategoriesStorageKey(profileId));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setExpandedCategories(new Set(parsed.filter((s) => typeof s === "string")));
+          setCategoryStateLoaded(true);
+          return;
+        }
+      }
+    } catch {
+      // ignore — fall through to defaults
+    }
+    // First-time defaults: expand the categories marked defaultExpanded.
+    const defaults = categoriesForPersona(persona)
+      .filter((c) => c.defaultExpanded)
+      .map((c) => c.id);
+    setExpandedCategories(new Set(defaults));
+    setCategoryStateLoaded(true);
+  }, [profileId, persona, categoryStateLoaded]);
+
+  // Persist whenever the user toggles a category.
+  useEffect(() => {
+    if (!profileId || !categoryStateLoaded) return;
+    try {
+      window.localStorage.setItem(
+        navCategoriesStorageKey(profileId),
+        JSON.stringify(Array.from(expandedCategories)),
+      );
+    } catch {
+      // best-effort; quota errors aren't worth surfacing to the user
+    }
+  }, [profileId, expandedCategories, categoryStateLoaded]);
+
+  function toggleCategory(id: string) {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (persona !== "owner") return;
@@ -370,6 +429,27 @@ function AppLayoutInner({
   const navItems: NavItem[] = navItemsRaw.filter(
     (item) => !item.module || !personaHidden.has(item.module)
   );
+
+  // Phase 13.5 — group navItems into categories. Each group has its own
+  // collapsible header. Items in categories the persona shouldn't see are
+  // dropped entirely. The active route's category is auto-expanded so the
+  // user can see where they are.
+  const categorizedNav = groupNavItemsByCategory(navItems, persona);
+  const activeCategoryId = (() => {
+    for (const group of categorizedNav) {
+      for (const item of group.items) {
+        const href = item.href ?? (item.tab ? `/mechanic?tab=${item.tab}` : null);
+        if (!href) continue;
+        if (href === "/dashboard" && effectivePathname === "/dashboard") {
+          return group.category.id;
+        }
+        if (href !== "/dashboard" && effectivePathname.startsWith(href)) {
+          return group.category.id;
+        }
+      }
+    }
+    return null;
+  })();
 
   function switchPersona(p: Persona) {
     // Admins switch freely between all three personas. Owners + mechanics
@@ -547,7 +627,31 @@ function AppLayoutInner({
 
         {/* Nav */}
         <nav data-tour="nav" className="flex-1 px-2 py-3 overflow-y-auto space-y-0.5">
-          {navItems.map((item) => {
+          {categorizedNav.map((group) => {
+            // Collapsed sidebar mode: render items directly without category
+            // headers (the icons-only mode wouldn't have room for headers).
+            // Otherwise: render a collapsible category header with chevron.
+            const isCatExpanded =
+              collapsed
+              || expandedCategories.has(group.category.id)
+              || activeCategoryId === group.category.id;
+            return (
+              <div key={group.category.id}>
+                {!collapsed && (
+                  <button
+                    onClick={() => toggleCategory(group.category.id)}
+                    aria-expanded={isCatExpanded}
+                    aria-controls={`nav-cat-${group.category.id}`}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 mt-2 mb-0.5 text-[10px] font-semibold tracking-wider uppercase text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors"
+                  >
+                    <ChevronRight
+                      className={`w-3 h-3 transition-transform duration-200 ${isCatExpanded ? "rotate-90" : ""}`}
+                    />
+                    <span>{group.category.label}</span>
+                  </button>
+                )}
+                <div id={`nav-cat-${group.category.id}`} hidden={!isCatExpanded}>
+                  {group.items.map((item) => {
             const hasChildren = !!item.children?.length;
             const isExpanded  = expandedItems.has(item.label);
             const isOnMechanic = effectivePathname.startsWith("/mechanic");
@@ -651,6 +755,10 @@ function AppLayoutInner({
                 <item.icon className="w-[18px] h-[18px] shrink-0" />
                 {!collapsed && item.label}
               </Link>
+            );
+                  })}
+                </div>
+              </div>
             );
           })}
         </nav>
