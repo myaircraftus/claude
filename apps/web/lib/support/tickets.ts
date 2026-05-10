@@ -62,6 +62,10 @@ export interface SupportTicket {
   updated_at: string
   resolved_at: string | null
   deleted_at: string | null
+  /** AI-drafted reply staged for admin review (migration 110). */
+  suggested_response?: string | null
+  /** AI tier-0 classification output (migration 110). */
+  triage_classification?: Record<string, unknown> | null
 }
 
 export interface CreateTicketInput {
