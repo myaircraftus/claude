@@ -2,45 +2,69 @@
 
 > Operational checklist for flipping aircraft.us from Beta to v1 (Standard + Pro live, billing on).
 
-**Status:** 🟡 not yet executed. Pricing infrastructure complete (Phase 14); see `/docs/phase-14-pricing-tiers-report.md`.
+**Status:** 🟡 wiring complete (Phase 17), waiting on real Stripe test keys + migration apply.
+Phase 17 launch wiring report: `/docs/phase-17-launch-wiring-report.md`.
 
 **Locked strategy:** see `/docs/new implementation/context.md` Section 12. Do not modify without Andy's approval.
 
 ## Prerequisites (must be true before starting)
 
-- [ ] Migrations 105–108 APPLIED to production
-  - `apps/web/scripts/apply-105.ts` (org+aircraft tier columns)
-  - `apps/web/scripts/apply-106.ts` (vision_index_jobs.scheduled_for)
-  - `apps/web/scripts/apply-107.ts` (handwriting_pct + suggests_review)
-  - `apps/web/scripts/apply-108.ts` (document_review_requests)
-- [ ] Phase 14 sprints 14.1–14.6 deployed to production (commits up through `89e1562`)
-- [ ] Stripe account live (currently in mock mode — see `lib/billing/products.ts` for the persona-tier track and decide whether to keep that wiring or replace with the new per-aircraft Stripe products)
+- [x] Migrations 105–108 applied (Phase 14)
+- [x] Migrations 109–115 applied (Phase 16)
+- [ ] **Migration 116 — `tier_pricing_skus`** APPLIED to production
+- [ ] **Migration 117 — `stripe_webhook_events`** APPLIED to production
+- [ ] **Migration 118 — system organization sentinel** APPLIED to production
+- [x] Phase 17 sprints 17.1–17.7 deployed to production (commits up through `2f9ef8f`)
+- [ ] Real Stripe test keys in env: `STRIPE_SECRET_KEY=sk_test_…` and `STRIPE_WEBHOOK_SECRET=whsec_…` (replacing the Phase 14 `sk_placeholder_…` stubs)
+- [ ] `RESEND_API_KEY` pushed to Vercel Production env
+- [ ] Stripe webhook endpoint registered: `https://www.myaircraft.us/api/webhooks/stripe` (live URL after launch)
 
 ## Step 1 — Wire real Stripe Products + Prices
 
-Pricing config (`apps/web/lib/billing/pricing-config.ts`) defines every price point. For each volume bracket, create a Stripe Price under one Product per tier. Mapping:
+> **Phase 17 update:** The manual env-var-per-price flow is replaced by
+> `tier_pricing_skus` + `lib/billing/stripe-sync.ts`. One admin POST
+> creates all 6 Products+Prices and persists their IDs to the table.
+> Runtime code reads from the table, not from env.
 
-| Stripe Product | Tier | Stripe Price | aircraft range | $/aircraft/mo |
+1. Land real Stripe test keys in env (replace placeholders):
+   - `STRIPE_SECRET_KEY=sk_test_…`
+   - `STRIPE_WEBHOOK_SECRET=whsec_…`
+2. Apply migration `116_tier_pricing_skus.sql` (Supabase dashboard SQL editor).
+3. Hit the sync endpoint as platform admin:
+   ```
+   curl -X POST https://www.myaircraft.us/api/admin/billing/sync-stripe \
+        -H "Cookie: <your admin session cookie>"
+   ```
+4. Confirm via dashboard: 6 Stripe Products created with `metadata.lookup_key = tier_<slug>_<bracket>_v1`, 6 Prices each at the right `unit_amount`. Verify a row in `tier_pricing_skus` for each.
+
+The mapping the sync produces (exactly what pricing-config.ts says):
+
+| Stripe Product | Tier | lookup_key | aircraft range | $/aircraft/mo |
 |---|---|---|---|---|
-| `aircraft.us — Standard` | standard | `price_standard_1_5`   | 1–5  | $99 |
-| `aircraft.us — Standard` | standard | `price_standard_6_15`  | 6–15 | $79 |
-| `aircraft.us — Standard` | standard | `price_standard_16_plus` | 16+ | $59 |
-| `aircraft.us — Pro` | pro | `price_pro_1_5`   | 1–5  | $149 |
-| `aircraft.us — Pro` | pro | `price_pro_6_15`  | 6–15 | $129 |
-| `aircraft.us — Pro` | pro | `price_pro_16_plus` | 16+ | $109 |
+| `Standard (1–5 aircraft)` | standard | `tier_standard_1to5_v1`   | 1–5  | $99 |
+| `Standard (6–15 aircraft)` | standard | `tier_standard_6to15_v1`  | 6–15 | $79 |
+| `Standard (16+ aircraft)` | standard | `tier_standard_16plus_v1` | 16+ | $59 |
+| `Pro (1–5 aircraft)` | pro | `tier_pro_1to5_v1`   | 1–5  | $149 |
+| `Pro (6–15 aircraft)` | pro | `tier_pro_6to15_v1`  | 6–15 | $129 |
+| `Pro (16+ aircraft)` | pro | `tier_pro_16plus_v1` | 16+ | $109 |
 
-**Use the Stripe MCP** (mcp__stripe__create_product / create_price) so the IDs land in env vars without manual copy/paste:
+The webhook handler at `/api/webhooks/stripe` already maps Phase 6
+per-persona price IDs back to entitlement rows; for the per-tier
+flow, the metadata field `organization_id` on the Checkout session
+gives the webhook the right org. **DO NOT** retire the Phase 6
+persona prices in `lib/billing/products.ts` until existing
+Owner/Mechanic/Bundle subscribers are migrated.
+
+## Step 1.5 — Apply migrations 117 + 118
 
 ```
-STRIPE_PRICE_STANDARD_1_5=price_xxx
-STRIPE_PRICE_STANDARD_6_15=price_xxx
-STRIPE_PRICE_STANDARD_16_PLUS=price_xxx
-STRIPE_PRICE_PRO_1_5=price_xxx
-STRIPE_PRICE_PRO_6_15=price_xxx
-STRIPE_PRICE_PRO_16_PLUS=price_xxx
+117_stripe_webhook_events.sql    # idempotency log for the webhook
+118_ai_activity_log_system_org.sql # closes ai_activity_log FK error
 ```
 
-The webhook handler (`/api/webhooks/stripe`) needs to be extended to recognize these new price IDs and update `organizations.tier` accordingly. **DO NOT** retire the existing per-persona prices from `lib/billing/products.ts` until existing Owner/Mechanic/Bundle subscribers are migrated.
+Both are committed in `supabase/migrations/`. Apply via Supabase
+dashboard SQL editor (paste each file's contents). Order doesn't
+matter — they're independent of each other.
 
 ## Step 2 — Set tier on each existing org
 

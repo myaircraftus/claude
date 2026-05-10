@@ -47,9 +47,21 @@ The full implementation spec lives at:
 
 11. **AI ops assistant is read-only** (Phase 16, locked 2026-05-10). The agent at `apps/web/lib/ops/assistant.ts` has 10 tools — every one of them is a SELECT against an existing table. NEVER add a mutating tool to that registry. Mutations always require admin click-through in the proper admin UI. The "Generate Claude Code Prompt" feature (Sprint 16.11) packages context for a HUMAN to act on, not for the AI to apply directly. See Section 13 for the full locked architecture.
 
+12. **Email sends ALWAYS go through `email_log` → Resend** (Phase 17, locked 2026-05-10). Application code calls `lib/email/send-helpers.ts`; the helpers insert an `email_log` row with `status='queued'`; the cron worker at `/api/cron/email-queue-worker` (every minute) hands the row off to `lib/email/resend-client.ts`. NEVER call `resend-client` directly from outside `lib/email/`. NEVER bypass `email_log` with a side-channel send. The queue is the audit trail, the kill-switch (status='skipped'), and the provider-swap point all in one. See Section 14 for the full locked launch wiring.
+
 ## 5. Current sprint
 
-**Sprint:** **Phase 16 complete (2026-05-10). AI Ops Command Center is the new platform spine.** All 11 sprints (16.2 through 16.12) shipped: customer support service + AI triage + admin inbox + error capture + system health dashboard + unified `/admin/command-center` (now admin homeRoute) + read-only AI ops assistant + feedback widget + churn detector + public `/status` + `/support/help` KB + the killer "Generate Claude Code Prompt" feature with audit trail. Test suite 654/654 green (up from 583, +71 new tests). Sacred boundary (`lib/ocr` / `lib/rag` / `lib/embeddings`) untouched. Migrations 110-113 written + committed but NOT applied to production — Andy applies via tsx-pg per the established pattern. See [phase-16-command-center-report.md](../phase-16-command-center-report.md) for the full ledger + rollout plan. Section 13 of this file captures the locked architecture.
+**Sprint:** **Phase 17 complete (2026-05-10). V1 launch wiring done.** All 8 sprints (17.1 through 17.8) shipped:
+- ✅ **17.1** — Resend HTTP client + email queue worker + 1-min cron (9 tests)
+- ✅ **17.2** — 5 transactional templates (ticket_received, ticket_reply, nps_survey, churn_reengagement, magic_link_support_view) + send-helpers wired into ticket-create + AI-triage + admin-reply paths (18 tests)
+- ✅ **17.3** — Stripe pricing sync (pricing-config → Products+Prices via lookup_keys, idempotent) + migration 116 `tier_pricing_skus` (7 tests)
+- ✅ **17.4** — Stripe webhook idempotency dedup wrapping the existing handler + migration 117 `stripe_webhook_events` (4 tests)
+- ✅ **17.5** — Per-tier Checkout (`/api/billing/checkout-tier`) + placeholder-key gate on Customer Portal (6 tests)
+- ✅ **17.6** — System-org sentinel for ai_activity_log + migration 118 (closes the FK error from Phase 16)
+- ✅ **17.7** — Resend end-to-end smoke (two real sends to andy@horf.us, both 200)
+- ✅ **17.8** — This section + report + runbook update
+
+**Hard caveats:** Stripe MCP was in live mode this session, so 17.3-17.5 ship as code-only scaffolds. Real Stripe test keys + applying migrations 116/117/118 via Supabase dashboard are the remaining steps before flipping `tier_billing_disabled=false` for the first paying org. See [phase-17-launch-wiring-report.md](../phase-17-launch-wiring-report.md) and [runbooks/pricing-launch-v1.md](../runbooks/pricing-launch-v1.md). Section 14 of this file captures the locked architecture.
 
 **Sprint:** Open — stub-layer-batch just shipped. **Spec is now 50/50.** 5.2 (AI Inbox filters) is the only remaining feature.
 **Spec section:** Stub layer for credential-blocked features (3.3 + 4.1 + 4.2 + 4.4 + 5.7 + 6.3)
@@ -432,7 +444,8 @@ _Append a table after each sprint listing the files created/modified. Helps futu
 ```
 | Sprint | New files | Modified files |
 |--------|-----------|----------------|
-| 2026-05-10 — Phase 16 mig apply (110-113) | (no new code; one-shot apply + smoke scripts deleted after success) | applied 110_ticket_replies + 111_cost_snapshots + 112_ops_assistant_conversations + 113_ops_event_prompts to production at 2026-05-10T07:57Z. Smoke 4/4 green via in-process scripts (Vercel deploy still rolling out at smoke time): 110 → pattern-match auto-resolve produced TKT-20260510-0001 → resolved with AI reply; 111 → rollUpDay wrote 5 cost rows for today (anthropic 0¢, modal 3¢, stripe/vercel/supabase 0¢); 112 → ops assistant agent answered "0 open tickets" via querySupportTickets tool with persistence; 113 → prompt generator produced 7-section markdown + audit row with used_at populated. Follow-up: ai_activity_log FK to organizations rejected the inserts during triage when ticket.organization_id was null — triage tolerates the error (catch + ignore in lib/ai/anthropic.ts) so functionality wasn't blocked. Phase 17 backlog: make organization_id nullable on ai_activity_log OR pass a system-org sentinel. |
+| 2026-05-10 — Phase 17 V1 launch wiring (d67a9bb → 2f9ef8f, 8 sprints) | apps/web/lib/email/{resend-client,queue-worker,send-helpers}.ts (+ tests) · apps/web/lib/email/templates/{_layout,ticket_received,ticket_reply,nps_survey,churn_reengagement,magic_link_support_view}.ts (+ templates.test.ts) · apps/web/app/api/cron/email-queue-worker/route.ts · apps/web/app/api/admin/billing/sync-stripe/route.ts · apps/web/app/api/billing/checkout-tier/route.ts (+ test) · apps/web/lib/billing/{stripe-sync,stripe-webhook-dedup}.ts (+ tests) · apps/web/scripts/smoke-resend.ts · supabase/migrations/{116_tier_pricing_skus,117_stripe_webhook_events,118_ai_activity_log_system_org}.sql · docs/phase-17-launch-wiring-report.md | apps/web/.env.local (RESEND_API_KEY + RESEND_TEST_INBOX) · apps/web/vercel.json (+ email-queue-worker cron) · apps/web/lib/support/{tickets,ai-triage}.ts (wired ticket_received + ticket_reply via send-helpers) · apps/web/app/api/admin/support/[id]/reply/route.ts (uses sendTicketReply) · apps/web/lib/ai/anthropic.ts (organization_id widened to nullable + SYSTEM_ORG_ID export + sentinel substitution in writeActivityLog) · apps/web/lib/ai/openai-vision.ts (same null + sentinel pattern) · apps/web/lib/billing/tier-service.ts (.neq sentinel filter on listOrgsByTier) · apps/web/app/(app)/admin/customer-signals/page.tsx (.neq sentinel on churn_signals query) · apps/web/app/api/billing/portal/route.ts (sk_placeholder gate → 503 instead of throw on Stripe init) · apps/web/app/api/webhooks/stripe/route.ts (dedup wrap around existing handler). Tests: +35 new (resend-client 4, queue-worker 5, templates 9, stripe-sync 7, stripe-webhook-dedup 4, checkout-tier 6); existing 654 still green. Sacred boundaries untouched. Migrations 116/117/118 written + committed but NOT applied to prod (Supabase MCP in this session was scoped to a different project; apply via dashboard SQL editor). Stripe sprints (17.3-17.5) ship as code-only scaffolds — Stripe MCP was in live mode and STRIPE_* env had Phase 14 sk_placeholder stubs. Resend smoke green: 2 real sends to andy@horf.us (raw curl id e29215c8…, wrapper id cecc8c00…). |
+| 2026-05-10 — Phase 16 mig apply (110-113) | (no new code; one-shot apply + smoke scripts deleted after success) | applied 110_ticket_replies + 111_cost_snapshots + 112_ops_assistant_conversations + 113_ops_event_prompts to production at 2026-05-10T07:57Z. Smoke 4/4 green via in-process scripts (Vercel deploy still rolling out at smoke time): 110 → pattern-match auto-resolve produced TKT-20260510-0001 → resolved with AI reply; 111 → rollUpDay wrote 5 cost rows for today (anthropic 0¢, modal 3¢, stripe/vercel/supabase 0¢); 112 → ops assistant agent answered "0 open tickets" via querySupportTickets tool with persistence; 113 → prompt generator produced 7-section markdown + audit row with used_at populated. Follow-up: ai_activity_log FK to organizations rejected the inserts during triage when ticket.organization_id was null — triage tolerates the error (catch + ignore in lib/ai/anthropic.ts) so functionality wasn't blocked. Phase 17 backlog: make organization_id nullable on ai_activity_log OR pass a system-org sentinel. ✅ Closed in Phase 17 Sprint 17.6 via SYSTEM_ORG_ID sentinel + migration 118. |
 | 2026-05-10 — Phase 16 AI Ops Command Center (235200b → 7f51905, 11 sprints) | supabase/migrations/110_ticket_replies.sql · 111_cost_snapshots.sql · 112_ops_assistant_conversations.sql · 113_ops_event_prompts.sql · apps/web/lib/support/{tickets,ai-triage}.ts (+ tests) · apps/web/lib/observability/error-capture.ts (+ test) · apps/web/lib/ops/{cost-tracker,assistant,status-check,prompt-generator}.ts (+ tests) · apps/web/app/api/{public/support/{submit,reply},webhooks/support-email,cron/{support-triage,health-alerts,churn-signals},observability/error,admin/support/{counts,[id]/reply},admin/ops-assistant,admin/ops-prompt}/route.ts · apps/web/app/{support/{page,support-form,tickets/[ticketNumber]/{page,reply-form}},support/help/page,status/page}.tsx · apps/web/app/(app)/admin/{support/{page (rewrite),inbox,all,[ticketNumber]/{page,admin-reply-form}},observability/errors/page,health/page,command-center/{page,AutoRefresh},ops-assistant/{page,ops-chat},customer-signals/page}.tsx · apps/web/components/{support/HelpWidget,observability/ClientErrorBoundary,feedback/FeedbackWidget,admin/{SupportBanner,GeneratePromptButton}}.tsx · docs/runbooks/email-ingestion.md · docs/phase-16-command-center-report.md | apps/web/app/api/support/route.ts (rewrite) · apps/web/app/api/admin/support/route.ts (rewrite) · apps/web/app/(app)/admin/support/page.tsx (rewrite) · apps/web/app/(app)/admin/page.tsx (legacy feedback → feedback_items) · apps/web/app/api/feedback/route.ts (legacy feedback → feedback_items, dual-payload accept) · apps/web/components/redesign/AppLayout.tsx (mounts HelpWidget + ClientErrorBoundary + FeedbackWidget) · apps/web/app/(app)/admin/layout.tsx (mounts SupportBanner) · apps/web/lib/persona/config.ts (admin homeRoute → /admin/command-center) · apps/web/lib/persona/home-widgets.test.ts (homeRoute assertion updated) · apps/web/vercel.json (+3 cron schedules) · DELETED: apps/web/components/admin/support-table.tsx (orphaned legacy). Test suite 583 → 654 green (+71 new). Sacred boundaries untouched (zero diff in lib/ocr, lib/rag, lib/embeddings). Migrations 110-113 NOT applied to production. |
 | 2026-05-09 — Phase 15.5 cleanup (711c186, 9bf101b, 91a4cb2, d8a4433, 042926d, cc9492d, b5c6a1c) | docs/phase-15-f2-verification.md · docs/v2-backlog.md · docs/phase-15.5-cleanup-report.md · supabase/migrations/115_drop_legacy_support_tickets.sql · apps/web/app/api/costs/[id]/route.test.ts | apps/web/lib/validation/common.ts (parsePatchBody helper) · apps/web/app/api/costs/[id]/route.ts (zod refactor) · apps/web/app/api/support/route.ts + apps/web/app/api/admin/support/route.ts + apps/web/app/(app)/admin/support/page.tsx + apps/web/app/(app)/admin/page.tsx (schema-collision shims) · apps/web/app/(app)/manuals/page.tsx + manuals-view.tsx (SLA banner F5) · apps/web/components/redesign/AircraftDetail.tsx (uploadHref → /documents F7) · apps/web/app/(app)/approvals/page.tsx + apps/web/components/approvals/approvals-view.tsx (persona-aware copy F6) · apps/web/components/redesign/AppLayout.tsx (trial banner gated on isPlatformAdmin) · docs/phase-15-qa-report.md (F1/F2/F3/F5/F6/F7 status updated) · docs/phase-9-deployment-report.md (vision counts) · docs/security-audit.md (§5.4 row updated) · migration 109 + 115 APPLIED to production. Vision cleanup: 117 stalled-but-embedded pages → indexed; 566 stalled-no-embedding → pending. Test suite 575 → 583 green. |
 | 2026-05-09 — Phase 16 recovery (95930a9, 7ffc761, dc212fa) | docs/phase-16-recovery-inventory.md · docs/phase-16-resume-prompt-context.md | (no migrations applied) |
@@ -669,6 +682,7 @@ _Architecture decisions worth remembering. Each decision: date, what, why._
 | 2026-05-09 | support_tickets schema collision resolved — drop legacy table (mig 115) + apply Phase 16 ops_inbox spine (mig 109). 4 referencing files shimmed (POST translates legacy `{type, severity, description}` → new `{category, severity:'P2', body}`; GET aliases new columns back to legacy SupportTable shape). | Phase 15.5 Task 1 (commit `9bf101b`). Sprint 16.2 will fully rewrite the 4 routes; shims keep build green in the interim. |
 | 2026-05-09 | `parsePatchBody` helper added to `lib/validation/common.ts` — returns validated body PLUS `Set<string>` of explicitly-sent keys, so PATCH routes can distinguish omitted vs null vs value. Closes the audit pattern that previously blocked zod adoption on PATCH routes. | Phase 15.5 Task 4 (commit `042926d`). Reference impl on `/api/costs/[id]` PATCH; remaining ~233 PATCH-style routes can follow the same pattern. |
 | 2026-05-09 | Platform admin whitelist expanded from `info@myaircraft.us` only → `info@myaircraft.us` + `andy@horf.us` (migration 114, commit `de32cdd`). | Andy + planning session. Phase 15 F1 surfaced that the founder couldn't access /admin/* under their primary account because a production trigger (`trg_enforce_platform_admin_email` calling `enforce_platform_admin_email()`, applied directly to prod and never in any local migration) raised `check_violation` for any email outside the whitelist. Migration 114 (a) captures the trigger + function in version control for the first time, (b) widens the IN clause to include andy@horf.us, (c) flips the flag on Andy's profile, (d) writes an audit row to tier_history. Defensive intent preserved — the whitelist is still explicit; future admin additions require a new migration that CREATE OR REPLACEs the function. SECURITY DEFINER + search_path lock kept identical. See `docs/runbooks/security.md` for the documented grant procedure. |
+| 2026-05-10 | Phase 17 V1 launch wiring: Resend for email, Stripe Products+Prices via `tier_pricing_skus` (mig 116), webhook idempotency via `stripe_webhook_events` (mig 117), system-org sentinel for `ai_activity_log` (mig 118). 8 sprints, 35 new tests, 2 real Resend smoke sends green. Stripe 17.3-17.5 ship as code-only scaffolds (Stripe MCP was in live mode + env had `sk_placeholder` stubs). | Phase 17 build, see Section 14. Resend chosen for HTTP simplicity (no SDK), single-key auth, transparent failure modes. Stripe lookup_keys for idempotency (re-runs reuse Products+Prices). Sentinel UUID is the all-zero "nil" UUID for instant recognition. Email sends locked to `email_log` → Resend pipeline (Section 4 hard rule 12). Real Stripe test keys + applying migrations 116/117/118 via Supabase dashboard remain before flipping `tier_billing_disabled=false` for the first paying org. |
 ```
 
 ---
@@ -863,3 +877,67 @@ Service: `apps/web/lib/ops/assistant.ts`. Tool-hop budget: 5 per question. Rate 
 ### Hard Rule (also in Section 4 as rule 11)
 
 **AI ops assistant is read-only.** Never mutates data, never sends emails, never executes side effects. Mutations always require admin click-through in the proper UI.
+
+## 14. V1 Launch Wiring (LOCKED — Phase 17, 2026-05-10)
+
+**Why this section exists:** Phase 17 replaces the Phase 16 placeholder
+`email_log` queue with a real provider hand-off, lays down the full
+Stripe Products+Prices+Webhook+Checkout+Portal infrastructure, and
+closes the `ai_activity_log_organization_id_fkey` error. Everything in
+this section is locked — do not modify the choices below without
+Andy's explicit approval.
+
+### Email — Resend
+
+- **Provider:** Resend. API key in `RESEND_API_KEY` env var, server-side only.
+- **Queue table:** `email_log` (migration 110, Phase 16). Code only INSERTs through `lib/email/send-helpers.ts`. No side-channel sends.
+- **Cron:** `/api/cron/email-queue-worker` at `* * * * *` (Vercel minimum). Default batch 50, capped 200.
+- **Retry contract:** 5xx + network → exponential backoff (250ms → 500ms → 1s); after exhaustion the row stays `sending` so the heal sweep promotes it back to `queued` next tick. 4xx → terminal `failed` with `error_message`.
+- **Templates** (lib/email/templates/): `ticket_received`, `ticket_reply`, `nps_survey`, `churn_reengagement`, `magic_link_support_view`. Layout shared via `_layout.ts` (inline-styled, table-based, Outlook/Gmail safe).
+- **Helpers** (lib/email/send-helpers.ts): `sendTicketReceived`, `sendTicketReply`, `sendNpsSurvey`, `sendChurnReengagement`, `sendMagicLinkSupportView`. Each renders → INSERT email_log → returns `{id, queued, reason}`.
+- **Wired callers:** `lib/support/tickets.ts createTicket` (sendTicketReceived), `lib/support/ai-triage.ts queueEmail` (sendTicketReply), `/api/admin/support/[id]/reply` (sendTicketReply with admin author label).
+- **Smoke:** `apps/web/scripts/smoke-resend.ts` runs an end-to-end send through the wrapper. Use after any env change.
+
+### Stripe — pricing source of truth
+
+- **Source of truth:** `apps/web/lib/billing/pricing-config.ts`. Hard rule 9 covers this.
+- **Sync target:** `tier_pricing_skus` (migration 116) — one row per `(tier_slug, min_aircraft, is_test_mode)`. Populated by `lib/billing/stripe-sync.ts` via lookup_keys (`tier_<slug>_<bracket>_v1`).
+- **Sync trigger:** Admin POSTs `/api/admin/billing/sync-stripe`. Returns 503 with `dry_run:true` when `STRIPE_SECRET_KEY` is missing or starts with `sk_placeholder`. Never silently no-ops.
+- **Idempotency:** lookup_key strategy — re-runs reuse Products and reuse Prices when `unit_amount` matches; only price *change* creates a new Stripe Price (Prices are immutable in Stripe).
+- **Test vs live:** `is_test_mode` column lets both coexist. Sync auto-detects via `sk_test_` prefix.
+- **Webhook dedup:** `stripe_webhook_events` (migration 117) PK on Stripe `event.id`. The route at `/api/webhooks/stripe` calls `recordReceived` first; PK collision → short-circuit with `{received:true, duplicate:true}`. Failure-tolerant if migration 117 isn't applied yet — handler still runs.
+- **Checkout (per-tier):** `/api/billing/checkout-tier` POST `{tier, aircraft_count}` → resolves bracket → reads `tier_pricing_skus` → creates/reuses Customer → returns Subscription Checkout URL with `quantity = aircraft_count`. Distinct from the Phase 6 per-persona `/api/billing/checkout` route — they coexist.
+- **Customer Portal:** `/api/billing/portal` refuses `sk_placeholder` and returns 503 instead of throwing on Stripe init.
+
+### System organization sentinel
+
+- **UUID:** `00000000-0000-0000-0000-000000000000` (the all-zero "nil" UUID).
+- **Migration:** 118 (`118_ai_activity_log_system_org.sql`) inserts the row with `tier='beta'`, `tier_billing_disabled=true`.
+- **Substitution point:** `lib/ai/anthropic.ts writeActivityLog` and `lib/ai/openai-vision.ts logVisionActivity` substitute `SYSTEM_ORG_ID` for `null` org_id. `ActivityLogScope.organization_id` is now `string | null`.
+- **Visibility filters:** `lib/billing/tier-service.ts listOrgsByTier` and `/admin/customer-signals` query both `.neq('id', '00000000-…')` so the sentinel never surfaces in admin UIs.
+
+### Migration application (deferred from this session)
+
+Migrations 116, 117, 118 are committed in `supabase/migrations/` but
+NOT applied to production. The Supabase MCP in this session was
+connected to a different project; apply via dashboard SQL editor or
+correctly-scoped MCP. Order is irrelevant.
+
+### Hard Rule (also in Section 4 as rule 12)
+
+**Email sends ALWAYS go through `email_log` → Resend.** Never call
+`resend-client` directly outside `lib/email/`. Never bypass `email_log`.
+
+### Files
+
+- Email client: `apps/web/lib/email/resend-client.ts`
+- Queue worker: `apps/web/lib/email/queue-worker.ts`
+- Send helpers: `apps/web/lib/email/send-helpers.ts`
+- Templates: `apps/web/lib/email/templates/{_layout, ticket_received, ticket_reply, nps_survey, churn_reengagement, magic_link_support_view}.ts`
+- Cron: `apps/web/app/api/cron/email-queue-worker/route.ts`
+- Stripe sync: `apps/web/lib/billing/stripe-sync.ts`
+- Stripe webhook dedup: `apps/web/lib/billing/stripe-webhook-dedup.ts`
+- Sync admin route: `apps/web/app/api/admin/billing/sync-stripe/route.ts`
+- Per-tier Checkout: `apps/web/app/api/billing/checkout-tier/route.ts`
+- Smoke runner: `apps/web/scripts/smoke-resend.ts`
+- Migrations: `supabase/migrations/{116_tier_pricing_skus, 117_stripe_webhook_events, 118_ai_activity_log_system_org}.sql`
