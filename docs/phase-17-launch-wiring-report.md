@@ -20,12 +20,12 @@ Phase 16 follow-ups.
 |--------|--------|-------|
 | 17.1 — Resend client + queue worker + cron | ✅ executed | Cron at `* * * * *`. 9 tests green. |
 | 17.2 — 5 templates + send-helpers + wire | ✅ executed | 18 tests green. ticket creation/reply paths now send rich HTML. |
-| 17.3 — Stripe sync + migration 116 | ✅ scaffolded | Stripe MCP in live mode; route returns 503 until test keys land. |
-| 17.4 — Stripe webhook idempotency + migration 117 | ✅ scaffolded | Dedup wraps existing handler; failure-tolerant if 117 unmigrated. |
+| 17.3 — Stripe sync + migration 116 | ✅ scaffolded · 🟢 mig APPLIED | Stripe MCP in live mode; route returns 503 until test keys land. Migration 116 applied 2026-05-10 via `apply-116.ts`. |
+| 17.4 — Stripe webhook idempotency + migration 117 | ✅ scaffolded · 🟢 mig APPLIED | Dedup wraps existing handler; failure-tolerant if 117 unmigrated. Migration 117 applied 2026-05-10 via `apply-117.ts`. |
 | 17.5 — Checkout (per-tier) + Portal | ✅ scaffolded | Returns 503 until test keys land. |
-| 17.6 — System-org sentinel + migration 118 | ✅ code, ⚠️ apply deferred | Supabase MCP connected to wrong project — apply via dashboard. |
+| 17.6 — System-org sentinel + migration 118 | ✅ executed · 🟢 mig APPLIED | Migration 118 applied 2026-05-10 via `apply-118.ts`. ai_activity_log smoke insert with sentinel UUID accepted (FK error from Phase 16 officially closed). |
 | 17.7 — Resend end-to-end smoke | ✅ executed | Two real sends to andy@horf.us, both 200. |
-| 17.8 — Report + runbook + context.md | ✅ this doc | |
+| 17.8 — Report + runbook + context.md | ✅ executed | |
 
 ### Smoke proof — Sprint 17.7
 
@@ -105,10 +105,12 @@ lib/billing/stripe-webhook-dedup.ts (PK insert into stripe_webhook_events)
    `livemode: true`; the user should restart the MCP after re-pointing
    it at the test mode account, OR provide the test secret directly so
    I can drive `syncPricingToStripe` from a follow-up session.
-2. **Apply migrations 116, 117, 118** via Supabase dashboard or a
-   correctly-scoped MCP. The migration files are committed; the local
-   MCP in this session is connected to a different project ("Collective
-   Archive") so I could not apply them.
+2. ~~**Apply migrations 116, 117, 118**~~ ✅ **DONE 2026-05-10.** All
+   three applied + verified via tsx-pg one-shot scripts (then deleted
+   per the established lifecycle). Smoke verifications:
+   - 116 — `tier_pricing_skus` table + columns + UNIQUE + RLS in place; row count 0 (waits for sync).
+   - 117 — `stripe_webhook_events` PK on text id, 4-value enum, RLS on; row count 0.
+   - 118 — sentinel row exists (`id=00000000-0000-0000-0000-000000000000`, `slug=system`, `tier=beta`, `tier_billing_disabled=true`); ai_activity_log smoke insert with that org_id was ACCEPTED — Phase 16 FK error officially closed.
 3. **Run `/api/admin/billing/sync-stripe`** (POST, platform admin
    only) once the test keys are live. Result populates
    `tier_pricing_skus` with 6 rows (standard×3 + pro×3).
@@ -165,9 +167,9 @@ apps/web/lib/billing/tier-service.ts # neq sentinel filter
 apps/web/app/(app)/admin/customer-signals/page.tsx # neq sentinel filter
 
 supabase/migrations/
-├── 116_tier_pricing_skus.sql       # ⚠️ APPLY VIA DASHBOARD
-├── 117_stripe_webhook_events.sql   # ⚠️ APPLY VIA DASHBOARD
-└── 118_ai_activity_log_system_org.sql # ⚠️ APPLY VIA DASHBOARD
+├── 116_tier_pricing_skus.sql       # 🟢 APPLIED 2026-05-10
+├── 117_stripe_webhook_events.sql   # 🟢 APPLIED 2026-05-10
+└── 118_ai_activity_log_system_org.sql # 🟢 APPLIED 2026-05-10
 
 apps/web/vercel.json                # + email-queue-worker cron
 apps/web/scripts/smoke-resend.ts    # Manual smoke runner

@@ -11,9 +11,9 @@ Phase 17 launch wiring report: `/docs/phase-17-launch-wiring-report.md`.
 
 - [x] Migrations 105–108 applied (Phase 14)
 - [x] Migrations 109–115 applied (Phase 16)
-- [ ] **Migration 116 — `tier_pricing_skus`** APPLIED to production
-- [ ] **Migration 117 — `stripe_webhook_events`** APPLIED to production
-- [ ] **Migration 118 — system organization sentinel** APPLIED to production
+- [x] **Migration 116 — `tier_pricing_skus`** APPLIED 2026-05-10
+- [x] **Migration 117 — `stripe_webhook_events`** APPLIED 2026-05-10
+- [x] **Migration 118 — system organization sentinel** APPLIED 2026-05-10
 - [x] Phase 17 sprints 17.1–17.7 deployed to production (commits up through `2f9ef8f`)
 - [ ] Real Stripe test keys in env: `STRIPE_SECRET_KEY=sk_test_…` and `STRIPE_WEBHOOK_SECRET=whsec_…` (replacing the Phase 14 `sk_placeholder_…` stubs)
 - [ ] `RESEND_API_KEY` pushed to Vercel Production env
@@ -57,14 +57,10 @@ Owner/Mechanic/Bundle subscribers are migrated.
 
 ## Step 1.5 — Apply migrations 117 + 118
 
-```
-117_stripe_webhook_events.sql    # idempotency log for the webhook
-118_ai_activity_log_system_org.sql # closes ai_activity_log FK error
-```
-
-Both are committed in `supabase/migrations/`. Apply via Supabase
-dashboard SQL editor (paste each file's contents). Order doesn't
-matter — they're independent of each other.
+✅ **Done 2026-05-10.** 116, 117, 118 all applied via the established
+tsx-pg one-shot pattern. Smoke verifications all green; ai_activity_log
+now accepts the sentinel `00000000-…` org_id, closing the Phase 16
+FK error.
 
 ## Step 2 — Set tier on each existing org
 
