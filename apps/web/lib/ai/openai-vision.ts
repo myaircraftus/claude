@@ -132,7 +132,9 @@ export async function callOpenAiVision(args: VisionCallArgs): Promise<VisionCall
 
 /** Mirrors the lib/ai/anthropic.ts:289 ai_activity_log shape. */
 export interface AiActivityLogRow {
-  organization_id: string
+  /** Real org id, or null for platform-level activity (substituted at
+   *  write time with the Phase 17 system-org sentinel). */
+  organization_id: string | null
   user_id?: string | null
   scope: string
   entity_kind?: string | null
@@ -147,12 +149,14 @@ export interface AiActivityLogRow {
   context?: Record<string, unknown>
 }
 
+const SYSTEM_ORG_ID = '00000000-0000-0000-0000-000000000000'
+
 export async function logVisionActivity(
   supabase: SupabaseClient,
   row: AiActivityLogRow,
 ): Promise<void> {
   const { error } = await supabase.from('ai_activity_log').insert({
-    organization_id: row.organization_id,
+    organization_id: row.organization_id ?? SYSTEM_ORG_ID,
     user_id: row.user_id ?? null,
     scope: row.scope,
     entity_kind: row.entity_kind ?? null,

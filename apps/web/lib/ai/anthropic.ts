@@ -87,7 +87,11 @@ export interface AnthropicCallResult {
 }
 
 export interface ActivityLogScope {
-  organization_id: string
+  /** Real org id, or `null` when the activity is platform-level (public
+   *  ticket triage, alert evaluators, etc.). The activity logger
+   *  substitutes the system-org sentinel UUID for null values so the
+   *  ai_activity_log FK is always satisfied (Phase 17 Sprint 17.6). */
+  organization_id: string | null
   user_id?: string | null
   scope: string
   entity_kind?: string | null
@@ -95,6 +99,14 @@ export interface ActivityLogScope {
   /** Free-form context — do NOT include raw user PII. */
   context?: Record<string, unknown>
 }
+
+/**
+ * Sentinel UUID for the System organization. Inserted by migration 118.
+ * Whenever a code path needs to write ai_activity_log but has no real
+ * org context (public-form triage, alert sweeps, smoke jobs), we
+ * substitute this id at write time.
+ */
+export const SYSTEM_ORG_ID = '00000000-0000-0000-0000-000000000000'
 
 /**
  * Run an Anthropic Messages call + log the outcome to ai_activity_log.
@@ -287,7 +299,8 @@ async function writeActivityLog(
   },
 ): Promise<void> {
   const { error } = await supabase.from('ai_activity_log').insert({
-    organization_id: row.organization_id,
+    // Substitute the system-org sentinel for null org context (Sprint 17.6).
+    organization_id: row.organization_id ?? SYSTEM_ORG_ID,
     user_id: row.user_id ?? null,
     scope: row.scope,
     entity_kind: row.entity_kind ?? null,

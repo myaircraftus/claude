@@ -210,6 +210,8 @@ export async function listOrgsByTier(
   let query = supabase
     .from('organizations')
     .select('id, name, tier, tier_billing_disabled, tier_effective_from')
+    // Phase 17 Sprint 17.6 — exclude the system-org sentinel.
+    .neq('id', '00000000-0000-0000-0000-000000000000')
     .order('name', { ascending: true })
   if (filter.tier) query = query.eq('tier', filter.tier)
   const { data: orgs } = await query

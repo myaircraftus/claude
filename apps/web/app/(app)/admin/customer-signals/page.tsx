@@ -58,6 +58,8 @@ export default async function CustomerSignalsPage() {
       .from('churn_signals')
       .select('id, organization_id, signal_type, severity, summary, metadata, detected_at, organizations(name, slug)')
       .eq('status', 'open')
+      // Phase 17 Sprint 17.6 — exclude the system-org sentinel.
+      .neq('organization_id', '00000000-0000-0000-0000-000000000000')
       .order('severity', { ascending: true })
       .order('detected_at', { ascending: false })
       .limit(100),
