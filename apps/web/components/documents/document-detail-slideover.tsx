@@ -3,20 +3,12 @@
 import Link from '@/components/shared/tenant-link'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   ExternalLink,
-  FileText,
   Plane,
   RefreshCw,
   AlertCircle,
@@ -581,56 +573,94 @@ export function DocumentDetailSlideover({
     }
   }
 
-  return (
-    <Dialog open={!!doc} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden [&>button:last-child]:hidden">
-        {doc && (
-          <>
-            {/* Header */}
-            <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <DialogTitle className="text-base font-semibold leading-snug line-clamp-2">
-                    {doc.title}
-                  </DialogTitle>
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <Badge variant="outline" className="text-xs">
-                      {classification?.detailLabel ?? DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
-                    </Badge>
-                    {classification && (
-                      <Badge variant="secondary" className="text-xs">
-                        {classification.groupLabel}
-                      </Badge>
-                    )}
-                    {statusHydrated && status ? (
-                      <StatusBadge status={status} />
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Refreshing status
-                      </span>
-                    )}
-                    {doc.source_provider === 'google_drive' && (
-                      <Badge variant="secondary" className="text-xs">Google Drive</Badge>
-                    )}
-                  </div>
-                </div>
-                <DialogClose asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    aria-label="Close document details"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </DialogClose>
-              </div>
-            </DialogHeader>
+  // Phase 18 Sprint 18.5 — non-modal slideover. The previous implementation
+  // used Radix Dialog which renders a full-screen backdrop and traps focus,
+  // making the documents sidebar unclickable while a preview is open. The
+  // brief calls for the sidebar to stay interactive, so we swap to a
+  // fixed right-side panel without an overlay. Escape still closes.
+  useEffect(() => {
+    if (!doc) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [doc, onClose])
 
-            <ScrollArea className="max-h-[calc(85vh-160px)]">
-              <div className="px-6 py-4 space-y-5">
+  if (!doc) return null
+
+  // Inline PDF preview. Renders immediately when the slideover opens —
+  // no extra "show full preview" click. The /api/documents/[id]/preview
+  // endpoint returns the raw PDF with `inline` Content-Disposition and
+  // `X-Frame-Options: SAMEORIGIN`, so embedding via iframe is supported.
+  const isPdf =
+    !doc.mime_type || doc.mime_type.toLowerCase().includes('pdf')
+
+  return (
+    <aside
+      role="dialog"
+      aria-label={`Document: ${doc.title}`}
+      className="fixed inset-y-0 right-0 z-40 w-full max-w-[640px] bg-background border-l border-border shadow-panel flex flex-col"
+    >
+      {/* Header */}
+      <header className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-semibold leading-snug line-clamp-2 tracking-tight">
+              {doc.title}
+            </h2>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge variant="outline" className="text-xs">
+                {classification?.detailLabel ?? DOC_TYPE_LABELS[doc.doc_type] ?? doc.doc_type}
+              </Badge>
+              {classification && (
+                <Badge variant="secondary" className="text-xs">
+                  {classification.groupLabel}
+                </Badge>
+              )}
+              {statusHydrated && status ? (
+                <StatusBadge status={status} />
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Refreshing status
+                </span>
+              )}
+              {doc.source_provider === 'google_drive' && (
+                <Badge variant="secondary" className="text-xs">Google Drive</Badge>
+              )}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            aria-label="Close document details"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      {/* Inline PDF preview — rendered immediately, no extra click required. */}
+      {isPdf && (
+        <div className="flex-shrink-0 h-[45%] border-b border-border bg-muted/20">
+          <iframe
+            key={doc.id}
+            src={`/api/documents/${doc.id}/preview`}
+            title={`Preview of ${doc.title}`}
+            className="w-full h-full"
+            // sandbox is intentionally omitted — same-origin PDF served by our
+            // own API, no untrusted scripts. Restricting it would break the
+            // built-in browser PDF viewer.
+          />
+        </div>
+      )}
+
+      <ScrollArea className="flex-1">
+        <div className="px-6 py-4 space-y-5">
 
                 {/* File information */}
                 <section>
@@ -924,14 +954,11 @@ export function DocumentDetailSlideover({
                     </Button>
                   )}
                 </div>
-                {deleteError && (
-                  <p className="text-xs text-red-700 pb-2">{deleteError}</p>
-                )}
-              </div>
-            </ScrollArea>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          {deleteError && (
+            <p className="text-xs text-red-700 pb-2">{deleteError}</p>
+          )}
+        </div>
+      </ScrollArea>
+    </aside>
   )
 }
