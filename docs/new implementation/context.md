@@ -943,3 +943,71 @@ sentinel `00000000-…` org_id — closing the Phase 16 FK error.
 - Per-tier Checkout: `apps/web/app/api/billing/checkout-tier/route.ts`
 - Smoke runner: `apps/web/scripts/smoke-resend.ts`
 - Migrations: `supabase/migrations/{116_tier_pricing_skus, 117_stripe_webhook_events, 118_ai_activity_log_system_org}.sql`
+
+## 15. UI Refactor + Persona Simplification (LOCKED — Phase 18, 2026-05-10)
+
+**Why this section exists:** Phase 18 collapsed the persona model from 4 → 3, refactored the switcher + admin entry, surfaced Phase 16 admin pages under structured nav, added server-side route guards (closing Phase 15 F2 deferred 2026-05-09), fixed the document preview slideover, and made the persona switch durable via a server action + full-page nav. Everything below is locked — do not modify without Andy's explicit approval.
+
+### Persona model (3, not 4)
+
+- **Personas:** `owner | shop | admin`. The `mechanic` persona was merged one-way into `shop` in migration 119. The org-level role enum still has `'mechanic'` as a value (personnel role), orthogonal to the UI persona.
+- **Type source of truth:** `apps/web/types/index.ts → type Persona`.
+- **Config:** `apps/web/lib/persona/config.ts → PERSONA_CONFIG`. `isPersona()` rejects 'mechanic'. `resolvePersona()` folds legacy 'mechanic' → 'shop' (back-compat for stale sessions or unapplied migration).
+- **Stripe compatibility:** the `'mechanic'` SKU value is **kept** in `lib/billing/products.ts` (Stripe Product ID stability) but its `grants` now resolve to `['shop']` and its `displayName` is `'Shop'`. Live subscriptions don't break.
+
+### Migration 119
+
+`supabase/migrations/119_merge_mechanic_into_shop.sql` — backfills 5 tables (memberships, profiles, documents, entitlements, portal_messages); DELETE-merge on entitlements before re-tag (avoids UNIQUE collision); widens 5 CHECK constraints; rewrites `documents_insert` RLS policy. **Status as of 2026-05-10:** committed, apply deferred — see `docs/phase-18-ui-refactor-report.md` follow-up notes.
+
+### Persona switcher (LOCKED layout)
+
+- `apps/web/components/persona/PersonaSwitcher.tsx` — dropdown filtered to `availablePersonas` (driven by `billingStatus[persona].canRead` for non-admins, full `['owner','shop']` for admins).
+- `admin` is **NEVER** in the main switcher. It lives in the footer entry only.
+- Single-persona case → static chip (no dropdown).
+- `apps/web/components/admin/AdminFooterLink.tsx` — renders only when `is_platform_admin === true`. Click → POSTs `persona=admin` (clears any view-as cookie) → full-page nav.
+
+### Server-side route guards (closes Phase 15 F2)
+
+- `apps/web/lib/persona/route-guard.ts`:
+  - `getEffectivePersona()` reads true persona via `getCurrentPersona()`; overlays `mau_view_as_persona` cookie **only if** `truePersona === 'admin'`.
+  - `requirePersona(allowed: Persona[])` returns `{ allowed, redirectTo?, effectivePersona, viewAs }`.
+  - `requirePersonaApi(allowed)` returns `NextResponse | null` (403 JSON) for API routes.
+- Guard pattern in pages:
+  ```ts
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+  ```
+- Redirect targets are persona-aware: owner mismatch → `/my-aircraft`; shop mismatch → `/workflow`. No error pages.
+
+### Persona switch wire (POST /api/persona/switch)
+
+- **Single durable write path** for persona changes. Replaces the old client-side `setPersona + router.push` (soft nav) which caused "session vanishes".
+- **admin target:** requires `is_platform_admin = true`. Clears view-as cookie. Returns admin homeRoute.
+- **owner/shop by admin:** sets `mau_view_as_persona` cookie (httpOnly, sameSite=lax, 12h). Returns target homeRoute.
+- **owner/shop by non-admin:** entitlement check via `getOrganizationBillingStatus`. No `canRead` → 402 (client opens cross-persona upsell). Otherwise writes `user_profiles.persona` and clears any view-as cookie.
+- **Client contract:** POST then `window.location.assign(homeRoute)` (full-page nav). Never `router.push` for persona changes.
+
+### Document preview slideover (Sprint 18.5)
+
+- `apps/web/components/documents/document-detail-slideover.tsx` — non-modal fixed-right `<aside>` panel (z-40, no backdrop). Inline `<iframe src="/api/documents/[id]/preview">` at the top (45% height), rendered immediately.
+- Sidebar remains clickable while the slideover is open. Clicking another row swaps the iframe without an intermediate close.
+- Preview API serves `Content-Disposition: inline` + `X-Frame-Options: SAMEORIGIN` — same-origin iframe embedding works in every browser including iPad Safari.
+
+### Hard rules (also in Section 4)
+
+13. **Persona is always 3:** owner | shop | admin. Never write `'mechanic'` to a persona column. Use `resolvePersona()` to normalize any external input.
+14. **Persona switches go through `/api/persona/switch` + full-page nav.** Never call `setPersona()` directly from a UI handler; never use `router.push()` for a persona change.
+15. **Admin is footer-only.** Never put admin into the main persona switcher dropdown.
+16. **Server-side persona guards on every persona-restricted page.** `requirePersona` at the top of the page server component, before any data fetch.
+
+### Files
+
+- Types: `apps/web/types/index.ts`
+- Persona config: `apps/web/lib/persona/{config,server,home-widgets,route-guard}.ts`
+- Persona switcher: `apps/web/components/persona/PersonaSwitcher.tsx`
+- Admin footer link: `apps/web/components/admin/AdminFooterLink.tsx`
+- Persona switch API: `apps/web/app/api/persona/switch/route.ts`
+- App layout integration: `apps/web/components/redesign/AppLayout.tsx`
+- Documents slideover: `apps/web/components/documents/document-detail-slideover.tsx`
+- Migration: `supabase/migrations/119_merge_mechanic_into_shop.sql`
+- Full report: `docs/phase-18-ui-refactor-report.md`
