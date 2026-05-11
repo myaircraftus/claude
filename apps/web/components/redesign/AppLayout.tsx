@@ -34,6 +34,9 @@ import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { TourOverlay } from "./onboarding/TourOverlay";
+// Phase 18 Sprint 18.2 — new switcher + footer entry.
+import { PersonaSwitcher } from "@/components/persona/PersonaSwitcher";
+import { AdminFooterLink } from "@/components/admin/AdminFooterLink";
 import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
 import { HelpWidget } from "@/components/support/HelpWidget";
 import { ClientErrorBoundary } from "@/components/observability/ClientErrorBoundary";
@@ -538,103 +541,29 @@ function AppLayoutInner({
 
         {/* Persona switcher — Admin pill only renders for platform admins */}
         {!hideSidebarPersonaSwitcher && (
-        <div data-tour="persona-switcher" className={`${collapsed ? "px-1 py-2" : "px-3 py-3"} border-b border-sidebar-border shrink-0`}>
-          {collapsed ? (
-            <div className="flex flex-col items-center gap-1">
-              <button
-                onClick={() => switchPersona("owner")}
-                title="Aircraft Owner"
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                  persona === "owner" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
-                }`}
-              >
-                <User className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => switchPersona("mechanic")}
-                title="Mechanic"
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                  persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
-                }`}
-              >
-                <HardHat className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => switchPersona("shop")}
-                title="Shop / Dispatcher"
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                  persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
-                }`}
-              >
-                <Store className="w-4 h-4" />
-              </button>
-              {isPlatformAdmin && (
-                <button
-                  onClick={() => switchPersona("admin")}
-                  title="Platform Admin"
-                  className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                    persona === "admin" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[10px] text-white/35 uppercase tracking-widest px-0.5" style={{ fontWeight: 600 }}>
-                Persona
-              </p>
-              {/* Three or four columns depending on platform-admin visibility.
-                  Phase 15 F3: Shop tab added so shop-persona users can flip
-                  into /workflow without needing direct URL nav. */}
-              <div className={`grid ${isPlatformAdmin ? "grid-cols-4" : "grid-cols-3"} gap-1 bg-white/5 rounded-lg p-1`}>
-                <button
-                  onClick={() => switchPersona("owner")}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
-                    persona === "owner" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
-                  }`}
-                  style={{ fontWeight: persona === "owner" ? 600 : 400 }}
-                >
-                  <User className="w-3 h-3 shrink-0" />
-                  Owner
-                </button>
-                <button
-                  onClick={() => switchPersona("mechanic")}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
-                    persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
-                  }`}
-                  style={{ fontWeight: persona === "shop" ? 600 : 400 }}
-                >
-                  <HardHat className="w-3 h-3 shrink-0" />
-                  Mechanic
-                </button>
-                <button
-                  onClick={() => switchPersona("shop")}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
-                    persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
-                  }`}
-                  style={{ fontWeight: persona === "shop" ? 600 : 400 }}
-                >
-                  <Store className="w-3 h-3 shrink-0" />
-                  Shop
-                </button>
-                {isPlatformAdmin && (
-                  <button
-                    onClick={() => switchPersona("admin")}
-                    className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
-                      persona === "admin" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
-                    }`}
-                    style={{ fontWeight: persona === "admin" ? 600 : 400 }}
-                  >
-                    <ShieldCheck className="w-3 h-3 shrink-0" />
-                    Admin
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+          <div className="border-b border-sidebar-border shrink-0">
+            {/* Phase 18 Sprint 18.2 — collapsed dropdown switcher.
+                Replaces the previous 4-button row. Admin is removed from
+                here entirely and now lives in the footer via
+                AdminFooterLink (below). The available-personas list is
+                derived from the user's billing entitlements + admin
+                bypass (admins can flip to shop without a sub). */}
+            <PersonaSwitcher
+              availablePersonas={
+                isPlatformAdmin
+                  ? (["owner", "shop"] as const)
+                  : (
+                      [
+                        billingStatus?.owner?.canRead ? "owner" : null,
+                        billingStatus?.shop?.canRead ? "shop" : null,
+                      ].filter(Boolean) as Persona[]
+                    )
+              }
+              currentPersona={persona}
+              collapsed={collapsed}
+              onSwitch={(next) => switchPersona(next)}
+            />
+          </div>
         )}
 
         {/* "Viewing As" team role picker was removed — the mechanic always
@@ -957,6 +886,12 @@ function AppLayoutInner({
             </div>
           );
         })()}
+
+        {/* Phase 18 Sprint 18.2 — Admin footer entry. Only renders when the
+            user is_platform_admin. Click navigates to the unified
+            command-center. Sits below the user profile card, never in the
+            persona switcher dropdown. */}
+        <AdminFooterLink isPlatformAdmin={isPlatformAdmin === true} collapsed={collapsed} />
       </aside>
 
       {/* ── Main content ── */}
