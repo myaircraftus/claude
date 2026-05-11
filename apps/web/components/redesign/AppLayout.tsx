@@ -408,22 +408,33 @@ function AppLayoutInner({
     };
   });
 
-  // Admin items are now ONLY accessible from the Admin persona — they don't
-  // bleed into the owner nav anymore. Platform admins see a third persona
-  // pill ("Admin") in the switcher; non-admins don't see it at all.
+  // Admin items are ONLY accessible from the Admin entry (footer link from
+  // Sprint 18.2) or via direct URL nav. Non-admins don't see them. Phase 18
+  // Sprint 18.3 — expanded to surface the Phase 16 ops UI in 4 sub-categories
+  // (Admin Console / Admin Billing / Admin Vision / Admin Content). The
+  // category split is driven by lib/nav/categories.ts href-prefix routing.
   const adminNavItems: NavItem[] = [
-    { icon: ShieldCheck,    label: "Admin Console",    href: "/admin" },
-    { icon: FileText,       label: "All Documents",    href: "/documents" },
-    { icon: AlertTriangle,  label: "Ingestion Health", href: "/admin/ingestion-health" },
-    // Phase 13.3 — global ingestion progress + error log.
-    { icon: AlertTriangle,  label: "Ingestion Progress", href: "/admin/ingestion/progress" },
-    { icon: AlertTriangle,  label: "Errors",           href: "/admin/errors" },
-    // Phase 14 Sprint 14.5 — billing tier management.
-    { icon: DollarSign,     label: "Billing — Batch",  href: "/admin/billing/batch" },
-    { icon: DollarSign,     label: "Billing — Orgs",   href: "/admin/billing/orgs" },
-    // Phase 8 Sprint 8.4 — vision-RAG operational dashboard.
-    { icon: Eye,            label: "Vision Index",     href: "/admin/vision" },
-    { icon: FileText,       label: "Marketing CMS",    href: "/admin/content" },
+    // ── Admin Console (Phase 16)
+    { icon: ShieldCheck,    label: "Command Center",      href: "/admin/command-center" },
+    { icon: FileText,       label: "Support Inbox",       href: "/admin/support/inbox" },
+    { icon: AlertTriangle,  label: "Errors",              href: "/admin/observability/errors" },
+    { icon: AlertTriangle,  label: "Health",              href: "/admin/health" },
+    { icon: Sparkles,       label: "Ops Assistant",       href: "/admin/ops-assistant" },
+    { icon: AlertTriangle,  label: "Customer Signals",    href: "/admin/customer-signals" },
+    { icon: AlertTriangle,  label: "Ingestion Health",    href: "/admin/ingestion-health" },
+    { icon: AlertTriangle,  label: "Ingestion Progress",  href: "/admin/ingestion/progress" },
+    // ── Admin Billing (Phase 14 + Phase 17 SKUs)
+    { icon: DollarSign,     label: "Billing — Batch",     href: "/admin/billing/batch" },
+    { icon: DollarSign,     label: "Billing — Orgs",      href: "/admin/billing/orgs" },
+    // ── Admin Vision (Phase 8 / 11)
+    { icon: Eye,            label: "Vision Index",        href: "/admin/vision" },
+    { icon: Eye,            label: "Vision Review",       href: "/admin/vision/review" },
+    { icon: Eye,            label: "Vision Telemetry",    href: "/admin/vision/telemetry" },
+    { icon: Eye,            label: "Vision Workers",      href: "/admin/vision/workers" },
+    // ── Admin Content (Marketing CMS / FAR-AIM)
+    { icon: FileText,       label: "Marketing CMS",       href: "/admin/content" },
+    { icon: FileText,       label: "FAR/AIM AI",          href: "/admin/faraim" },
+    { icon: FileText,       label: "Guided Tour",         href: "/admin/tour" },
   ];
 
   const navItemsRaw: NavItem[] =
