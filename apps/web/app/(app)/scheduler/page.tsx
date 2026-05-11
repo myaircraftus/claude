@@ -1,6 +1,8 @@
+import { redirect } from 'next/navigation'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { SchedulerView } from './scheduler-view'
+import { requirePersona } from '@/lib/persona/route-guard'
 
 export const metadata = { title: 'Scheduler' }
 
@@ -15,6 +17,11 @@ export const metadata = { title: 'Scheduler' }
  * the URL can carry tab + month state cheaply.
  */
 export default async function SchedulerPage() {
+  // Phase 18 Sprint 18.4 — persona-strict server guard (closes Phase 15 F2).
+  // Shop / admin can access; owner is redirected to /my-aircraft.
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
 

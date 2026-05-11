@@ -1,5 +1,7 @@
 import { InvoicesPage } from '@/components/redesign/InvoicesPage'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { redirect } from 'next/navigation'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 
 export const metadata = { title: 'Invoices' }

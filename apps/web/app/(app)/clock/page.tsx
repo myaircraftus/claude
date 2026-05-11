@@ -1,4 +1,6 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { redirect } from 'next/navigation'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { Topbar } from '@/components/shared/topbar'
 import { ClockView } from './clock-view'
 
@@ -11,6 +13,10 @@ export const metadata = { title: 'Clock In/Out' }
  * scope=mine fallback when no admin role + no explicit employee_id).
  */
 export default async function ClockPage() {
+  // Phase 18 Sprint 18.4 — shop/admin-only route (closes Phase 15 F2)
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
   const isAdmin = ['owner', 'admin'].includes(membership.role)

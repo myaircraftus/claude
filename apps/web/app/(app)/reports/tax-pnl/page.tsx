@@ -1,4 +1,6 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { requirePersona } from '@/lib/persona/route-guard'
+import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/shared/topbar'
 import { TaxPnlReportClient } from './tax-pnl-client'
 
@@ -15,6 +17,10 @@ export const metadata = { title: 'Tax-Time P&L' }
  * approved cost_entries on file, so the operator picks from real data.
  */
 export default async function TaxPnlPage() {
+  // Phase 18 Sprint 18.4 — owner/admin-only route (closes Phase 15 F2)
+  const guard = await requirePersona(['owner', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { profile, supabase, membership } = await requireAppServerSession()
 
   // Years with at least one approved cost_entry — drives the year picker.

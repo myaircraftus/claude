@@ -1,4 +1,6 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { redirect } from 'next/navigation'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { Topbar } from '@/components/shared/topbar'
 import { TimeOffView } from './time-off-view'
 
@@ -12,6 +14,10 @@ export const metadata = { title: 'Time Off' }
  * without an extra round-trip per row.
  */
 export default async function TimeOffPage() {
+  // Phase 18 Sprint 18.4 — shop/admin-only route (closes Phase 15 F2)
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
 

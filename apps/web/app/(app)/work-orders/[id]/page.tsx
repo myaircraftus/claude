@@ -4,6 +4,11 @@ import { requireAppServerSession } from '@/lib/auth/server-app'
 import { WorkOrderDetailClient } from './work-order-detail-client'
 import type { WorkOrder } from '@/types'
 
+// NOTE: Phase 18 Sprint 18.4 — the shop/admin persona guard is enforced by
+// app/(app)/work-orders/layout.tsx, which Next renders BEFORE this page.
+// We don't repeat the guard here (and especially not in generateMetadata,
+// which fires for tab titles and would cause an unwanted redirect).
+
 // Per-WO tab title so users can distinguish multiple WO tabs in their browser.
 // Falls back to a generic "Work Order" if the lookup fails (e.g. cross-org
 // access attempt) — the page itself will then render notFound().

@@ -1,4 +1,6 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { redirect } from 'next/navigation'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { Topbar } from '@/components/shared/topbar'
 import { WorkOrdersShell, type WorkOrderListItem, type ShellAircraft } from './work-orders-shell'
 
@@ -13,6 +15,10 @@ export default async function WorkOrdersLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Phase 18 Sprint 18.4 — shop/admin-only WO tree (closes Phase 15 F2)
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
 

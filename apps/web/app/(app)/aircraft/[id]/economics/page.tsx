@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { Topbar } from '@/components/shared/topbar'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { computeTrueOperatingCost } from '@/lib/costs/calculator'
@@ -25,6 +26,10 @@ export default async function AircraftEconomicsPage({
 }: {
   params: { id: string }
 }) {
+  // Phase 18 Sprint 18.4 — owner/admin-only route (closes Phase 15 F2)
+  const guard = await requirePersona(['owner', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { profile, membership } = await requireAppServerSession()
   const supabase = createServerSupabase()
 

@@ -1,4 +1,6 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { redirect } from 'next/navigation'
+import { requirePersona } from '@/lib/persona/route-guard'
 import { Topbar } from '@/components/shared/topbar'
 import { VendorsView } from '@/components/vendors/vendors-view'
 import { EntityBulkPanel } from '@/components/bulk/EntityBulkPanel'
@@ -12,6 +14,10 @@ export const metadata = { title: 'Vendors' }
  * (016).
  */
 export default async function VendorsPage() {
+  // Phase 18 Sprint 18.4 — shop/admin-only route (closes Phase 15 F2)
+  const guard = await requirePersona(['shop', 'admin'])
+  if (!guard.allowed) redirect(guard.redirectTo!)
+
   const { profile, membership } = await requireAppServerSession()
   return (
     <div className="flex flex-col h-full overflow-hidden">
