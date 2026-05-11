@@ -474,35 +474,64 @@ function AppLayoutInner({
     return null;
   })();
 
-  function switchPersona(p: Persona) {
-    // Admins switch freely between all three personas. Owners + mechanics
-    // can only flip between owner ↔ mechanic (and only with the right
-    // entitlement). The Admin pill is hidden for non-admins below.
-    if (p === "admin") {
-      setPersona("admin");
-      router.push("/admin");
-      return;
+  /**
+   * Phase 18 Sprint 18.6 — server-side persona switch.
+   *
+   * The old implementation set client state via setPersona() and called
+   * router.push() (soft nav). The page-level RSC tree kept the OLD
+   * persona's data cached, the sidebar's persona state stayed in client
+   * memory, and any server-rendered persona-gated content lagged until
+   * a hard refresh — which is how Andy hit the "session vanished" bug.
+   *
+   * Now we POST to /api/persona/switch:
+   *   - 200 → server has persisted the switch (cookie for admins,
+   *           user_profiles.persona for non-admins). We do a HARD nav
+   *           via window.location.assign() so the next request hits
+   *           the server with the fresh persona and a clean RSC tree.
+   *   - 402 → no entitlement. Open the cross-persona upsell modal.
+   *   - 403 → admin-only target requested by a non-admin. Shouldn't
+   *           happen — the switcher hides 'admin' for non-admins —
+   *           but we surface a toast just in case.
+   */
+  async function switchPersona(p: Persona) {
+    try {
+      const res = await fetch("/api/persona/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona: p }),
+      });
+
+      if (res.status === 402) {
+        // No entitlement — open the upsell instead of navigating.
+        setUpsellPersona(p);
+        return;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        console.error("[switchPersona] failed", res.status, errText);
+        // Optimistic fallback so the UI isn't completely stuck: still
+        // update client state and do a soft push to the canonical home.
+        setPersona(p);
+        const fallback = p === "owner" ? "/my-aircraft" : p === "shop" ? "/workflow" : "/admin";
+        router.push(fallback);
+        return;
+      }
+
+      const json = (await res.json()) as { homeRoute?: string };
+      const target = json.homeRoute ?? (p === "owner" ? "/my-aircraft" : p === "shop" ? "/workflow" : "/admin");
+
+      // Full-page navigation. Drops the entire client tree (and any
+      // stale persona-keyed caches with it) and forces the next render
+      // to be fully server-driven with the new persona.
+      window.location.assign(target);
+    } catch (err) {
+      console.error("[switchPersona] network error", err);
+      // Same defensive fallback as above.
+      setPersona(p);
+      const fallback = p === "owner" ? "/my-aircraft" : p === "shop" ? "/workflow" : "/admin";
+      router.push(fallback);
     }
-    // Shop persona: Phase 14 paywall isn't wired to a shop SKU yet, so we
-    // skip the entitlement gate (consistent with the Phase 5 decision —
-    // shop has no separate billing surface). Lands on /workflow which is
-    // PERSONA_CONFIG.shop.homeRoute (was /dashboard, fixed in Phase 15 F3).
-    if (p === "shop") {
-      setPersona("shop");
-      router.push("/workflow");
-      return;
-    }
-    // If the user doesn't have an active entitlement for the target persona,
-    // open the cross-persona upsell instead of navigating. canRead stays true
-    // for paywalled (read-only) personas so re-subscribers can browse.
-    const ent = billingStatus?.[p];
-    const hasNoEntitlement = ent && ent.state === "none";
-    if (hasNoEntitlement) {
-      setUpsellPersona(p);
-      return;
-    }
-    setPersona(p);
-    router.push(p === "owner" ? "/dashboard" : "/mechanic");
   }
 
   function handleSelectMechanic(m: TeamMember) {
