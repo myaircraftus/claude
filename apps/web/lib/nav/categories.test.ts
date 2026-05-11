@@ -50,13 +50,17 @@ describe('categoriesForPersona', () => {
     expect(ids).not.toContain('commercial')
   })
 
-  it('mechanic sees workforce + operations + ai but NOT economics or organization', () => {
-    const ids = categoriesForPersona('mechanic').map((c) => c.id)
+  it('shop sees workforce + operations + customer + commercial + ai but NOT economics or organization', () => {
+    // Phase 18 mig 119 — mechanic merged into shop. Shop is the canonical
+    // operational persona now; it sees the workforce + customer + commercial
+    // categories the legacy mechanic flow couldn't.
+    const ids = categoriesForPersona('shop').map((c) => c.id)
     expect(ids).toContain('workforce')
     expect(ids).toContain('operations')
+    expect(ids).toContain('customer')
+    expect(ids).toContain('commercial')
     expect(ids).not.toContain('economics')
     expect(ids).not.toContain('organization')
-    expect(ids).not.toContain('customer')
   })
 
   it('admin sees every category', () => {

@@ -512,10 +512,10 @@ function AppLayoutInner({
     "--sidebar-primary-foreground-rgb": "255 255 255",
     "--sidebar-accent-rgb": "22 58 122",
     "--sidebar-accent-foreground-rgb": "255 255 255",
-    "--sidebar-border-rgb": persona === "mechanic" ? "162 174 198" : "172 184 205",
-    "--sidebar-border-alpha": persona === "mechanic" ? "0.22" : "0.16",
+    "--sidebar-border-rgb": persona === "shop" ? "162 174 198" : "172 184 205",
+    "--sidebar-border-alpha": persona === "shop" ? "0.22" : "0.16",
     "--sidebar-ring-rgb": "59 130 246",
-    "--border-rgb": persona === "mechanic" ? "223 230 241" : "226 232 240",
+    "--border-rgb": persona === "shop" ? "223 230 241" : "226 232 240",
     "--border-alpha": "1",
   } as React.CSSProperties;
 
@@ -554,7 +554,7 @@ function AppLayoutInner({
                 onClick={() => switchPersona("mechanic")}
                 title="Mechanic"
                 className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                  persona === "mechanic" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
+                  persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/40 hover:bg-white/10 hover:text-white/70"
                 }`}
               >
                 <HardHat className="w-4 h-4" />
@@ -602,9 +602,9 @@ function AppLayoutInner({
                 <button
                   onClick={() => switchPersona("mechanic")}
                   className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] transition-all ${
-                    persona === "mechanic" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
+                    persona === "shop" ? "bg-white text-[#0A1628] shadow-sm" : "text-white/50 hover:text-white/80"
                   }`}
-                  style={{ fontWeight: persona === "mechanic" ? 600 : 400 }}
+                  style={{ fontWeight: persona === "shop" ? 600 : 400 }}
                 >
                   <HardHat className="w-3 h-3 shrink-0" />
                   Mechanic
@@ -861,12 +861,12 @@ function AppLayoutInner({
         {/* User footer */}
         {(() => {
           const onSettings = effectivePathname.startsWith("/settings");
-          const name   = persona === "mechanic" ? activeMechanic.name  : userName;
-          const role   = persona === "mechanic" ? activeMechanic.role  : "Owner / Operator";
-          const avatar = persona === "mechanic"
+          const name   = persona === "shop" ? activeMechanic.name  : userName;
+          const role   = persona === "shop" ? activeMechanic.role  : "Owner / Operator";
+          const avatar = persona === "shop"
             ? <span>{activeMechanic.initials}</span>
             : <User className="w-4 h-4 text-white/70" />;
-          const avatarBg = persona === "mechanic" ? activeMechanic.color : "bg-sidebar-accent";
+          const avatarBg = persona === "shop" ? activeMechanic.color : "bg-sidebar-accent";
 
           async function handleSignOut() {
             // POST to a server route so the HttpOnly auth cookies get cleared
@@ -970,7 +970,7 @@ function AppLayoutInner({
         {/* Wait until isPlatformAdmin is known (not null) before deciding
             whether to show the banner — avoids a flash of trial copy on
             every page nav for admin sessions. */}
-        {(persona === "owner" || persona === "mechanic") && isPlatformAdmin === false && (
+        {(persona === "owner" || persona === "shop") && isPlatformAdmin === false && (
           <BillingBanner persona={persona} />
         )}
         <main
@@ -987,9 +987,10 @@ function AppLayoutInner({
             <PartsStoreProvider>
               {(() => {
                 // Admin + shop personas bypass the paywall — admin is platform
-                // staff (no billing) and shop has no billing surface yet
-                // (Phase 5). Only owner + mechanic flow through entitlements.
-                if (persona !== "owner" && persona !== "mechanic") return children;
+                // staff (no billing) — admin/owner/shop are the persona surfaces;
+                // only owner + shop flow through entitlements (mig 119 collapsed
+                // 'mechanic' into 'shop'). billingStatus is indexed by 'shop'.
+                if (persona !== "owner" && persona !== "shop") return children;
                 const ent = billingStatus?.[persona];
                 const isBillingScreen =
                   effectivePathname === "/settings" ||
@@ -1009,7 +1010,7 @@ function AppLayoutInner({
       {/* ── Floating work-order chat bubble ──
           Visible on owner + mechanic personas. Admin doesn't need it.
           Tap → drawer with aircraft picker → active work orders → timeline + chat thread. */}
-      {(persona === "owner" || persona === "mechanic") && <WorkOrderChatBubble persona={persona} />}
+      {(persona === "owner" || persona === "shop") && <WorkOrderChatBubble persona={persona} />}
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />

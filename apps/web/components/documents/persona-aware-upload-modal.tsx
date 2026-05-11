@@ -344,11 +344,11 @@ export function PersonaAwareUploadModal({
 function personaUploadHint(persona: Persona): string {
   switch (persona) {
     case 'owner':
-      return 'Upload aircraft records for an aircraft you own. Reference manuals are uploaded by mechanics.'
-    case 'mechanic':
-      return 'Upload reference manuals, parts catalogs, service bulletins, ADs, and shop documents. Aircraft logbooks and registrations are uploaded by the owner.'
+      return 'Upload aircraft records for an aircraft you own. Reference manuals are uploaded by the shop.'
     case 'shop':
-      return 'Upload everything except logbooks and registrations (those stay owner-only).'
+      // Phase 18 mig 119 — shop spans the former mechanic + shop surfaces. The
+      // upload hint now lists everything except the owner-only sensitive types.
+      return 'Upload reference manuals, parts catalogs, service bulletins, ADs, work-order attachments, invoices, and most aircraft documents. Aircraft logbooks and registrations stay owner-only.'
     case 'admin':
       return 'Platform admin — upload any document type for any aircraft.'
     default:

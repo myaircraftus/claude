@@ -53,7 +53,7 @@ export async function generateProactiveCards(
   if (persona === 'owner' || persona === 'shop' || persona === 'admin') {
     cards.push(...await ownerCards(supabase, orgId))
   }
-  if (persona === 'mechanic' || persona === 'shop' || persona === 'admin') {
+  if (persona === 'shop' || persona === 'admin') {
     cards.push(...await mechanicCards(supabase, orgId))
   }
 
@@ -229,7 +229,7 @@ async function mechanicCards(supabase: SupabaseClient, orgId: string): Promise<C
     const days = Math.round((Date.parse(t.next_calibration_date) - Date.now()) / 86_400_000)
     out.push({
       organization_id: orgId,
-      persona: 'mechanic',
+      persona: 'shop',
       priority: overdue ? 'urgent' : days <= 7 ? 'high' : 'normal',
       category: 'maintenance',
       title: overdue
@@ -257,7 +257,7 @@ async function mechanicCards(supabase: SupabaseClient, orgId: string): Promise<C
     const overdue = !!(w.due_date && w.due_date < today)
     out.push({
       organization_id: orgId,
-      persona: 'mechanic',
+      persona: 'shop',
       priority: overdue ? 'urgent' : w.status === 'in_progress' || w.status === 'in-progress' ? 'high' : 'normal',
       category: 'maintenance',
       title: overdue

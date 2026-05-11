@@ -79,7 +79,7 @@ function subhead(persona: Persona, status: GreetingStatus): string | null {
     }
     return `${status.primary_tail} is ready.`
   }
-  if (persona === 'mechanic') {
+  if (persona === 'shop') {
     if (status.clocked_in) {
       const queue = status.open_wos ?? 0
       return queue === 0

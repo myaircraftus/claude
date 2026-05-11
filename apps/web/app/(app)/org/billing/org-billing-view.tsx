@@ -37,7 +37,7 @@ interface Props {
 
 const PLAN_TIERS = [
   { id: 'price_owner_monthly_mock',    label: 'Owner — $39/mo',    persona: 'owner'    },
-  { id: 'price_mechanic_monthly_mock', label: 'Mechanic — $49/mo', persona: 'mechanic' },
+  { id: 'price_mechanic_monthly_mock', label: 'Mechanic — $49/mo', persona: 'shop' },
   { id: 'price_shop_monthly_mock',    label: 'Shop — $199/mo',    persona: 'shop'    },
   { id: 'price_bundle_monthly_mock',  label: 'Bundle — $249/mo', persona: 'bundle' },
 ]

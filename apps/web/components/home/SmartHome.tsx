@@ -41,8 +41,11 @@ export function SmartHome(props: SmartHomeServerData) {
       <AIGreeting fullName={props.full_name} status={props.greeting_status} />
 
       {persona === 'owner' && <OwnerLayout {...props} />}
-      {persona === 'mechanic' && <MechanicLayout {...props} />}
-      {(persona === 'shop' || persona === 'admin') && <OwnerLayout {...props} />}
+      {/* Phase 18 mig 119: mechanic merged into shop. The legacy MechanicLayout
+          is now the canonical operational home for shop. Admin keeps the
+          owner-side aircraft view for the universal /my-aircraft surface. */}
+      {persona === 'shop' && <MechanicLayout {...props} />}
+      {persona === 'admin' && <OwnerLayout {...props} />}
 
       {/* Spec 5.4 — voice input on every home surface. Floats bottom-right. */}
       <div className="fixed bottom-4 right-4 z-40">

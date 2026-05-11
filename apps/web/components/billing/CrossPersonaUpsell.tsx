@@ -29,7 +29,7 @@ export function CrossPersonaUpsell({ persona, open, onClose, onTrialStarted }: P
 
   const product = PRODUCTS[persona];
   const personaLabel = product.displayName;
-  const Icon = persona === "mechanic" ? Wrench : Plane;
+  const Icon = persona === "shop" ? Wrench : Plane;
   const ownEntitlement = status?.[persona];
   const trialAlreadyUsed = ownEntitlement && ownEntitlement.state !== "none" && ownEntitlement.state !== "trial";
   const canStartTrial = !ownEntitlement || ownEntitlement.state === "none";

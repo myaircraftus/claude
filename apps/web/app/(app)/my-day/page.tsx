@@ -47,7 +47,7 @@ export default async function MyDayPage() {
 
   // 3. Proactive card generation — mechanic scan (open WOs, tool cal due).
   try {
-    await generateProactiveCards(supabase, { organization_id: orgId, persona: 'mechanic' })
+    await generateProactiveCards(supabase, { organization_id: orgId, persona: 'shop' })
   } catch (e) {
     console.error('[my-day] generateProactiveCards error:', e)
   }

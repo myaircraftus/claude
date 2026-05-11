@@ -408,7 +408,7 @@ export default async function DocumentsPage({
   // Phase 13.2 — persona-aware upload entry point. Resolve full 4-value
   // persona (owner | mechanic | shop | admin) for the persona-strict modal.
   // Falls back to owner if resolution fails (won't crash the page).
-  let phase13Persona: 'owner' | 'mechanic' | 'shop' | 'admin' = 'owner'
+  let phase13Persona: 'owner' | 'shop' | 'admin' = 'owner'
   try {
     const resolved = await getCurrentPersona()
     phase13Persona = resolved.persona
@@ -451,9 +451,9 @@ export default async function DocumentsPage({
   // everything. We default to owner if the cookie is missing so the page
   // doesn't accidentally hide records on first load.
   const personaCookie = cookies().get('ui_persona')?.value
-  const activePersona: Persona = personaCookie === 'mechanic' ? 'mechanic' : 'owner'
-  if (activePersona === 'mechanic') {
-    query = query.in('doc_type', docTypesForPersona('mechanic'))
+  const activePersona: Persona = personaCookie === 'shop' ? 'shop' : 'owner'
+  if (activePersona === 'shop') {
+    query = query.in('doc_type', docTypesForPersona('shop'))
   }
 
   if (searchParams.aircraft) {
@@ -515,8 +515,8 @@ export default async function DocumentsPage({
     .from('documents')
     .select('parsing_status, doc_type, document_group_id, document_detail_id, record_family, truth_role, reminder_relevance, ad_relevance')
     .eq('organization_id', orgId)
-  if (activePersona === 'mechanic') {
-    statsQuery = statsQuery.in('doc_type', docTypesForPersona('mechanic'))
+  if (activePersona === 'shop') {
+    statsQuery = statsQuery.in('doc_type', docTypesForPersona('shop'))
   }
   if (searchParams.aircraft) {
     statsQuery = statsQuery.eq('aircraft_id', searchParams.aircraft)

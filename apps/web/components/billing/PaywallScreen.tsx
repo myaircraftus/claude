@@ -41,8 +41,8 @@ export function PaywallScreen({ persona, readOnly = true }: Props) {
     }
   };
 
-  const Icon = persona === "mechanic" ? Wrench : Plane;
-  const personaLabel = persona === "mechanic" ? "Mechanic" : "Aircraft Owner";
+  const Icon = persona === "shop" ? Wrench : Plane;
+  const personaLabel = persona === "shop" ? "Mechanic" : "Aircraft Owner";
 
   return (
     <div className="min-h-[calc(100vh-120px)] flex items-center justify-center p-6 bg-gradient-to-br from-slate-50 to-blue-50/50">
@@ -90,7 +90,7 @@ export function PaywallScreen({ persona, readOnly = true }: Props) {
           <PlanCard
             sku="mechanic"
             currentPersona={persona}
-            highlight={persona === "mechanic"}
+            highlight={persona === "shop"}
             icon={<Wrench className="w-5 h-5 text-slate-700" />}
             loading={loadingSku === "mechanic"}
             onSubscribe={handleSubscribe}

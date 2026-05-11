@@ -1,49 +1,66 @@
 /**
- * Phase 13.6 — persona-strict home page widget configuration.
+ * Phase 13.6 — per-persona home widget configuration.
  *
- * Single source of truth for which widgets each persona's home page renders.
- * Keeps home pages free of `if (persona === 'X')` branches and makes it easy
- * to A/B test new widgets per persona via config rather than code edits.
+ * Phase 18 mig 119 — mechanic persona was merged into shop. The widget
+ * list for shop now includes the previously-mechanic-only entries
+ * (my-wos-today, time-clock, scheduler-agenda) so a shop user who used
+ * to log in as mechanic gets the same home surface they're used to.
  *
- * Widget IDs are stable strings — UI components map them to actual React
- * components via a registry on the home page itself. New widgets must be
- * added here AND in the registry.
+ * Each persona's home page reads this config and renders exactly these
+ * widgets in order. Adding a widget here flips it on for that persona
+ * without touching any home page code, provided the widget registry on
+ * the page knows how to render the ID.
  */
 import type { Persona } from '@/types'
 
-/** Stable widget identifiers used across home surfaces. */
 export type WidgetId =
-  // Owner widgets
+  // Owner
   | 'fleet-summary'
   | 'maintenance-status'
   | 'ingestion-progress-mine'
   | 'ask-aircraft'
   | 'economics-snapshot'
-  // Mechanic widgets
+  // Shop (post-merge: incorporates legacy mechanic widgets)
   | 'my-wos-today'
   | 'time-clock'
   | 'scheduler-agenda'
   | 'parts-shortages'
   | 'recent-manuals'
-  // Shop widgets
   | 'wo-queue'
   | 'scheduler-overview'
   | 'billing-summary'
   | 'customer-approvals'
   | 'low-stock'
-  // Admin widgets
+  // Admin
   | 'cross-org-metrics'
   | 'error-log'
   | 'worker-health'
   | 'review-queue-stats'
   | 'recent-uploads-global'
 
-/**
- * Persona × widget matrix. Each persona's home page reads this config and
- * renders exactly these widgets in order. Adding a widget here flips it on
- * for that persona without touching any home page code, provided the widget
- * registry on the page knows how to render the ID.
- */
+export const ALL_WIDGET_IDS: readonly WidgetId[] = [
+  'fleet-summary',
+  'maintenance-status',
+  'ingestion-progress-mine',
+  'ask-aircraft',
+  'economics-snapshot',
+  'my-wos-today',
+  'time-clock',
+  'scheduler-agenda',
+  'parts-shortages',
+  'recent-manuals',
+  'wo-queue',
+  'scheduler-overview',
+  'billing-summary',
+  'customer-approvals',
+  'low-stock',
+  'cross-org-metrics',
+  'error-log',
+  'worker-health',
+  'review-queue-stats',
+  'recent-uploads-global',
+] as const
+
 export const PERSONA_HOME_WIDGETS: Record<Persona, WidgetId[]> = {
   owner: [
     'fleet-summary',
@@ -52,19 +69,19 @@ export const PERSONA_HOME_WIDGETS: Record<Persona, WidgetId[]> = {
     'ask-aircraft',
     'economics-snapshot',
   ],
-  mechanic: [
-    'my-wos-today',
-    'time-clock',
-    'scheduler-agenda',
-    'parts-shortages',
-    'recent-manuals',
-  ],
+  // Phase 18: shop = union of the old shop + old mechanic widget sets.
+  // The union is large; future tuning should trim duplicates (e.g.
+  // scheduler-agenda vs scheduler-overview) once UX preferences are clear.
   shop: [
+    'my-wos-today',
     'wo-queue',
-    'scheduler-overview',
+    'scheduler-agenda',
+    'time-clock',
     'billing-summary',
-    'customer-approvals',
+    'parts-shortages',
     'low-stock',
+    'customer-approvals',
+    'recent-manuals',
   ],
   admin: [
     'cross-org-metrics',
@@ -83,13 +100,12 @@ export const WIDGET_LABELS: Record<WidgetId, string> = {
   'ingestion-progress-mine': "Documents you've uploaded",
   'ask-aircraft': 'Ask your aircraft',
   'economics-snapshot': 'Costs this month',
-  // Mechanic
+  // Shop (includes former mechanic widgets)
   'my-wos-today': "Today's work orders",
   'time-clock': 'Time clock',
   'scheduler-agenda': "Today's schedule",
   'parts-shortages': 'Parts shortages',
   'recent-manuals': 'Recent reference manuals',
-  // Shop
   'wo-queue': 'Work order queue',
   'scheduler-overview': 'Scheduler overview',
   'billing-summary': 'Billing summary',
@@ -103,15 +119,18 @@ export const WIDGET_LABELS: Record<WidgetId, string> = {
   'recent-uploads-global': 'Recent uploads (all orgs)',
 }
 
-/** Resolve the widget IDs for a persona. Returns a new array (safe to mutate). */
-export function widgetsForPersona(persona: Persona): WidgetId[] {
-  return [...(PERSONA_HOME_WIDGETS[persona] ?? [])]
+/**
+ * Resolve the widget IDs for a persona. Returns a new array (safe to mutate).
+ *
+ * Phase 18 back-compat: a stale 'mechanic' input is folded to 'shop'.
+ */
+export function widgetsForPersona(persona: Persona | 'mechanic'): WidgetId[] {
+  const key: Persona = persona === 'mechanic' ? 'shop' : persona
+  return [...(PERSONA_HOME_WIDGETS[key] ?? [])]
 }
 
 /** Check if a specific widget is part of a persona's home. */
-export function personaHasWidget(persona: Persona, widget: WidgetId): boolean {
-  return PERSONA_HOME_WIDGETS[persona]?.includes(widget) ?? false
+export function personaHasWidget(persona: Persona | 'mechanic', widget: WidgetId): boolean {
+  const key: Persona = persona === 'mechanic' ? 'shop' : persona
+  return PERSONA_HOME_WIDGETS[key]?.includes(widget) ?? false
 }
-
-/** All known widget IDs (for the registry to validate against). */
-export const ALL_WIDGET_IDS: WidgetId[] = Object.keys(WIDGET_LABELS) as WidgetId[]

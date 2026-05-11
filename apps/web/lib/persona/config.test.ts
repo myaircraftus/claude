@@ -1,6 +1,11 @@
 /**
  * Unit tests for /lib/persona/config.
  *
+ * Phase 18 mig 119 collapsed the persona enum from 4 → 3 (owner / shop /
+ * admin); the 'mechanic' value was merged into 'shop'. These tests verify
+ * the new enum + the back-compat fold inside resolvePersona that accepts
+ * stale 'mechanic' inputs and returns 'shop'.
+ *
  * Persona is the pivot the entire UI branches on. A regression here
  * (typo in PERSONA_CONFIG, wrong fallback in resolvePersona, broken
  * isModuleHidden) leaks shop-only modules to owners, breaks the home
@@ -19,11 +24,11 @@ import type { Persona } from '@/types'
 // Canonical persona enum — config.ts doesn't export this as an array,
 // it's encoded in the Persona type. Mirrored here so the test breaks
 // loudly if the Record<Persona, …> definition drifts.
-const PERSONAS = ['owner', 'mechanic', 'shop', 'admin'] as const satisfies readonly Persona[]
+const PERSONAS = ['owner', 'shop', 'admin'] as const satisfies readonly Persona[]
 
 describe('persona enum coverage', () => {
-  it('Record<Persona, …> has exactly 4 keys (matches the enum)', () => {
-    expect(Object.keys(PERSONA_CONFIG)).toHaveLength(4)
+  it('Record<Persona, …> has exactly 3 keys (post Phase-18 merge)', () => {
+    expect(Object.keys(PERSONA_CONFIG)).toHaveLength(3)
     expect(new Set(Object.keys(PERSONA_CONFIG))).toEqual(new Set(PERSONAS))
   })
 })
@@ -35,7 +40,7 @@ describe('PERSONA_CONFIG', () => {
     }
   })
 
-  it.each(['owner', 'mechanic', 'shop', 'admin'] as const)(
+  it.each(['owner', 'shop', 'admin'] as const)(
     '%s config has all required keys',
     (p) => {
       const c = PERSONA_CONFIG[p]
@@ -55,13 +60,10 @@ describe('PERSONA_CONFIG', () => {
     expect(PERSONA_CONFIG.owner.hiddenModules).toContain('labor-rates')
   })
 
-  it('mechanic hides org-billing + owner-finances', () => {
-    expect(PERSONA_CONFIG.mechanic.hiddenModules).toContain('org-billing')
-    expect(PERSONA_CONFIG.mechanic.hiddenModules).toContain('owner-finances')
-  })
-
   it('shop and admin have full visibility (no hidden modules)', () => {
     // Spec 5.8 + comments in config.ts: shop/admin are full-access personas.
+    // Post Phase 18 the shop persona absorbs the former mechanic surface and
+    // retains shop's full-access invariant.
     expect(PERSONA_CONFIG.shop.hiddenModules).toEqual([])
     expect(PERSONA_CONFIG.admin.hiddenModules).toEqual([])
   })
@@ -82,8 +84,15 @@ describe('PERSONA_CONFIG', () => {
 })
 
 describe('isPersona', () => {
-  it.each(['owner', 'mechanic', 'shop', 'admin'])('accepts %s', (v) => {
+  it.each(['owner', 'shop', 'admin'])('accepts %s', (v) => {
     expect(isPersona(v)).toBe(true)
+  })
+
+  it('rejects the legacy "mechanic" value (it was merged into shop by mig 119)', () => {
+    // resolvePersona transparently folds stale 'mechanic' → 'shop', but the
+    // raw type guard rejects it so any direct caller switching on
+    // isPersona(input) doesn't accidentally branch on the dead value.
+    expect(isPersona('mechanic')).toBe(false)
   })
 
   it.each(['Owner', 'OWNER', 'pilot', 'auditor', 'viewer', '', '  owner'])(
@@ -103,14 +112,20 @@ describe('isPersona', () => {
 
 describe('resolvePersona fallback chain', () => {
   it('uses membership when valid', () => {
-    expect(resolvePersona('mechanic', 'owner')).toBe('mechanic')
+    expect(resolvePersona('owner', 'shop')).toBe('owner')
     expect(resolvePersona('shop', null)).toBe('shop')
+  })
+
+  it('folds legacy "mechanic" input → "shop" (Phase 18 mig 119 back-compat)', () => {
+    expect(resolvePersona('mechanic', null)).toBe('shop')
+    expect(resolvePersona(null, 'mechanic')).toBe('shop')
+    expect(resolvePersona('mechanic', 'owner')).toBe('shop')
   })
 
   it('falls through to user_profile when membership is invalid', () => {
     expect(resolvePersona(null, 'owner')).toBe('owner')
     expect(resolvePersona(undefined, 'admin')).toBe('admin')
-    expect(resolvePersona('garbage', 'mechanic')).toBe('mechanic')
+    expect(resolvePersona('garbage', 'shop')).toBe('shop')
   })
 
   it('falls through to DEFAULT_PERSONA when both are invalid', () => {
@@ -126,7 +141,7 @@ describe('resolvePersona fallback chain', () => {
   it('never returns an invalid string (caller-trust contract)', () => {
     // Brute-force: every (membership, profile) pair from a chaotic
     // input set still yields a valid Persona on output.
-    const garbage = ['owner', 'OWNER', null, undefined, '', 'pilot', 0, true, ' admin']
+    const garbage = ['owner', 'OWNER', null, undefined, '', 'pilot', 0, true, ' admin', 'mechanic']
     for (const m of garbage) {
       for (const u of garbage) {
         const out = resolvePersona(m as any, u as any)
@@ -139,7 +154,6 @@ describe('resolvePersona fallback chain', () => {
 describe('isModuleHidden', () => {
   it('returns true when persona has the module in hiddenModules', () => {
     expect(isModuleHidden('owner', 'work-orders-financials')).toBe(true)
-    expect(isModuleHidden('mechanic', 'org-billing')).toBe(true)
   })
 
   it('returns false when persona does not hide the module', () => {
@@ -165,6 +179,6 @@ describe('isModuleHidden', () => {
 
   it('returns false for any module key not in any hiddenModules list', () => {
     expect(isModuleHidden('owner', 'totally-new-module')).toBe(false)
-    expect(isModuleHidden('mechanic', 'totally-new-module')).toBe(false)
+    expect(isModuleHidden('shop', 'totally-new-module')).toBe(false)
   })
 })

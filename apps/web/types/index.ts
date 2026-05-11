@@ -139,7 +139,7 @@ export interface UserProfile {
   job_title?: string
   phone?: string
   cert_number?: string
-  persona?: 'owner' | 'mechanic'
+  persona?: 'owner' | 'shop'
   onboarding_completed_at?: string
   onboarding_context?: Record<string, unknown>
   is_platform_admin?: boolean
@@ -148,20 +148,20 @@ export interface UserProfile {
 }
 
 /**
- * Persona that drives UI rendering. The same user in the same org can flip
- * between `owner` and `mechanic` — Feature 0.2 (Persona system) wires the
- * actual switcher; this column has existed since migration 047.
+ * Persona that drives UI rendering.
  *
- * `shop` is reserved for Phase 5 — the shop-wide foreman view. Not yet
- * surfaced in the persona switcher.
+ * Phase 18 (mig 119) — collapsed from 4 → 3 personas. The `mechanic`
+ * persona was merged into `shop`; every mechanic-role membership becomes
+ * a shop-role membership. UI / RLS now branches on owner / shop / admin
+ * only. Org-level role (organization_memberships.role) still has 'mechanic'
+ * as a value because it's a personnel role, not a UI persona — that
+ * separation is intentional and not touched by 119.
  *
- * `admin` was added by the Operations Hub work for the platform-admin
- * sidebar gate — see AppLayout.tsx admin section. Per-membership
- * persona switching still only exposes owner / mechanic; admin is
- * derived from `user_profiles.is_platform_admin` rather than a
- * membership column.
+ * `admin` is derived from `user_profiles.is_platform_admin` rather than a
+ * membership column, and only shows up in the footer admin entry (Phase 18
+ * Sprint 18.2), never in the main persona switcher dropdown.
  */
-export type Persona = 'owner' | 'mechanic' | 'shop' | 'admin'
+export type Persona = 'owner' | 'shop' | 'admin'
 
 export interface OrganizationMembership {
   id: string

@@ -30,7 +30,7 @@ export default async function BillingOnboardingPage({
   // Pick the persona the user has been signing up as. URL ?persona= wins,
   // else fall back to their profile or user_metadata.
   let persona: Persona = 'owner'
-  if (searchParams.persona === 'mechanic' || searchParams.persona === 'owner') {
+  if (searchParams.persona === 'shop' || searchParams.persona === 'owner') {
     persona = searchParams.persona
   } else {
     const { data: profile } = await supabase

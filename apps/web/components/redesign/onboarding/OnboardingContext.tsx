@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import { OWNER_STEPS, MECHANIC_STEPS, type TourStep } from "./onboardingSteps";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 
-export type TourPersona = "owner" | "mechanic";
+// Phase 18 mig 119: "mechanic" tour value renamed to "shop". The MECHANIC_STEPS
+// onboardingSteps export still exists with that legacy name for the shop tour.
+export type TourPersona = "owner" | "shop";
 
 interface OnboardingCtx {
   tourActive: boolean;
@@ -33,7 +35,7 @@ function detectPersonaFromPath(p: string): TourPersona {
     p.startsWith("/workspace") ||
     p.startsWith("/maintenance")
   ) {
-    return "mechanic";
+    return "shop";
   }
   return "owner";
 }
@@ -50,7 +52,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const steps =
     tourPersona === "owner"
       ? OWNER_STEPS
-      : tourPersona === "mechanic"
+      : tourPersona === "shop"
         ? MECHANIC_STEPS
         : [];
 

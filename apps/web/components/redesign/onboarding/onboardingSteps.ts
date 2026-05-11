@@ -16,7 +16,7 @@ export interface TourStep {
   /** Optional route to navigate to before showing this step (used when the target lives on another page). */
   route?: string;
   /** Optional persona switch to apply before showing this step (sidebar Owner/Mechanic toggle). */
-  setPersona?: "owner" | "mechanic";
+  setPersona?: "owner" | "shop";
   /** Preferred tooltip placement relative to the target. */
   placement?: Placement;
 }
@@ -155,7 +155,7 @@ export const MECHANIC_STEPS: TourStep[] = [
     accent: "#2563EB",
     target: '[data-tour="logo"]',
     route: "/mechanic",
-    setPersona: "mechanic",
+    setPersona: "shop",
     placement: "right",
   },
   {

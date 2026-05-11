@@ -89,7 +89,7 @@ describe('generateClaudeCodePrompt', () => {
       message: 'TypeError: Cannot read properties of undefined (reading "id")',
       stack: `at handler (apps/web/app/api/work-orders/route.ts:42:7)`,
       route: '/api/work-orders',
-      persona: 'mechanic',
+      persona: 'shop',
       severity: 'P1',
       occurrence_count: 12,
       last_seen_at: '2026-05-10T05:00:00Z',
@@ -111,7 +111,7 @@ describe('generateClaudeCodePrompt', () => {
     // Includes the file path mentioned in the stack.
     expect(text).toContain('apps/web/app/api/work-orders/route.ts')
     // Persona + route surfaced.
-    expect(text).toMatch(/mechanic/)
+    expect(text).toMatch(/shop/)
     expect(text).toMatch(/`\/api\/work-orders`/)
   })
 

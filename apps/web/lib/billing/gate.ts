@@ -1,6 +1,6 @@
 import { createServiceSupabase } from '@/lib/supabase/server'
 
-export type Persona = 'owner' | 'mechanic'
+export type Persona = 'owner' | 'shop'
 export type BillingState = 'trial' | 'active' | 'paywalled' | 'cancelled' | 'past_due' | 'none'
 
 export interface PersonaEntitlement {
@@ -18,7 +18,7 @@ export interface PersonaEntitlement {
 export interface BillingStatus {
   organizationId: string
   owner: PersonaEntitlement
-  mechanic: PersonaEntitlement
+  shop: PersonaEntitlement
   // True if at least one persona has access — useful for "has the user paid for anything?"
   hasAnyAccess: boolean
   // True if both personas are paid (for upsell hide logic)
@@ -116,34 +116,34 @@ export async function getOrganizationBillingStatus(organizationId: string): Prom
   ])
 
   const ownerRow = (rows as EntitlementRow[] | null)?.find((r) => r.persona === 'owner') ?? null
-  const mechanicRow = (rows as EntitlementRow[] | null)?.find((r) => r.persona === 'mechanic') ?? null
+  const shopRow = (rows as EntitlementRow[] | null)?.find((r) => r.persona === 'shop') ?? null
 
   const owner = deriveEntitlement('owner', ownerRow)
-  const mechanic = deriveEntitlement('mechanic', mechanicRow)
+  const shop = deriveEntitlement('shop', shopRow)
 
-  const hasAnyAccess = owner.canWrite || mechanic.canWrite
-  const hasBundleEquivalent = owner.canWrite && mechanic.canWrite
+  const hasAnyAccess = owner.canWrite || shop.canWrite
+  const hasBundleEquivalent = owner.canWrite && shop.canWrite
 
   // Legacy view (single state for old callers). Reports the most permissive
   // state across personas so older code keeps working until migrated.
   const legacyState: BillingState = hasBundleEquivalent
     ? 'active'
     : hasAnyAccess
-      ? owner.canWrite ? owner.state : mechanic.state
-      : owner.state !== 'none' ? owner.state : mechanic.state !== 'none' ? mechanic.state : 'paywalled'
+      ? owner.canWrite ? owner.state : shop.state
+      : owner.state !== 'none' ? owner.state : shop.state !== 'none' ? shop.state : 'paywalled'
 
   const legacyTrialEnd =
     owner.state === 'trial' ? owner.trialEndsAt :
-    mechanic.state === 'trial' ? mechanic.trialEndsAt : null
+    shop.state === 'trial' ? shop.trialEndsAt : null
 
   const legacyTrialDays =
     owner.state === 'trial' ? owner.trialDaysRemaining :
-    mechanic.state === 'trial' ? mechanic.trialDaysRemaining : null
+    shop.state === 'trial' ? shop.trialDaysRemaining : null
 
   return {
     organizationId,
     owner,
-    mechanic,
+    shop,
     hasAnyAccess,
     hasBundleEquivalent,
 
@@ -151,7 +151,7 @@ export async function getOrganizationBillingStatus(organizationId: string): Prom
     state: legacyState,
     trialEndsAt: legacyTrialEnd,
     trialDaysRemaining: legacyTrialDays,
-    paywalledReason: owner.paywalledReason ?? mechanic.paywalledReason,
+    paywalledReason: owner.paywalledReason ?? shop.paywalledReason,
     subscriptionStatus: org?.subscription_status ?? null,
     stripeSubscriptionId: org?.stripe_subscription_id ?? null,
     pricePerAircraftCents: org?.price_per_aircraft_cents ?? 10000,
@@ -176,7 +176,7 @@ export class BillingBlockedError extends Error {
  *
  * @param organizationId - The organization the action is being performed on
  * @param persona - Which persona's entitlement to check ('owner' for fleet/aircraft
- *                  features, 'mechanic' for shop/work-order features)
+ *                  features, 'shop' for shop/work-order features)
  */
 export async function requireActiveBilling(
   organizationId: string,

@@ -243,7 +243,10 @@ export function AppProvider({
     // Snappy initial paint from cache. The server-of-record fetch below
     // overwrites this with the resolved membership.persona once it lands.
     const stored = window.localStorage.getItem("ui_persona");
-    if (stored === "owner" || stored === "mechanic" || stored === "shop") {
+    // Phase 18 mig 119 — legacy "mechanic" cached values fold to "shop".
+    if (stored === "mechanic") {
+      setPersonaState("shop");
+    } else if (stored === "owner" || stored === "shop") {
       setPersonaState(stored);
     }
   }, []);
@@ -260,8 +263,10 @@ export function AppProvider({
         if (!res.ok) return;
         const payload = await res.json();
         if (cancelled) return;
-        const next = payload?.active_persona;
-        if (next === "owner" || next === "mechanic" || next === "shop") {
+        const raw = payload?.active_persona;
+        // Phase 18 mig 119 — legacy "mechanic" server values fold to "shop".
+        const next = raw === "mechanic" ? "shop" : raw;
+        if (next === "owner" || next === "shop") {
           setPersonaState(next);
         }
       } catch {

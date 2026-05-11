@@ -22,7 +22,7 @@ export function BillingBanner({ persona }: Props) {
 
   const target = persona
     ? status[persona]
-    : pickMostUrgent(status.owner, status.mechanic);
+    : pickMostUrgent(status.owner, status.shop);
 
   if (!target) return null;
   if (target.state === "active") return null;
@@ -100,12 +100,12 @@ function pickMostUrgent(
   owner: ReturnType<typeof useBilling>["status"] extends infer S
     ? S extends { owner: infer O } ? O : never
     : never,
-  mechanic: ReturnType<typeof useBilling>["status"] extends infer S
-    ? S extends { mechanic: infer M } ? M : never
+  shop: ReturnType<typeof useBilling>["status"] extends infer S
+    ? S extends { shop: infer M } ? M : never
     : never,
 ) {
   // Paywalled > 'none' (no trial yet) > trial-ending-soonest > active.
-  const both = [owner, mechanic];
+  const both = [owner, shop];
 
   const paywalled = both.find((e) => e.state === "paywalled" || e.state === "past_due" || e.state === "cancelled");
   if (paywalled) return paywalled;

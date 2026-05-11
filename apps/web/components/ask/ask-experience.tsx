@@ -103,7 +103,10 @@ const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic'
 const RECENT_QUERY_STORAGE_KEY_PREFIX = 'ask_recent_queries'
 const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
-type AskPersona = 'owner' | 'mechanic'
+// Phase 18 mig 119 — mechanic merged into shop. AskExperience exposes the
+// two operational personas (owner / shop) that have curated suggested
+// prompts. Admin / view-as falls back to the owner prompt set.
+type AskPersona = 'owner' | 'shop'
 
 /**
  * Build a deeplink to the full-page document viewer that lands directly on
@@ -448,7 +451,10 @@ export function AskExperience() {
   // 0.2) to the AskPersona shape /ask supports. Shop falls back to owner-mode
   // here — the shop-foreman /ask experience is reserved for Phase 5.
   const { persona: rawPersona, setPersona: setRawPersona, currentUserRole } = useAppContext()
-  const persona: AskPersona = rawPersona === 'mechanic' ? 'mechanic' : 'owner'
+  // Phase 18: 'shop' (and the legacy 'mechanic' value that should never appear
+  // post mig 119 but is defended against) maps to the maintenance-side prompts.
+  const persona: AskPersona =
+    rawPersona === 'shop' || (rawPersona as string) === 'mechanic' ? 'shop' : 'owner'
   const setPersona = setRawPersona as (p: AskPersona) => void
   const aircraftParam = searchParams.get('aircraft')?.trim() ?? ''
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
@@ -465,11 +471,11 @@ export function AskExperience() {
   const inputRef = useRef<HTMLInputElement>(null)
   const autoAskedQueryRef = useRef<string | null>(null)
   const canUseMechanicPersona = currentUserRole != null && MECHANIC_PERSONA_ROLES.includes(currentUserRole)
-  const suggestedPrompts = persona === 'mechanic' ? MECHANIC_PROMPTS : OWNER_PROMPTS
-  const emptyStateDescription = persona === 'mechanic'
+  const suggestedPrompts = persona === 'shop' ? MECHANIC_PROMPTS : OWNER_PROMPTS
+  const emptyStateDescription = persona === 'shop'
     ? 'Use mechanic mode for maintenance workflows, parts lookup, checklists, and draft entries.'
     : 'Use owner mode for records, inspections, compliance, history, and source-backed aircraft answers.'
-  const inputPlaceholder = persona === 'mechanic'
+  const inputPlaceholder = persona === 'shop'
     ? 'Ask about maintenance actions, parts, manuals, or draft entries...'
     : 'Ask about records, inspections, compliance, or aircraft history...'
 
@@ -557,7 +563,7 @@ export function AskExperience() {
   }, [aircraftParam])
 
   useEffect(() => {
-    if (!canUseMechanicPersona && persona === 'mechanic') {
+    if (!canUseMechanicPersona && persona === 'shop') {
       setPersona('owner')
     }
   }, [canUseMechanicPersona, persona, setPersona])
@@ -767,7 +773,7 @@ export function AskExperience() {
               <div>
                 <h1 className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>Ask Your Aircraft</h1>
                 <p className="text-[12px] text-muted-foreground">
-                  {persona === 'mechanic' ? 'Mechanic mode' : 'Owner mode'}
+                  {persona === 'shop' ? 'Mechanic mode' : 'Owner mode'}
                 </p>
               </div>
             </div>
@@ -786,9 +792,9 @@ export function AskExperience() {
                   <Button
                     type="button"
                     size="sm"
-                    variant={persona === 'mechanic' ? 'default' : 'ghost'}
+                    variant={persona === 'shop' ? 'default' : 'ghost'}
                     className="h-8 px-3 text-[12px]"
-                    onClick={() => setPersona('mechanic')}
+                    onClick={() => setPersona('shop')}
                   >
                     Mechanic
                   </Button>
@@ -825,7 +831,7 @@ export function AskExperience() {
                 <Sparkles className="w-8 h-8 text-primary" />
               </div>
               <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
-                {persona === 'mechanic' ? 'What maintenance help do you need?' : 'What would you like to know?'}
+                {persona === 'shop' ? 'What maintenance help do you need?' : 'What would you like to know?'}
               </h2>
               <p className="text-[14px] text-muted-foreground mb-8">
                 {emptyStateDescription}
@@ -1017,7 +1023,7 @@ export function AskExperience() {
           </div>
         ) : (
           <div className="p-4 space-y-4">
-            {persona === 'mechanic' && (
+            {persona === 'shop' && (
               <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
             )}
 

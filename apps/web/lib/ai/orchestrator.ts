@@ -195,7 +195,7 @@ const RULES: OrchestratorRule[] = [
 
       return [{
         organization_id: signal.organization_id,
-        persona: 'mechanic',
+        persona: 'shop',
         priority: 'high' as ActionCardPriority,
         category: 'maintenance' as ActionCardCategory,
         title: `Low stock: ${partNumber}`,

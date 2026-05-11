@@ -42,7 +42,7 @@ register({
     },
     required: ['aircraft_id', 'summary'],
   },
-  permissions: ['mechanic', 'shop'],
+  permissions: ['shop'],
   // TODO(0.3 → 2.x): proxy to /api/work-orders POST after Phase 2 line-item shape lands.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — wire to /api/work-orders' }),
 })
@@ -61,7 +61,7 @@ register({
     },
     required: ['aircraft_id'],
   },
-  permissions: ['owner', 'mechanic', 'shop'],
+  permissions: ['owner', 'shop'],
   // TODO(0.3 → 1.1): wire to the meter_readings table once Feature 1.1 ships.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 1.1 Meter Profiles' }),
 })
@@ -78,7 +78,7 @@ register({
     },
     required: ['query'],
   },
-  permissions: ['mechanic', 'shop'],
+  permissions: ['shop'],
   // TODO(0.3 → 2.1): wrap /api/parts/search.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — wrap /api/parts/search' }),
 })
@@ -96,7 +96,7 @@ register({
     },
     required: ['work_order_id', 'part_id', 'quantity'],
   },
-  permissions: ['mechanic', 'shop'],
+  permissions: ['shop'],
   // TODO(0.3 → 2.1): wrap /api/work-orders/[id]/lines POST.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub' }),
 })
@@ -113,7 +113,7 @@ register({
     },
     required: ['aircraft_id', 'procedure_id'],
   },
-  permissions: ['mechanic', 'shop'],
+  permissions: ['shop'],
   // TODO(0.3 → 1.3): wire to /api/inspections POST when Feature 1.3 ships.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 1.3 Inspections' }),
 })
@@ -126,7 +126,7 @@ register({
     properties: { work_order_id: { type: 'string' } },
     required: ['work_order_id'],
   },
-  permissions: ['mechanic'],
+  permissions: ['shop'],
   // TODO(0.3): wrap /api/ai/generate-logbook + /api/logbook-entries/[id]/sign.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — wrap existing logbook endpoints' }),
 })
@@ -143,7 +143,7 @@ register({
     },
     required: ['compliance_item_id'],
   },
-  permissions: ['mechanic'],
+  permissions: ['shop'],
   // TODO(0.3 → 1.2): wire to /api/compliance/[id]/close after Feature 1.2.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 1.2 Compliance' }),
 })
@@ -160,7 +160,7 @@ register({
     },
     required: ['customer_id', 'work_order_id', 'approval_kind'],
   },
-  permissions: ['mechanic', 'shop'],
+  permissions: ['shop'],
   // TODO(0.3 → 1.5): wrap /api/owner/approvals POST when Feature 1.5 ships.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 1.5 Approvals' }),
 })
@@ -173,7 +173,7 @@ register({
     properties: { aircraft_id: { type: 'string' } },
     required: ['aircraft_id'],
   },
-  permissions: ['owner', 'mechanic', 'shop'],
+  permissions: ['owner', 'shop'],
   // TODO(0.3): aggregate read across aircraft + work_orders + compliance.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — read aggregator' }),
 })
@@ -189,7 +189,7 @@ register({
     },
     required: ['aircraft_id', 'compliance_item_id'],
   },
-  permissions: ['owner', 'mechanic', 'shop'],
+  permissions: ['owner', 'shop'],
   // TODO(0.3 → 5.3): linear extrapolation v0; ML model later.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 5.3 Predictive Maintenance ML' }),
 })
@@ -202,7 +202,7 @@ register({
     properties: { aircraft_id: { type: 'string' } },
     required: ['aircraft_id'],
   },
-  permissions: ['owner', 'mechanic', 'shop'],
+  permissions: ['owner', 'shop'],
   // TODO(0.3 → 5.3): pending compression-tracking schema + ML model.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — pending Feature 5.3' }),
 })
@@ -219,7 +219,7 @@ register({
     },
     required: ['aircraft_id'],
   },
-  permissions: ['owner', 'mechanic', 'shop'],
+  permissions: ['owner', 'shop'],
   // TODO(0.3): pull from logbook_entries + work_orders, run through Anthropic.
   handler: async (_args, _ctx) => ({ ok: false, todo: 'Tool handler stub — wrap existing /api/ai infrastructure' }),
 })

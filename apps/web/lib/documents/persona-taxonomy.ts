@@ -64,15 +64,21 @@ export interface DocumentTypeMeta {
   category: DocumentCategory
   requiresAircraftId: boolean
   ownerCanUpload: boolean
-  mechanicCanUpload: boolean
   shopCanUpload: boolean
   /** Admin can always upload — listed for symmetry. Always true. */
   adminCanUpload: true
 }
 
 /**
- * Persona × type matrix, mirrored byte-for-byte by the RLS policy in mig 103.
+ * Persona × type matrix, mirrored byte-for-byte by the RLS policy in mig 103
+ * as updated by mig 119 (Phase 18: mechanic merged into shop).
+ *
  * If you edit this table, also update the migration's CASE statement.
+ *
+ * mechanicCanUpload was dropped in Phase 18 — the shop persona now owns
+ * everything the mechanic role could previously upload (and that was
+ * already the case, since shop's RLS rule was "anything except
+ * aircraft_logbook + aircraft_registration").
  */
 export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
   // ─── Aircraft Records ─────────────────────────────────────────────────────
@@ -83,7 +89,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: false, // sensitive — owner-only by policy
     adminCanUpload: true,
   },
@@ -94,7 +99,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: false, // sensitive — owner-only by policy
     adminCanUpload: true,
   },
@@ -105,7 +109,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -116,7 +119,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -127,7 +129,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -138,7 +139,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -149,7 +149,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -160,7 +159,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -171,7 +169,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -182,7 +179,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    mechanicCanUpload: false,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -195,7 +191,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Reference Manuals',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -206,7 +201,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Reference Manuals',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -217,7 +211,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Compliance',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -228,7 +221,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Compliance',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -239,7 +231,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Reference Manuals',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -250,7 +241,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Compliance',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -261,7 +251,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Compliance',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -272,7 +261,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Reference Manuals',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -285,7 +273,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Operations',
     requiresAircraftId: false,
     ownerCanUpload: true,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -296,7 +283,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Operations',
     requiresAircraftId: false,
     ownerCanUpload: true,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -307,7 +293,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Operations',
     requiresAircraftId: false,
     ownerCanUpload: false, // owners don't issue invoices
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -318,7 +303,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Operations',
     requiresAircraftId: false,
     ownerCanUpload: false,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -331,7 +315,6 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Other',
     requiresAircraftId: false,
     ownerCanUpload: true,
-    mechanicCanUpload: true,
     shopCanUpload: true,
     adminCanUpload: true,
   },
@@ -352,17 +335,24 @@ export function getCategoryTypes(category: DocumentCategory): DocumentTypeMeta[]
   )
 }
 
-/** Authoritative client-side check — mirrors the RLS matrix in mig 103. */
-export function canPersonaUpload(persona: Persona, documentType: DocumentType): boolean {
+/**
+ * Authoritative client-side check — mirrors the RLS matrix in mig 103 +
+ * the Phase 18 collapse in mig 119.
+ *
+ * Phase 18: the mechanic persona was merged into shop. The mechanicCanUpload
+ * field is gone from the type meta. Any caller still passing 'mechanic'
+ * (e.g. a stale in-memory session value) is treated as shop so the UI never
+ * crashes on an unknown branch.
+ */
+export function canPersonaUpload(persona: Persona | 'mechanic', documentType: DocumentType): boolean {
   const meta = DOCUMENT_TYPE_META[documentType]
   if (!meta) return false
   switch (persona) {
     case 'admin':
       return meta.adminCanUpload
     case 'shop':
-      return meta.shopCanUpload
     case 'mechanic':
-      return meta.mechanicCanUpload
+      return meta.shopCanUpload
     case 'owner':
       return meta.ownerCanUpload
     default:

@@ -486,9 +486,9 @@ export function UploadDropzone({
   defaultDocumentSubtype,
   persona = 'owner',
 }: UploadDropzoneProps) {
-  const quickChips = persona === 'mechanic' ? MECHANIC_CHIPS : OWNER_CHIPS
+  const quickChips = persona === 'shop' ? MECHANIC_CHIPS : OWNER_CHIPS
   const chipSectionLabel =
-    persona === 'mechanic'
+    persona === 'shop'
       ? 'Manuals, catalogs, and compliance records'
       : 'Aircraft records & certificates'
   const [files, setFiles] = useState<FileUploadItem[]>([])

@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
   // persona — even if the same user has both. The client sends the active
   // UI persona; we trust it but still verify the org role allows owner-side
   // uploads when persona='owner'.
-  const submittedPersona: Persona = body.persona === 'mechanic' ? 'mechanic' : 'owner'
+  const submittedPersona: Persona = body.persona === 'shop' ? 'mechanic' : 'owner'
   if (!personaCanUpload(submittedPersona, docType as DocType)) {
     await serviceClient.storage.from('documents').remove([storagePath])
     return NextResponse.json(

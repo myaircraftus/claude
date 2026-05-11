@@ -57,15 +57,20 @@ export const SHARED_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
   'miscellaneous',
 ])
 
-export type Persona = 'owner' | 'mechanic'
+// Phase 18 mig 119 — mechanic persona collapsed into shop. The legacy
+// MECHANIC_REFERENCE_DOC_TYPES set still drives the upload-permission gate
+// for the shop persona (and any stray 'mechanic' callers).
+export type Persona = 'owner' | 'shop'
 
 /**
  * Can the given persona UPLOAD this DocType?
  * - Owner can upload anything.
- * - Mechanic can only upload reference + shared types.
+ * - Shop can only upload reference + shared types (post-Phase-18 the shop
+ *   surface absorbs the previous mechanic upload permissions).
  */
-export function personaCanUpload(persona: Persona, docType: DocType): boolean {
+export function personaCanUpload(persona: Persona | 'mechanic', docType: DocType): boolean {
   if (persona === 'owner') return true
+  // 'shop' (and legacy 'mechanic') get the reference-doc set.
   if (MECHANIC_REFERENCE_DOC_TYPES.has(docType)) return true
   if (SHARED_DOC_TYPES.has(docType)) return true
   return false

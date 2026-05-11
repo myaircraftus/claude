@@ -81,7 +81,7 @@ const FORM_DEFAULT: UploadForm = {
 
 export function DocumentsPage() {
   const { persona } = useAppContext();
-  const DOC_TYPES = persona === "mechanic" ? DOC_TYPES_MECHANIC : DOC_TYPES_ALL;
+  const DOC_TYPES = persona === "shop" ? DOC_TYPES_MECHANIC : DOC_TYPES_ALL;
 
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState("All");

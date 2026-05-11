@@ -38,17 +38,17 @@ export interface NavCategoryDef {
 }
 
 export const NAV_CATEGORIES: NavCategoryDef[] = [
-  { id: 'today',        label: 'Today',        personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: true,  order: 1 },
-  { id: 'aircraft',     label: 'Aircraft',     personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: true,  order: 2 },
-  { id: 'operations',   label: 'Operations',   personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: true,  order: 3 },
-  { id: 'workforce',    label: 'Workforce',    personas: ['mechanic', 'shop', 'admin'],          defaultExpanded: false, order: 4 },
+  { id: 'today',        label: 'Today',        personas: ['owner', 'shop', 'admin'], defaultExpanded: true,  order: 1 },
+  { id: 'aircraft',     label: 'Aircraft',     personas: ['owner', 'shop', 'admin'], defaultExpanded: true,  order: 2 },
+  { id: 'operations',   label: 'Operations',   personas: ['owner', 'shop', 'admin'], defaultExpanded: true,  order: 3 },
+  { id: 'workforce',    label: 'Workforce',    personas: ['shop', 'admin'],                       defaultExpanded: false, order: 4 },
   { id: 'customer',     label: 'Customer',     personas: ['shop', 'admin'],                       defaultExpanded: false, order: 5 },
   { id: 'economics',    label: 'Economics',    personas: ['owner', 'admin'],                      defaultExpanded: false, order: 6 },
   { id: 'commercial',   label: 'Commercial',   personas: ['shop', 'admin'],                       defaultExpanded: false, order: 7 },
-  { id: 'ai',           label: 'AI',           personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: false, order: 8 },
+  { id: 'ai',           label: 'AI',           personas: ['owner', 'shop', 'admin'], defaultExpanded: false, order: 8 },
   { id: 'organization', label: 'Organization', personas: ['admin'],                               defaultExpanded: false, order: 9 },
-  { id: 'profile',      label: 'Profile',      personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: false, order: 10 },
-  { id: 'other',        label: 'Other',        personas: ['owner', 'mechanic', 'shop', 'admin'], defaultExpanded: true,  order: 99 },
+  { id: 'profile',      label: 'Profile',      personas: ['owner', 'shop', 'admin'], defaultExpanded: false, order: 10 },
+  { id: 'other',        label: 'Other',        personas: ['owner', 'shop', 'admin'], defaultExpanded: true,  order: 99 },
 ]
 
 /**

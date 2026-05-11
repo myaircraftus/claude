@@ -226,7 +226,10 @@ BEHAVIOR RULES:
 7. After tools return results, synthesize a concise, helpful response. Do not just dump raw JSON.
 8. For safety-critical items (ADs, limits, emergency procedures), always note the user should verify with the actual document and a qualified aviation professional.`
 
-type AskPersona = 'owner' | 'mechanic'
+// Phase 18 mig 119 — mechanic merged into shop. The /api/ask route now
+// branches on 'owner' vs 'shop'; legacy 'mechanic' inputs are coerced to
+// 'shop' at the request boundary.
+type AskPersona = 'owner' | 'shop'
 
 async function resolveCanonicalAircraftId(
   supabase: ReturnType<typeof createServerSupabase>,
@@ -305,7 +308,7 @@ const MECHANIC_TOOL_NAMES: readonly AiToolName[] = [
 const MECHANIC_ELIGIBLE_ROLES = new Set(['owner', 'admin', 'mechanic'])
 
 function buildSystemPrompt(persona: AskPersona) {
-  if (persona === 'mechanic') {
+  if (persona === 'shop') {
     return `${SYSTEM_PROMPT}
 
 CURRENT PERSONA: mechanic
@@ -325,7 +328,7 @@ Owner mode is "find me this in the book" — like searching a paper logbook.
 }
 
 function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] {
-  const allowed = new Set(persona === 'mechanic' ? MECHANIC_TOOL_NAMES : OWNER_TOOL_NAMES)
+  const allowed = new Set(persona === 'shop' ? MECHANIC_TOOL_NAMES : OWNER_TOOL_NAMES)
   return AI_TOOLS.filter((tool) => allowed.has(tool.function.name as AiToolName)) as OpenAI.Chat.ChatCompletionTool[]
 }
 
@@ -355,10 +358,12 @@ export async function POST(req: NextRequest) {
 
   const question: string = String(body.question ?? '').trim()
   const aircraft_id: string | undefined = body.aircraft_id ?? undefined
-  const requestedPersona: AskPersona = body.persona === 'mechanic' ? 'mechanic' : 'owner'
+  // Coerce legacy 'mechanic' inputs to 'shop' at the boundary (mig 119).
+  const requestedPersona: AskPersona =
+    body.persona === 'shop' || body.persona === 'mechanic' ? 'shop' : 'owner'
   const persona: AskPersona =
-    requestedPersona === 'mechanic' && MECHANIC_ELIGIBLE_ROLES.has(String(membership.role))
-      ? 'mechanic'
+    requestedPersona === 'shop' && MECHANIC_ELIGIBLE_ROLES.has(String(membership.role))
+      ? 'shop'
       : 'owner'
   const resolvedAircraftId = await resolveCanonicalAircraftId(
     supabase,

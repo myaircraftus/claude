@@ -1466,7 +1466,7 @@ function MechanicFinishStep({
 
 export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona }) {
   const router = useTenantRouter()
-  const steps = useMemo(() => (persona === 'mechanic' ? MECHANIC_STEPS : OWNER_STEPS), [persona])
+  const steps = useMemo(() => (persona === 'shop' ? MECHANIC_STEPS : OWNER_STEPS), [persona])
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [organizationId, setOrganizationId] = useState('')
   const [organizationSlug, setOrganizationSlug] = useState('')
@@ -1731,10 +1731,10 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
       persona={persona}
       step={step}
       steps={steps}
-      eyebrow={persona === 'mechanic' ? 'Mechanic onboarding' : 'Owner onboarding'}
-      title={persona === 'mechanic' ? 'Set up your maintenance workspace' : 'Set up your aircraft workspace'}
+      eyebrow={persona === 'shop' ? 'Mechanic onboarding' : 'Owner onboarding'}
+      title={persona === 'shop' ? 'Set up your maintenance workspace' : 'Set up your aircraft workspace'}
       description={
-        persona === 'mechanic'
+        persona === 'shop'
           ? 'Lead with the shop setup and certificate details, then optionally load aircraft and invite the rest of the team.'
           : 'Set up the owner workspace, add the fleet by tail number, assign operations, and decide whether to upload records now.'
       }
@@ -1772,10 +1772,10 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
         />
       )}
 
-      {persona === 'mechanic' && step === 1 && (
+      {persona === 'shop' && step === 1 && (
         <SetupMechanicStep persona={persona} onSubmitSuccess={handleMechanicSetupSuccess} />
       )}
-      {persona === 'mechanic' && step === 2 && (
+      {persona === 'shop' && step === 2 && (
         <AircraftStep
           title="Do you want to add any aircraft now?"
           description="This step is optional. If you already know some tail numbers, add them now and we will pull what we can from the FAA registry. If not, skip and load them later."
@@ -1788,7 +1788,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
           optional
         />
       )}
-      {persona === 'mechanic' && step === 3 && (
+      {persona === 'shop' && step === 3 && (
         <TeamInviteStep
           organizationId={organizationId}
           invites={teamInvites}
@@ -1797,7 +1797,7 @@ export function PersonaOnboardingFlow({ persona }: { persona: OnboardingPersona 
           onContinue={async () => setStep(4)}
         />
       )}
-      {persona === 'mechanic' && step === 4 && (
+      {persona === 'shop' && step === 4 && (
         <MechanicFinishStep
           aircraftCount={aircraft.length}
           inviteCount={teamInvites.length}

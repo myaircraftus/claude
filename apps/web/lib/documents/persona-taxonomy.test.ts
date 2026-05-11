@@ -98,22 +98,18 @@ describe('persona-taxonomy: persona × type matrix (mirrors mig 103)', () => {
     expect(canPersonaUpload('owner', 'other')).toBe(true)
   })
 
-  // Mechanic: reference manuals + photo/receipt/invoice/WO/other (NO aircraft_*)
-  it('mechanic CAN upload reference manuals', () => {
+  // Phase 18 mig 119 — mechanic legacy alias is still accepted by canPersonaUpload
+  // (folds to shop behavior). Verify the back-compat: stale callers passing
+  // 'mechanic' get shop's permission set.
+  it('legacy "mechanic" persona value folds to shop semantics (back-compat)', () => {
     expect(canPersonaUpload('mechanic', 'maintenance_manual')).toBe(true)
     expect(canPersonaUpload('mechanic', 'parts_catalog')).toBe(true)
     expect(canPersonaUpload('mechanic', 'service_bulletin')).toBe(true)
-    expect(canPersonaUpload('mechanic', 'airworthiness_directive')).toBe(true)
     expect(canPersonaUpload('mechanic', 'wiring_diagram')).toBe(true)
-    expect(canPersonaUpload('mechanic', 'service_letter')).toBe(true)
-    expect(canPersonaUpload('mechanic', 'tcds')).toBe(true)
-    expect(canPersonaUpload('mechanic', 'training_manual')).toBe(true)
-  })
-  it('mechanic CANNOT upload any aircraft_* type', () => {
-    const aircraftTypes = DOCUMENT_TYPES.filter((t) => t.startsWith('aircraft_'))
-    for (const t of aircraftTypes) {
-      expect(canPersonaUpload('mechanic', t), `mechanic/${t}`).toBe(false)
-    }
+    // Shop CAN upload non-logbook aircraft types — the merge makes mechanic
+    // GAIN this capability (which is OK since shop already had it).
+    expect(canPersonaUpload('mechanic', 'aircraft_poh')).toBe(true)
+    expect(canPersonaUpload('mechanic', 'aircraft_logbook')).toBe(false)
   })
 
   // Shop: everything EXCEPT aircraft_logbook + aircraft_registration
@@ -150,13 +146,15 @@ describe('persona-taxonomy: getAllowedCategories', () => {
     expect(cats).not.toContain('Compliance')
   })
 
-  it('mechanic sees Reference Manuals + Compliance + Operations + Other (not Aircraft Records)', () => {
-    const cats = getAllowedCategories('mechanic')
+  it('shop sees every category (post Phase-18 merge: shop is the union of old shop + old mechanic)', () => {
+    const cats = getAllowedCategories('shop')
     expect(cats).toContain('Reference Manuals')
     expect(cats).toContain('Compliance')
     expect(cats).toContain('Operations')
     expect(cats).toContain('Other')
-    expect(cats).not.toContain('Aircraft Records')
+    // Shop has visibility into Aircraft Records (just can't upload logbook
+    // or registration; the other types are uploadable).
+    expect(cats).toContain('Aircraft Records')
   })
 
   it('admin sees every category', () => {

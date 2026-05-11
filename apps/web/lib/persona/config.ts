@@ -1,12 +1,19 @@
 /**
- * Persona system (Spec 0.2) — single source of truth for owner / mechanic /
- * shop UI variants. Same app, three radically different surfaces.
+ * Persona system (Spec 0.2) — single source of truth for owner / shop / admin
+ * UI variants. Same app, three radically different surfaces.
+ *
+ * Phase 18 (mig 119) — `mechanic` persona was merged into `shop`. Every
+ * persona-gated UI / RLS / nav branch that previously discriminated mechanic
+ * vs shop now treats them as one. The org-level role enum still has
+ * 'mechanic' as a value (it's a personnel role, not a UI persona) and is
+ * orthogonal to this module.
  *
  * - Owner: plain-English aircraft owner. Hides W/O profitability, labor rates,
  *   and shop-pricing. Home is "My Aircraft".
- * - Mechanic: A&P technician. Hides org billing. Home is "My Day".
- * - Shop: shop foreman / dispatcher. Sees everything: scheduling, KPIs,
- *   profitability. Home is the operations dashboard.
+ * - Shop: shop foreman / dispatcher / A&P. Sees scheduling, work orders,
+ *   parts, tools, KPIs, profitability. Home is the operations dashboard.
+ * - Admin: platform admin. Surfaced via the footer admin entry, NOT in
+ *   the main persona switcher. Home is /admin/command-center.
  *
  * Read this config from `getCurrentPersona()` (server) or `usePersona()`
  * (client). Don't branch on persona inline — extend this config and read it.
@@ -44,42 +51,41 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
     homeCardPriorities: ['expiring-docs', 'upcoming-compliance', 'open-squawks', 'next-flight'],
     label: 'Owner',
   },
-  mechanic: {
-    // Spec 5.1 — Smart Home Screen replaces the legacy /mechanic dashboard.
-    homeRoute: '/my-day',
-    sidebarSections: ['MY DAY', 'WORK ORDERS', 'INSPECTIONS', 'PARTS', 'TOOLS'],
-    hiddenModules: ['org-billing', 'owner-finances'],
-    aiSystemPrompt:
-      'You are an AI assistant for an A&P mechanic. Be technically precise. Reference FARs, ADs, SBs. Suggest next steps.',
-    homeCardPriorities: ['assigned-wos', 'tool-calibrations-due', 'shift-status', 'expiring-certs'],
-    label: 'Mechanic',
-  },
   shop: {
+    // Phase 18 — shop is the union of the old shop-foreman + mechanic surfaces.
+    // hiddenModules is empty: shop sees everything operational. Owner-specific
+    // finance surfaces (Aircraft Economics, Tax P&L) are gated at the
+    // route-guard / nav-category level, not via hiddenModules here, because
+    // some shop deployments DO need limited owner-side visibility.
+    //
     // Skip the /dashboard/ops → /workflow redirect that would otherwise
     // burn a hop on every sign-in. The redirect file at
     // apps/web/app/(app)/dashboard/ops/page.tsx remains for saved
     // bookmarks; the canonical shop landing is /workflow.
     homeRoute: '/workflow',
-    sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
+    sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'TOOLS', 'INVOICING', 'REPORTS', 'ADMIN'],
     hiddenModules: [],
     aiSystemPrompt:
-      'You are an AI operations manager for an aviation maintenance shop. Optimize for throughput, profitability, and compliance.',
-    homeCardPriorities: ['overdue-wos', 'today-shifts', 'low-stock-parts', 'pending-approvals', 'kpis'],
+      'You are an AI assistant for an aviation maintenance shop. You serve A&P mechanics, shop foremen, and dispatchers. Be technically precise. Reference FARs, ADs, SBs. Optimize for throughput, profitability, and compliance.',
+    homeCardPriorities: [
+      'assigned-wos',
+      'overdue-wos',
+      'tool-calibrations-due',
+      'today-shifts',
+      'low-stock-parts',
+      'pending-approvals',
+      'kpis',
+    ],
     label: 'Shop',
   },
-  // Platform admin — internal-only persona used by support/staff tooling.
-  // Reuses the shop-foreman surface (which has full visibility) until a
-  // dedicated platform-admin layout exists. Phase 5 may give admins their own
-  // sidebar; for now this entry just keeps the Record<Persona, …> exhaustive.
+  // Platform admin — internal-only persona surfaced via the footer admin entry.
   admin: {
-    // Phase 16 Sprint 16.7 — admin homeRoute moved from /admin to the
-    // unified command-center. Legacy /admin still works for bookmarks
-    // but isn't where new sessions land.
+    // Phase 16 Sprint 16.7 — admin homeRoute is the unified command-center.
     homeRoute: '/admin/command-center',
     sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'INVOICING', 'REPORTS', 'ADMIN'],
     hiddenModules: [],
     aiSystemPrompt:
-      'You are an AI operations manager for an aviation maintenance shop. Optimize for throughput, profitability, and compliance.',
+      'You are an AI assistant for a platform admin operating an aviation maintenance SaaS. You have full visibility into org / billing / ops state. Be precise and concise.',
     homeCardPriorities: ['overdue-wos', 'today-shifts', 'low-stock-parts', 'pending-approvals', 'kpis'],
     label: 'Admin',
   },
@@ -93,12 +99,16 @@ export const DEFAULT_PERSONA: Persona = 'owner'
 
 /** Type guard for runtime persona values (e.g. from request bodies). */
 export function isPersona(value: unknown): value is Persona {
-  return value === 'owner' || value === 'mechanic' || value === 'shop' || value === 'admin'
+  return value === 'owner' || value === 'shop' || value === 'admin'
 }
 
 /**
  * Resolve a persona value from its possible sources, with the documented
  * fallback chain: membership → user_profile → DEFAULT_PERSONA.
+ *
+ * Phase 18 backward-compat: any 'mechanic' value still floating in memory
+ * (e.g. from a stale session before mig 119 ran) is silently coerced to
+ * 'shop' so the UI never crashes on a missing persona-config branch.
  *
  * Strings outside the allowed enum are silently coerced to DEFAULT_PERSONA;
  * the caller can rely on the return value being a valid Persona.
@@ -107,8 +117,12 @@ export function resolvePersona(
   membershipPersona: string | null | undefined,
   userProfilePersona: string | null | undefined,
 ): Persona {
-  if (isPersona(membershipPersona)) return membershipPersona
-  if (isPersona(userProfilePersona)) return userProfilePersona
+  const fold = (v: string | null | undefined): string | null | undefined =>
+    v === 'mechanic' ? 'shop' : v
+  const m = fold(membershipPersona)
+  const u = fold(userProfilePersona)
+  if (isPersona(m)) return m
+  if (isPersona(u)) return u
   return DEFAULT_PERSONA
 }
 

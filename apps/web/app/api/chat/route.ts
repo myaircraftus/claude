@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'content is required' }, { status: 400 })
   }
 
-  const persona: ChatPersona = body?.persona === 'mechanic' ? 'mechanic' : 'owner'
+  const persona: ChatPersona = body?.persona === 'shop' ? 'mechanic' : 'owner'
   const askUrl = new URL('/api/ask', req.url)
   const res = await fetch(askUrl.toString(), {
     method: 'POST',

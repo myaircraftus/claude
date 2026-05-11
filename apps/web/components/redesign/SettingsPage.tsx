@@ -225,8 +225,8 @@ export function SettingsPage() {
   const { persona, team, activeMechanic, updateMember, addTeamMember, removeTeamMember } = useAppContext();
   const { customers } = useDataStore();
 
-  const isRestrictedMechanic = persona === "mechanic" && !activeMechanic.permissions.settingsFull;
-  const isLeadMechanic = persona === "mechanic" && activeMechanic.role === "Lead Mechanic / IA";
+  const isRestrictedMechanic = persona === "shop" && !activeMechanic.permissions.settingsFull;
+  const isLeadMechanic = persona === "shop" && activeMechanic.role === "Lead Mechanic / IA";
 
   // Owner → OWNER_TABS (has "Users", no "Team")
   // Mechanic full → ALL_TABS (has "Team", no "Users")
@@ -309,7 +309,7 @@ export function SettingsPage() {
   const validTab = tabs.find((t) => t.label === activeTab) ? activeTab : tabs[0].label;
 
   useEffect(() => {
-    if (persona === "mechanic") return;
+    if (persona === "shop") return;
 
     let cancelled = false;
 
@@ -762,12 +762,12 @@ export function SettingsPage() {
                 <div className="space-y-4 max-w-md">
                   <div className="flex items-center gap-4 mb-4">
                     <div className={`w-16 h-16 rounded-full flex items-center justify-center overflow-hidden text-[22px] ${
-                      persona === "mechanic" ? activeMechanic.color : "bg-primary/10"
+                      persona === "shop" ? activeMechanic.color : "bg-primary/10"
                     }`} style={{ fontWeight: 700 }}>
                       {persona === "owner" && ownerProfileAvatarUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={ownerProfileAvatarUrl} alt="Profile" className="w-full h-full object-cover" />
-                      ) : persona === "mechanic" ? (
+                      ) : persona === "shop" ? (
                         activeMechanic.initials
                       ) : (
                         <User className="w-7 h-7 text-primary" />
@@ -775,12 +775,12 @@ export function SettingsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>
-                        {persona === "mechanic"
+                        {persona === "shop"
                           ? activeMechanic.name
                           : (ownerProfileName || ownerProfileEmail || "Set your name")}
                       </div>
                       <div className="text-[12px] text-muted-foreground">
-                        {persona === "mechanic"
+                        {persona === "shop"
                           ? activeMechanic.role
                           : (ownerProfileJobTitle || "Owner / Operator")}
                       </div>
@@ -819,7 +819,7 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  {persona === "mechanic" ? (
+                  {persona === "shop" ? (
                     <>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -939,7 +939,7 @@ export function SettingsPage() {
                         </label>
                         <div className="flex items-stretch border border-border rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary/20">
                           <span className="px-3 py-2 text-[12px] text-muted-foreground bg-muted/30 border-r border-border whitespace-nowrap">
-                            myaircraft.us/{ownerProfilePersona === "mechanic" ? "mechanic" : "owner"}/
+                            myaircraft.us/{ownerProfilePersona === "shop" ? "shop" : "owner"}/
                           </span>
                           <input
                             type="text"

@@ -24,7 +24,7 @@ type FlowState = "intro" | "starting_trial" | "trial_started" | "error";
 export function BillingOnboardingClient({ persona, setupResult }: Props) {
   const router = useRouter();
   const product = PRODUCTS[persona];
-  const Icon = persona === "mechanic" ? Wrench : Plane;
+  const Icon = persona === "shop" ? Wrench : Plane;
 
   const [state, setState] = useState<FlowState>("intro");
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +55,7 @@ export function BillingOnboardingClient({ persona, setupResult }: Props) {
           return;
         }
         setState("trial_started");
-        const dest = persona === "mechanic" ? "/mechanic" : "/owner";
+        const dest = persona === "shop" ? "/mechanic" : "/owner";
         setTimeout(() => router.push(dest), 1500);
       } catch {
         if (cancelled) return;

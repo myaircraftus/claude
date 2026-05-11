@@ -82,9 +82,10 @@ function defaultLabelForPersona(persona: Persona): string {
   switch (persona) {
     case 'owner':
       return 'Upload Aircraft Document'
-    case 'mechanic':
-      return 'Upload Reference Doc'
     case 'shop':
+      // Post Phase-18 the shop label spans both the legacy mechanic
+      // "Upload Reference Doc" and the previous shop "Upload Document"
+      // surfaces. We use the broader copy because shop now covers both.
       return 'Upload Document'
     case 'admin':
       return 'Upload Any'

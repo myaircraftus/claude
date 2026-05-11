@@ -1,7 +1,12 @@
 /**
  * Single source of truth for the persona-aware Stripe product catalog.
  *
- * Three SKUs: Owner (per-persona), Mechanic (per-persona), Bundle (both).
+ * Three SKUs: Owner (per-persona), Mechanic (per-persona, legacy name —
+ * Phase 18 mig 119 collapsed the mechanic persona into shop, but the
+ * Stripe Product ID is preserved as 'mechanic' so existing live-mode
+ * subscriptions keep flowing; the SKU's grants[] now targets the shop
+ * persona instead), Bundle (both).
+ *
  * Each carries a 30-day trial when started fresh. The bundle is a separate
  * subscription that grants both personas at a discount.
  *
@@ -38,18 +43,19 @@ export const PRODUCTS: Record<Sku, ProductDefinition> = {
   mechanic: {
     sku: 'mechanic',
     priceId: PRICE_MECHANIC,
-    displayName: 'A&P Mechanic',
+    displayName: 'Shop',
     tagline: 'Work orders, invoicing, customer portal, parts catalog',
     monthlyPriceCents: 7900,
-    grants: ['mechanic'],
+    // Phase 18 mig 119 — grants the shop persona (was 'mechanic' pre-merge).
+    grants: ['shop'],
   },
   bundle: {
     sku: 'bundle',
     priceId: PRICE_BUNDLE,
-    displayName: 'Owner + Mechanic Bundle',
+    displayName: 'Owner + Shop Bundle',
     tagline: 'Both surfaces, single subscription, 25% off',
     monthlyPriceCents: 9900,
-    grants: ['owner', 'mechanic'],
+    grants: ['owner', 'shop'],
   },
 }
 

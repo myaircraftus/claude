@@ -13,7 +13,7 @@ export type MessageRow = {
   id: string
   thread_id: string
   sender_user_id: string
-  sender_role: 'owner' | 'mechanic'
+  sender_role: 'owner' | 'shop'
   body: string
   created_at: string
 }
@@ -45,7 +45,7 @@ export async function postMessage(
   args: {
     threadId: string
     senderUserId: string
-    senderRole: 'owner' | 'mechanic'
+    senderRole: 'owner' | 'shop'
     body: string
   }
 ): Promise<MessageRow> {

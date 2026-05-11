@@ -12,8 +12,10 @@ import { safeShortStr, safeUuid, safeUuidOptional } from '@/lib/validation/commo
 /** zod enum for the new document_type column. */
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES)
 
-/** Persona enum — kept here (not in persona/config) so the schema layer is self-contained. */
-export const PersonaSchema = z.enum(['owner', 'mechanic', 'shop', 'admin'])
+/** Persona enum — kept here (not in persona/config) so the schema layer is self-contained.
+ * Phase 18 mig 119: collapsed to 3 personas. Stale 'mechanic' input is rejected
+ * at the schema layer; callers should normalize via lib/persona/config.ts:resolvePersona. */
+export const PersonaSchema = z.enum(['owner', 'shop', 'admin'])
 
 /**
  * Body of /api/documents/upload (the metadata leg — file is in form-data
