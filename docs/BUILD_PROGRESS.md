@@ -18,6 +18,8 @@ No-touch areas: RAG, document ingestion, embeddings, retrieval, citations, Ask, 
 - Linked the selected estimate back to the created work order and marked it converted.
 - Reworked work-order detail to start on an Overview tab with operating picture, progress, actual totals, owner approval state, and close readiness gates.
 - Added task-card execution view derived from checklist sections, AD/SB items, line-item reconciliation, and closeout work.
+- Refined the opened work-order execution workspace to match the universal spec:
+  compact aircraft-first header, Overview panels for description/status/details/attachments/tasks/line items, Task & Checklist execution table with timer/activity rail, separated Activity/Chat/Notes tabs, Parts lifecycle tab, richer limited Owner View, and AI Summary with adjacent logbook/invoice closeout panels.
 - Kept the existing durable sources of truth: checklist rows, line items, activity/messages, AI summary, logbook, invoice, audit logs.
 - Linked generated invoices back to `work_orders.linked_invoice_id`.
 - Linked generated logbook drafts back to `work_orders.linked_logbook_entry_id`.
@@ -58,7 +60,8 @@ flowchart TD
 ### Remaining Gaps
 
 - Dedicated persisted task records are not in the current schema. The UI derives task cards from checklist rows, line items, AD/SB rows, and closeout state.
-- Checklist rows currently store completion, not full pass/fail/deferred/waived result state.
+- Checklist rows currently store completion, not full pass/fail/deferred/waived result state; the execution UI now exposes those columns visually, but the backing schema/API still needs persisted result status, finding, photo, and waiver fields.
+- Activity and owner-chat panels are now separated in the UI, but immutable audit events and owner message persistence should be wired to dedicated records if the product needs more than the existing message/activity surfaces.
 - Owner approvals and owner chat exist in the platform, but this pass did not add a new granular approval request builder inside every task card.
 - Offline drafting is not implemented in this pass.
 - The work-order graph index for this checkout is empty, so future agents should rebuild or refresh code-review-graph before relying on it.

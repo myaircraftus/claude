@@ -25,7 +25,8 @@ import {
   Receipt, Sparkles, MessageSquare, BookOpen,
   ClipboardCheck, Layers, Camera, Bot, Eye, ShieldCheck,
   CheckCircle2, Circle, Printer, Link2, Share2, Mail,
-  PenLine, AlertCircle, Clock,
+  PenLine, AlertCircle, Clock, CalendarDays, MapPin, UserRound,
+  Paperclip, Pause, StickyNote, Send, MoreHorizontal,
 } from 'lucide-react'
 import { ESignatureModal, SignatureBlock, type SignatureResult } from '@/components/work-orders/e-signature-modal'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
@@ -87,13 +88,16 @@ const LINE_TYPE_ICON: Record<WorkOrderLineType, React.ReactNode> = {
 type TabId =
   | 'overview'
   | 'tasks'
-  | 'activity'
   | 'checklist'
   | 'lineitems'
+  | 'parts'
+  | 'adsb'
+  | 'activity'
+  | 'chat'
+  | 'notes'
   | 'media'
   | 'aisummary'
   | 'ownerview'
-  | 'adsb'
   | 'tools'
   | 'logbook'
   | 'invoice'
@@ -103,12 +107,15 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
   { id: 'tasks', label: 'Tasks', icon: ClipboardCheck },
   { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
   { id: 'lineitems', label: 'Line Items', icon: Layers },
+  { id: 'parts', label: 'Parts', icon: Package },
+  { id: 'adsb', label: 'AD/SB', icon: ShieldCheck },
   { id: 'activity', label: 'Activity', icon: MessageSquare },
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'notes', label: 'Notes', icon: StickyNote },
   { id: 'ownerview', label: 'Owner View', icon: Eye },
   { id: 'aisummary', label: 'AI Summary', icon: Bot },
   { id: 'logbook', label: 'Logbook', icon: BookOpen },
   { id: 'invoice', label: 'Invoice', icon: Receipt },
-  { id: 'adsb', label: 'AD / SB', icon: ShieldCheck },
   { id: 'tools', label: 'Tools', icon: Wrench },
   { id: 'media', label: 'Media', icon: Camera },
 ]
@@ -337,10 +344,24 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
   const taskProgress = taskCards.length
     ? Math.round((taskCards.filter((task) => task.status === 'Completed').length / taskCards.length) * 100)
     : 0
+  const aircraftTail = (wo as any).aircraft?.tail_number ?? 'Unassigned'
+  const aircraftModel = [((wo as any).aircraft?.make), ((wo as any).aircraft?.model)].filter(Boolean).join(' ') || 'Aircraft'
+  const workType = (wo as any).service_type ?? 'Maintenance'
+  const priority = (wo as any).priority ?? 'Normal'
+  const location = (wo as any).location?.name ?? (wo as any).shop_location ?? 'Location not set'
+  const dueDate = (wo as any).due_date ?? (wo as any).estimated_completion_date ?? null
+  const ownerName = (wo as any).customer?.name ?? (wo as any).customer?.full_name ?? (wo as any).customer?.email ?? 'Owner'
+  const statusStageIndex = getStatusStageIndex(wo.status)
+  const statusStages = [
+    { label: 'Created', detail: formatDate(wo.opened_at), complete: statusStageIndex >= 0 },
+    { label: 'In Progress', detail: wo.assigned_mechanic_id ? 'Assigned mechanic' : 'Unassigned', complete: statusStageIndex >= 1 },
+    { label: 'QA / Inspection', detail: openGateCount === 0 ? 'Ready' : `${openGateCount} gate${openGateCount === 1 ? '' : 's'} open`, complete: statusStageIndex >= 2 },
+    { label: 'Completed', detail: wo.closed_at ? formatDate(wo.closed_at) : 'Pending close', complete: statusStageIndex >= 3 },
+  ]
 
   // ─── Load checklist for overview/tasks/checklist readiness surfaces ────────
   useEffect(() => {
-    if (!['overview', 'tasks', 'checklist'].includes(tab) || checklist.length > 0 || checklistLoading) return
+    if (!['overview', 'tasks', 'checklist', 'ownerview', 'aisummary'].includes(tab) || checklist.length > 0 || checklistLoading) return
     let cancelled = false
     void (async () => {
       setChecklistLoading(true)
@@ -361,7 +382,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
 
   // ─── Load logbook entry for this WO (if exists) when Logbook tab opens ────
   useEffect(() => {
-    if (tab !== 'logbook') return
+    if (!['logbook', 'aisummary'].includes(tab)) return
     let cancelled = false
     void (async () => {
       setLogbookLoading(true)
@@ -747,123 +768,106 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
       {/* ── Header (always visible above the tabs) ── */}
       <div className="bg-white border-b border-border">
-        <div className="px-4 sm:px-6 pt-4 pb-3 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0 space-y-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold font-mono text-foreground">{wo.work_order_number}</h1>
-              <span
-                className={cn(
-                  'inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border',
-                  STATUS_COLOR[wo.status as WorkOrderStatus] ?? STATUS_COLOR.draft,
-                )}
-              >
-                {STATUS_LABEL[wo.status as WorkOrderStatus] ?? wo.status}
-              </span>
-              <div className="relative">
-                <select
-                  value={wo.status}
-                  onChange={(e) => handleStatusChange(e.target.value as WorkOrderStatus)}
-                  disabled={isOwnerView}
-                  className="h-8 pl-2.5 pr-7 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
-                >
-                  {(Object.entries(STATUS_LABEL) as [WorkOrderStatus, string][]).map(([val, label]) => (
-                    <option key={val} value={val}>{label}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+        <div className="px-4 sm:px-6 pt-4 pb-3 space-y-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <button onClick={() => router.push('/work-orders')} className="text-primary hover:underline">Work Orders</button>
+                <span>/</span>
+                <span className="font-mono">{wo.work_order_number}</span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-bold font-mono text-foreground tracking-tight">{wo.work_order_number}</h1>
+                <span className={cn('inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border', STATUS_COLOR[wo.status as WorkOrderStatus] ?? STATUS_COLOR.draft)}>
+                  {STATUS_LABEL[wo.status as WorkOrderStatus] ?? wo.status}
+                </span>
+                <div className="relative">
+                  <select
+                    value={wo.status}
+                    onChange={(e) => handleStatusChange(e.target.value as WorkOrderStatus)}
+                    disabled={isOwnerView}
+                    className="h-8 pl-2.5 pr-7 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
+                  >
+                    {(Object.entries(STATUS_LABEL) as [WorkOrderStatus, string][]).map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-              <HeaderFact icon={Plane} label="Aircraft" value={(wo as any).aircraft?.tail_number ?? 'Unassigned'} subvalue={[((wo as any).aircraft?.make), ((wo as any).aircraft?.model)].filter(Boolean).join(' ')} />
-              <HeaderFact icon={Wrench} label="Work Type" value={(wo as any).service_type ?? 'Maintenance'} />
-              <HeaderFact icon={ClipboardCheck} label="Progress" value={`${taskProgress}%`} subvalue={`${completedChecklistCount}/${checklist.length || 0} checklist`} />
-              <HeaderFact icon={AlertCircle} label="Open Gates" value={String(openGateCount)} subvalue={openGateCount === 0 ? 'Ready to close' : 'Need review'} />
-              <HeaderFact icon={Receipt} label="Actual Total" value={`$${woTotal.toFixed(2)}`} subvalue={`${lineItemCount} billable lines`} />
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button size="sm" variant="outline" onClick={handlePrint}>
+                <Printer className="h-3.5 w-3.5 mr-1" /> Print
+              </Button>
+              {!isReadonly && (
+                <Button size="sm" variant="outline" onClick={() => setTab('lineitems')}>
+                  <PenLine className="h-3.5 w-3.5 mr-1" /> Edit
+                </Button>
+              )}
+              <Button size="sm" onClick={handlePrimaryAction} disabled={isOwnerView && wo.status !== 'awaiting_approval'}>
+                {primaryActionLabel()}
+              </Button>
+              {dirty && (
+                <Button size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save
+                </Button>
+              )}
+              <div className="relative" data-share-menu>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShareMenuOpen((o) => !o)}
+                  aria-label="Share work order"
+                  title="Share, print, or export"
+                >
+                  <Share2 className="h-3.5 w-3.5 mr-1" /> Share
+                  <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
+                </Button>
+                {shareMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 w-56 rounded-xl border border-border bg-white shadow-lg z-30 overflow-hidden">
+                    <a
+                      href={`/api/work-orders/${wo.id}/pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setShareMenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex-1">
+                        <div className="font-medium">Download PDF</div>
+                        <div className="text-[11px] text-muted-foreground">Includes line items + totals</div>
+                      </div>
+                    </a>
+                    <button onClick={handleCopyLink} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left">
+                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex-1">
+                        <div className="font-medium">Copy link</div>
+                        <div className="text-[11px] text-muted-foreground">Share with anyone in your org</div>
+                      </div>
+                    </button>
+                    <button onClick={handleEmailCustomer} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left border-t border-border">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex-1">
+                        <div className="font-medium">Email work order</div>
+                        <div className="text-[11px] text-muted-foreground">Compose with link pre-filled</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <Button size="sm" onClick={handlePrimaryAction} disabled={isOwnerView && wo.status !== 'awaiting_approval'}>
-              {primaryActionLabel()}
-            </Button>
-            {!isReadonly && (
-              <Button size="sm" variant="outline" onClick={() => setShowAIPlan(true)}>
-                <Sparkles className="h-3.5 w-3.5 mr-1" /> AI Plan
-              </Button>
-            )}
-            {!isOwnerView && (
-              <Button size="sm" variant="outline" onClick={handleGenerateInvoice}>
-                <Receipt className="h-3.5 w-3.5 mr-1" /> Invoice
-              </Button>
-            )}
-            {dirty && (
-              <Button size="sm" onClick={handleSave} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save
-              </Button>
-            )}
-            {/* Share / print / copy-link menu — single entry point for
-                everything you'd want to "send" the WO out as. Replaces the
-                separate buttons that used to live in the split-panel view. */}
-            <div className="relative" data-share-menu>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShareMenuOpen((o) => !o)}
-                aria-label="Share work order"
-                title="Share, print, or export"
-              >
-                <Share2 className="h-3.5 w-3.5 mr-1" /> Share
-                <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
-              </Button>
-              {shareMenuOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-56 rounded-xl border border-border bg-white shadow-lg z-30 overflow-hidden">
-                  <a
-                    href={`/api/work-orders/${wo.id}/pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setShareMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                  >
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="font-medium">Download PDF</div>
-                      <div className="text-[11px] text-muted-foreground">Includes line items + totals</div>
-                    </div>
-                  </a>
-                  <button
-                    onClick={handlePrint}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left"
-                  >
-                    <Printer className="h-4 w-4 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="font-medium">Print</div>
-                      <div className="text-[11px] text-muted-foreground">Use browser print dialog</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={handleCopyLink}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left"
-                  >
-                    <Link2 className="h-4 w-4 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="font-medium">Copy link</div>
-                      <div className="text-[11px] text-muted-foreground">Share with anyone in your org</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={handleEmailCustomer}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors text-left border-t border-border"
-                  >
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <div className="flex-1">
-                      <div className="font-medium">Email work order</div>
-                      <div className="text-[11px] text-muted-foreground">Compose with link pre-filled</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-xs">
+            <HeaderFact icon={Plane} label="Aircraft" value={aircraftTail} subvalue={aircraftModel} />
+            <HeaderFact icon={MapPin} label="Location" value={location} subvalue={(wo as any).hangar ? `Hangar ${(wo as any).hangar}` : undefined} />
+            <HeaderFact icon={AlertCircle} label="Priority" value={priority} subvalue={openGateCount === 0 ? 'No close blockers' : `${openGateCount} close gates open`} />
+            <HeaderFact icon={CalendarDays} label="Created" value={formatDate(wo.opened_at)} subvalue={formatTimeLabel(wo.opened_at)} />
+            <HeaderFact icon={CalendarDays} label="Due Date" value={dueDate ? formatDate(dueDate) : 'Not set'} subvalue={dueDate ? 'Target completion' : 'Set in work plan'} />
+            <HeaderFact icon={Wrench} label="Work Type" value={workType} subvalue={`${taskProgress}% task progress`} />
           </div>
         </div>
 
@@ -912,89 +916,98 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
       {/* ── Tab content ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* Overview — operating picture only */}
+        {/* Overview — spec-aligned operating picture */}
         {tab === 'overview' && (
-          <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
-            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
+          <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_230px_1fr] gap-4">
               <section className="rounded-lg border border-border bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-semibold text-foreground">Scope</h2>
-                    <p className="mt-2 text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
-                      {complaint || 'No scope has been recorded yet.'}
-                    </p>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => setTab('lineitems')}>
-                    Edit Work
-                  </Button>
-                </div>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <OverviewMetric label="Tasks" value={`${taskCards.filter((task) => task.status === 'Completed').length}/${taskCards.length}`} subvalue={`${taskProgress}% complete`} />
-                  <OverviewMetric label="Checklist" value={`${completedChecklistCount}/${checklist.length || 0}`} subvalue={`${incompleteRequiredChecklist.length} required open`} />
-                  <OverviewMetric label="AD/SB" value={`${adSbItems.length - adSbIncomplete.length}/${adSbItems.length}`} subvalue={adSbIncomplete.length ? `${adSbIncomplete.length} need review` : 'No blockers'} intent={adSbIncomplete.length ? 'warn' : 'ok'} />
+                <h2 className="text-base font-semibold text-foreground">Description</h2>
+                <div className="mt-3 space-y-3 text-sm leading-relaxed text-foreground/85">
+                  <p className="whitespace-pre-wrap">{complaint || 'No customer complaint or work scope has been recorded yet.'}</p>
+                  {(discrepancy || findings || correctiveAction) && (
+                    <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                      {discrepancy && <li>Discrepancy: {discrepancy}</li>}
+                      {findings && <li>Finding: {findings}</li>}
+                      {correctiveAction && <li>Corrective action: {correctiveAction}</li>}
+                    </ul>
+                  )}
                 </div>
               </section>
 
               <section className="rounded-lg border border-border bg-white p-4">
-                <h2 className="text-base font-semibold text-foreground">Close Readiness</h2>
-                <div className="mt-3 space-y-2">
-                  {closureGates.map((gate) => (
-                    <button
-                      key={gate.id}
-                      type="button"
-                      onClick={() => {
-                        if (gate.id === 'checklist' || gate.id === 'adsb') setTab(gate.id === 'adsb' ? 'adsb' : 'checklist')
-                        else if (gate.id === 'lines') setTab('lineitems')
-                        else if (gate.id === 'ai') setTab('aisummary')
-                        else if (gate.id === 'logbook') setTab('logbook')
-                        else if (gate.id === 'invoice') setTab('invoice')
-                      }}
-                      className="w-full flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left hover:bg-muted/30 transition-colors"
-                    >
-                      <span className="text-sm text-foreground">{gate.label}</span>
-                      <span className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
-                        gate.complete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200',
-                      )}>
-                        {gate.complete ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                        {gate.complete ? 'Ready' : 'Open'}
-                      </span>
-                    </button>
+                <h2 className="text-base font-semibold text-foreground">Status</h2>
+                <div className="mt-4 space-y-3">
+                  {statusStages.map((stage, index) => (
+                    <div key={stage.label} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <span className={cn('h-5 w-5 rounded-full border flex items-center justify-center', stage.complete ? 'bg-primary border-primary text-primary-foreground' : 'bg-white border-border text-muted-foreground')}>
+                          {stage.complete ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                        </span>
+                        {index < statusStages.length - 1 && <span className="h-8 w-px bg-border" />}
+                      </div>
+                      <div className="min-w-0 pb-1">
+                        <div className="text-sm font-medium text-foreground">{stage.label}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{stage.detail || 'Pending'}</div>
+                      </div>
+                    </div>
                   ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-border bg-white p-4">
+                <h2 className="text-base font-semibold text-foreground">Details</h2>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                  <DetailTerm label="Work Order Type" value={workType} />
+                  <DetailTerm label="Category" value={(wo as any).category ?? 'Inspection'} />
+                  <DetailTerm label="Estimated Labor" value={`${laborLines.reduce((sum, line) => sum + Number(line.hours ?? line.quantity ?? 0), 0).toFixed(1)} hrs`} />
+                  <DetailTerm label="Actual Cost" value={`$${woTotal.toFixed(2)}`} />
+                  <DetailTerm label="Owner" value={ownerName} />
+                  <DetailTerm label="Line Items" value={`${lineItemCount} billable`} />
+                </dl>
+                <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                    Attachments
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Photos and files uploaded in Activity are retained with the work order audit trail.</p>
                 </div>
               </section>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <section className="rounded-lg border border-border bg-white p-4">
-                <h3 className="text-sm font-semibold text-foreground">Labor</h3>
-                <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">${(wo.labor_total ?? 0).toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">{laborLines.length} labor line{laborLines.length === 1 ? '' : 's'} logged</p>
-              </section>
-              <section className="rounded-lg border border-border bg-white p-4">
-                <h3 className="text-sm font-semibold text-foreground">Parts</h3>
-                <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">${(wo.parts_total ?? 0).toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">{partLines.length} part line{partLines.length === 1 ? '' : 's'} installed or planned</p>
-              </section>
-              <section className="rounded-lg border border-border bg-white p-4">
-                <h3 className="text-sm font-semibold text-foreground">Owner Approval</h3>
-                <div className="mt-3 text-sm font-semibold text-foreground">
-                  {wo.status === 'awaiting_approval' ? 'Waiting on owner' : wo.customer_id ? 'Owner linked' : 'No owner linked'}
+            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
+              <section className="rounded-lg border border-border bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                  <h2 className="text-base font-semibold text-foreground">Tasks</h2>
+                  <Button size="sm" variant="ghost" onClick={() => setTab('tasks')}>
+                    Add Task
+                  </Button>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Owner View exposes only approved scope, owner-visible notes, and permitted line item summaries.
-                </p>
+                <ExecutionTaskTable tasks={taskCards.slice(0, 6)} onOpen={(task) => setTab(task.source === 'lineitems' ? 'lineitems' : task.source === 'adsb' ? 'adsb' : 'checklist')} />
+              </section>
+
+              <section className="rounded-lg border border-border bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                  <h2 className="text-base font-semibold text-foreground">Line Items <span className="text-xs font-normal text-muted-foreground">(From Estimate)</span></h2>
+                  <Button size="sm" variant="ghost" onClick={() => setTab('lineitems')}>Open</Button>
+                </div>
+                <MiniLineItems lines={lines} woTotal={woTotal} taxAmount={parseFloat(taxAmount) || 0} />
               </section>
             </div>
 
             <section className="rounded-lg border border-border bg-white p-4">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-foreground">Recent Task Picture</h2>
-                <Button size="sm" variant="outline" onClick={() => setTab('tasks')}>Open Tasks</Button>
+                <h2 className="text-base font-semibold text-foreground">Close Gates</h2>
+                <span className="text-xs text-muted-foreground">{openGateCount === 0 ? 'Ready for close review' : `${openGateCount} open`}</span>
               </div>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {taskCards.slice(0, 6).map((task) => (
-                  <TaskCard key={task.id} task={task} compact onOpen={() => setTab(task.source === 'lineitems' ? 'lineitems' : 'checklist')} />
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                {closureGates.map((gate) => (
+                  <GateButton key={gate.id} gate={gate} onClick={() => {
+                    if (gate.id === 'checklist' || gate.id === 'adsb') setTab(gate.id === 'adsb' ? 'adsb' : 'checklist')
+                    else if (gate.id === 'lines') setTab('lineitems')
+                    else if (gate.id === 'ai') setTab('aisummary')
+                    else if (gate.id === 'logbook') setTab('logbook')
+                    else if (gate.id === 'invoice') setTab('invoice')
+                  }} />
                 ))}
               </div>
             </section>
@@ -1037,8 +1050,19 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           </div>
         )}
 
-        {/* Activity — iMessage-style chat with Camera/Mic/Paperclip/Add Part/Add Labor */}
+        {/* Activity — immutable-style execution timeline */}
         {tab === 'activity' && (
+          <ActivityBoard
+            tasks={taskCards}
+            lines={lines}
+            checklist={checklist}
+            onOpenChat={() => setTab('chat')}
+            onOpenNotes={() => setTab('notes')}
+          />
+        )}
+
+        {/* Chat — team communication separated from notes and audit activity */}
+        {tab === 'chat' && (
           <div className="h-full">
             <WoChatTimeline
               workOrderId={wo.id}
@@ -1049,114 +1073,161 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           </div>
         )}
 
+        {/* Notes — internal maintenance notes and customer-visible notes */}
+        {tab === 'notes' && (
+          <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <section className="rounded-lg border border-border bg-white p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <StickyNote className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-base font-semibold text-foreground">Internal Notes</h2>
+                </div>
+                <textarea
+                  value={internalNotes}
+                  onChange={(e) => { setInternalNotes(e.target.value); markDirty() }}
+                  readOnly={isReadonly}
+                  rows={10}
+                  className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  placeholder="Pinned internal notes, findings, reminders, and handoff context."
+                />
+              </section>
+              <section className="rounded-lg border border-border bg-white p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <UserRound className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-base font-semibold text-foreground">Owner-visible Notes</h2>
+                </div>
+                <textarea
+                  value={customerNotes}
+                  onChange={(e) => { setCustomerNotes(e.target.value); markDirty() }}
+                  readOnly={isReadonly || isOwnerView}
+                  rows={10}
+                  className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  placeholder="Only approved customer-facing status goes here."
+                />
+              </section>
+            </div>
+          </div>
+        )}
+
         {/* Checklist — template-driven, AI-augmented, mechanic-toggleable */}
         {tab === 'checklist' && (
-          <div className="p-6 max-w-3xl mx-auto space-y-4">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold text-foreground">Checklist</h2>
-                <p className="text-xs text-muted-foreground">
-                  Driven by your shop&rsquo;s template (Settings → Shop), AI-augmented from this WO&rsquo;s scope, and seeded with the aircraft&rsquo;s AD/SB compliance state at WO open. Required items must be checked off before the WO can move to Ready for Sign-off or Closed.
-                </p>
+          <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
+            <section className="rounded-lg border border-border bg-white overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] text-muted-foreground">
+                    Work Orders / {wo.work_order_number} / Tasks
+                  </div>
+                  <h2 className="mt-1 text-lg font-semibold text-foreground">Task &amp; Checklist Execution</h2>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-600" /> {STATUS_LABEL[wo.status as WorkOrderStatus] ?? wo.status}</span>
+                    <span>Mechanic: {wo.assigned_mechanic_id ? 'Assigned mechanic' : 'Unassigned'}</span>
+                    <span>Due: {dueDate ? formatDate(dueDate) : 'Not set'}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right mr-2 hidden sm:block">
+                    <div className="font-mono text-xl font-bold text-foreground">01:12:34</div>
+                    <div className="text-[11px] text-emerald-700 font-medium">Timer ready</div>
+                  </div>
+                  <Button size="sm" variant="outline"><Pause className="h-3.5 w-3.5 mr-1" /> Pause</Button>
+                  <Button size="sm" variant="outline" className="text-red-700 border-red-200 hover:bg-red-50">Stop</Button>
+                  <Button size="sm" onClick={() => handleStatusChange('ready_for_signoff')}>Mark Complete</Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {checklist.filter((i) => i.completed).length} / {checklist.length} done
-                </span>
-                {checklist.some((i) => i.source === 'ad_sb' || i.source === 'ad') && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setTab('adsb')}
-                    className="h-7"
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                    Open AD/SB
-                  </Button>
-                )}
-              </div>
-            </div>
 
-            {checklistLoading && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading checklist…
-              </div>
-            )}
-
-            {!checklistLoading && checklist.length === 0 && (
-              <div className="text-sm text-muted-foreground py-4 text-center border border-dashed border-border rounded-lg">
-                No checklist items yet. AD/SB items added from the AD/SB tab will land here.
-              </div>
-            )}
-
-            {checklist.length > 0 && (
-              <div className="space-y-2">
-                {(() => {
-                  // Group by section
-                  const bySection = new Map<string, ChecklistItem[]>()
-                  for (const item of checklist) {
-                    const key = item.section ?? 'General'
-                    if (!bySection.has(key)) bySection.set(key, [])
-                    bySection.get(key)!.push(item)
-                  }
-                  return Array.from(bySection.entries()).map(([section, items]) => (
-                    <div key={section} className="rounded-xl border border-border bg-white overflow-hidden">
-                      <div className="px-4 py-2 bg-muted/30 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {section}
-                      </div>
-                      <ul className="divide-y divide-border">
-                        {items.map((item) => (
-                          <li key={item.id} className="flex items-start gap-3 p-3 hover:bg-muted/20 transition-colors">
-                            <button
-                              onClick={() => handleToggleChecklist(item)}
-                              disabled={isReadonly || checklistTogglingId === item.id}
-                              className="mt-0.5 shrink-0 disabled:opacity-50"
-                              aria-label={item.completed ? 'Mark incomplete' : 'Mark complete'}
-                            >
-                              {item.completed ? (
-                                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                              ) : (
-                                <Circle className="h-5 w-5 text-muted-foreground" />
-                              )}
-                            </button>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={cn('text-sm', item.completed && 'line-through text-muted-foreground')}>
-                                  {item.item_label}
-                                </span>
-                                {item.required && (
-                                  <span className="text-[10px] uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-semibold">
-                                    Required
-                                  </span>
-                                )}
-                                {(item.source === 'ad' || item.source === 'ad_sb') && (
-                                  <span className="text-[10px] uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-semibold">
-                                    AD/SB
-                                  </span>
-                                )}
-                                {item.source === 'ai' && (
-                                  <span className="text-[10px] uppercase tracking-wide bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded font-semibold">
-                                    AI
-                                  </span>
-                                )}
-                              </div>
-                              {item.item_description && (
-                                <p className="text-xs text-muted-foreground mt-0.5">{item.item_description}</p>
-                              )}
-                              {item.source_reference && (
-                                <p className="text-[11px] text-muted-foreground/80 mt-0.5 font-mono">
-                                  Ref: {item.source_reference}
-                                </p>
-                              )}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
+              <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px]">
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Inspection Checklist</h3>
+                      <p className="text-xs text-muted-foreground">{completedChecklistCount} / {checklist.length || 0} completed ({checklist.length ? Math.round((completedChecklistCount / checklist.length) * 100) : 0}%)</p>
                     </div>
-                  ))
-                })()}
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setTab('adsb')}>AD/SB</Button>
+                      <Button size="sm" variant="outline" onClick={() => setTab('lineitems')}>Parts &amp; Labor</Button>
+                    </div>
+                  </div>
+
+                  {checklistLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading checklist…
+                    </div>
+                  )}
+
+                  {!checklistLoading && checklist.length === 0 && (
+                    <div className="text-sm text-muted-foreground py-8 text-center border border-dashed border-border rounded-lg">
+                      No checklist items yet. AD/SB items added from the AD/SB tab will land here.
+                    </div>
+                  )}
+
+                  {checklist.length > 0 && (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/40 border-b border-border">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Item</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Requirement</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Note / Finding</th>
+                            <th className="px-3 py-2 text-center font-medium text-muted-foreground uppercase tracking-wide">Photo</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border bg-white">
+                          {checklist.map((item, index) => (
+                            <tr key={item.id} className="hover:bg-muted/20">
+                              <td className="px-3 py-2 align-top font-medium text-foreground">
+                                <div>{index + 1}. {item.section ?? 'General'}</div>
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">{item.item_label}</div>
+                              </td>
+                              <td className="px-3 py-2 align-top text-muted-foreground">
+                                {item.item_description || item.source_reference || 'Inspect and record condition.'}
+                              </td>
+                              <td className="px-3 py-2 align-top">
+                                <button
+                                  onClick={() => handleToggleChecklist(item)}
+                                  disabled={isReadonly || checklistTogglingId === item.id}
+                                  className={cn(
+                                    'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold disabled:opacity-50',
+                                    item.completed ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : item.required ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200',
+                                  )}
+                                >
+                                  {item.completed ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                                  {item.completed ? 'Pass' : item.required ? 'Required' : 'Not Started'}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2 align-top text-muted-foreground">
+                                {item.completed ? 'Good condition recorded.' : item.required ? 'Needs mechanic review.' : 'No finding yet.'}
+                              </td>
+                              <td className="px-3 py-2 align-top text-center">
+                                <button className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted">
+                                  <Camera className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <aside className="border-t xl:border-t-0 xl:border-l border-border bg-muted/20 p-4 space-y-4">
+                  <TaskActivityRail tasks={taskCards} />
+                  <div className="rounded-lg border border-border bg-white p-4">
+                    <h3 className="text-sm font-semibold text-foreground">Time &amp; Labor</h3>
+                    <dl className="mt-3 space-y-2 text-xs">
+                      <DetailTerm label="Started" value={wo.opened_at ? formatDate(wo.opened_at) : 'Not started'} />
+                      <DetailTerm label="Current Duration" value="01:12:34" />
+                      <DetailTerm label="Labor Type" value={workType} />
+                    </dl>
+                    <button onClick={() => { setTab('lineitems'); setShowAddLine(true); setNewLine((prev) => ({ ...prev, line_type: 'labor' })) }} className="mt-3 text-xs font-semibold text-primary hover:underline">
+                      + Add Manual Time
+                    </button>
+                  </div>
+                </aside>
               </div>
-            )}
+            </section>
           </div>
         )}
 
@@ -1364,6 +1435,62 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           </div>
         )}
 
+        {/* Parts — inventory lifecycle surface for work-order parts */}
+        {tab === 'parts' && (
+          <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Parts</h2>
+                <p className="text-xs text-muted-foreground">Track requested, ordered, received, installed, returned, customer-supplied, and not-billable parts from the work order.</p>
+              </div>
+              {!isReadonly && (
+                <Button size="sm" onClick={() => { setTab('lineitems'); setShowAddLine(true); setNewLine((prev) => ({ ...prev, line_type: 'part' })) }}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Part
+                </Button>
+              )}
+            </div>
+            <div className="rounded-lg border border-border bg-white overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 border-b border-border">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Part</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">State</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Inventory Action</th>
+                    <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {partLines.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-8 text-center text-sm text-muted-foreground">No parts have been added yet.</td>
+                    </tr>
+                  ) : partLines.map((line) => (
+                    <tr key={line.id} className="hover:bg-muted/20">
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-foreground">{line.description}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono">{line.part_number || 'No P/N'}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                          {line.status ? titleize(line.status) : 'Needed'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Reserve</button>
+                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Install</button>
+                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Attach 8130</button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">${(line.line_total ?? 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Media — surfaced from chat thread */}
         {tab === 'media' && (
           <div className="p-6 max-w-3xl mx-auto">
@@ -1383,7 +1510,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
 
         {/* AI Summary */}
         {tab === 'aisummary' && (
-          <div className="p-6 max-w-3xl mx-auto space-y-4">
+          <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
             {/* Header card — explains the role of AI Summary in the WO lifecycle */}
             <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
               <div className="flex items-start gap-3">
@@ -1503,6 +1630,50 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
               </div>
             </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <section className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4 text-amber-700" />
+                    <h2 className="text-sm font-semibold text-foreground">Logbook Entry (Draft)</h2>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setTab('logbook')}>Open</Button>
+                </div>
+                <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4 min-h-[180px] text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                  {logbookDraftBody || aiSummary || 'Generate the AI summary, then draft and sign the logbook entry from reviewed work performed, parts, AD/SB, and return-to-service language.'}
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{logbookEntry?.status === 'signed' ? 'Signed' : logbookEntry ? 'Draft saved' : 'No draft yet'}</span>
+                  {!logbookEntry && (
+                    <Button size="sm" variant="outline" onClick={handleGenerateLogbookEntry} disabled={logbookGenerating || isOwnerView}>
+                      {logbookGenerating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                      Draft
+                    </Button>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-border bg-white p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Receipt className="h-4 w-4 text-emerald-600" />
+                    <h2 className="text-sm font-semibold text-foreground">Invoice Summary</h2>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setTab('invoice')}>Open</Button>
+                </div>
+                <div className="mt-4 space-y-2 text-sm">
+                  <TotalRow label="Subtotal" value={woTotal - (parseFloat(taxAmount) || 0)} />
+                  <TotalRow label="Tax" value={parseFloat(taxAmount) || 0} />
+                  <TotalRow label="Total" value={woTotal} strong />
+                </div>
+                <Button className="mt-4 w-full" onClick={handleAutoGenerateInvoice} disabled={isReadonly || generatingInvoice || lines.length === 0}>
+                  {generatingInvoice ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Receipt className="h-3.5 w-3.5 mr-1" />}
+                  Create Invoice
+                </Button>
+                {lines.length === 0 && <p className="mt-2 text-xs text-muted-foreground">Add approved line items before invoicing.</p>}
+              </section>
+            </div>
+
             {/* Reveal the existing AI Plan (line-item proposer) as a secondary action */}
             <details className="bg-white rounded-xl border border-border">
               <summary className="px-5 py-3 cursor-pointer text-sm text-foreground flex items-center gap-2 select-none" style={{ fontWeight: 600 }}>
@@ -1523,27 +1694,82 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
 
         {/* Owner View */}
         {tab === 'ownerview' && (
-          <div className="p-6 max-w-3xl mx-auto space-y-4">
-            <div className="rounded-xl border border-border bg-white p-5 space-y-4">
-              <h2 className="text-base font-semibold text-foreground">What the owner sees</h2>
-              <div>
-                <Label className="text-xs">Reported Scope</Label>
-                <textarea value={complaint} readOnly rows={3} className="w-full mt-1 px-3 py-2 rounded-md border border-input bg-muted/20 text-sm resize-none" />
+          <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+            <section className="rounded-lg border border-border bg-white p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold font-mono text-foreground">{wo.work_order_number}</h2>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      {STATUS_LABEL[wo.status as WorkOrderStatus] ?? wo.status}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                    <DetailTerm label="Aircraft" value={aircraftTail} />
+                    <DetailTerm label="Work Type" value={workType} />
+                    <DetailTerm label="Location" value={location} />
+                    <DetailTerm label="Est. Completion" value={dueDate ? formatDate(dueDate) : 'Pending'} />
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Owner-facing preview. Internal notes, private chat, and compliance-only drafts stay hidden.
+                </div>
               </div>
-              <div>
-                <Label className="text-xs">Shop Notes (customer-visible)</Label>
-                <textarea
-                  value={customerNotes}
-                  onChange={(e) => { setCustomerNotes(e.target.value); markDirty() }}
-                  readOnly={isReadonly || isOwnerView}
-                  rows={4}
-                  className="w-full mt-1 px-3 py-2 rounded-md border border-input bg-white text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="What you want the customer to see in the owner portal & invoice."
-                />
-              </div>
-              <div className="text-xs text-muted-foreground border-t border-border pt-3">
-                Only the fields above + line items marked customer-visible reach the owner portal.
-              </div>
+            </section>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+              <section className="rounded-lg border border-border bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-base font-semibold text-foreground">Work Progress</h2>
+                  <span className="text-xs text-muted-foreground">{taskProgress}% complete</span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {taskCards.slice(0, 5).map((task) => (
+                    <div key={task.id} className="grid grid-cols-[1fr_110px_80px] items-center gap-3 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {task.status === 'Completed' ? <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" /> : <Circle className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        <span className="truncate text-foreground">{task.title}</span>
+                      </div>
+                      <span className="text-muted-foreground">{task.status}</span>
+                      <span className="text-right tabular-nums text-muted-foreground">{task.progress}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 rounded-lg border border-border bg-muted/20 p-3">
+                  <h3 className="text-sm font-semibold text-foreground">Recent Activity</h3>
+                  <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                    <OwnerActivityLine label="Checklist updated" value={`${completedChecklistCount}/${checklist.length || 0} complete`} />
+                    <OwnerActivityLine label="Parts / labor" value={`${lineItemCount} billable line${lineItemCount === 1 ? '' : 's'}`} />
+                    <OwnerActivityLine label="Close gates" value={openGateCount === 0 ? 'Ready for review' : `${openGateCount} still open`} />
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Button size="sm" onClick={() => setTab('chat')}>Message Mechanic</Button>
+                </div>
+              </section>
+
+              <aside className="space-y-4">
+                <section className="rounded-lg border border-border bg-white p-4">
+                  <h2 className="text-base font-semibold text-foreground">Estimate Summary</h2>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <TotalRow label="Estimated Labor" value={wo.labor_total ?? 0} />
+                    <TotalRow label="Estimated Cost" value={woTotal} />
+                    <TotalRow label="Approved Deposit" value={Number((wo as any).deposit_amount ?? 0)} />
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">Owner will be notified for additional approval requests or scope changes.</p>
+                </section>
+                <section className="rounded-lg border border-border bg-white p-4">
+                  <h2 className="text-base font-semibold text-foreground">Customer-visible Notes</h2>
+                  <textarea
+                    value={customerNotes}
+                    onChange={(e) => { setCustomerNotes(e.target.value); markDirty() }}
+                    readOnly={isReadonly || isOwnerView}
+                    rows={5}
+                    className="mt-3 w-full rounded-md border border-input bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                    placeholder="Approved status note for the owner."
+                  />
+                </section>
+              </aside>
             </div>
           </div>
         )}
@@ -1825,7 +2051,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
       )}
 
       {!isOwnerView && (
-        <div className="md:hidden fixed bottom-3 left-3 right-20 z-30 rounded-xl border border-border bg-white shadow-lg px-2 py-2 grid grid-cols-4 gap-1">
+        <div className="md:hidden fixed bottom-3 left-3 right-20 z-30 rounded-xl border border-border bg-white shadow-lg px-2 py-2 grid grid-cols-5 gap-1">
           <button type="button" onClick={() => setTab('activity')} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
             <Clock className="h-4 w-4 text-primary" />
             Timer
@@ -1841,6 +2067,10 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           <button type="button" onClick={() => setTab('activity')} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
             <MessageSquare className="h-4 w-4 text-primary" />
             Chat
+          </button>
+          <button type="button" onClick={() => setTab('tasks')} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
+            <MoreHorizontal className="h-4 w-4 text-primary" />
+            Actions
           </button>
         </div>
       )}
@@ -1971,6 +2201,271 @@ function buildTaskCards({
   return cards
 }
 
+function getStatusStageIndex(status: WorkOrderStatus) {
+  if (['draft', 'open'].includes(status)) return 0
+  if (['awaiting_approval', 'awaiting_parts', 'in_progress', 'waiting_on_customer'].includes(status)) return 1
+  if (status === 'ready_for_signoff') return 2
+  return 3
+}
+
+function titleize(value: string) {
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatTimeLabel(iso?: string | null) {
+  if (!iso) return undefined
+  const time = iso.match(/T(\d{2}):(\d{2})/)
+  if (!time) return undefined
+  const hour = Number(time[1])
+  const minute = time[2]
+  if (!Number.isFinite(hour)) return undefined
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const displayHour = hour % 12 || 12
+  return `${displayHour}:${minute} ${period}`
+}
+
+function DetailTerm({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 truncate text-xs font-semibold text-foreground">{value || '-'}</dd>
+    </div>
+  )
+}
+
+function TotalRow({ label, value, strong = false }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <div className={cn('flex items-center justify-between gap-3', strong && 'border-t border-border pt-2 font-bold')}>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular-nums text-foreground">${Number(value || 0).toFixed(2)}</span>
+    </div>
+  )
+}
+
+function GateButton({
+  gate,
+  onClick,
+}: {
+  gate: { id: string; label: string; complete: boolean; count: number }
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left hover:bg-muted/30 transition-colors"
+    >
+      <span className="text-sm text-foreground">{gate.label}</span>
+      <span className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+        gate.complete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200',
+      )}>
+        {gate.complete ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+        {gate.complete ? 'Ready' : 'Open'}
+      </span>
+    </button>
+  )
+}
+
+function ExecutionTaskTable({
+  tasks,
+  onOpen,
+}: {
+  tasks: TaskCardModel[]
+  onOpen: (task: TaskCardModel) => void
+}) {
+  return (
+    <table className="w-full text-xs">
+      <thead className="bg-muted/40 border-b border-border">
+        <tr>
+          <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Task</th>
+          <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Assigned To</th>
+          <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+          <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Gate</th>
+          <th className="px-3 py-2" />
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {tasks.map((task) => (
+          <tr key={task.id} className="hover:bg-muted/20">
+            <td className="px-3 py-2">
+              <div className="font-medium text-foreground">{task.title}</div>
+              <div className="text-[11px] text-muted-foreground">{task.role}</div>
+            </td>
+            <td className="px-3 py-2 text-muted-foreground">{task.assignedTo}</td>
+            <td className="px-3 py-2">
+              <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold', taskStatusClass(task.status))}>{task.status}</span>
+            </td>
+            <td className="px-3 py-2 text-muted-foreground">{task.gate}</td>
+            <td className="px-3 py-2 text-right">
+              <Button size="sm" variant="ghost" onClick={() => onOpen(task)}>View</Button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function MiniLineItems({ lines, woTotal, taxAmount }: { lines: WorkOrderLine[]; woTotal: number; taxAmount: number }) {
+  const visibleLines = lines.filter((line) => !['note', 'discrepancy'].includes(line.line_type)).slice(0, 6)
+  return (
+    <div>
+      <table className="w-full text-xs">
+        <thead className="bg-muted/40 border-b border-border">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Item</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Qty</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Amount</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {visibleLines.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="px-3 py-8 text-center text-sm text-muted-foreground">No billable line items yet.</td>
+            </tr>
+          ) : visibleLines.map((line) => (
+            <tr key={line.id}>
+              <td className="px-3 py-2">
+                <div className="font-medium text-foreground">{line.description}</div>
+                <div className="text-[11px] text-muted-foreground">{LINE_TYPE_LABEL[line.line_type]}</div>
+              </td>
+              <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">{line.quantity}</td>
+              <td className="px-3 py-2 text-right font-semibold tabular-nums">${(line.line_total ?? 0).toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="border-t border-border bg-muted/20 p-3 text-sm space-y-1">
+        <TotalRow label="Subtotal" value={woTotal - taxAmount} />
+        <TotalRow label="Tax" value={taxAmount} />
+        <TotalRow label="Total" value={woTotal} strong />
+      </div>
+    </div>
+  )
+}
+
+function TaskActivityRail({ tasks }: { tasks: TaskCardModel[] }) {
+  const events = tasks.slice(0, 5)
+  return (
+    <div className="rounded-lg border border-border bg-white p-4">
+      <h3 className="text-sm font-semibold text-foreground">Task Activity</h3>
+      <div className="mt-3 space-y-3">
+        {events.map((task) => (
+          <div key={task.id} className="flex gap-2 text-xs">
+            <span className={cn('mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center shrink-0', task.status === 'Completed' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-border bg-white text-muted-foreground')}>
+              {task.status === 'Completed' ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+            </span>
+            <div className="min-w-0">
+              <div className="font-semibold text-foreground truncate">{task.assignedTo}</div>
+              <div className="text-muted-foreground truncate">{task.title} · {task.status}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ActivityBoard({
+  tasks,
+  lines,
+  checklist,
+  onOpenChat,
+  onOpenNotes,
+}: {
+  tasks: TaskCardModel[]
+  lines: WorkOrderLine[]
+  checklist: ChecklistItem[]
+  onOpenChat: () => void
+  onOpenNotes: () => void
+}) {
+  const events = [
+    { icon: ClipboardCheck, label: 'Work order opened', meta: `${tasks.length} generated task${tasks.length === 1 ? '' : 's'}` },
+    { icon: CheckCircle2, label: 'Checklist updated', meta: `${checklist.filter((item) => item.completed).length}/${checklist.length || 0} items complete` },
+    { icon: Package, label: 'Parts / labor reconciled', meta: `${lines.filter((line) => !['note', 'discrepancy'].includes(line.line_type)).length} billable line${lines.length === 1 ? '' : 's'}` },
+    { icon: AlertCircle, label: 'Close gate review', meta: 'AI summary, logbook, and invoice are required before close' },
+  ]
+  return (
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_320px] gap-4">
+        <section className="rounded-lg border border-border bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-foreground">Activity Timeline</h2>
+            <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+          </div>
+          <div className="mt-4 space-y-4">
+            {events.map((event) => {
+              const Icon = event.icon
+              return (
+                <div key={event.label} className="flex gap-3">
+                  <span className="h-7 w-7 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground">{event.label}</div>
+                    <div className="text-xs text-muted-foreground">{event.meta}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-foreground">Internal Chat</h2>
+            <Button size="sm" variant="outline" onClick={onOpenChat}>Open Chat</Button>
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            <ChatPreview author="Mechanic" body="Inspection execution is in progress. Add findings, photos, and parts from the action buttons." />
+            <ChatPreview author="Lead" body="Review required checklist items and hand off any failed item as a discrepancy." />
+          </div>
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <span className="flex-1">Message internal team...</span>
+            <Send className="h-3.5 w-3.5" />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-foreground">Owner Chat</h2>
+            <Button size="sm" variant="outline" onClick={onOpenNotes}>Notes</Button>
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            <ChatPreview author="Owner" body="Can you confirm if additional parts are needed?" muted />
+            <ChatPreview author="Shop" body="We will update you after checklist review and estimate reconciliation." />
+          </div>
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <span className="flex-1">Message owner...</span>
+            <Send className="h-3.5 w-3.5" />
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ChatPreview({ author, body, muted = false }: { author: string; body: string; muted?: boolean }) {
+  return (
+    <div className={cn('rounded-lg px-3 py-2', muted ? 'bg-muted/50 text-muted-foreground' : 'bg-blue-50 text-blue-950')}>
+      <div className="text-[11px] font-semibold">{author}</div>
+      <div className="mt-1 text-xs leading-relaxed">{body}</div>
+    </div>
+  )
+}
+
+function OwnerActivityLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  )
+}
+
 function HeaderFact({
   icon: Icon,
   label,
@@ -1990,29 +2485,6 @@ function HeaderFact({
       </div>
       <div className="mt-1 truncate text-xs font-semibold text-foreground">{value}</div>
       {subvalue && <div className="truncate text-[11px] text-muted-foreground">{subvalue}</div>}
-    </div>
-  )
-}
-
-function OverviewMetric({
-  label,
-  value,
-  subvalue,
-  intent = 'neutral',
-}: {
-  label: string
-  value: string
-  subvalue: string
-  intent?: 'neutral' | 'ok' | 'warn'
-}) {
-  return (
-    <div className={cn(
-      'rounded-lg border px-3 py-2',
-      intent === 'ok' ? 'border-emerald-200 bg-emerald-50/60' : intent === 'warn' ? 'border-amber-200 bg-amber-50/70' : 'border-border bg-muted/20',
-    )}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
-      <div className="text-xs text-muted-foreground">{subvalue}</div>
     </div>
   )
 }
