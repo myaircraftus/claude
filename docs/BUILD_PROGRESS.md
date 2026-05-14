@@ -20,6 +20,7 @@ No-touch areas: RAG, document ingestion, embeddings, retrieval, citations, Ask, 
 - Added task-card execution view derived from checklist sections, AD/SB items, line-item reconciliation, and closeout work.
 - Refined the opened work-order execution workspace to match the universal spec:
   compact aircraft-first header, Overview panels for description/status/details/attachments/tasks/line items, Task & Checklist execution table with timer/activity rail, separated Activity/Chat/Notes tabs, Parts lifecycle tab, richer limited Owner View, and AI Summary with adjacent logbook/invoice closeout panels.
+- Changed selected work-order navigation to a focused route: `/work-orders` keeps the searchable work-order picker, while `/work-orders/[id]` hides the internal picker and ops strip so Overview, Tasks, Checklist, Parts, AD/SB, Activity, Chat, Notes, AI Summary, Logbook, and Invoice use the full workspace.
 - Kept the existing durable sources of truth: checklist rows, line items, activity/messages, AI summary, logbook, invoice, audit logs.
 - Linked generated invoices back to `work_orders.linked_invoice_id`.
 - Linked generated logbook drafts back to `work_orders.linked_logbook_entry_id`.
@@ -54,6 +55,7 @@ flowchart TD
 - `apps/web/app/(app)/work-orders/[id]/work-order-detail-client.tsx`
 - `apps/web/app/(app)/work-orders/[id]/page.tsx`
 - `apps/web/app/(app)/work-orders/layout.tsx`
+- `apps/web/app/(app)/work-orders/work-orders-shell.tsx`
 - `apps/web/app/api/invoices/route.ts`
 - `apps/web/app/api/work-orders/[id]/ai-plan/route.ts`
 
