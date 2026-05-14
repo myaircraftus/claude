@@ -38,6 +38,7 @@ export default async function WorkOrdersLayout({
         aircraft:aircraft_id (id, tail_number, make, model)
       `)
       .eq('organization_id', orgId)
+      .is('deleted_at', null)
       .neq('status', 'archived')
       .order('updated_at', { ascending: false })
       .limit(300),

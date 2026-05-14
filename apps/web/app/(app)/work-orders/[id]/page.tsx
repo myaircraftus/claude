@@ -17,15 +17,15 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     const { supabase, membership } = await requireAppServerSession()
     const { data } = await supabase
       .from('work_orders')
-      .select('wo_number, aircraft:aircraft_id(tail_number)')
+      .select('work_order_number, aircraft:aircraft_id(tail_number)')
       .eq('id', params.id)
       .eq('organization_id', membership.organization_id)
       .single()
 
-    if (!data?.wo_number) return { title: 'Work Order | myaircraft.us' }
+    if (!data?.work_order_number) return { title: 'Work Order | myaircraft.us' }
     const tail = (Array.isArray(data.aircraft) ? data.aircraft[0]?.tail_number : (data.aircraft as { tail_number?: string } | null)?.tail_number) ?? null
     const tailSegment = tail ? ` · ${tail}` : ''
-    return { title: `${data.wo_number}${tailSegment} | myaircraft.us` }
+    return { title: `${data.work_order_number}${tailSegment} | myaircraft.us` }
   } catch {
     return { title: 'Work Order | myaircraft.us' }
   }
@@ -42,6 +42,9 @@ export default async function WorkOrderDetailPage({ params }: { params: { id: st
     .from('work_orders')
     .select(`
       *,
+      customer_complaint:complaint,
+      customer_notes:customer_visible_notes,
+      total:total_amount,
       aircraft:aircraft_id (id, tail_number, make, model, year),
       lines:work_order_lines (*)
     `)

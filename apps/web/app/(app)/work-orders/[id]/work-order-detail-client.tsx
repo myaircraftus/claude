@@ -24,8 +24,8 @@ import {
   Wrench, Package, ExternalLink, ChevronDown, FileText,
   Receipt, Sparkles, MessageSquare, BookOpen,
   ClipboardCheck, Layers, Camera, Bot, Eye, ShieldCheck,
-  CheckCircle2, Circle, MoreHorizontal, Printer, Link2, Share2, Mail,
-  PenLine, AlertCircle,
+  CheckCircle2, Circle, Printer, Link2, Share2, Mail,
+  PenLine, AlertCircle, Clock,
 } from 'lucide-react'
 import { ESignatureModal, SignatureBlock, type SignatureResult } from '@/components/work-orders/e-signature-modal'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
@@ -85,6 +85,8 @@ const LINE_TYPE_ICON: Record<WorkOrderLineType, React.ReactNode> = {
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
 type TabId =
+  | 'overview'
+  | 'tasks'
   | 'activity'
   | 'checklist'
   | 'lineitems'
@@ -97,16 +99,18 @@ type TabId =
   | 'invoice'
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'activity', label: 'Activity', icon: MessageSquare },
+  { id: 'overview', label: 'Overview', icon: FileText },
+  { id: 'tasks', label: 'Tasks', icon: ClipboardCheck },
   { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
   { id: 'lineitems', label: 'Line Items', icon: Layers },
-  { id: 'media', label: 'Media', icon: Camera },
-  { id: 'aisummary', label: 'AI Summary', icon: Bot },
+  { id: 'activity', label: 'Activity', icon: MessageSquare },
   { id: 'ownerview', label: 'Owner View', icon: Eye },
-  { id: 'adsb', label: 'AD / SB', icon: ShieldCheck },
-  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'aisummary', label: 'AI Summary', icon: Bot },
   { id: 'logbook', label: 'Logbook', icon: BookOpen },
   { id: 'invoice', label: 'Invoice', icon: Receipt },
+  { id: 'adsb', label: 'AD / SB', icon: ShieldCheck },
+  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'media', label: 'Media', icon: Camera },
 ]
 
 // ─── Checklist row type ──────────────────────────────────────────────────────
@@ -157,7 +161,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
   const [showAddLine, setShowAddLine] = useState(false)
   const [showAIPlan, setShowAIPlan] = useState(false)
   const [shareMenuOpen, setShareMenuOpen] = useState(false)
-  const [tab, setTab] = useState<TabId>('activity')
+  const [tab, setTab] = useState<TabId>('overview')
 
   // Logbook entry state — pulled from /api/logbook-entries?work_order_id=...
   // and refreshed on tab open. The Logbook tab renders editable description
@@ -218,14 +222,49 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   }
 
+  function handlePrimaryAction() {
+    if (wo.status === 'draft') {
+      void handleStatusChange('open')
+      return
+    }
+    if (wo.status === 'open') {
+      void handleStatusChange('in_progress')
+      return
+    }
+    if (wo.status === 'in_progress') {
+      setTab(openGateCount > 0 ? 'overview' : 'aisummary')
+      return
+    }
+    if (wo.status === 'ready_for_signoff') {
+      setTab('logbook')
+      return
+    }
+    if (wo.status === 'closed' || wo.status === 'invoiced' || wo.status === 'paid') {
+      setTab('invoice')
+      return
+    }
+    setTab('overview')
+  }
+
+  function primaryActionLabel() {
+    if (wo.status === 'draft') return 'Continue Setup'
+    if (wo.status === 'open') return 'Start Work'
+    if (wo.status === 'in_progress') return openGateCount > 0 ? 'Review Progress' : 'Review Summary'
+    if (wo.status === 'awaiting_approval') return 'Review Approval'
+    if (wo.status === 'awaiting_parts') return 'Review Parts'
+    if (wo.status === 'ready_for_signoff') return 'IA Review'
+    if (wo.status === 'closed' || wo.status === 'invoiced' || wo.status === 'paid') return 'Open Invoice'
+    return 'Review Work Order'
+  }
+
   // Editable fields
-  const [complaint, setComplaint] = useState(workOrder.customer_complaint ?? '')
+  const [complaint, setComplaint] = useState(workOrder.customer_complaint ?? (workOrder as any).complaint ?? '')
   const [discrepancy, setDiscrepancy] = useState(workOrder.discrepancy ?? '')
   const [troubleshootingNotes, setTroubleshootingNotes] = useState(workOrder.troubleshooting_notes ?? '')
   const [findings, setFindings] = useState(workOrder.findings ?? '')
   const [correctiveAction, setCorrectiveAction] = useState(workOrder.corrective_action ?? '')
   const [internalNotes, setInternalNotes] = useState(workOrder.internal_notes ?? '')
-  const [customerNotes, setCustomerNotes] = useState(workOrder.customer_notes ?? '')
+  const [customerNotes, setCustomerNotes] = useState(workOrder.customer_notes ?? (workOrder as any).customer_visible_notes ?? '')
   const [taxAmount, setTaxAmount] = useState(String(workOrder.tax_amount ?? 0))
   const [dirty, setDirty] = useState(false)
 
@@ -267,10 +306,41 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     (wo.parts_total ?? 0) +
     (wo.outside_services_total ?? 0) +
     (parseFloat(taxAmount) || 0)
+  const completedChecklistCount = checklist.filter((item) => item.completed).length
+  const requiredChecklist = checklist.filter((item) => item.required)
+  const incompleteRequiredChecklist = requiredChecklist.filter((item) => !item.completed)
+  const adSbItems = checklist.filter((item) => item.source === 'ad_sb' || item.source === 'ad')
+  const adSbIncomplete = adSbItems.filter((item) => item.required && !item.completed)
+  const laborLines = lines.filter((line) => line.line_type === 'labor')
+  const partLines = lines.filter((line) => line.line_type === 'part')
+  const outsideLines = lines.filter((line) => line.line_type === 'outside_service')
+  const lineItemCount = laborLines.length + partLines.length + outsideLines.length
+  const logbookReady = Boolean((wo as any).linked_logbook_entry_id || logbookEntry?.id)
+  const invoiceReady = Boolean((wo as any).linked_invoice_id || ['invoiced', 'paid'].includes(wo.status))
+  const aiReady = Boolean(aiSummary.trim())
+  const closureGates = [
+    { id: 'checklist', label: 'Required checklist complete', complete: requiredChecklist.length === 0 ? checklist.length > 0 : incompleteRequiredChecklist.length === 0, count: incompleteRequiredChecklist.length },
+    { id: 'adsb', label: 'AD/SB reviewed or resolved', complete: adSbIncomplete.length === 0, count: adSbIncomplete.length },
+    { id: 'lines', label: 'Labor and parts reconciled', complete: lineItemCount > 0, count: lineItemCount },
+    { id: 'ai', label: 'AI summary reviewed', complete: aiReady, count: aiReady ? 1 : 0 },
+    { id: 'logbook', label: 'Logbook drafted or signed', complete: logbookReady, count: logbookReady ? 1 : 0 },
+    { id: 'invoice', label: 'Invoice generated or intentionally skipped', complete: invoiceReady, count: invoiceReady ? 1 : 0 },
+  ]
+  const openGateCount = closureGates.filter((gate) => !gate.complete).length
+  const taskCards = buildTaskCards({
+    checklist,
+    lines,
+    status: wo.status,
+    assignedMechanicId: wo.assigned_mechanic_id,
+    serviceType: (wo as any).service_type,
+  })
+  const taskProgress = taskCards.length
+    ? Math.round((taskCards.filter((task) => task.status === 'Completed').length / taskCards.length) * 100)
+    : 0
 
-  // ─── Load checklist whenever the Checklist tab opens for the first time ────
+  // ─── Load checklist for overview/tasks/checklist readiness surfaces ────────
   useEffect(() => {
-    if (tab !== 'checklist' || checklist.length > 0 || checklistLoading) return
+    if (!['overview', 'tasks', 'checklist'].includes(tab) || checklist.length > 0 || checklistLoading) return
     let cancelled = false
     void (async () => {
       setChecklistLoading(true)
@@ -359,6 +429,12 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
       setLogbookEntry(entry)
       setLogbookDraftBody(entry.entry_text ?? entry.description ?? aiJson.description ?? '')
       setLogbookDirty(false)
+      await fetch(`/api/work-orders/${wo.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linked_logbook_entry_id: entry.id }),
+      }).catch(() => null)
+      setWo((prev) => ({ ...prev, linked_logbook_entry_id: entry.id } as any))
       toast.success('Logbook draft generated — review and sign')
     } catch {
       toast.error('Logbook generation failed')
@@ -671,10 +747,10 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
       {/* ── Header (always visible above the tabs) ── */}
       <div className="bg-white border-b border-border">
-        <div className="px-6 pt-4 pb-3 flex items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="px-4 sm:px-6 pt-4 pb-3 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold font-mono text-foreground">{wo.work_order_number}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold font-mono text-foreground">{wo.work_order_number}</h1>
               <span
                 className={cn(
                   'inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border',
@@ -697,15 +773,19 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
               </div>
             </div>
-            {(wo as any).aircraft && (
-              <p className="text-sm text-muted-foreground mt-1.5 flex items-center gap-1.5">
-                <Plane className="h-3.5 w-3.5" />
-                {(wo as any).aircraft.tail_number} — {(wo as any).aircraft.make} {(wo as any).aircraft.model}
-              </p>
-            )}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+              <HeaderFact icon={Plane} label="Aircraft" value={(wo as any).aircraft?.tail_number ?? 'Unassigned'} subvalue={[((wo as any).aircraft?.make), ((wo as any).aircraft?.model)].filter(Boolean).join(' ')} />
+              <HeaderFact icon={Wrench} label="Work Type" value={(wo as any).service_type ?? 'Maintenance'} />
+              <HeaderFact icon={ClipboardCheck} label="Progress" value={`${taskProgress}%`} subvalue={`${completedChecklistCount}/${checklist.length || 0} checklist`} />
+              <HeaderFact icon={AlertCircle} label="Open Gates" value={String(openGateCount)} subvalue={openGateCount === 0 ? 'Ready to close' : 'Need review'} />
+              <HeaderFact icon={Receipt} label="Actual Total" value={`$${woTotal.toFixed(2)}`} subvalue={`${lineItemCount} billable lines`} />
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button size="sm" onClick={handlePrimaryAction} disabled={isOwnerView && wo.status !== 'awaiting_approval'}>
+              {primaryActionLabel()}
+            </Button>
             {!isReadonly && (
               <Button size="sm" variant="outline" onClick={() => setShowAIPlan(true)}>
                 <Sparkles className="h-3.5 w-3.5 mr-1" /> AI Plan
@@ -831,6 +911,131 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
 
       {/* ── Tab content ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
+
+        {/* Overview — operating picture only */}
+        {tab === 'overview' && (
+          <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
+              <section className="rounded-lg border border-border bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Scope</h2>
+                    <p className="mt-2 text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                      {complaint || 'No scope has been recorded yet.'}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setTab('lineitems')}>
+                    Edit Work
+                  </Button>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <OverviewMetric label="Tasks" value={`${taskCards.filter((task) => task.status === 'Completed').length}/${taskCards.length}`} subvalue={`${taskProgress}% complete`} />
+                  <OverviewMetric label="Checklist" value={`${completedChecklistCount}/${checklist.length || 0}`} subvalue={`${incompleteRequiredChecklist.length} required open`} />
+                  <OverviewMetric label="AD/SB" value={`${adSbItems.length - adSbIncomplete.length}/${adSbItems.length}`} subvalue={adSbIncomplete.length ? `${adSbIncomplete.length} need review` : 'No blockers'} intent={adSbIncomplete.length ? 'warn' : 'ok'} />
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-border bg-white p-4">
+                <h2 className="text-base font-semibold text-foreground">Close Readiness</h2>
+                <div className="mt-3 space-y-2">
+                  {closureGates.map((gate) => (
+                    <button
+                      key={gate.id}
+                      type="button"
+                      onClick={() => {
+                        if (gate.id === 'checklist' || gate.id === 'adsb') setTab(gate.id === 'adsb' ? 'adsb' : 'checklist')
+                        else if (gate.id === 'lines') setTab('lineitems')
+                        else if (gate.id === 'ai') setTab('aisummary')
+                        else if (gate.id === 'logbook') setTab('logbook')
+                        else if (gate.id === 'invoice') setTab('invoice')
+                      }}
+                      className="w-full flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left hover:bg-muted/30 transition-colors"
+                    >
+                      <span className="text-sm text-foreground">{gate.label}</span>
+                      <span className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+                        gate.complete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200',
+                      )}>
+                        {gate.complete ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                        {gate.complete ? 'Ready' : 'Open'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <section className="rounded-lg border border-border bg-white p-4">
+                <h3 className="text-sm font-semibold text-foreground">Labor</h3>
+                <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">${(wo.labor_total ?? 0).toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">{laborLines.length} labor line{laborLines.length === 1 ? '' : 's'} logged</p>
+              </section>
+              <section className="rounded-lg border border-border bg-white p-4">
+                <h3 className="text-sm font-semibold text-foreground">Parts</h3>
+                <div className="mt-3 text-2xl font-bold tabular-nums text-foreground">${(wo.parts_total ?? 0).toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">{partLines.length} part line{partLines.length === 1 ? '' : 's'} installed or planned</p>
+              </section>
+              <section className="rounded-lg border border-border bg-white p-4">
+                <h3 className="text-sm font-semibold text-foreground">Owner Approval</h3>
+                <div className="mt-3 text-sm font-semibold text-foreground">
+                  {wo.status === 'awaiting_approval' ? 'Waiting on owner' : wo.customer_id ? 'Owner linked' : 'No owner linked'}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Owner View exposes only approved scope, owner-visible notes, and permitted line item summaries.
+                </p>
+              </section>
+            </div>
+
+            <section className="rounded-lg border border-border bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-foreground">Recent Task Picture</h2>
+                <Button size="sm" variant="outline" onClick={() => setTab('tasks')}>Open Tasks</Button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {taskCards.slice(0, 6).map((task) => (
+                  <TaskCard key={task.id} task={task} compact onOpen={() => setTab(task.source === 'lineitems' ? 'lineitems' : 'checklist')} />
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* Tasks — assignment cards derived from checklist, AD/SB, and line state */}
+        {tab === 'tasks' && (
+          <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Tasks</h2>
+                <p className="text-xs text-muted-foreground">
+                  Assignment cards keep work execution clean while the current schema stores the durable facts as checklist rows, line items, activity, logbook, and invoice records.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setTab('activity')}>
+                  <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                  Activity
+                </Button>
+                <Button size="sm" onClick={() => setTab('checklist')}>
+                  <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
+                  Checklist
+                </Button>
+              </div>
+            </div>
+
+            {checklistLoading && <InlineLoading label="Loading task context" />}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {taskCards.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onOpen={() => setTab(task.source === 'lineitems' ? 'lineitems' : task.source === 'adsb' ? 'adsb' : 'checklist')}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Activity — iMessage-style chat with Camera/Mic/Paperclip/Add Part/Add Labor */}
         {tab === 'activity' && (
@@ -1619,6 +1824,27 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
         </div>
       )}
 
+      {!isOwnerView && (
+        <div className="md:hidden fixed bottom-3 left-3 right-20 z-30 rounded-xl border border-border bg-white shadow-lg px-2 py-2 grid grid-cols-4 gap-1">
+          <button type="button" onClick={() => setTab('activity')} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
+            <Clock className="h-4 w-4 text-primary" />
+            Timer
+          </button>
+          <button type="button" onClick={() => { setTab('lineitems'); setShowAddLine(true); setNewLine((prev) => ({ ...prev, line_type: 'part' })) }} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
+            <Package className="h-4 w-4 text-primary" />
+            Part
+          </button>
+          <button type="button" onClick={() => { setTab('lineitems'); setShowAddLine(true); setNewLine((prev) => ({ ...prev, line_type: 'labor' })) }} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
+            <Wrench className="h-4 w-4 text-primary" />
+            Labor
+          </button>
+          <button type="button" onClick={() => setTab('activity')} className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-semibold text-foreground hover:bg-muted">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            Chat
+          </button>
+        </div>
+      )}
+
       {/* AI Plan Drawer */}
       <AIPlanDrawer
         workOrderId={wo.id}
@@ -1635,6 +1861,235 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
         <CameraButton mode="scan-part" label="Scan part tag" />
         <VoiceButton context={{ work_order_id: wo.id, aircraft_id: wo.aircraft_id ?? undefined }} />
       </div>
+    </div>
+  )
+}
+
+type TaskCardModel = {
+  id: string
+  title: string
+  role: string
+  assignedTo: string
+  status: 'Not Started' | 'In Progress' | 'Blocked' | 'Ready for Review' | 'Completed'
+  progress: number
+  gate: string
+  dueLabel: string
+  laborLabel: string
+  partsLabel: string
+  blocker?: string
+  source: 'checklist' | 'adsb' | 'lineitems' | 'closeout'
+}
+
+function buildTaskCards({
+  checklist,
+  lines,
+  status,
+  assignedMechanicId,
+  serviceType,
+}: {
+  checklist: ChecklistItem[]
+  lines: WorkOrderLine[]
+  status: WorkOrderStatus
+  assignedMechanicId: string | null
+  serviceType?: string | null
+}): TaskCardModel[] {
+  const cards: TaskCardModel[] = []
+  const bySection = new Map<string, ChecklistItem[]>()
+  for (const item of checklist) {
+    const key = item.section ?? 'General'
+    if (!bySection.has(key)) bySection.set(key, [])
+    bySection.get(key)!.push(item)
+  }
+
+  if (bySection.size === 0) {
+    cards.push({
+      id: 'scope',
+      title: serviceType ? `${serviceType} execution` : 'Work-order execution',
+      role: 'A&P mechanic',
+      assignedTo: assignedMechanicId ? 'Assigned mechanic' : 'Unassigned',
+      status: status === 'draft' || status === 'open' ? 'Not Started' : 'In Progress',
+      progress: status === 'draft' || status === 'open' ? 0 : 25,
+      gate: 'Required',
+      dueLabel: 'Open',
+      laborLabel: `${lines.filter((line) => line.line_type === 'labor').length} labor lines`,
+      partsLabel: `${lines.filter((line) => line.line_type === 'part').length} parts`,
+      source: 'checklist',
+    })
+  }
+
+  Array.from(bySection.entries()).forEach(([section, items]) => {
+    const completed = items.filter((item) => item.completed).length
+    const requiredOpen = items.filter((item) => item.required && !item.completed).length
+    const progress = items.length ? Math.round((completed / items.length) * 100) : 0
+    const isAd = items.some((item) => item.source === 'ad_sb' || item.source === 'ad')
+    cards.push({
+      id: `section-${section}`,
+      title: section,
+      role: isAd ? 'IA / Lead' : 'A&P mechanic',
+      assignedTo: assignedMechanicId ? 'Assigned mechanic' : isAd ? 'IA / Lead' : 'Unassigned',
+      status: progress === 100 ? 'Completed' : completed > 0 ? 'In Progress' : requiredOpen > 0 && isAd ? 'Blocked' : 'Not Started',
+      progress,
+      gate: isAd ? 'Required for IA' : requiredOpen > 0 ? 'Required' : 'Optional',
+      dueLabel: requiredOpen > 0 ? `${requiredOpen} required open` : 'No blockers',
+      laborLabel: `${lines.filter((line) => line.line_type === 'labor').length} labor lines`,
+      partsLabel: `${lines.filter((line) => line.line_type === 'part').length} parts`,
+      blocker: requiredOpen > 0 ? `${requiredOpen} required item${requiredOpen === 1 ? '' : 's'} incomplete` : undefined,
+      source: isAd ? 'adsb' : 'checklist',
+    })
+  })
+
+  const billableLines = lines.filter((line) => !['note', 'discrepancy'].includes(line.line_type))
+  cards.push({
+    id: 'line-items',
+    title: 'Reconcile line items',
+    role: 'Lead mechanic / Billing',
+    assignedTo: 'Lead mechanic',
+    status: billableLines.length > 0 ? 'Ready for Review' : 'Not Started',
+    progress: billableLines.length > 0 ? 70 : 0,
+    gate: 'Required for invoice',
+    dueLabel: `${billableLines.length} billable line${billableLines.length === 1 ? '' : 's'}`,
+    laborLabel: `${lines.filter((line) => line.line_type === 'labor').length} labor`,
+    partsLabel: `${lines.filter((line) => line.line_type === 'part').length} parts`,
+    blocker: billableLines.length === 0 ? 'No approved actual work lines yet' : undefined,
+    source: 'lineitems',
+  })
+
+  cards.push({
+    id: 'closeout',
+    title: 'AI summary, logbook, and invoice closeout',
+    role: 'IA / Admin',
+    assignedTo: 'Lead / IA',
+    status: ['closed', 'invoiced', 'paid', 'archived'].includes(status) ? 'Completed' : 'Ready for Review',
+    progress: ['closed', 'invoiced', 'paid', 'archived'].includes(status) ? 100 : 35,
+    gate: 'Required for close',
+    dueLabel: 'Before close',
+    laborLabel: 'AI review',
+    partsLabel: 'Invoice + logbook',
+    source: 'closeout',
+  })
+
+  return cards
+}
+
+function HeaderFact({
+  icon: Icon,
+  label,
+  value,
+  subvalue,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+  subvalue?: string
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border bg-white px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        {label}
+      </div>
+      <div className="mt-1 truncate text-xs font-semibold text-foreground">{value}</div>
+      {subvalue && <div className="truncate text-[11px] text-muted-foreground">{subvalue}</div>}
+    </div>
+  )
+}
+
+function OverviewMetric({
+  label,
+  value,
+  subvalue,
+  intent = 'neutral',
+}: {
+  label: string
+  value: string
+  subvalue: string
+  intent?: 'neutral' | 'ok' | 'warn'
+}) {
+  return (
+    <div className={cn(
+      'rounded-lg border px-3 py-2',
+      intent === 'ok' ? 'border-emerald-200 bg-emerald-50/60' : intent === 'warn' ? 'border-amber-200 bg-amber-50/70' : 'border-border bg-muted/20',
+    )}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
+      <div className="text-xs text-muted-foreground">{subvalue}</div>
+    </div>
+  )
+}
+
+function taskStatusClass(status: TaskCardModel['status']) {
+  if (status === 'Completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (status === 'In Progress' || status === 'Ready for Review') return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (status === 'Blocked') return 'bg-red-50 text-red-700 border-red-200'
+  return 'bg-slate-50 text-slate-600 border-slate-200'
+}
+
+function TaskCard({
+  task,
+  compact = false,
+  onOpen,
+}: {
+  task: TaskCardModel
+  compact?: boolean
+  onOpen: () => void
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">{task.title}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{task.role} · {task.assignedTo}</p>
+        </div>
+        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold', taskStatusClass(task.status))}>
+          {task.status}
+        </span>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${task.progress}%` }} />
+        </div>
+        <span className="text-[11px] tabular-nums text-muted-foreground">{task.progress}%</span>
+      </div>
+      {!compact && (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-md bg-muted/40 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-muted-foreground">Gate</div>
+            <div className="font-semibold text-foreground">{task.gate}</div>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-muted-foreground">Due</div>
+            <div className="font-semibold text-foreground">{task.dueLabel}</div>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-muted-foreground">Labor</div>
+            <div className="font-semibold text-foreground">{task.laborLabel}</div>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-muted-foreground">Parts</div>
+            <div className="font-semibold text-foreground">{task.partsLabel}</div>
+          </div>
+        </div>
+      )}
+      {task.blocker && (
+        <div className="mt-3 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {task.blocker}
+        </div>
+      )}
+      <div className="mt-3 flex justify-end">
+        <Button size="sm" variant="outline" onClick={onOpen}>
+          Open
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function InlineLoading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-3 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      {label}...
     </div>
   )
 }

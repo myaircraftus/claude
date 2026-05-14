@@ -181,6 +181,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (work_order_id) {
+    await supabase
+      .from('work_orders')
+      .update({
+        linked_invoice_id: invoice.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', work_order_id)
+      .eq('organization_id', orgId)
+  }
+
   // Fetch complete invoice with line items
   const { data: fullInvoice } = await supabase
     .from('invoices')
