@@ -466,6 +466,11 @@ function AppLayoutInner({
   const adminNavItems: NavItem[] = [
     // ── Admin Console (Phase 16)
     { icon: ShieldCheck,    label: "Command Center",      href: "/admin/command-center" },
+    // Documents — the org document library + review/ingestion monitoring
+    // view. Restored 2026-05-15: the admin sidebar previously inherited
+    // the shop nav (which carries Documents); now that adminNavItems
+    // actually renders, Documents has to be listed here explicitly.
+    { icon: FolderOpen,     label: "Documents",           href: "/documents" },
     { icon: FileText,       label: "Support Inbox",       href: "/admin/support/inbox" },
     { icon: AlertTriangle,  label: "Errors",              href: "/admin/observability/errors" },
     { icon: AlertTriangle,  label: "Health",              href: "/admin/health" },
