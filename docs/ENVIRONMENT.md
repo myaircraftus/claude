@@ -56,10 +56,10 @@ Production, **Prev** = Vercel Preview.
 
 | Variable | Local | Prod | Prev | Type | Purpose |
 |----------|:----:|:----:|:----:|:----:|---------|
-| `ANTHROPIC_API_KEY` | ❌ | ✅ | ✅ | 🔑 | Claude API for the AI assistant / ops assistant. |
+| `ANTHROPIC_API_KEY` | ✅ | ✅ | ✅ | 🔑 | Claude API for the AI assistant / ops assistant. |
 
-**⚠️ Gap:** `ANTHROPIC_API_KEY` is **not in `.env.local`**. Anthropic-backed
-features won't run in local dev until you add it. Production/Preview are fine.
+**Status: complete.** Aligned into `.env.local` 2026-05-14 from the Vercel
+production snapshot.
 
 ---
 
@@ -153,17 +153,15 @@ on previews; copy them over if you do.
 
 | Variable | Local | Prod | Prev | Type | Purpose |
 |----------|:----:|:----:|:----:|:----:|---------|
-| `SERPAPI_API_KEY` | ❌ | ✅ | ✅ | 🔑 | Google Shopping results for AI Parts Search. Code also accepts `SERPAPI_KEY` / `SERP_API_KEY`. |
-| `EBAY_APP_ID` | ❌ | ✅ | ✅ | 🔑 | eBay Browse API client ID. |
-| `EBAY_CERT_ID` | ❌ | ✅ | ✅ | 🔑 | eBay OAuth cert/secret. |
-| `EBAY_DEV_ID` | ❌ | ✅ | ✅ | ⚙️ | eBay developer ID. |
-| `EBAY_ENV` | ❌ | ✅ | ✅ | ⚙️ | `sandbox` or `production`. |
+| `SERPAPI_API_KEY` | ✅ | ✅ | ✅ | 🔑 | Google Shopping results for AI Parts Search. Code also accepts `SERPAPI_KEY` / `SERP_API_KEY`. |
+| `EBAY_APP_ID` | ✅ | ✅ | ✅ | 🔑 | eBay Browse API client ID. |
+| `EBAY_CERT_ID` | ✅ | ✅ | ✅ | 🔑 | eBay OAuth cert/secret. |
+| `EBAY_DEV_ID` | ✅ | ✅ | ✅ | ⚙️ | eBay developer ID. |
+| `EBAY_ENV` | ✅ | ✅ | ✅ | ⚙️ | `sandbox` or `production`. |
 
-**⚠️ Gap:** none of the parts-search keys are in `.env.local`. AI Parts
-Search will **silently return no offers in local dev** (the providers log
-a "missing key" warning and return empty). Production + Preview are fully
-provisioned — this is why AI Parts Search works on the live site. Copy
-these into `.env.local` if you need parts search working locally.
+**Status: complete.** All parts-search keys aligned into `.env.local`
+2026-05-14 from the Vercel production snapshot. AI Parts Search now works
+in local dev as well as prod/preview.
 
 ---
 
@@ -228,12 +226,23 @@ They activate only when the partner credentials are added. See
 
 | Variable | Local | Prod | Prev | Type | Purpose |
 |----------|:----:|:----:|:----:|:----:|---------|
-| `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` | ✅ | ❌ | ❌ | ⚙️ | Sentry error tracking. |
-| `NEXT_PUBLIC_POSTHOG_KEY` / `_HOST` | ✅ | ❌ | ❌ | ⚙️ | PostHog product analytics. |
+| `NEXT_PUBLIC_SENTRY_DSN` | ⬛ empty | ❌ | ❌ | ⚙️ | Sentry browser DSN. **Never had a real value.** |
+| `SENTRY_DSN` | ⬛ empty | ❌ | ❌ | ⚙️ | Sentry server DSN. **Never had a real value.** |
+| `NEXT_PUBLIC_POSTHOG_KEY` | ⬛ empty | ❌ | ❌ | ⚙️ | PostHog project key. **Never had a real value.** |
+| `NEXT_PUBLIC_POSTHOG_HOST` | ✅ | ✅ | ❌ | ⚙️ | PostHog host (`https://app.posthog.com`). Non-secret. Pushed to prod 2026-05-14. |
 
-**⚠️ Gap:** Sentry + PostHog are configured locally but **not in Vercel** —
-production has no error tracking or analytics. Add the Sentry DSN +
-PostHog key to Vercel Production if you want prod observability.
+**⚠️ Genuine gap — needs YOU to provide values.** The Sentry DSNs and the
+PostHog project key are **blank in `.env.local`** — they were never real.
+There is nothing to "align" — these credentials don't exist yet. To enable
+production error tracking + analytics:
+
+1. Create/open a Sentry project → copy its DSN → set `NEXT_PUBLIC_SENTRY_DSN`
+   and `SENTRY_DSN` (same DSN value) in `.env.local` and Vercel.
+2. Open your PostHog project settings → copy the Project API key → set
+   `NEXT_PUBLIC_POSTHOG_KEY` in `.env.local` and Vercel.
+
+These are the **only third-party credentials genuinely missing** from the
+whole project.
 
 ---
 
@@ -242,8 +251,8 @@ PostHog key to Vercel Production if you want prod observability.
 | Variable | Local | Prod | Prev | Type | Purpose |
 |----------|:----:|:----:|:----:|:----:|---------|
 | `APP_SECRET` | ✅ | ✅ | ✅ | 🔑 | App-level signing secret. |
-| `CRON_SECRET` | ❌ | ✅ | ✅ | 🔑 | Authorizes Vercel cron → `/api/cron/*`. |
-| `ENCRYPTION_SECRET` | ❌ | ❌ | ❌ | 🔑 | AES key for stored OAuth refresh tokens. **Required if Google Drive import is used** — confirm it's set in Vercel under another name or add it. |
+| `CRON_SECRET` | ✅ | ✅ | ✅ | 🔑 | Authorizes Vercel cron → `/api/cron/*`. Aligned to `.env.local` 2026-05-14. |
+| `ENCRYPTION_SECRET` | ✅ | ✅ | ⚠️ | 🔑 | AES key for stored OAuth refresh tokens. **Required by `lib/integrations/crypto.ts`** (Google Drive import). Generated 2026-05-14 (32-byte / 64-hex random). In `.env.local` + Vercel Production + Development. ⚠️ **Preview pending** — see Action Items. |
 | `INTERNAL_SECRET` | ❌ | ❌ | ❌ | 🔑 | Internal service-to-service auth. Optional. |
 | `TRIGGER_API_KEY` / `TRIGGER_API_URL` | ✅ | ✅ | ✅ | 🔑/⚙️ | Trigger.dev background jobs. |
 | `TRIGGER_SECRET_KEY` | ❌ | ❌ | ❌ | 🔑 | Trigger.dev secret (newer SDK). Optional. |
@@ -255,14 +264,21 @@ PostHog key to Vercel Production if you want prod observability.
 
 ## Action Items / Gaps
 
-| # | Gap | Impact | Fix |
-|---|-----|--------|-----|
-| 1 | `ANTHROPIC_API_KEY` missing from `.env.local` | Claude features dead in local dev | Add to `.env.local` |
-| 2 | SerpAPI + eBay keys missing from `.env.local` | AI Parts Search returns empty locally | Copy `SERPAPI_API_KEY`, `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_DEV_ID`, `EBAY_ENV` to `.env.local` |
-| 3 | Sentry + PostHog missing from Vercel | No prod error tracking / analytics | Add `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST` to Vercel Production |
-| 4 | `ENCRYPTION_SECRET` not visibly set anywhere | Google Drive token storage may fail | Verify in Vercel; add if Drive import is in use |
-| 5 | Vision compute vars missing from Preview | Vision jobs won't dispatch on preview deploys | Copy `MODAL_*`, `AWS_*`, `HUGGINGFACE_API_KEY` to Preview if needed |
-| 6 | `CRON_SECRET` missing from `.env.local` | Local cron-route testing returns 401 | Add to `.env.local` if testing crons locally |
+### ✅ Resolved during the 2026-05-14 credential audit
+
+| # | Item | What was done |
+|---|------|---------------|
+| 1 | `ANTHROPIC_API_KEY`, `SERPAPI_API_KEY`, `EBAY_APP_ID/CERT_ID/DEV_ID/ENV`, `CRON_SECRET` missing from `.env.local` | Aligned into `apps/web/.env.local` from the Vercel production snapshot. Local dev now has Claude, AI Parts Search, and cron auth. |
+| 2 | `ENCRYPTION_SECRET` missing everywhere (Google Drive import broken in prod) | Generated a fresh 32-byte random key. Set in `.env.local` + Vercel **Production** + **Development**. |
+| 3 | `NEXT_PUBLIC_POSTHOG_HOST` missing from Vercel | Pushed to Vercel Production. |
+
+### ⚠️ Still open — needs YOU
+
+| # | Gap | Why I couldn't finish it | What to do |
+|---|-----|--------------------------|------------|
+| A | `ENCRYPTION_SECRET` not in Vercel **Preview** | The Vercel CLI plugin wrapper blocks non-interactive Preview-env adds (`git_branch_required` loop). | In the Vercel dashboard → Project → Settings → Environment Variables, add `ENCRYPTION_SECRET` for **Preview** using the value already in `apps/web/.env.local`. Or run `vercel env add ENCRYPTION_SECRET preview` from your own interactive terminal. |
+| B | Vision compute vars not in Vercel **Preview** (`MODAL_API_KEY`, `MODAL_ENDPOINT_URL`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `HUGGINGFACE_API_KEY`) | Same Preview-env wrapper block. | Same as A — add via the dashboard or an interactive terminal. Values are all in `apps/web/.env.local`. Only needed if you test vision jobs on preview deploys. |
+| C | Sentry + PostHog credentials don't exist | Not a "move it" problem — `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `NEXT_PUBLIC_POSTHOG_KEY` are **blank** in `.env.local`. There is no value anywhere to align. | Create/open a Sentry project and a PostHog project, copy the DSN + project key, and set them in `.env.local` + Vercel. **This is the only thing you need to generate/provide.** |
 
 ## How to set a variable (no values in this doc)
 
@@ -270,18 +286,20 @@ PostHog key to Vercel Production if you want prod observability.
 # Local — edit the git-ignored file directly
 $EDITOR apps/web/.env.local
 
-# Vercel — interactive prompt, value never touches the shell history
+# Vercel Production / Development — works non-interactively via stdin
 cd apps/web
-vercel env add SERPAPI_API_KEY production     # paste value at the prompt
-vercel env add SERPAPI_API_KEY preview
+vercel env add MY_VAR production     # paste value at the prompt
+
+# Vercel Preview — the plugin wrapper blocks the non-interactive path.
+# Use the Vercel dashboard UI, or your own interactive terminal.
 
 # Verify (names + presence only, never prints values)
 vercel env ls production
 ```
 
-> Never `echo` a secret into `vercel env add` from the command line —
-> use the interactive prompt so the value stays out of shell history
-> and process listings.
+> Never `echo` a secret into `vercel env add` as a command-line argument —
+> use the interactive prompt or stdin so the value stays out of shell
+> history and process listings.
 
 ## Related docs
 
