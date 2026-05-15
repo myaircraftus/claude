@@ -78,10 +78,13 @@ export function WorkOrdersShell({
   workOrders,
   aircraft,
   children,
+  isOwner = false,
 }: {
   workOrders: WorkOrderListItem[]
   aircraft: ShellAircraft[]
   children: React.ReactNode
+  /** Owner persona — read-only: the create-WO control is hidden (PART 3A). */
+  isOwner?: boolean
 }) {
   const pathname = usePathname()
   const router = useTenantRouter()
@@ -128,14 +131,17 @@ export function WorkOrdersShell({
           <div className="w-[420px] flex-shrink-0 flex flex-col border-r border-border bg-white">
             <div className="p-4 border-b border-border flex items-center justify-between">
               <h2 className="text-sm font-semibold text-foreground">Work Orders</h2>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => setShowCreate(true)}
-                className="h-7 px-2.5"
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" /> New
-              </Button>
+              {/* Owners view work orders read-only — no create control. */}
+              {!isOwner && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => setShowCreate(true)}
+                  className="h-7 px-2.5"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> New
+                </Button>
+              )}
             </div>
 
             {/* Stats strip */}
@@ -249,8 +255,8 @@ export function WorkOrdersShell({
         </div>
       </div>{/* close inner flex row */}
 
-      {/* New WO modal — unified create flow */}
-      {showCreate && (
+      {/* New WO modal — unified create flow (never opens for owners) */}
+      {showCreate && !isOwner && (
         <CreateWorkOrderModal
           aircraft={aircraft}
           onClose={() => setShowCreate(false)}

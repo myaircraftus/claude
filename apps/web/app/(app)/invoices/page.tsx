@@ -4,11 +4,14 @@ import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 import { InvoiceWorkflowBoard } from '@/components/invoices/invoice-workflow-board'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
 
 export const metadata = { title: 'Invoices' }
 
 export default async function InvoicesRoute() {
   const { supabase, profile, membership } = await requireAppServerSession()
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
   const [invoicesRes, workOrdersRes, estimatesRes, aircraftRes, customersRes] = await Promise.all([
@@ -72,6 +75,7 @@ export default async function InvoicesRoute() {
         estimates={(estimatesRes.data ?? []) as any[]}
         aircraft={(aircraftRes.data ?? []) as any[]}
         customers={(customersRes.data ?? []) as any[]}
+        isOwner={isOwner}
       />
     </div>
   )

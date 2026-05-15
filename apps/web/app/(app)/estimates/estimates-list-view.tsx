@@ -33,7 +33,16 @@ interface EstimateItem {
   customer: { id: string; name: string | null; company: string | null } | null
 }
 
-export function EstimatesListView({ estimates }: { estimates: EstimateItem[] }) {
+export function EstimatesListView({
+  estimates,
+  isOwner = false,
+}: {
+  estimates: EstimateItem[]
+  /** Owner persona — read-only: the create-estimate control is hidden.
+      Approve/reject lives on the /estimates/[id] detail page and is
+      intentionally NOT gated here (owners approve/reject estimates). */
+  isOwner?: boolean
+}) {
   const [q, setQ] = useState('')
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -59,12 +68,15 @@ export function EstimatesListView({ estimates }: { estimates: EstimateItem[] }) 
             className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>
-        <Button asChild>
-          <Link href="/estimates/new">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            New Estimate
-          </Link>
-        </Button>
+        {/* Owners view estimates read-only — no create control. */}
+        {!isOwner && (
+          <Button asChild>
+            <Link href="/estimates/new">
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              New Estimate
+            </Link>
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">

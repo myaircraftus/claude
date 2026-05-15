@@ -1,6 +1,7 @@
 // OWNER PERMISSIONS: Read-only. Can view estimates and approve/reject them.
 // Cannot: create or edit estimates.
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 import { EstimatesListView } from './estimates-list-view'
@@ -9,6 +10,8 @@ export const metadata = { title: 'Estimates' }
 
 export default async function EstimatesPage() {
   const { supabase, profile, membership } = await requireAppServerSession()
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
   const { data: estimates } = await supabase
@@ -28,7 +31,7 @@ export default async function EstimatesPage() {
       <main className="flex-1 overflow-hidden flex">
         <div className="w-full flex flex-col">
           <OpsTabStrip active="estimates" />
-          <EstimatesListView estimates={(estimates ?? []) as any[]} />
+          <EstimatesListView estimates={(estimates ?? []) as any[]} isOwner={isOwner} />
         </div>
       </main>
     </div>

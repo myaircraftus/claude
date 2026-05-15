@@ -1,6 +1,7 @@
 // OWNER PERMISSIONS: Read-only. Can view entries generated from squawks or by the shop.
 // Cannot: create logbook entries.
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 import { LogbookWorkflowBoard } from '@/components/logbook/logbook-workflow-board'
@@ -9,6 +10,8 @@ export const metadata = { title: 'Logbook Entries' }
 
 export default async function LogbookEntriesPage() {
   const { supabase, profile, membership } = await requireAppServerSession()
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
   const [entriesRes, workOrdersRes, aircraftRes] = await Promise.all([
@@ -59,6 +62,7 @@ export default async function LogbookEntriesPage() {
             workOrders={(workOrdersRes.data ?? []) as any[]}
             aircraft={(aircraftRes.data ?? []) as any[]}
             profile={profile as any}
+            isOwner={isOwner}
           />
         </div>
       </main>

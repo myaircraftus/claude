@@ -28,6 +28,8 @@ type Props = {
   estimates: any[]
   aircraft: any[]
   customers: any[]
+  /** Owner persona — read-only: the create-invoice control is hidden. */
+  isOwner?: boolean
 }
 
 const FLOW_STEPS = [
@@ -88,7 +90,7 @@ function labelize(value: string | null | undefined) {
   return String(value ?? 'draft').replace(/_/g, ' ').replace(/\b\w/g, s => s.toUpperCase())
 }
 
-export function InvoiceWorkflowBoard({ invoices, workOrders, estimates, aircraft, customers }: Props) {
+export function InvoiceWorkflowBoard({ invoices, workOrders, estimates, aircraft, customers, isOwner = false }: Props) {
   const router = useTenantRouter()
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -195,9 +197,12 @@ export function InvoiceWorkflowBoard({ invoices, workOrders, estimates, aircraft
           <div className="flex gap-2">
             <Button variant="outline" size="sm">Import</Button>
             <Button variant="outline" size="sm">Filter</Button>
-            <Button size="sm" onClick={createInvoice} disabled={creating || !aircraftId}>
-              + Create Invoice
-            </Button>
+            {/* Owners view invoices read-only — no create control. */}
+            {!isOwner && (
+              <Button size="sm" onClick={createInvoice} disabled={creating || !aircraftId}>
+                + Create Invoice
+              </Button>
+            )}
           </div>
         </div>
 

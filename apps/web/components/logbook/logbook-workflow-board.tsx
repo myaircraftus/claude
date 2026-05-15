@@ -22,6 +22,8 @@ type Props = {
   workOrders: any[]
   aircraft: any[]
   profile: any
+  /** Owner persona — read-only: all create-entry controls are hidden. */
+  isOwner?: boolean
 }
 
 const FLOW_STEPS = [
@@ -76,7 +78,7 @@ function formatEntryDate(date: string | null | undefined): string {
   return `${mm}/${dd}/${d.getFullYear()}`
 }
 
-export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }: Props) {
+export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile, isOwner = false }: Props) {
   const router = useTenantRouter()
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -192,9 +194,12 @@ export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }:
             <Button variant="outline" size="sm">Import</Button>
             <Button variant="outline" size="sm">Filter</Button>
             <Button variant="outline" size="sm">Templates</Button>
-            <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>
-              + Entry
-            </Button>
+            {/* Owners view logbook entries read-only — no create control. */}
+            {!isOwner && (
+              <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>
+                + Entry
+              </Button>
+            )}
           </div>
         </div>
 
@@ -361,7 +366,9 @@ export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }:
               AI will generate a draft entry using template + work-order facts + AD/SB + checklist. Human review remains required.
             </div>
             <div className="mt-4 flex gap-2">
-              <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>Generate Draft</Button>
+              {!isOwner && (
+                <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>Generate Draft</Button>
+              )}
               <Button size="sm" variant="outline">Use Template</Button>
               <Button size="sm" variant="outline">Manual Edit</Button>
             </div>
@@ -416,7 +423,9 @@ export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }:
               <Button size="sm" variant="outline" onClick={() => setDraftText(buildPreviewDraft(selectedWorkOrder, targets[0], entryType, sourceLines, checklist))}>Regenerate</Button>
               <Button size="sm" variant="outline">Insert AD/SB</Button>
               <Button size="sm" variant="outline">Compare Template</Button>
-              <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>Ready to Sign</Button>
+              {!isOwner && (
+                <Button size="sm" onClick={createEntries} disabled={creating || !sourceAircraftId}>Ready to Sign</Button>
+              )}
             </div>
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               AI warning: verify exact AD/SB applicability and certificate authority before signing.

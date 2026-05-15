@@ -1,6 +1,7 @@
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { redirect } from 'next/navigation'
 import { requirePersona } from '@/lib/persona/route-guard'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { WorkOrdersShell, type WorkOrderListItem, type ShellAircraft } from './work-orders-shell'
 
@@ -15,11 +16,15 @@ export default async function WorkOrdersLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Phase 18 Sprint 18.4 — shop/admin-only WO tree (closes Phase 15 F2)
-  const guard = await requirePersona(['shop', 'admin'])
+  // Owners view work orders read-only (PART 3A); shop/admin get full
+  // access. Owner was added to the allowlist so the guard no longer
+  // redirects them — the read-only UI gating happens via `isOwner` below.
+  const guard = await requirePersona(['owner', 'shop', 'admin'])
   if (!guard.allowed) redirect(guard.redirectTo!)
 
   const { supabase, profile, membership } = await requireAppServerSession()
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
   const [woRes, acRes] = await Promise.all([
@@ -69,7 +74,7 @@ export default async function WorkOrdersLayout({
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar profile={profile} breadcrumbs={[{ label: 'Work Orders' }]} />
       <main className="flex-1 overflow-hidden">
-        <WorkOrdersShell workOrders={workOrders} aircraft={aircraft}>
+        <WorkOrdersShell workOrders={workOrders} aircraft={aircraft} isOwner={isOwner}>
           {children}
         </WorkOrdersShell>
       </main>
