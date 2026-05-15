@@ -1,29 +1,30 @@
 import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
-import { requireRole } from '@/lib/auth/require-role'
-import { ADMIN_AND_ABOVE } from '@/lib/roles'
 import { SupportBanner } from '@/components/admin/SupportBanner'
 
 /**
  * Server-side gate for /admin and all /admin/* routes.
  *
- * Two-tier check:
- *   1. User must be owner or admin in their active organization
- *      (requireRole). Failure → redirect to tenant /dashboard.
- *   2. User must have `is_platform_admin = true` on their `user_profiles`
- *      row. The canonical column was set in migration 002. Production has
- *      a CHECK constraint locking is_platform_admin=true to the
- *      info@myaircraft.us account — adding more platform admins requires
- *      relaxing that constraint via a deliberate migration.
- *      Failure → redirect to /dashboard with a console.warn so the cause
- *      is visible in runtime logs (Phase 15 F1: silent redirect made the
- *      block diagnose-impossible from the browser).
+ * Authorization is SOLELY `user_profiles.is_platform_admin = true`. The
+ * /admin/* console is the myaircraft platform-staff surface — a platform
+ * admin's authority to it is independent of what role they hold in any
+ * individual customer organization.
+ *
+ * 2026-05-15 fix: this layout previously also ran
+ * `requireRole(['owner','admin'])` against the user's ACTIVE organization.
+ * That conflated platform-staff status with org role — a platform admin
+ * who was only a low-role member of their active org (e.g. a viewer in a
+ * customer org they were investigating) got silently bounced to
+ * /dashboard even though is_platform_admin was true. The org-role gate
+ * was removed; the is_platform_admin check below is the correct and
+ * sufficient authorization, and non-staff are still fully blocked.
+ *
+ * Failure → redirect to /dashboard with a console.warn so the cause is
+ * visible in runtime logs (Phase 15 F1: silent redirects were
+ * diagnose-impossible from the browser).
  */
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  await requireRole(ADMIN_AND_ABOVE)
-
-  // Additional platform-admin gate — /admin/* is for myaircraft staff only.
   const supabase = createServerSupabase()
   const {
     data: { user },

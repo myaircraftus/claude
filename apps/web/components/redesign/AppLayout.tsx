@@ -493,8 +493,18 @@ function AppLayoutInner({
   // Nav routing — keyed on the active persona (see the routing-model
   // comment above OWNER_NAV). Shop persona = ALL shop roles incl.
   // mechanics; they share the full SHOP_ADMIN_NAV.
+  //
+  // Admin surface: AppContext only ever resolves `persona` to 'owner' |
+  // 'shop' (it folds everything else), so `persona === "admin"` never
+  // fires and the admin sidebar would never render. Instead, when a
+  // platform admin is on an /admin/* route we show adminNavItems —
+  // admin/layout.tsx already server-guards the route itself.
+  const onAdminRoute =
+    effectivePathname === "/admin" || effectivePathname.startsWith("/admin/");
+  const showAdminNav = onAdminRoute && isPlatformAdmin === true;
+
   const navItemsRaw: NavItem[] =
-    persona === "admin"
+    showAdminNav
       ? adminNavItems
       : persona === "owner"
         ? OWNER_NAV
@@ -504,7 +514,9 @@ function AppLayoutInner({
   // a `module` key are always visible (back-compat: existing items don't
   // need to opt in). To hide an item per persona, set `module: 'X'` on
   // the NavItem definition and add 'X' to PERSONA_CONFIG[p].hiddenModules.
-  const personaHidden = new Set(PERSONA_CONFIG[persona]?.hiddenModules ?? []);
+  const personaHidden = new Set(
+    PERSONA_CONFIG[showAdminNav ? "admin" : persona]?.hiddenModules ?? []
+  );
   const navItems: NavItem[] = navItemsRaw.filter(
     (item) => !item.module || !personaHidden.has(item.module)
   );
@@ -519,10 +531,10 @@ function AppLayoutInner({
   // NavItems-with-children — so they bypass the category layer entirely
   // (a single label-less group) and the per-item chevron sections do the
   // grouping. The admin persona keeps the existing category grouping.
-  const usesSectionNav = persona === "shop" || persona === "owner";
+  const usesSectionNav = !showAdminNav && (persona === "shop" || persona === "owner");
   const categorizedNav = usesSectionNav
     ? [{ category: { id: "section-nav-main", label: "" } as any, items: navItems }]
-    : groupNavItemsByCategory(navItems, persona);
+    : groupNavItemsByCategory(navItems, showAdminNav ? "admin" : persona);
   const activeCategoryId = (() => {
     for (const group of categorizedNav) {
       for (const item of group.items) {
@@ -1088,6 +1100,11 @@ function AppLayoutInner({
                 // only owner + shop flow through entitlements (mig 119 collapsed
                 // 'mechanic' into 'shop'). billingStatus is indexed by 'shop'.
                 if (persona !== "owner" && persona !== "shop") return children;
+                // Platform admins are never billing-gated (see
+                // /api/persona/switch) — and the paywall must never cover an
+                // /admin/* page. Their resolved persona is still owner/shop,
+                // so without this they could hit the paywall on admin routes.
+                if (isPlatformAdmin === true) return children;
                 const ent = billingStatus?.[persona];
                 const isBillingScreen =
                   effectivePathname === "/settings" ||
