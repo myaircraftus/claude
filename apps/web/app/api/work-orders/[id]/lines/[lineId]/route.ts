@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 async function recalculateTotals(supabase: any, workOrderId: string) {
   const { data: lines } = await supabase
@@ -31,11 +32,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'line_type', 'description', 'quantity', 'unit_price', 'part_number',
     'serial_number_removed', 'serial_number_installed', 'vendor', 'condition',
     'status', 'hours', 'rate', 'notes', 'sort_order',
+    'ata_code', 'jasc_code', 'classification_source',
+    'classification_confidence', 'classification_status',
   ]
   const updates: Record<string, unknown> = {}
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
   }
+  Object.assign(updates, buildClassificationPatch(body))
 
   const { data, error } = await supabase
     .from('work_order_lines')

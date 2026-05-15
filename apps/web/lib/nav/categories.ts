@@ -90,6 +90,7 @@ const HREF_CATEGORY_PATTERNS: Array<{ prefix: string; category: NavCategoryId }>
   { prefix: '/telemetry',                    category: 'aircraft' },
   // ── Operations
   { prefix: '/work-orders',                  category: 'operations' },
+  { prefix: '/parts-inventory',              category: 'operations' },
   { prefix: '/parts',                        category: 'operations' },
   { prefix: '/purchase-orders',              category: 'operations' },
   { prefix: '/vendors',                      category: 'operations' },

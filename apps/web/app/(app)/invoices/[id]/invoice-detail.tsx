@@ -13,28 +13,51 @@ import {
   CreditCard, Banknote, Building2, ArrowRight, ClipboardList,
 } from 'lucide-react'
 
-type InvoiceStatus = 'draft' | 'sent' | 'pending' | 'partially_paid' | 'paid' | 'overdue' | 'void' | 'writeoff'
+type InvoiceStatus =
+  | 'draft'
+  | 'ready_to_send'
+  | 'sent'
+  | 'viewed'
+  | 'due'
+  | 'pending'
+  | 'partially_paid'
+  | 'paid'
+  | 'overdue'
+  | 'void'
+  | 'refunded'
+  | 'writeoff'
+  | 'written_off'
 
 const STATUS_COLOR: Record<InvoiceStatus, string> = {
   draft: 'bg-slate-100 text-slate-600 border-slate-200',
+  ready_to_send: 'bg-blue-50 text-blue-700 border-blue-200',
   sent: 'bg-blue-50 text-blue-700 border-blue-200',
+  viewed: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  due: 'bg-amber-50 text-amber-700 border-amber-200',
   pending: 'bg-amber-50 text-amber-700 border-amber-200',
   partially_paid: 'bg-orange-50 text-orange-700 border-orange-200',
   paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   overdue: 'bg-red-50 text-red-700 border-red-200',
   void: 'bg-slate-50 text-slate-500 border-slate-200',
+  refunded: 'bg-purple-50 text-purple-700 border-purple-200',
   writeoff: 'bg-slate-50 text-slate-500 border-slate-200',
+  written_off: 'bg-slate-50 text-slate-500 border-slate-200',
 }
 
 const STATUS_LABEL: Record<InvoiceStatus, string> = {
   draft: 'Draft',
+  ready_to_send: 'Ready to Send',
   sent: 'Sent',
+  viewed: 'Viewed',
+  due: 'Due',
   pending: 'Pending',
   partially_paid: 'Partially Paid',
   paid: 'Paid',
   overdue: 'Overdue',
   void: 'Void',
+  refunded: 'Refunded',
   writeoff: 'Write-off',
+  written_off: 'Written Off',
 }
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
@@ -42,15 +65,23 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
   part: 'Part',
   service: 'Service',
   outside_service: 'Outside Service',
+  supply: 'Supply',
+  tax: 'Tax',
   fee: 'Fee',
+  discount: 'Discount',
+  adjustment: 'Adjustment',
+  deposit_credit: 'Deposit Credit',
 }
 
 const PAYMENT_METHODS = [
+  { value: 'card', label: 'Card / Stripe' },
+  { value: 'zelle', label: 'Zelle Proof' },
   { value: 'cash', label: 'Cash' },
   { value: 'check', label: 'Check' },
   { value: 'credit_card', label: 'Credit Card' },
   { value: 'wire', label: 'Wire Transfer' },
   { value: 'ach', label: 'ACH' },
+  { value: 'manual', label: 'Manual Credit' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -98,10 +129,11 @@ export function InvoiceDetail({ initialInvoice }: Props) {
   const [emailTo, setEmailTo] = useState(invoice.customer?.email ?? '')
   const [sendingEmail, setSendingEmail] = useState(false)
 
-  const customer = invoice.customer as any
+  const customer = (invoice.payee ?? invoice.customer) as any
   const aircraft = invoice.aircraft as any
   const workOrder = invoice.work_order as any
-  const payments: any[] = []
+  const estimate = invoice.estimate as any
+  const payments: any[] = invoice.payments ?? []
   const isEditable = invoice.status === 'draft' || invoice.status === 'sent'
 
   function markDirty() { setDirty(true) }
@@ -176,6 +208,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
     if (res.ok) {
       const data = await res.json()
       setInvoice(data)
+      if (data.line_items) setLineItems(data.line_items)
     }
   }
 
@@ -230,10 +263,15 @@ export function InvoiceDetail({ initialInvoice }: Props) {
 
   async function handleMarkPaid() {
     if (!confirm('Mark this invoice as fully paid?')) return
-    const res = await fetch(`/api/invoices/${invoice.id}`, {
-      method: 'PATCH',
+    const res = await fetch(`/api/invoices/${invoice.id}/payments`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'paid' }),
+      body: JSON.stringify({
+        amount: Math.max(0, Number(invoice.balance_due ?? 0)),
+        payment_method: 'manual',
+        manual_reference: 'Marked paid by staff',
+        notes: 'Marked paid from invoice closeout.',
+      }),
     })
     if (res.ok) {
       refreshInvoice()
@@ -256,7 +294,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
 
   const subtotal = lineItems.reduce((sum: number, li: any) => sum + ((li.line_total ?? li.quantity * li.unit_price) || 0), 0)
   const computedTax = Math.round(subtotal * (parseFloat(taxRate) || 0)) / 100
-  const computedTotal = subtotal + computedTax - (parseFloat(discountAmount) || 0)
+  const computedTotal = subtotal + computedTax + Number(invoice.fees_total ?? 0) - (parseFloat(discountAmount) || 0)
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -295,7 +333,39 @@ export function InvoiceDetail({ initialInvoice }: Props) {
                   {workOrder.work_order_number}
                 </Link>
               )}
+              {estimate && (
+                <Link href={`/estimates/${estimate.id}`} className="flex items-center gap-1 text-brand-600 hover:underline">
+                  <FileText className="h-3.5 w-3.5" />
+                  {estimate.estimate_number}
+                </Link>
+              )}
             </div>
+          </div>
+        </div>
+
+        {/* Source-aware billing context */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="p-3 rounded-lg border border-border bg-card">
+            <p className="text-xs text-muted-foreground">Source</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">
+              {(invoice.source_type ?? (workOrder ? 'work_order' : 'manual')).replace(/_/g, ' ')}
+            </p>
+          </div>
+          <div className="p-3 rounded-lg border border-border bg-card">
+            <p className="text-xs text-muted-foreground">Payment Status</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">
+              {(invoice.payment_status ?? 'unpaid').replace(/_/g, ' ')}
+            </p>
+          </div>
+          <div className="p-3 rounded-lg border border-border bg-card">
+            <p className="text-xs text-muted-foreground">Deposit Credits</p>
+            <p className="text-sm font-semibold text-emerald-700 mt-0.5">
+              {formatCurrency(invoice.deposit_credit_total ?? 0)}
+            </p>
+          </div>
+          <div className="p-3 rounded-lg border border-border bg-card">
+            <p className="text-xs text-muted-foreground">Invoice Version</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">v{invoice.version ?? 1}</p>
           </div>
         </div>
 
@@ -333,7 +403,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3 rounded-lg border border-border bg-card">
             <p className="text-xs text-muted-foreground">Issue Date</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">{invoice.invoice_date ? formatDate(invoice.invoice_date) : '--'}</p>
+            <p className="text-sm font-medium text-foreground mt-0.5">{invoice.issue_date || invoice.invoice_date ? formatDate(invoice.issue_date ?? invoice.invoice_date) : '--'}</p>
           </div>
           <div className="p-3 rounded-lg border border-border bg-card">
             <p className="text-xs text-muted-foreground">Due Date</p>
@@ -442,6 +512,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Type</th>
                     <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Description</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground uppercase tracking-wide">Source</th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Qty</th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Rate</th>
                     <th className="px-3 py-2 text-right font-medium text-muted-foreground uppercase tracking-wide">Amount</th>
@@ -489,6 +560,12 @@ export function InvoiceDetail({ initialInvoice }: Props) {
                 <span className="text-muted-foreground">Tax</span>
                 <span className="tabular-nums">{formatCurrency(computedTax)}</span>
               </div>
+              {Number(invoice.fees_total ?? 0) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Fees</span>
+                  <span className="tabular-nums">{formatCurrency(invoice.fees_total ?? 0)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Discount</span>
                 {isEditable ? (
@@ -512,7 +589,11 @@ export function InvoiceDetail({ initialInvoice }: Props) {
                 <span className="tabular-nums">{formatCurrency(computedTotal)}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
-                <span>Amount Paid</span>
+                <span>Deposit/Credit Applied</span>
+                <span className="tabular-nums text-emerald-700">-{formatCurrency(invoice.deposit_credit_total ?? 0)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Payments/Credits</span>
                 <span className="tabular-nums">{formatCurrency(invoice.amount_paid ?? 0)}</span>
               </div>
               <div className="flex justify-between font-bold text-brand-700">
@@ -538,6 +619,7 @@ export function InvoiceDetail({ initialInvoice }: Props) {
                       <p className="text-sm font-medium text-foreground">{formatCurrency(p.amount)}</p>
                       <p className="text-xs text-muted-foreground">
                         {p.payment_method?.replace('_', ' ')} {p.reference_number ? `- ${p.reference_number}` : ''}
+                        {p.verification_status === 'pending' ? ' - pending verification' : ''}
                       </p>
                     </div>
                   </div>
@@ -755,6 +837,16 @@ function LineItemRow({
             {item.description}
           </p>
         )}
+      </td>
+      <td className="px-3 py-2 text-muted-foreground">
+        <span className={cn(
+          'inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium',
+          item.approved_for_billing === false
+            ? 'bg-amber-50 text-amber-700'
+            : 'bg-emerald-50 text-emerald-700'
+        )}>
+          {item.source_label ?? 'Manual'}
+        </span>
       </td>
       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
         {editing ? (

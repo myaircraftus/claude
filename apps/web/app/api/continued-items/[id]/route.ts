@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type { OrgRole, ContinuedItemStatus, ContinuedItemPriority } from '@/types'
 
 const VALID_STATUSES: ReadonlySet<ContinuedItemStatus> = new Set([
@@ -95,6 +96,7 @@ export async function PATCH(
   if ('notes' in body) updates.notes = body.notes ?? null
   if ('discovered_on_work_order' in body) updates.discovered_on_work_order = body.discovered_on_work_order ?? null
   if ('related_compliance_item' in body)  updates.related_compliance_item  = body.related_compliance_item  ?? null
+  Object.assign(updates, buildClassificationPatch(body))
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })

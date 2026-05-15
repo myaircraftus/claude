@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type { OrgRole, ContinuedItemPriority, ContinuedItemStatus } from '@/types'
 
 const VALID_STATUSES: ReadonlySet<ContinuedItemStatus> = new Set([
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest) {
       related_compliance_item: body.related_compliance_item ?? null,
       notes: body.notes ?? null,
       created_by: ctx.user.id,
+      ...buildClassificationPatch(body),
     })
     .select('*')
     .single()

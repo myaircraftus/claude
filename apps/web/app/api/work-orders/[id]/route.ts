@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 async function recalculateTotals(
   supabase: ReturnType<typeof import('@/lib/supabase/server').createServerSupabase>,
@@ -75,6 +76,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'assigned_mechanic_id', 'aircraft_id', 'customer_id', 'tax_amount', 'service_type',
     'linked_invoice_id', 'linked_logbook_entry_id',
     'closed_at', 'ai_summary',
+    'primary_ata_code', 'primary_jasc_code', 'classification_source',
+    'classification_confidence', 'classification_status',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   // Map frontend field names to DB column names
@@ -83,9 +86,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ('customer_notes' in body) body.customer_visible_notes = body.customer_notes
   if ('customer_visible_notes' in body) body.customer_visible_notes = body.customer_visible_notes
   if ('status' in body) body.status = toDbWorkOrderStatus(body.status)
+  if ('ata_code' in body && !('primary_ata_code' in body)) body.primary_ata_code = body.ata_code
+  if ('jasc_code' in body && !('primary_jasc_code' in body)) body.primary_jasc_code = body.jasc_code
   for (const field of allowedFields) {
     if (field in body) updates[field] = body[field]
   }
+  Object.assign(
+    updates,
+    buildClassificationPatch(body, {
+      ataKey: 'primary_ata_code',
+      jascKey: 'primary_jasc_code',
+    }),
+  )
 
   // Block status transitions that finalize the WO (ready_for_signoff,
   // closed, invoiced, paid) until every required checklist item — including

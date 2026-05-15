@@ -153,6 +153,28 @@ const updateAircraftSchema = z.object({
   operator_name: z.string().max(120).optional().nullable(),
   operation_type: z.enum(AIRCRAFT_OPERATION_TYPES).optional().nullable(),
   operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional().nullable(),
+  taxonomy_aircraft_kind: z.enum(['fixed_wing', 'rotorcraft', 'experimental', 'unknown']).optional().nullable(),
+  taxonomy_engine_type: z.enum(['piston', 'turbine', 'jet', 'turboprop', 'electric', 'none', 'unknown']).optional().nullable(),
+  taxonomy_engine_count: z.number().int().min(0).optional().nullable(),
+  taxonomy_landing_gear_type: z.string().max(80).optional().nullable(),
+  taxonomy_profile: z.record(z.unknown()).optional().nullable(),
+  aircraft_workspace_status: z.enum(['active', 'in_maintenance', 'grounded', 'archived', 'needs_review']).optional(),
+  registered_owner_name: z.string().max(160).optional().nullable(),
+  maintenance_payer_customer_id: z.string().uuid().optional().nullable(),
+  aircraft_category: z.string().max(80).optional().nullable(),
+  aircraft_class: z.string().max(80).optional().nullable(),
+  engine_type: z.string().max(80).optional().nullable(),
+  engine_count: z.number().int().min(0).optional().nullable(),
+  home_base: z.string().max(80).optional().nullable(),
+  maintenance_program_type: z.enum(['annual', '100_hour', 'progressive', 'manufacturer_program', 'part_135_program', 'custom', 'unknown']).optional().nullable(),
+  primary_photo_url: z.string().url().optional().nullable(),
+  silhouette_style: z.enum(['single_engine_piston', 'multi_engine_piston', 'turboprop', 'jet', 'helicopter', 'glider', 'unknown']).optional(),
+  registry_source: z.string().max(120).optional().nullable(),
+  registry_status: z.string().max(120).optional().nullable(),
+  registry_lookup_at: z.string().datetime().optional().nullable(),
+  registry_raw: z.record(z.unknown()).optional().nullable(),
+  identity_review_status: z.enum(['confirmed', 'needs_review', 'manual']).optional(),
+  time_source_preference: z.enum(['manual', 'airbly', 'scheduling', 'adsb_estimate', 'mixed']).optional(),
   notes: z.string().max(2000).optional().nullable(),
   total_time_hours: z.number().min(0).optional().nullable(),
   owner_customer_id: z.string().uuid().optional().nullable(),
@@ -240,6 +262,20 @@ export async function PUT(
       }
     }
 
+    if (
+      Object.prototype.hasOwnProperty.call(normalizedUpdate, 'maintenance_payer_customer_id') &&
+      normalizedUpdate.maintenance_payer_customer_id
+    ) {
+      const payerCustomer = await findOwnerCustomer(
+        supabase,
+        aircraft.organization_id,
+        normalizedUpdate.maintenance_payer_customer_id,
+      )
+      if (!payerCustomer) {
+        return NextResponse.json({ error: 'Maintenance payer customer not found' }, { status: 404 })
+      }
+    }
+
     if (normalizedUpdate.tail_number && normalizedUpdate.tail_number !== aircraft.tail_number) {
       const { data: duplicateAircraft } = await supabase
         .from('aircraft')
@@ -303,6 +339,23 @@ export async function PUT(
       entity_id: params.id,
       metadata_json: normalizedUpdate,
     })
+
+    const { error: timelineError } = await supabase.from('aircraft_timeline_events').insert({
+      organization_id: aircraft.organization_id,
+      aircraft_id: params.id,
+      module: 'aircraft',
+      action: 'aircraft_updated',
+      source_record_type: 'aircraft',
+      source_record_id: params.id,
+      title: 'Aircraft profile updated',
+      summary: Object.keys(normalizedUpdate).join(', '),
+      actor_id: user.id,
+      metadata: normalizedUpdate,
+    })
+
+    if (timelineError) {
+      console.error('[PUT /api/aircraft/[id]] timeline insert error', timelineError)
+    }
 
     return NextResponse.json(updated)
   } catch (err) {

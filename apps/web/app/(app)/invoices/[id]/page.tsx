@@ -29,9 +29,15 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
     .select(`
       *,
       line_items:invoice_line_items (*),
+      payments (*),
+      share_events:invoice_share_events (*),
+      receipts:invoice_receipts (*),
+      versions:invoice_versions (*),
       customer:customer_id (id, name, email, phone, billing_address),
+      payee:payee_id (id, name, email, phone, billing_address),
       aircraft:aircraft_id (id, tail_number, make, model),
-      work_order:work_order_id (id, work_order_number, status)
+      work_order:work_order_id (id, work_order_number, status),
+      estimate:estimate_id (id, estimate_number, status)
     `)
     .eq('id', params.id)
     .eq('organization_id', orgId)
@@ -42,6 +48,9 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   // Sort line items
   if (invoice.line_items) {
     (invoice.line_items as any[]).sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  }
+  if (invoice.payments) {
+    (invoice.payments as any[]).sort((a: any, b: any) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
   }
 
   return (

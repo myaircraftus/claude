@@ -1,4 +1,4 @@
-import { AircraftList } from '@/components/redesign/AircraftList'
+import { AircraftWorkspaceList } from '@/components/aircraft/aircraft-workspace-list'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 
 export const metadata = { title: 'Aircraft' }
@@ -6,5 +6,5 @@ export const metadata = { title: 'Aircraft' }
 export default async function AircraftPage() {
   await requireAppServerSession()
 
-  return <AircraftList />
+  return <AircraftWorkspaceList />
 }

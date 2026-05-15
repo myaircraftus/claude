@@ -15,6 +15,7 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { recomputeCompliance } from '@/lib/compliance/recompute'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type { OrgRole } from '@/types'
 
 export async function GET(
@@ -89,6 +90,7 @@ export async function PATCH(
   if ('last_completed_date' in body) {
     updates.last_completed_date = body.last_completed_date || null
   }
+  Object.assign(updates, buildClassificationPatch(body))
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })

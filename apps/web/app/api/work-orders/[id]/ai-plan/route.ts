@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: wo } = await supabase
     .from('work_orders')
     .select(`
-      id, work_order_number, customer_complaint, discrepancy, findings,
+      id, work_order_number, customer_complaint:complaint, discrepancy, findings,
       troubleshooting_notes, corrective_action,
       aircraft:aircraft_id (id, tail_number, make, model, year, engine_make, engine_model)
     `)
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Fetch commonly used parts for context
   const { data: partsLibrary } = await supabase
     .from('parts_library')
-    .select('part_number, title, unit_cost')
+    .select('part_number, title, base_price')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .join('\n')
 
   const partsContext = (partsLibrary ?? [])
-    .map((p: any) => `${p.part_number}: ${p.title} ($${p.unit_cost ?? 'N/A'})`)
+    .map((p: any) => `${p.part_number}: ${p.title} ($${p.base_price ?? 'N/A'})`)
     .join('\n')
 
   const prompt = `Aircraft: ${aircraftInfo}

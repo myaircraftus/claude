@@ -13,22 +13,40 @@ import {
   Plane, User, RefreshCw,
 } from 'lucide-react'
 
-type EstimateStatus = 'draft' | 'sent' | 'approved' | 'rejected' | 'converted'
-
-const STATUS_COLOR: Record<EstimateStatus, string> = {
+const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-slate-100 text-slate-600 border-slate-200',
+  internal_review: 'bg-slate-100 text-slate-600 border-slate-200',
+  ready_to_send: 'bg-blue-50 text-blue-700 border-blue-200',
   sent: 'bg-blue-50 text-blue-700 border-blue-200',
+  awaiting_approval: 'bg-purple-50 text-purple-700 border-purple-200',
+  awaiting_deposit: 'bg-amber-50 text-amber-700 border-amber-200',
+  owner_question: 'bg-amber-50 text-amber-700 border-amber-200',
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  deposit_paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
+  declined: 'bg-red-50 text-red-700 border-red-200',
+  expired: 'bg-amber-50 text-amber-700 border-amber-200',
+  superseded: 'bg-slate-100 text-slate-600 border-slate-200',
   converted: 'bg-violet-50 text-violet-700 border-violet-200',
+  converted_to_work_order: 'bg-violet-50 text-violet-700 border-violet-200',
 }
 
-const STATUS_LABEL: Record<EstimateStatus, string> = {
+const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
+  internal_review: 'Internal Review',
+  ready_to_send: 'Ready to Send',
   sent: 'Sent',
+  awaiting_approval: 'Awaiting Approval',
+  awaiting_deposit: 'Awaiting Deposit',
+  owner_question: 'Owner Question',
   approved: 'Approved',
+  deposit_paid: 'Deposit Paid',
   rejected: 'Rejected',
+  declined: 'Declined',
+  expired: 'Expired',
+  superseded: 'Superseded',
   converted: 'Converted to WO',
+  converted_to_work_order: 'Converted to WO',
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -124,7 +142,7 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
   const customer = estimate.customer as any
   const canRespondToApproval =
     (userRole === 'owner' || userRole === 'admin') &&
-    estimate.status === 'sent'
+    ['sent', 'awaiting_approval', 'awaiting_deposit'].includes(estimate.status)
   const canOperateEstimate = userRole !== 'owner'
 
   const handleGenerateSummary = async () => {
@@ -226,10 +244,10 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
             <Badge
               className={cn(
                 'border',
-                STATUS_COLOR[(estimate.status as EstimateStatus) ?? 'draft']
+                STATUS_COLOR[estimate.status ?? 'draft'] ?? STATUS_COLOR.draft
               )}
             >
-              {STATUS_LABEL[(estimate.status as EstimateStatus) ?? 'draft']}
+              {STATUS_LABEL[estimate.status ?? 'draft'] ?? String(estimate.status ?? 'draft').replace(/_/g, ' ')}
             </Badge>
           </div>
           {estimate.valid_until && (
@@ -307,12 +325,12 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
         </div>
       </div>
 
-      {estimate.status === 'sent' && canOperateEstimate && (
+      {['sent', 'awaiting_approval', 'awaiting_deposit'].includes(estimate.status) && canOperateEstimate && (
         <Card className="border-blue-200 bg-blue-50/40">
           <CardContent className="py-4">
             <p className="text-sm text-blue-900 font-medium">Owner approval pending</p>
             <p className="text-sm text-blue-700 mt-1">
-              The estimate has been sent to the owner. Approval in the app will create the linked work order automatically.
+              The estimate has been sent to the owner. Approval creates the linked work-order setup; final invoice still comes from reviewed actuals.
             </p>
           </CardContent>
         </Card>
@@ -441,6 +459,7 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
                   <tr className="border-b">
                     <th className="text-left py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Type</th>
                     <th className="text-left py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Description</th>
+                    <th className="text-left py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Source</th>
                     <th className="text-right py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Qty/Hrs</th>
                     <th className="text-right py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Rate</th>
                     <th className="text-right py-2 px-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Amount</th>
@@ -451,6 +470,7 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
                     <tr key={li.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="py-2 px-3 text-muted-foreground capitalize">{li.item_type ?? 'service'}</td>
                       <td className="py-2 px-3">{li.description}</td>
+                      <td className="py-2 px-3 text-muted-foreground">{li.source_label ?? li.source_type ?? 'Manual'}</td>
                       <td className="py-2 px-3 text-right">{li.hours ?? li.quantity ?? 1}</td>
                       <td className="py-2 px-3 text-right">{formatCurrency(Number(li.unit_price ?? 0))}</td>
                       <td className="py-2 px-3 text-right font-medium">{formatCurrency(Number(li.line_total ?? 0))}</td>
@@ -482,6 +502,18 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
                 <span>Total</span>
                 <span>{formatCurrency(Number(estimate.total ?? 0))}</span>
               </div>
+              {estimate.deposit_required && (
+                <>
+                  <div className="flex justify-between text-sm text-muted-foreground pt-2">
+                    <span>Deposit Requested</span>
+                    <span>{formatCurrency(Number(estimate.deposit_amount ?? 0))}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>Balance After Deposit</span>
+                    <span>{formatCurrency(Number(estimate.total ?? 0) - Number(estimate.deposit_amount ?? 0))}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </CardContent>
@@ -498,7 +530,7 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
           </CardContent>
         </Card>
       )}
-      {estimate.internal_notes && (
+      {estimate.internal_notes && canOperateEstimate && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Internal Notes</CardTitle>

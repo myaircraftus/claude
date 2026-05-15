@@ -9,6 +9,48 @@ import {
 } from '@/lib/work-orders/checklists'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
 import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
+
+function toWorkOrderLineType(value: unknown) {
+  const raw = typeof value === 'string' ? value : ''
+  if (raw === 'part' || raw === 'outside_service' || raw === 'discrepancy' || raw === 'note') return raw
+  if (['supply', 'fee', 'tax', 'discount'].includes(raw)) return 'outside_service'
+  return 'labor'
+}
+
+async function recalculateWorkOrderTotals(
+  supabase: ReturnType<typeof createServerSupabase>,
+  workOrderId: string
+) {
+  const { data: lines } = await supabase
+    .from('work_order_lines')
+    .select('line_type, line_total')
+    .eq('work_order_id', workOrderId)
+
+  const labor_total = (lines ?? [])
+    .filter((line) => line.line_type === 'labor')
+    .reduce((sum, line) => sum + Number(line.line_total ?? 0), 0)
+  const parts_total = (lines ?? [])
+    .filter((line) => line.line_type === 'part')
+    .reduce((sum, line) => sum + Number(line.line_total ?? 0), 0)
+  const outside_services_total = (lines ?? [])
+    .filter((line) => line.line_type === 'outside_service')
+    .reduce((sum, line) => sum + Number(line.line_total ?? 0), 0)
+  const total_amount = labor_total + parts_total + outside_services_total
+
+  await supabase
+    .from('work_orders')
+    .update({
+      labor_total,
+      parts_total,
+      outside_services_total,
+      total_amount,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', workOrderId)
+
+  return { labor_total, parts_total, outside_services_total, total_amount }
+}
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -30,6 +72,7 @@ export async function GET(req: NextRequest) {
       corrective_action, findings, internal_notes, customer_notes:customer_visible_notes, labor_total,
       parts_total, outside_services_total, tax_amount, total:total_amount, opened_at, closed_at,
       created_at, updated_at, aircraft_id, customer_id, assigned_mechanic_id,
+      primary_ata_code, primary_jasc_code, classification_source, classification_confidence, classification_status,
       thread_id,
       aircraft:aircraft_id (id, tail_number, make, model),
       customer:customer_id (id, name, company, email)
@@ -83,14 +126,25 @@ export async function POST(req: NextRequest) {
     .eq('id', orgId)
     .single()
 
-  // Generate work order number: WO-YYYY-NNNN
-  const year = new Date().getFullYear()
-  const { count } = await supabase
-    .from('work_orders')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-  const seq = String((count ?? 0) + 1).padStart(4, '0')
-  const work_order_number = `WO-${year}-${seq}`
+  // Generate work order number through the DB helper when available. The
+  // count-based fallback is retained for environments that have not run the
+  // original work-order migration yet.
+  let work_order_number: string
+  const { data: generatedNumber, error: numberError } = await supabase.rpc(
+    'generate_work_order_number',
+    { org_id: orgId }
+  )
+  if (numberError || !generatedNumber) {
+    const year = new Date().getFullYear()
+    const { count } = await supabase
+      .from('work_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+    const seq = String((count ?? 0) + 1).padStart(4, '0')
+    work_order_number = `WO-${year}-${seq}`
+  } else {
+    work_order_number = generatedNumber
+  }
 
   const customerId =
     body.customer_id ??
@@ -130,6 +184,14 @@ export async function POST(req: NextRequest) {
       findings: body.findings ?? null,
       internal_notes: body.internal_notes ?? null,
       customer_visible_notes: body.customer_notes ?? body.customer_visible_notes ?? null,
+      ...buildClassificationPatch(
+        {
+          ...body,
+          primary_ata_code: body.primary_ata_code ?? body.ata_code,
+          primary_jasc_code: body.primary_jasc_code ?? body.jasc_code,
+        },
+        { ataKey: 'primary_ata_code', jascKey: 'primary_jasc_code' },
+      ),
     })
     .select()
     .single()
@@ -293,6 +355,99 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const existingEstimateId =
+    typeof body.existing_estimate_id === 'string' && body.existing_estimate_id
+      ? body.existing_estimate_id
+      : null
+  let attachedEstimate:
+    | { id: string; estimate_number?: string | null; line_count: number; total_amount: number }
+    | null = null
+
+  if (existingEstimateId) {
+    const { data: estimate, error: estimateError } = await supabase
+      .from('estimates')
+      .select(`
+        id,
+        estimate_number,
+        status,
+        total,
+        line_items:estimate_line_items (*)
+      `)
+      .eq('id', existingEstimateId)
+      .eq('organization_id', orgId)
+      .maybeSingle()
+
+    if (estimateError) {
+      return NextResponse.json({ error: estimateError.message }, { status: 500 })
+    }
+
+    if (estimate) {
+      const estimateLines = Array.isArray((estimate as any).line_items)
+        ? ((estimate as any).line_items as any[])
+        : []
+      const plannedRows = estimateLines.map((line, index) => {
+        const lineType = toWorkOrderLineType(line.item_type)
+        const quantity = Number(line.quantity ?? line.hours ?? 1)
+        const unitPrice = Number(line.unit_price ?? 0)
+        return {
+          organization_id: orgId,
+          work_order_id: data.id,
+          line_type: lineType,
+          description: line.description ?? 'Estimate line item',
+          quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+          unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+          part_number: line.part_number ?? null,
+          vendor: line.vendor ?? null,
+          condition: line.condition ?? null,
+          status: lineType === 'part' ? 'pending' : 'n/a',
+          hours: lineType === 'labor' ? Number(line.hours ?? line.quantity ?? null) || null : null,
+          rate: lineType === 'labor' ? unitPrice : null,
+          notes: `Planned from estimate ${estimate.estimate_number ?? ''}`.trim(),
+          sort_order: index,
+          planned_from_estimate_id: estimate.id,
+          estimate_line_item_id: line.id ?? null,
+          source_type: line.source_type ?? 'estimate',
+          source_id: line.source_id ?? line.id ?? null,
+          source_label: line.source_label ?? 'Estimate',
+          billable: line.billable ?? true,
+          owner_visible: line.owner_visible ?? true,
+          ...buildClassificationPatch(line),
+        }
+      })
+
+      if (plannedRows.length > 0) {
+        const { error: lineError } = await supabase
+          .from('work_order_lines')
+          .insert(plannedRows)
+
+        if (lineError) {
+          return NextResponse.json({ error: lineError.message }, { status: 500 })
+        }
+
+        await recalculateWorkOrderTotals(supabase, data.id)
+      }
+
+      await supabase
+        .from('estimates')
+        .update({
+          linked_work_order_id: data.id,
+          converted_work_order_id: data.id,
+          status: 'converted',
+          approval_status: 'approved',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', estimate.id)
+        .eq('organization_id', orgId)
+
+      attachedEstimate = {
+        id: estimate.id,
+        estimate_number: estimate.estimate_number,
+        line_count: plannedRows.length,
+        total_amount: Number(estimate.total ?? 0),
+      }
+    }
+  }
+
   let ownerApprovalEmailSent = false
   if (ownerApprovalRequired && customer?.email) {
     try {
@@ -327,6 +482,10 @@ export async function POST(req: NextRequest) {
       work_order_number: work_order_number,
       aircraft_id: body.aircraft_id ?? null,
       customer_id: customerId,
+      estimate_mode: body.estimate_mode ?? null,
+      attached_estimate: attachedEstimate,
+      planned_task_count: Array.isArray(body.planned_tasks) ? body.planned_tasks.length : 0,
+      checklist_source: checklistSource,
       owner_approval_required: ownerApprovalRequired,
       owner_approval_email_sent: ownerApprovalEmailSent,
     },
@@ -336,6 +495,7 @@ export async function POST(req: NextRequest) {
     {
       ...data,
       checklist_template_key: (checklist as any).templateKey ?? null,
+      attached_estimate: attachedEstimate,
       owner_approval_required: ownerApprovalRequired,
       owner_approval_email_sent: ownerApprovalEmailSent,
     },

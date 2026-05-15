@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await resolveRequestOrgContext(_req)
@@ -25,7 +26,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       completed,
       completed_at,
       completed_by,
-      sort_order
+      sort_order,
+      ata_code,
+      jasc_code,
+      classification_source,
+      classification_confidence,
+      classification_status
     `)
     .eq('organization_id', orgId)
     .eq('work_order_id', params.id)
@@ -94,6 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       source_reference: body?.source_reference ?? null,
       required: body?.required ?? true,
       sort_order: nextSort,
+      ...buildClassificationPatch(body),
     })
     .select()
     .single()

@@ -58,11 +58,9 @@ export const PERSONA_CONFIG: Record<Persona, PersonaConfig> = {
     // route-guard / nav-category level, not via hiddenModules here, because
     // some shop deployments DO need limited owner-side visibility.
     //
-    // Skip the /dashboard/ops → /workflow redirect that would otherwise
-    // burn a hop on every sign-in. The redirect file at
-    // apps/web/app/(app)/dashboard/ops/page.tsx remains for saved
-    // bookmarks; the canonical shop landing is /workflow.
-    homeRoute: '/workflow',
+    // Dashboard is the shop command center. It shows exceptions and launches
+    // official module workflows; source records still live in their modules.
+    homeRoute: '/dashboard',
     sidebarSections: ['DASHBOARD', 'WORK ORDERS', 'SCHEDULING', 'PARTS', 'TOOLS', 'INVOICING', 'REPORTS', 'ADMIN'],
     hiddenModules: [],
     aiSystemPrompt:

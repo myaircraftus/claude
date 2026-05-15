@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 function computeSellPrice(part: {
   base_price: number | null
@@ -27,6 +28,17 @@ function computeSellPrice(part: {
     default:
       return { sell_price: base, markup_amount: 0 }
   }
+}
+
+function buildPartTaxonomyPatch(body: Record<string, unknown>) {
+  const patch = buildClassificationPatch(body)
+  const result: Record<string, unknown> = {}
+  for (const key of ['ata_code', 'jasc_code', 'classification_status'] as const) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      result[key] = patch[key]
+    }
+  }
+  return result
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -73,6 +85,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'part_number', 'title', 'description', 'image_url', 'category',
     'preferred_vendor', 'vendor_url', 'base_price', 'currency',
     'markup_mode', 'markup_percent', 'custom_rate', 'condition',
+    'ata_code', 'jasc_code', 'classification_status',
   ]
 
   const patch: Record<string, unknown> = {}
@@ -81,6 +94,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       patch[field] = body[field]
     }
   }
+  Object.assign(patch, buildPartTaxonomyPatch(body))
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })

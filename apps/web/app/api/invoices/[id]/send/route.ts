@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { exportAccountingInvoices, type ExportableInvoice } from '@/lib/integrations/accounting'
+import { writeInvoiceAudit, writeInvoiceTimeline } from '@/lib/invoices/workflow'
 const nodemailer = require('nodemailer')
 
 function formatCurrency(amount: number): string {
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       *,
       line_items:invoice_line_items (*),
       customer:customer_id (id, name, email, billing_address),
+      payee:payee_id (id, name, email, billing_address),
       aircraft:aircraft_id (id, tail_number),
       organization:organization_id (id, name)
     `)
@@ -40,13 +42,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
-  const recipientEmail = body.recipient_email ?? (invoice.customer as any)?.email
+  const payee = (invoice as any).payee ?? (invoice.customer as any)
+  const recipientEmail = body.recipient_email ?? payee?.email
   if (!recipientEmail) {
-    return NextResponse.json({ error: 'No recipient email. Provide recipient_email or set customer email.' }, { status: 400 })
+    return NextResponse.json({ error: 'No recipient email. Provide recipient_email or set payee/customer email.' }, { status: 400 })
+  }
+  if (!invoice.aircraft_id) {
+    return NextResponse.json({ error: 'Invoice must be linked to an aircraft before send.' }, { status: 400 })
   }
 
   const orgName = (invoice.organization as any)?.name ?? 'Your MRO'
-  const customer = invoice.customer as any
+  const customer = payee
   const aircraft = invoice.aircraft as any
   const lineItems = ((invoice.line_items ?? []) as any[]).sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -88,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 ${customer?.billing_address ? `<p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${customer.billing_address}</p>` : ''}
               </td>
               <td style="vertical-align: top; text-align: right;">
-                <p style="margin: 0; font-size: 13px; color: #6b7280;">Issue Date: <strong>${formatDate(invoice.invoice_date)}</strong></p>
+                <p style="margin: 0; font-size: 13px; color: #6b7280;">Issue Date: <strong>${formatDate(invoice.issue_date ?? invoice.invoice_date)}</strong></p>
                 <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Due Date: <strong>${formatDate(invoice.due_date)}</strong></p>
                 ${aircraft ? `<p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Aircraft: <strong>${aircraft.tail_number}</strong></p>` : ''}
                 <p style="margin: 4px 0 0; font-size: 13px; color: #6b7280;">Terms: <strong>${invoice.payment_terms ?? 'Net 30'}</strong></p>
@@ -126,6 +132,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             <tr>
               <td style="padding: 4px 0; font-size: 14px; color: #6b7280;">Discount</td>
               <td style="padding: 4px 0; font-size: 14px; text-align: right; color: #16a34a;">-${formatCurrency(invoice.discount_amount)}</td>
+            </tr>` : ''}
+            ${invoice.deposit_credit_total > 0 ? `
+            <tr>
+              <td style="padding: 4px 0; font-size: 14px; color: #6b7280;">Deposit/Credit Applied</td>
+              <td style="padding: 4px 0; font-size: 14px; text-align: right; color: #16a34a;">-${formatCurrency(invoice.deposit_credit_total)}</td>
             </tr>` : ''}
             <tr style="border-top: 2px solid #111827;">
               <td style="padding: 8px 0 4px; font-size: 16px; font-weight: 700; color: #111827;">Total Due</td>
@@ -181,6 +192,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .eq('organization_id', orgId)
       .select()
       .single()
+
+    await supabase.from('invoice_share_events').insert({
+      organization_id: orgId,
+      invoice_id: params.id,
+      channel: 'email',
+      recipient: recipientEmail,
+      sent_by: ctx.user.id,
+      delivery_status: 'sent',
+      metadata: { subject: `Invoice ${invoice.invoice_number} from ${orgName}` },
+    })
+
+    await writeInvoiceAudit(supabase, req, {
+      organizationId: orgId,
+      userId: ctx.user.id,
+      action: 'invoice_email_sent',
+      invoiceId: params.id,
+      aircraftId: invoice.aircraft_id,
+      metadata: { recipient: recipientEmail, invoice_number: invoice.invoice_number },
+    })
+
+    await writeInvoiceTimeline(supabase, {
+      organizationId: orgId,
+      aircraftId: invoice.aircraft_id,
+      actorId: ctx.user.id,
+      action: 'sent',
+      invoiceId: params.id,
+      title: `Invoice ${invoice.invoice_number} sent`,
+      summary: `Invoice sent to ${recipientEmail}.`,
+      ownerVisible: true,
+      metadata: { channel: 'email', recipient: recipientEmail },
+    })
 
     const { data: connectedAccountingIntegrations } = await supabase
       .from('integrations')

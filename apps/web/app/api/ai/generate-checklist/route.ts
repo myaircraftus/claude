@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
   if (workOrderId) {
     const { data: wo } = await supabase
       .from('work_orders')
-      .select('id, work_order_number, customer_complaint, discrepancy')
+      .select('id, work_order_number, customer_complaint:complaint, discrepancy')
       .eq('id', workOrderId)
       .eq('organization_id', orgId)
       .maybeSingle()

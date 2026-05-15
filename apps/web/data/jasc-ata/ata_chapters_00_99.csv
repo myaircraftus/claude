@@ -1,0 +1,101 @@
+ata_chapter,ata_title,jasc_code_count,faa_jasc_has_codes,status,source_url
+00,General,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+01,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+02,Operations Information,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+03,Support,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+04,Airworthiness Limitations,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+05,Time Limits / Maintenance Checks,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+06,Dimensions and Areas,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+07,Lifting and Shoring,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+08,Leveling and Weighing,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+09,Towing and Taxiing,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+10,"Parking, Mooring, Storage and Return to Service",0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+11,Placards and Markings,1,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+12,Servicing,4,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+13,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+14,Hardware,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+15,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+16,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+17,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+18,Helicopter Vibration,4,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+19,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+20,Standard Practices - Airframe,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+21,Air Conditioning,17,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+22,Auto Flight,12,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+23,Communications,11,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+24,Electrical Power,20,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+25,Equipment/Furnishings,17,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+26,Fire Protection,9,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+27,Flight Controls,22,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+28,Fuel,14,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+29,Hydraulic Power,22,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+30,Ice and Rain Protection,10,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+31,Instruments,9,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+32,Landing Gear,27,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+33,Lights,7,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+34,Navigation,41,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+35,Oxygen,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+36,Pneumatic,4,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+37,Vacuum,4,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+38,Water/Waste,6,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+39,Electrical / Electronic Panels and Multipurpose Components,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+40,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+41,Water Ballast,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+42,Integrated Modular Avionics,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+43,Emergency Locator Transmitter / Surveillance,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+44,Cabin Systems,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+45,Central Maintenance System (CMS),2,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+46,Information Systems,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+47,Inert Gas System,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+48,In-Flight Fuel Dispensing,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+49,Airborne Auxiliary Power,11,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+50,Cargo and Accessory Compartments,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+51,Standard Practices/Structures,3,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+52,Doors,18,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+53,Fuselage,25,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+54,Nacelles/Pylons,9,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+55,Stabilizers,27,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+56,Windows,6,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+57,Wings,20,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+58,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+59,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+60,Standard Practices - Propeller / Rotor,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+61,Propeller/Propulsors,13,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+62,Main Rotor,6,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+63,Main Rotor Drive,8,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+64,Tail Rotor,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+65,Tail Rotor Drive,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+66,Folding Blades / Pylon,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+67,Rotors Flight Control,6,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+68,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+69,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+70,Standard Practices - Engine,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+71,Powerplant,9,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+72,Turbine/turboprop Engine,10,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+73,Engine Fuel and Control,17,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+74,Ignition,10,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+75,Air,8,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+76,Engine Controls,6,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+77,Engine Indicating,14,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+78,Engine Exhaust,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+79,Engine Oil,11,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+80,Starting,5,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+81,Turbocharging,4,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+82,Water Injection,2,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+83,Accessory Gearboxes,2,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+84,Propulsion Augmentation,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+85,Reciprocating Engine,9,1,active_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+86,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+87,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+88,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+89,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+90,Reserved,0,0,reserved_or_not_in_faa_jasc,https://sdrs.faa.gov/documents/JASC_Code.pdf
+91,Charts,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+92,Electrical System Installation,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+93,Surveillance,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+94,Weapon System / Special Use,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+95,Crew Escape and Safety,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+96,Missile / Drone / Special Systems,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+97,Wiring Reporting,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+98,Meteorological / Atmospheric Research,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf
+99,Electronic Warfare / Special Systems,0,0,ata_chapter_no_faa_jasc_rows,https://sdrs.faa.gov/documents/JASC_Code.pdf

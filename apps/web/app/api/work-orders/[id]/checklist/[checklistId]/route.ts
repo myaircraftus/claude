@@ -43,7 +43,12 @@ export async function PATCH(
       completed,
       completed_at,
       completed_by,
-      sort_order
+      sort_order,
+      ata_code,
+      jasc_code,
+      classification_source,
+      classification_confidence,
+      classification_status
     `)
     .single()
 

@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { normalizeEstimateStatus, writeEstimateAudit } from '@/lib/estimates/workflow'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-function normalizeEstimateStatus(value: unknown): string {
-  if (typeof value !== 'string') return 'draft'
-  const normalized = value.trim().toLowerCase()
-  if (['draft', 'sent', 'approved', 'rejected', 'converted'].includes(normalized)) {
-    return normalized
-  }
-  return 'draft'
-}
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await resolveRequestOrgContext(req)
@@ -25,7 +17,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       *,
       aircraft:aircraft_id (id, tail_number, make, model, year),
       customer:customer_id (id, name, email, company),
-      line_items:estimate_line_items (*)
+      line_items:estimate_line_items (*),
+      ai_drafts:estimate_ai_drafts (*),
+      approvals:owner_approvals (*),
+      deposits:deposit_payments (*),
+      revisions:estimate_revisions (*)
     `
     )
     .eq('id', params.id)
@@ -70,8 +66,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     'customer_notes',
     'valid_until',
     'linked_work_order_id',
+    'converted_work_order_id',
     'mechanic_name',
     'service_type',
+    'source_type',
+    'source_id',
+    'estimate_type',
+    'price_book_id',
+    'tax_profile_id',
+    'terms',
+    'deposit_required',
+    'deposit_amount',
+    'deposit_due_policy',
+    'deposit_status',
+    'approval_status',
+    'approved_at',
+    'approved_by_identity',
+    'owner_approval_summary',
+    'ai_review_status',
     'customer_id',
     'aircraft_id',
     'linked_squawk_ids',
@@ -92,6 +104,42 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
+  const { data: existing } = await supabase
+    .from('estimates')
+    .select('*')
+    .eq('id', params.id)
+    .eq('organization_id', orgId)
+    .single()
+
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const approvedStates = new Set(['approved', 'deposit_paid', 'converted', 'converted_to_work_order'])
+  const materialEdit = Object.keys(updates).some((key) => !['updated_at'].includes(key))
+  if (approvedStates.has(existing.status) && materialEdit) {
+    const reason = String(body.revision_reason ?? body.edit_reason ?? '').trim()
+    if (!reason) {
+      return NextResponse.json({ error: 'Revision reason is required after owner approval' }, { status: 400 })
+    }
+    const { count } = await supabase
+      .from('estimate_revisions')
+      .select('id', { count: 'exact', head: true })
+      .eq('estimate_id', params.id)
+      .eq('organization_id', orgId)
+
+    await supabase.from('estimate_revisions').insert({
+      organization_id: orgId,
+      estimate_id: params.id,
+      revision_number: (count ?? 0) + 1,
+      reason,
+      before_snapshot: existing,
+      after_snapshot: { ...existing, ...updates },
+      requires_owner_approval: body.requires_owner_approval ?? true,
+      created_by: ctx.user.id,
+    })
+    updates.status = body.requires_owner_approval === false ? existing.status : 'superseded'
+    updates.approval_status = body.requires_owner_approval === false ? existing.approval_status : 'superseded'
+  }
+
   const { data, error } = await supabase
     .from('estimates')
     .update(updates)
@@ -101,6 +149,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await writeEstimateAudit(supabase, req, {
+    organizationId: orgId,
+    userId: ctx.user.id,
+    action: approvedStates.has(existing.status) && materialEdit ? 'estimate.revised' : 'estimate.updated',
+    estimateId: params.id,
+    aircraftId: (data as any)?.aircraft_id ?? existing.aircraft_id ?? null,
+    metadata: {
+      before_status: existing.status,
+      after_status: (data as any)?.status,
+      fields: Object.keys(updates).filter((key) => key !== 'updated_at'),
+    },
+  })
+
   return NextResponse.json(data)
 }
 

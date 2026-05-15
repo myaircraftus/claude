@@ -1,4 +1,5 @@
 import { withTenantPrefix } from '@/lib/auth/tenant-routing'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 const nodemailer = require('nodemailer')
 
@@ -20,6 +21,13 @@ interface WorkOrderFromEstimateInput {
   organizationId: string
   estimate: any
   fallbackAssignedMechanicId?: string | null
+}
+
+function toWorkOrderLineType(value: unknown) {
+  const raw = typeof value === 'string' ? value : ''
+  if (raw === 'part' || raw === 'outside_service' || raw === 'discrepancy' || raw === 'note') return raw
+  if (['supply', 'fee', 'tax', 'discount'].includes(raw)) return 'outside_service'
+  return 'labor'
 }
 
 function escapeHtml(value: unknown): string {
@@ -177,21 +185,35 @@ export async function createWorkOrderFromEstimate({
   const lineItems = Array.isArray(estimate.line_items) ? estimate.line_items : []
   if (lineItems.length > 0) {
     const { error: linesError } = await supabase.from('work_order_lines').insert(
-      lineItems.map((line: any, index: number) => ({
-        work_order_id: workOrder.id,
-        organization_id: organizationId,
-        line_type: line.item_type === 'service' ? 'labor' : (line.item_type ?? 'labor'),
-        description: line.description ?? 'Line item',
-        quantity: line.quantity ?? 1,
-        unit_price: line.unit_price ?? 0,
-        part_number: line.part_number ?? null,
-        vendor: line.vendor ?? null,
-        condition: line.condition ?? null,
-        status: line.line_status ?? 'pending',
-        hours: line.hours ?? null,
-        rate: line.hours ? line.unit_price ?? null : null,
-        sort_order: line.sort_order ?? index,
-      }))
+      lineItems.map((line: any, index: number) => {
+        const lineType = toWorkOrderLineType(line.item_type)
+        const quantity = Number(line.quantity ?? line.hours ?? 1)
+        const unitPrice = Number(line.unit_price ?? 0)
+        return {
+          work_order_id: workOrder.id,
+          organization_id: organizationId,
+          line_type: lineType,
+          description: line.description ?? 'Line item',
+          quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+          unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+          part_number: line.part_number ?? null,
+          vendor: line.vendor ?? null,
+          condition: line.condition ?? null,
+          status: lineType === 'part' ? 'pending' : 'n/a',
+          hours: lineType === 'labor' ? Number(line.hours ?? line.quantity ?? null) || null : null,
+          rate: lineType === 'labor' ? unitPrice : null,
+          notes: `Planned from estimate ${estimate.estimate_number ?? ''}`.trim(),
+          sort_order: line.sort_order ?? index,
+          planned_from_estimate_id: estimate.id,
+          estimate_line_item_id: line.id ?? null,
+          source_type: line.source_type ?? 'estimate',
+          source_id: line.source_id ?? line.id ?? null,
+          source_label: line.source_label ?? 'Estimate',
+          billable: line.billable ?? true,
+          owner_visible: line.owner_visible ?? true,
+          ...buildClassificationPatch(line),
+        }
+      })
     )
 
     if (linesError) {

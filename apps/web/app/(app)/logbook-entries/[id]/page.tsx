@@ -45,9 +45,18 @@ export default async function LogbookEntryPage({ params }: PageProps) {
       parts_used, references_used, ad_numbers,
       mechanic_name, mechanic_cert_number, cert_type,
       signed_at, signed_by, work_order_id, work_order_ref,
+      target_logbook, source_type, source_id, source_context, source_references,
+      signer_id, certificate_number, certificate_type, ia_flag, revision_number,
+      supersedes_entry_id, entry_hash, pdf_hash, signature_reason, owner_visible,
+      ai_review_status, ai_warnings, signature_certificate_id, signature_audit,
+      printed_unsigned_at, published_to_owner_at, void_reason,
       created_at, updated_at,
       aircraft:aircraft_id ( id, tail_number, make, model, year ),
-      work_order:work_order_id ( id, work_order_number, service_type, status )
+      work_order:work_order_id ( id, work_order_number, service_type, status ),
+      signature_certificate:signature_certificate_id (*),
+      source_bundle:logbook_source_bundles (*),
+      revisions:logbook_entry_revisions (*),
+      output_events:logbook_output_events (*)
     `,
     )
     .eq('id', params.id)

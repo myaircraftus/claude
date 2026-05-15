@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { writeEstimateAudit, writeEstimateTimeline } from '@/lib/estimates/workflow'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { buildTenantAppUrl } from '@/lib/approvals'
@@ -54,6 +55,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .single()
 
   if (!estimate) return NextResponse.json({ error: 'Estimate not found' }, { status: 404 })
+  if (!estimate.aircraft_id) {
+    return NextResponse.json({ error: 'Aircraft is required before sending an estimate' }, { status: 400 })
+  }
+  if (!estimate.customer_id) {
+    return NextResponse.json({ error: 'Owner/customer is required before sending an estimate' }, { status: 400 })
+  }
 
   // Fetch linked squawks for notes section
   const squawkIds: string[] = Array.isArray(estimate.linked_squawk_ids)
@@ -212,11 +219,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       html,
     })
 
-    // Mark as sent
+    const nextStatus = estimate.deposit_required ? 'awaiting_deposit' : 'awaiting_approval'
+
+    // Mark as owner-facing approval request.
     const { data: updated } = await supabase
       .from('estimates')
       .update({
-        status: estimate.status === 'draft' ? 'sent' : estimate.status,
+        status: ['draft', 'internal_review', 'ready_to_send'].includes(estimate.status) ? nextStatus : estimate.status,
+        approval_status: 'sent',
+        deposit_status: estimate.deposit_required ? 'requested' : estimate.deposit_status ?? 'not_required',
         updated_at: new Date().toISOString(),
       })
       .eq('id', params.id)
@@ -224,15 +235,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .select()
       .single()
 
-    await supabase.from('audit_logs').insert({
-      organization_id: orgId,
-      user_id: ctx.user.id,
+    await writeEstimateAudit(supabase, req, {
+      organizationId: orgId,
+      userId: ctx.user.id,
       action: 'estimate.sent_for_approval',
-      entity_type: 'estimate',
-      entity_id: params.id,
-      metadata_json: {
+      estimateId: params.id,
+      aircraftId: estimate.aircraft_id,
+      metadata: {
         recipient_email: recipientEmail,
         estimate_number: estimate.estimate_number,
+        deposit_required: Boolean(estimate.deposit_required),
+        deposit_amount: Number(estimate.deposit_amount ?? 0),
+      },
+    })
+
+    await writeEstimateTimeline(supabase, {
+      organizationId: orgId,
+      aircraftId: estimate.aircraft_id,
+      actorId: ctx.user.id,
+      action: 'estimate.sent_for_approval',
+      estimateId: params.id,
+      title: `Estimate sent: ${estimate.estimate_number}`,
+      summary: estimate.service_type ?? estimate.customer_notes ?? null,
+      ownerVisible: true,
+      metadata: {
+        recipient_email: recipientEmail,
+        total: Number(estimate.total ?? 0),
+        deposit_required: Boolean(estimate.deposit_required),
       },
     })
 
