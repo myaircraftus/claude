@@ -29,6 +29,7 @@ import {
 } from "@/lib/nav/categories";
 import { PaywallScreen } from "@/components/billing/PaywallScreen";
 import type { MechanicPermissions, TeamMember, Persona } from "./AppContext";
+import type { OrgRole } from "@/types";
 import { PartsStoreProvider } from "./workspace/PartsStore";
 import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
@@ -112,8 +113,16 @@ const ownerNavItems: NavItem[] = [
 // Workflow used to live inside the /maintenance hub as a tab. That hub
 // has been retired (clicking a work order goes straight to its detail
 // page now), so Workflow gets promoted to its own top-level route.
-function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
+function buildMechanicNav(perm: MechanicPermissions, role: OrgRole | null): NavItem[] {
   const items: NavItem[] = [];
+
+  // Persona nav split (SOP §0.2 — persona-aware sidebar). Owners + admins
+  // get the full shop surface; mechanics and other non-shop roles get the
+  // reduced maintenance-floor surface — no Estimates, Invoices, Reports, or
+  // the Settings/workforce block. `role` is the authenticated user's DB
+  // org-role (organization_memberships.role via currentUserRole), never a
+  // client-side toggle or switcher.
+  const isShopAdmin = role === "owner" || role === "admin";
 
   // Dashboard is the shop command center. The old AI Command Center
   // (/workspace) redirects here; the dashboard launches official module
@@ -130,10 +139,11 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   if (perm.workOrders) {
     items.push({ icon: ClipboardList, label: "Work Orders", href: "/work-orders" });
   }
-  if (perm.estimates) {
+  // Estimates + Invoices — shop/admin only (mechanics don't see billing).
+  if (perm.estimates && isShopAdmin) {
     items.push({ icon: DollarSign, label: "Estimates", href: "/estimates" });
   }
-  if (perm.invoices) {
+  if (perm.invoices && isShopAdmin) {
     items.push({ icon: Receipt, label: "Invoices", href: "/invoices" });
   }
   if (perm.logbook) {
@@ -154,9 +164,13 @@ function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
       { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
     ],
   });
-  items.push({ icon: FileText, label: "Reports", href: "/reports" });
+  // Reports — shop/admin only.
+  if (isShopAdmin) {
+    items.push({ icon: FileText, label: "Reports", href: "/reports" });
+  }
 
-  if (perm.settingsFull) {
+  // Settings + workforce/ops block — shop/admin only.
+  if (perm.settingsFull && isShopAdmin) {
     items.push({ icon: Settings, label: "Settings", href: "/settings" });
     items.push({ icon: GitBranch, label: "Taxonomy", href: "/settings/taxonomy" });
     items.push({ icon: ClipboardCheck, label: "Compliance",  href: "/compliance" });
@@ -222,7 +236,7 @@ function AppLayoutInner({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useTenantRouter();
-  const { persona, setPersona, team, activeMechanic, setActiveMechanic } = useAppContext();
+  const { persona, setPersona, team, activeMechanic, setActiveMechanic, currentUserRole } = useAppContext();
   const { status: billingStatus } = useBilling();
   const [upsellPersona, setUpsellPersona] = useState<Persona | null>(null);
   const { launchTour } = useOnboarding();
@@ -453,7 +467,7 @@ function AppLayoutInner({
       ? adminNavItems
       : persona === "owner"
         ? ownerNavBase
-        : buildMechanicNav(activeMechanic.permissions);
+        : buildMechanicNav(activeMechanic.permissions, currentUserRole);
 
   // Spec 5.8 — filter nav by PersonaConfig.hiddenModules. Items without
   // a `module` key are always visible (back-compat: existing items don't
@@ -927,7 +941,28 @@ function AppLayoutInner({
                   <div className={`text-[13px] truncate transition-colors ${onSettings ? "text-white" : "text-white/80 group-hover:text-white"}`} style={{ fontWeight: 600 }}>
                     {name}
                   </div>
-                  <div className="text-white/40 text-[11px] truncate">{role}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-white/40 text-[11px] truncate">{role}</span>
+                    {/* Persona role badge — reflects the authenticated user's
+                        DB org-role so they always know which surface they're
+                        in. Mechanic = blue, Shop Admin = navy. */}
+                    {(currentUserRole === "owner" || currentUserRole === "admin") && (
+                      <span
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[#1e3a5f] text-sky-200"
+                        title="Full shop access"
+                      >
+                        Shop Admin
+                      </span>
+                    )}
+                    {currentUserRole === "mechanic" && (
+                      <span
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-blue-500/20 text-blue-300"
+                        title="Maintenance-floor access"
+                      >
+                        Mechanic
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <Settings
                   className={`w-3.5 h-3.5 shrink-0 transition-all ${
