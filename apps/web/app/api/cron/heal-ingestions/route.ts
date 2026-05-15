@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { ingestDocumentInline } from '@/lib/ingestion/server'
 import { isTransientIngestionFailure } from '@/lib/ingestion/failure-classifier'
+import { reconcileAllStaleDocuments } from '@/lib/documents/processing-health'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -102,18 +103,35 @@ export async function GET(req: NextRequest) {
 
   const supabase = createServiceSupabase()
 
+  // ── Always-on safety net — runs BEFORE (and independent of) the
+  // auto-retry kill switch. Flips genuinely-wedged documents (45+ min
+  // with no progress) from a silent in-progress state to `failed`, so
+  // they leave the "still processing" limbo and become visibly
+  // retryable in the Stuck Documents UI. This is a pure status write —
+  // zero AI credit, no OCR re-run — so it MUST run even when paid
+  // auto-retry is paused. Without it, a hung OCR job sits in
+  // `ocr_processing` for hours/days; that was the recurring stuck-doc bug.
+  let staleReconciled = 0
+  try {
+    staleReconciled = await reconcileAllStaleDocuments(supabase)
+  } catch (err) {
+    console.error('[cron/heal-ingestions] stale reconcile failed', err)
+  }
+
   // KILL SWITCH — read from app_settings (UI-toggleable) with env-var
-  // override. When off, the cron becomes a no-op so we never burn
-  // OpenAI / Document AI credit on a runaway loop.
+  // override. When off, only the paid RE-OCR retry below is skipped — the
+  // free reconciliation above still ran. We never burn OpenAI / Document
+  // AI credit on a runaway loop while auto-retry is off.
   const autoRetry = await loadAutoRetrySettings(supabase)
   if (autoRetry.mode === 'off') {
     return NextResponse.json({
       ok: true,
       paused: true,
-      reason: 'Auto-retry is OFF (set in /admin/settings or via INGESTION_AUTO_RETRY env var)',
+      reason: 'Auto-retry is OFF (set in /admin/ingestion-health or via INGESTION_AUTO_RETRY env var)',
       mode: autoRetry.mode,
       scanned: 0,
       healed: 0,
+      stale_reconciled: staleReconciled,
     })
   }
   const TRANSIENT_FAILURE_RETRY_LIMIT = autoRetry.limit
@@ -171,7 +189,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (stuck.length === 0) {
-    return NextResponse.json({ ok: true, healed: 0, scanned: 0 })
+    return NextResponse.json({ ok: true, healed: 0, scanned: 0, stale_reconciled: staleReconciled })
   }
 
   const results: Array<{
@@ -242,6 +260,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     scanned: results.length,
     healed,
+    stale_reconciled: staleReconciled,
     results,
   })
 }

@@ -161,3 +161,38 @@ export async function reconcileOrganizationStaleDocuments(
 
   await reconcileDocumentProcessingStates(serviceClient, data as DocumentProcessingHealthRow[])
 }
+
+/**
+ * Global stale-document reconciliation — across every organization.
+ *
+ * Marks any document wedged in a non-terminal state past the staleness
+ * threshold (`diagnoseStaleDocumentProcessing`) as `failed`, so it leaves
+ * the silent "still processing" limbo and becomes visibly retryable.
+ *
+ * This is a pure status write — it costs zero AI credit and never re-runs
+ * OCR — so the heal cron runs it UNCONDITIONALLY, independent of the
+ * paid auto-retry kill switch. Returns the number of documents flipped.
+ */
+export async function reconcileAllStaleDocuments(
+  serviceClient: SupabaseClient,
+): Promise<number> {
+  const { data, error } = await serviceClient
+    .from('documents')
+    .select(
+      'id, title, parsing_status, processing_state, parse_started_at, parse_completed_at, parse_error, updated_at, uploaded_at',
+    )
+    .in('parsing_status', RECONCILABLE_STATUSES)
+    .limit(1000)
+
+  if (error || !data?.length) {
+    return 0
+  }
+
+  const reconciled = await reconcileDocumentProcessingStates(
+    serviceClient,
+    data as DocumentProcessingHealthRow[],
+  )
+  // Inputs are all non-terminal (RECONCILABLE_STATUSES) — any row that comes
+  // back `failed` was flipped by the reconciler.
+  return reconciled.filter((row) => row.parsing_status === 'failed').length
+}
