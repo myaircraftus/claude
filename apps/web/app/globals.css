@@ -293,3 +293,29 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
+
+/* SOP Library print mode — when triggered, hide everything except the
+ * SOP article and re-render it on a clean white sheet. Used by the
+ * "Print" button in app/sop-library/print-button.tsx. */
+@media print {
+  body.sop-print-mode > *:not(:has(#sop-article)) {
+    display: none !important;
+  }
+  body.sop-print-mode {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  body.sop-print-mode aside,
+  body.sop-print-mode header {
+    display: none !important;
+  }
+  body.sop-print-mode #sop-article {
+    color: #000 !important;
+    max-width: 100% !important;
+    padding: 2rem !important;
+  }
+  body.sop-print-mode #sop-article a {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+}

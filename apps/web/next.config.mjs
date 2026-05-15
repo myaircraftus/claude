@@ -11,6 +11,14 @@ const nextConfig = {
       '@sparticuz/chromium',
       'pdfjs-dist',
     ],
+    // SOP Library reads docs/sop/*.md at runtime via apps/web/lib/sop/parser.ts.
+    // These files live OUTSIDE the apps/web build root, so Vercel's default
+    // file-tracing won't bundle them with the serverless function. We add
+    // them here so they're available at runtime.
+    outputFileTracingIncludes: {
+      '/sop-library/**': ['../../docs/sop/**'],
+      '/api/admin/sop/**': ['../../docs/sop/**'],
+    },
   },
   webpack: (config, { isServer }) => {
     config.resolve = config.resolve ?? {}

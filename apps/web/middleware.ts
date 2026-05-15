@@ -135,6 +135,7 @@ function isAppRoute(pathname: string): boolean {
     '/scanner',
     '/scheduler',
     '/settings',
+    '/sop-library',
     '/time-clock',
     '/time-off',
     '/tools',

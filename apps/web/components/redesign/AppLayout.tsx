@@ -435,6 +435,9 @@ function AppLayoutInner({
     { icon: FileText,       label: "Marketing CMS",       href: "/admin/content" },
     { icon: FileText,       label: "FAR/AIM AI",          href: "/admin/faraim" },
     { icon: FileText,       label: "Guided Tour",         href: "/admin/tour" },
+    // ── SOP Library (lives outside (app)/ at /sop-library — own dark shell,
+    // see app/sop-library/layout.tsx for the rationale behind the URL.)
+    { icon: BookOpen,       label: "SOP Library",         href: "/sop-library" },
   ];
 
   const navItemsRaw: NavItem[] =
