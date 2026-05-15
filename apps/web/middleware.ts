@@ -110,6 +110,7 @@ function isAppRoute(pathname: string): boolean {
     '/dashboard',
     '/documents',
     '/estimates',
+    '/expirations',
     '/history',
     '/inbox',
     '/inspections',
@@ -144,6 +145,7 @@ function isAppRoute(pathname: string): boolean {
     '/mechanic/onboarding',
     '/work-orders',
     '/workflow',
+    '/workforce',
     '/workspace',
     '/onboarding',
   ]

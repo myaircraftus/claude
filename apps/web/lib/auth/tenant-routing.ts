@@ -21,6 +21,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'demo',
   'documents',
   'estimates',
+  'expirations',
   'features',
   'favicon.ico',
   'forgot-password',
@@ -67,6 +68,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'vendors',
   'work-orders',
   'workflow',
+  'workforce',
   'workspace',
 ])
 
@@ -88,6 +90,7 @@ const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/dashboard',
   '/documents',
   '/estimates',
+  '/expirations',
   '/history',
   '/inbox',
   '/inspections',
@@ -120,6 +123,7 @@ const TENANT_SCOPED_ROUTE_PREFIXES = [
   '/vendors',
   '/work-orders',
   '/workflow',
+  '/workforce',
   '/workspace',
 ] as const
 

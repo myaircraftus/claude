@@ -10,6 +10,8 @@ import {
   ClipboardCheck, ClipboardList, Bookmark, Mailbox, ShoppingCart,
   Truck, Timer, CalendarDays, CalendarOff, Clock as ClockIcon, CalendarClock,
   DollarSign, Eye,
+  Calculator, Archive, RotateCcw, BarChart2, FolderOpen, Settings2, FileCheck,
+  Calendar, Umbrella, LogIn, PieChart,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -46,7 +48,7 @@ import { getDisplayPathname } from "@/lib/auth/tenant-routing";
 import { FaraimButton } from "@/components/faraim/FaraimButton";
 
 /* ─── Nav types ─────────────────────────────────────────────── */
-type NavChild = { icon: any; label: string; tab: string; href?: string; badge?: number };
+type NavChild = { icon: any; label: string; tab?: string; href?: string; badge?: number };
 type NavItem  = {
   icon: any;
   label: string;
@@ -104,66 +106,121 @@ const ownerNavItems: NavItem[] = [
   { icon: UserRound,       label: "Users",            href: "/settings" },
 ];
 
-/* ─── Shop sidebar nav builder ───────────────────────────────────
- * The shop-side sidebar. Its item set is fixed by the nine SOPs in
- * docs/sop/ — every item below maps to a SOP module. Do NOT add nav
- * items that no SOP backs (the speculative Codex items — Compliance,
- * Inspections, Continued, Meters, Locations, Expirations, Tools, the
- * Workforce/Time-clock block, Marketplace, Taxonomy — were removed in
- * the 2026-05-15 UI cleanup sprint; see docs/UI_FIX_REPORT.md).
+/* ─── Shop Admin sidebar (SOP-aligned sections) ───────────────────
+ * The shop-admin sidebar (org role owner|admin). Structured into
+ * collapsible chevron sections — AIRCRAFT, PARTS & INVENTORY,
+ * EXPIRATION, WORK FORCE — plus standalone top/bottom links.
  *
- * Role-driven (persona-aware sidebar, SOP authority):
- *   - Base 6 modules: visible to every shop-side role, mechanics included
- *       Dashboard · Aircraft · Work Orders · Squawks · Logbook · Parts & Inventory
- *   - Shop/Admin only (role owner|admin):
- *       Estimates · Invoices · Reports · Settings
- * `role` is the authenticated user's DB org-role (currentUserRole), not
- * a client toggle.
+ * Section headers carry no href: clicking the row only toggles the
+ * group. AIRCRAFT + PARTS & INVENTORY default to expanded (see the
+ * expandedItems initial state); EXPIRATION + WORK FORCE start collapsed.
+ *
+ * Settings is intentionally NOT in this list — the gear next to the
+ * user's name in the profile footer is the settings entry point.
+ */
+const SHOP_ADMIN_NAV: NavItem[] = [
+  // Top — standalone link, no section.
+  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+
+  // AIRCRAFT section.
+  {
+    icon: Plane,
+    label: "AIRCRAFT",
+    children: [
+      { icon: LayoutDashboard, label: "Dashboard",       href: "/aircraft",             tab: "aircraft-dashboard" },
+      { icon: ClipboardList,   label: "Due List",        href: "/aircraft/due-list",    tab: "aircraft-due-list" },
+      { icon: AlertTriangle,   label: "Squawks",         href: "/squawks",              tab: "aircraft-squawks" },
+      { icon: Calculator,      label: "Estimates",       href: "/estimates",            tab: "aircraft-estimates" },
+      { icon: Wrench,          label: "Work Orders",     href: "/work-orders",          tab: "aircraft-work-orders" },
+      { icon: FileText,        label: "Invoicing",       href: "/invoices",             tab: "aircraft-invoicing" },
+      { icon: BookOpen,        label: "Logbook Entry",   href: "/logbook-entries",      tab: "aircraft-logbook" },
+      { icon: ShieldCheck,     label: "Past Compliance", href: "/compliance",           tab: "aircraft-compliance" },
+    ],
+  },
+
+  // PARTS & INVENTORY section.
+  {
+    icon: Package,
+    label: "PARTS & INVENTORY",
+    children: [
+      { icon: LayoutDashboard, label: "Dashboard",       href: "/parts-inventory",                   tab: "parts-dashboard" },
+      // NOTE: brief wrote /parts-inventory/ai-search; the real page route
+      // is /parts-inventory/ai-parts-search — using the real one so the
+      // working AI Parts Search page is linked, not a 404 / placeholder.
+      { icon: Sparkles,        label: "AI Parts Search", href: "/parts-inventory/ai-parts-search",   tab: "parts-ai-search" },
+      { icon: Archive,         label: "Inventory",       href: "/parts-inventory/inventory",         tab: "parts-inventory" },
+      { icon: Truck,           label: "Vendors",         href: "/parts-inventory/vendors",           tab: "parts-vendors" },
+      { icon: ShoppingCart,    label: "Purchase Orders", href: "/parts-inventory/purchase-orders",   tab: "parts-purchase-orders" },
+      { icon: Receipt,         label: "RX Receipts",     href: "/parts-inventory/rx-receipts",       tab: "parts-rx-receipts" },
+      { icon: RotateCcw,       label: "Returns",         href: "/parts-inventory/returns",           tab: "parts-returns" },
+      { icon: BarChart2,       label: "Analytics",       href: "/parts-inventory/analytics",         tab: "parts-analytics" },
+    ],
+  },
+
+  // DOCUMENTS — standalone link, no sub-items.
+  { icon: FolderOpen, label: "Documents", href: "/documents" },
+
+  // EXPIRATION section (starts collapsed).
+  {
+    icon: ClockIcon,
+    label: "EXPIRATION",
+    children: [
+      { icon: Settings2, label: "Tools",                href: "/expirations/tools",     tab: "expiration-tools" },
+      { icon: FileCheck, label: "Documents & Licenses", href: "/expirations/documents", tab: "expiration-documents" },
+    ],
+  },
+
+  // WORK FORCE section (starts collapsed).
+  {
+    icon: Users,
+    label: "WORK FORCE",
+    children: [
+      { icon: Calendar, label: "Scheduler",    href: "/workforce/scheduler",  tab: "workforce-scheduler" },
+      { icon: Timer,    label: "Time Clock",   href: "/workforce/time-clock", tab: "workforce-time-clock" },
+      { icon: Umbrella, label: "Time Off",     href: "/workforce/time-off",   tab: "workforce-time-off" },
+      { icon: LogIn,    label: "Clock In/Out", href: "/workforce/clock",      tab: "workforce-clock" },
+    ],
+  },
+
+  // Bottom — standalone links, no section.
+  { icon: Store,     label: "Marketplace", href: "/marketplace" },
+  { icon: PieChart,  label: "Reports",     href: "/reports" },
+];
+
+/* ─── Mechanic sidebar nav builder ────────────────────────────────
+ * Mechanic (org role mechanic / non-owner-admin) gets the reduced
+ * maintenance-floor surface fixed in the 2026-05-15 cleanup sprint —
+ * Dashboard, Aircraft, Work Orders, Squawks, Logbook, Parts & Inventory.
+ * Shop-admin (role owner|admin) gets the structured SHOP_ADMIN_NAV.
+ * `role` is the authenticated user's DB org-role (currentUserRole).
  */
 function buildMechanicNav(role: OrgRole | null): NavItem[] {
   const isShopAdmin = role === "owner" || role === "admin";
+  if (isShopAdmin) return SHOP_ADMIN_NAV;
 
-  // Base modules — every shop-side role (SOP 01 / 02 / 03 / 05 / 07 / 09).
-  const items: NavItem[] = [
+  // Mechanic nav — unchanged from the previous sprint.
+  return [
     { icon: LayoutDashboard, label: "Dashboard",   href: "/dashboard" },
     { icon: Plane,           label: "Aircraft",    href: "/aircraft" },
     { icon: ClipboardList,   label: "Work Orders", href: "/work-orders" },
     { icon: AlertTriangle,   label: "Squawks",     href: "/squawks" },
+    { icon: BookOpen,        label: "Logbook",     href: "/logbook-entries" },
+    {
+      icon: Package,
+      label: "Parts & Inventory",
+      href: "/parts-inventory",
+      children: [
+        { icon: LayoutDashboard, label: "Dashboard", tab: "parts-dashboard", href: "/parts-inventory" },
+        { icon: Sparkles, label: "AI Parts Search", tab: "parts-ai-search", href: "/parts-inventory/ai-parts-search" },
+        { icon: Package, label: "Inventory", tab: "parts-inventory", href: "/parts-inventory/inventory" },
+        { icon: Truck, label: "Vendors", tab: "parts-vendors", href: "/parts-inventory/vendors" },
+        { icon: ShoppingCart, label: "Purchase Orders", tab: "parts-purchase-orders", href: "/parts-inventory/purchase-orders" },
+        { icon: Receipt, label: "RX Receipts", tab: "parts-rx-receipts", href: "/parts-inventory/rx-receipts" },
+        { icon: ArrowLeftRight, label: "Returns", tab: "parts-returns", href: "/parts-inventory/returns" },
+        { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
+      ],
+    },
   ];
-
-  // Estimates + Invoices — shop/admin only (SOP 04 / 06; mechanics don't bill).
-  if (isShopAdmin) {
-    items.push({ icon: DollarSign, label: "Estimates", href: "/estimates" });
-    items.push({ icon: Receipt,    label: "Invoices",  href: "/invoices" });
-  }
-
-  // Logbook — every shop-side role (SOP 07).
-  items.push({ icon: BookOpen, label: "Logbook", href: "/logbook-entries" });
-
-  // Parts & Inventory — every shop-side role (SOP 09).
-  items.push({
-    icon: Package,
-    label: "Parts & Inventory",
-    href: "/parts-inventory",
-    children: [
-      { icon: LayoutDashboard, label: "Dashboard", tab: "parts-dashboard", href: "/parts-inventory" },
-      { icon: Sparkles, label: "AI Parts Search", tab: "parts-ai-search", href: "/parts-inventory/ai-parts-search" },
-      { icon: Package, label: "Inventory", tab: "parts-inventory", href: "/parts-inventory/inventory" },
-      { icon: Truck, label: "Vendors", tab: "parts-vendors", href: "/parts-inventory/vendors" },
-      { icon: ShoppingCart, label: "Purchase Orders", tab: "parts-purchase-orders", href: "/parts-inventory/purchase-orders" },
-      { icon: Receipt, label: "RX Receipts", tab: "parts-rx-receipts", href: "/parts-inventory/rx-receipts" },
-      { icon: ArrowLeftRight, label: "Returns", tab: "parts-returns", href: "/parts-inventory/returns" },
-      { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
-    ],
-  });
-
-  // Reports + Settings — shop/admin only (SOP 08).
-  if (isShopAdmin) {
-    items.push({ icon: FileText, label: "Reports",  href: "/reports" });
-    items.push({ icon: Settings, label: "Settings", href: "/settings" });
-  }
-
-  return items;
 }
 
 /* ─── Tour key helper ────────────────────────────────────────── */
@@ -229,7 +286,10 @@ function AppLayoutInner({
   const [activeOrgName, setActiveOrgName] = useState<string | null>(null);
 
   const [collapsed,         setCollapsed]         = useState(false);
-  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Parts & Inventory", "Mechanic Portal"]));
+  // Default-expanded collapsible sections. "AIRCRAFT" + "PARTS & INVENTORY"
+  // are the shop-admin sidebar sections that open on load; "EXPIRATION" and
+  // "WORK FORCE" are intentionally absent so they start collapsed.
+  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Parts & Inventory", "Mechanic Portal", "AIRCRAFT", "PARTS & INVENTORY"]));
   const [rolePickerOpen,    setRolePickerOpen]    = useState(false);
   // Phase 13.5 — collapsible category state, persisted to localStorage per user.
   const [profileId,           setProfileId]           = useState<string | null>(null);
@@ -456,7 +516,16 @@ function AppLayoutInner({
   // collapsible header. Items in categories the persona shouldn't see are
   // dropped entirely. The active route's category is auto-expanded so the
   // user can see where they are.
-  const categorizedNav = groupNavItemsByCategory(navItems, persona);
+  //
+  // Shop-admin (persona shop + org role owner|admin) uses the structured
+  // SHOP_ADMIN_NAV whose sections ARE collapsible NavItems-with-children —
+  // so it bypasses the category layer entirely (a single label-less group),
+  // and the per-item chevron sections do the grouping. Mechanic, owner, and
+  // admin personas keep the existing category grouping untouched.
+  const isShopAdminNav = persona === "shop" && (currentUserRole === "owner" || currentUserRole === "admin");
+  const categorizedNav = isShopAdminNav
+    ? [{ category: { id: "shop-admin-main", label: "" } as any, items: navItems }]
+    : groupNavItemsByCategory(navItems, persona);
   const activeCategoryId = (() => {
     for (const group of categorizedNav) {
       for (const item of group.items) {
@@ -653,13 +722,17 @@ function AppLayoutInner({
             // Collapsed sidebar mode: render items directly without category
             // headers (the icons-only mode wouldn't have room for headers).
             // Otherwise: render a collapsible category header with chevron.
+            // A label-less group (shop-admin flat group) has no category
+            // header and is always shown — its own NavItem chevron sections
+            // provide the grouping.
             const isCatExpanded =
               collapsed
+              || !group.category.label
               || expandedCategories.has(group.category.id)
               || activeCategoryId === group.category.id;
             return (
               <div key={group.category.id}>
-                {!collapsed && (
+                {!collapsed && group.category.label && (
                   <button
                     onClick={() => toggleCategory(group.category.id)}
                     aria-expanded={isCatExpanded}
@@ -692,7 +765,7 @@ function AppLayoutInner({
               return (
                 <div key={item.label} data-tour={`nav-${navKey}`}>
                   <button
-                    onClick={() => collapsed ? router.push(item.href!) : toggleExpand(item.label)}
+                    onClick={() => { if (collapsed && item.href) { router.push(item.href); } else { toggleExpand(item.label); } }}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors ${
                       parentActive
                         ? "bg-sidebar-accent text-white"
@@ -718,7 +791,7 @@ function AppLayoutInner({
                         const childKey = navKeyForLabel(child.label);
                         return (
                           <Link
-                            key={child.tab}
+                            key={child.href ?? child.tab}
                             data-tour={`nav-${childKey}`}
                             href={child.href ?? `/mechanic?tab=${child.tab}`}
                             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] transition-colors ${
