@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { createServiceSupabase } from '@/lib/supabase/server'
 import { getOrganizationBillingStatus } from '@/lib/billing/gate'
 import { PERSONA_CONFIG, isPersona } from '@/lib/persona/config'
 import { VIEW_AS_COOKIE } from '@/lib/persona/route-guard'
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
   const target = rawTarget as Persona
 
   // Resolve session — redirects to /login if not authenticated.
-  const { supabase, user, profile, membership } = await requireAppServerSession()
+  const { user, profile, membership } = await requireAppServerSession()
   const isPlatformAdmin = profile?.is_platform_admin === true
 
   // 1. Admin target: only platform admins may select 'admin'.
@@ -104,9 +105,18 @@ export async function POST(req: NextRequest) {
   }
 
   // PRIMARY write — organization_memberships.persona for the active org.
-  // `.select()` so we can detect a silent RLS no-op (0 rows updated → the
-  // switch would otherwise appear to succeed while changing nothing).
-  const { data: updatedRows, error: membershipError } = await supabase
+  //
+  // Use the SERVICE client, not the user-scoped one: the membership_update
+  // RLS policy (migration 011) only allows org owners/admins to UPDATE
+  // organization_memberships, so a mechanic/pilot-role user updating their
+  // OWN persona would be silently RLS-blocked (0 rows). Changing one's own
+  // UI persona is a safe self-service action — and we scope the write
+  // strictly to the authenticated user's own row in their own active org,
+  // so the service client cannot be used to touch anyone else.
+  //
+  // `.select()` still guards against a 0-row no-op (e.g. a stale org id).
+  const service = createServiceSupabase()
+  const { data: updatedRows, error: membershipError } = await service
     .from('organization_memberships')
     .update({ persona: target })
     .eq('user_id', user.id)
@@ -133,8 +143,8 @@ export async function POST(req: NextRequest) {
 
   // SECONDARY (fallback) write — user_profiles.persona. Best-effort; a
   // failure here never blocks the switch since the membership write above
-  // is authoritative for the active org.
-  const { error: profileError } = await supabase
+  // is authoritative for the active org. Service client for consistency.
+  const { error: profileError } = await service
     .from('user_profiles')
     .update({ persona: target })
     .eq('id', user.id)
