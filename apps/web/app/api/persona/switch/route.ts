@@ -77,9 +77,12 @@ export async function POST(req: NextRequest) {
   // semantics) so the admin keeps their underlying admin privileges
   // while previewing the customer surface.
   //
-  // For non-admins we write user_profiles.persona so the switch survives
-  // logout/session restore. Entitlement check guards against a shop user
-  // forging an owner view they haven't paid for.
+  // For non-admins we write organization_memberships.persona for the ACTIVE
+  // org — that is the column resolvePersona() reads first, so it is what
+  // actually drives getCurrentPersona(), /api/me/orgs, the sidebar, and the
+  // route guards. user_profiles.persona is also written as a fallback for
+  // future orgs whose membership persona is still null. Entitlement check
+  // guards against a shop user forging an owner view they haven't paid for.
   if (!isPlatformAdmin) {
     const status = await getOrganizationBillingStatus(membership.organization_id)
     const entitlement = status[target]
@@ -94,19 +97,35 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Durable preference. Use the same Supabase client that's already
-    // bound to this request so RLS sees the right auth context.
-    const { error: updateError } = await supabase
-      .from('user_profiles')
+    // PRIMARY write — organization_memberships.persona for the active org.
+    // resolvePersona() (lib/persona/config.ts) reads this column FIRST, so
+    // this is the write that actually changes the resolved persona. Writing
+    // only user_profiles.persona (the behavior before 2026-05-15) left the
+    // switch dead whenever membership.persona was non-null — the switcher
+    // appeared to do nothing and the sidebar stayed pinned to the old persona.
+    const { error: membershipError } = await supabase
+      .from('organization_memberships')
       .update({ persona: target })
-      .eq('id', user.id)
+      .eq('user_id', user.id)
+      .eq('organization_id', membership.organization_id)
 
-    if (updateError) {
-      console.error('[api/persona/switch] user_profiles update failed:', updateError)
+    if (membershipError) {
+      console.error('[api/persona/switch] organization_memberships update failed:', membershipError)
       return NextResponse.json(
         { error: 'Failed to persist persona switch' },
         { status: 500 },
       )
+    }
+
+    // SECONDARY (fallback) write — user_profiles.persona. Best-effort; a
+    // failure here never blocks the switch since the membership write above
+    // is authoritative for the active org.
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .update({ persona: target })
+      .eq('id', user.id)
+    if (profileError) {
+      console.warn('[api/persona/switch] user_profiles fallback update failed (non-fatal):', profileError)
     }
 
     // Clear any lingering view-as cookie — a non-admin's effective persona

@@ -545,6 +545,19 @@ function AppLayoutInner({
       const json = (await res.json()) as { homeRoute?: string };
       const target = json.homeRoute ?? (p === "owner" ? "/my-aircraft" : p === "shop" ? "/workflow" : "/admin");
 
+      // Prime the local persona cache BEFORE the full-page nav so the
+      // post-reload first paint already shows the new persona's sidebar —
+      // otherwise AppContext briefly rehydrates from the stale ui_persona
+      // value before the /api/me/orgs fetch lands.
+      try {
+        if (p === "owner" || p === "shop") {
+          window.localStorage.setItem("ui_persona", p);
+          document.cookie = `ui_persona=${p}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+        }
+      } catch {
+        // localStorage unavailable — non-fatal, the server fetch still corrects it.
+      }
+
       // Full-page navigation. Drops the entire client tree (and any
       // stale persona-keyed caches with it) and forces the next render
       // to be fully server-driven with the new persona.
