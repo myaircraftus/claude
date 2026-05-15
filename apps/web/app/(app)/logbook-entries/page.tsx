@@ -15,6 +15,7 @@ export default async function LogbookEntriesPage() {
       .select(`
         id, aircraft_id, work_order_id, entry_type, entry_date, status, signed_at, created_at,
         hobbs_in, hobbs_out, tach_time, total_time, description,
+        mechanic_name, mechanic_cert_number,
         logbook_type, target_logbook, source_type, source_id, source_references,
         ai_review_status, owner_visible, revision_number, signature_certificate_id,
         aircraft:aircraft_id (id, tail_number, make, model),

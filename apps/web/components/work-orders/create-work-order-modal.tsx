@@ -876,7 +876,10 @@ export function CreateWorkOrderModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
+      // Full-screen wizard overlay (SOP 05). Opaque backdrop + high z-index so
+      // it completely covers the page behind it — previously a translucent
+      // bg-black/50 scrim let the Dashboard show through.
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950 p-3 sm:p-4"
       onClick={onClose}
     >
       <form

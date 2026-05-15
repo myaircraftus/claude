@@ -63,6 +63,19 @@ function labelize(value: string | null | undefined) {
   return String(value ?? '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
 }
 
+/** Format a logbook entry date as MM/DD/YYYY (SOP 07). Handles a plain
+ *  YYYY-MM-DD date column without timezone shifting, and ISO timestamps. */
+function formatEntryDate(date: string | null | undefined): string {
+  if (!date) return '—'
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date))
+  if (ymd) return `${ymd[2]}/${ymd[3]}/${ymd[1]}`
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return '—'
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${mm}/${dd}/${d.getFullYear()}`
+}
+
 export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }: Props) {
   const router = useTenantRouter()
   const [query, setQuery] = useState('')
@@ -257,8 +270,20 @@ export function LogbookWorkflowBoard({ entries, workOrders, aircraft, profile }:
                   {filteredEntries.slice(0, 7).map(entry => (
                     <tr key={entry.id} className="hover:bg-blue-50">
                       <td className="px-3 py-3">
-                        <Link href={`/logbook-entries/${entry.id}`} className="font-mono text-xs font-semibold text-blue-700">
-                          {entry.id.slice(0, 8)}
+                        {/* Human-readable entry label (SOP 07) — entry type +
+                            date + signer — instead of a raw UUID fragment. */}
+                        <Link href={`/logbook-entries/${entry.id}`} className="block">
+                          <span className="text-xs font-semibold text-blue-700">
+                            {labelize(entry.entry_type) || 'Logbook Entry'}
+                          </span>
+                          <span className="block text-[11px] text-slate-500">
+                            {formatEntryDate(entry.entry_date)}
+                            {entry.mechanic_name
+                              ? ` · ${entry.mechanic_name}`
+                              : entry.mechanic_cert_number
+                                ? ` · ${entry.mechanic_cert_number}`
+                                : ''}
+                          </span>
                         </Link>
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-700">{entry.aircraft?.tail_number ?? 'Unassigned'}</td>

@@ -117,6 +117,12 @@ Resolve this to the exact part number(s) for this specific aircraft. If the airc
 
   try {
     const start = Date.now()
+    // Bounded timeout + single retry. The openai SDK defaults to a 10-minute
+    // request timeout — without this cap, a slow/hung OpenAI response blows the
+    // /api/parts/search route's maxDuration (30s), the serverless function is
+    // killed mid-response, and the browser fetch rejects with "Failed to
+    // fetch". On timeout this throws → the catch below returns null → the
+    // search still runs with the raw query (just no AI optimization).
     const completion = await openai.chat.completions.create({
       model,
       temperature: 0.1,
@@ -126,7 +132,7 @@ Resolve this to the exact part number(s) for this specific aircraft. If the airc
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
       ],
-    })
+    }, { timeout: 12000, maxRetries: 1 })
 
     const raw = completion.choices[0]?.message?.content
     if (!raw) {

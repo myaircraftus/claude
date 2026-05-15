@@ -107,6 +107,10 @@ export function PartSearchPanel({ aircraft, initialAircraftId, onOrderCreated }:
     e.preventDefault()
     if (!query.trim()) return
     setBusy(true); setError(null); setResponse(null)
+    // Client-side timeout backstop so a hung request fails with a clear
+    // message instead of a bare browser "Failed to fetch" after a long wait.
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 32000)
     try {
       const resp = await fetch('/api/parts/search', {
         method: 'POST',
@@ -115,13 +119,30 @@ export function PartSearchPanel({ aircraft, initialAircraftId, onOrderCreated }:
           query: query.trim(),
           aircraft_id: aircraftId || null,
         }),
+        signal: controller.signal,
       })
-      const j = await resp.json()
-      if (!resp.ok) throw new Error(j.error ?? 'Search failed')
+      // Parse defensively — a crashed/timed-out route can return non-JSON
+      // (an HTML error page), which would otherwise throw a cryptic
+      // "Unexpected token" instead of a useful message.
+      let j: any = null
+      try { j = await resp.json() } catch { j = null }
+      if (!resp.ok) {
+        throw new Error(j?.error ?? `Search failed (HTTP ${resp.status})`)
+      }
+      if (!j) throw new Error('The parts search service returned an unreadable response. Please retry.')
       setResponse(j)
     } catch (err: any) {
-      setError(err?.message ?? 'Search failed')
+      if (err?.name === 'AbortError') {
+        setError('Parts search timed out. Try a more specific part name, or retry in a moment.')
+      } else if (err instanceof TypeError) {
+        // fetch() itself rejected — network drop, or the route was killed
+        // mid-response (e.g. a server-side timeout).
+        setError('Could not reach the parts search service. Check your connection and retry.')
+      } else {
+        setError(err?.message ?? 'Search failed')
+      }
     } finally {
+      clearTimeout(timeoutId)
       setBusy(false)
     }
   }

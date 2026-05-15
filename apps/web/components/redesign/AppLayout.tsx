@@ -104,51 +104,43 @@ const ownerNavItems: NavItem[] = [
   { icon: UserRound,       label: "Users",            href: "/settings" },
 ];
 
-/* ─── Mechanic nav builder ───────────────────────────────────── */
-// Flat nav, no "Mechanic Portal" wrapper, no duplicate Dashboard. The
-// mechanic dashboard (/mechanic?tab=dashboard) IS the dashboard for the
-// mechanic persona — there is no separate /dashboard surface anymore.
-//   Dashboard · Aircraft · Workflow · Parts · Logbook · Documents · Marketplace
-//
-// Workflow used to live inside the /maintenance hub as a tab. That hub
-// has been retired (clicking a work order goes straight to its detail
-// page now), so Workflow gets promoted to its own top-level route.
-function buildMechanicNav(perm: MechanicPermissions, role: OrgRole | null): NavItem[] {
-  const items: NavItem[] = [];
-
-  // Persona nav split (SOP §0.2 — persona-aware sidebar). Owners + admins
-  // get the full shop surface; mechanics and other non-shop roles get the
-  // reduced maintenance-floor surface — no Estimates, Invoices, Reports, or
-  // the Settings/workforce block. `role` is the authenticated user's DB
-  // org-role (organization_memberships.role via currentUserRole), never a
-  // client-side toggle or switcher.
+/* ─── Shop sidebar nav builder ───────────────────────────────────
+ * The shop-side sidebar. Its item set is fixed by the nine SOPs in
+ * docs/sop/ — every item below maps to a SOP module. Do NOT add nav
+ * items that no SOP backs (the speculative Codex items — Compliance,
+ * Inspections, Continued, Meters, Locations, Expirations, Tools, the
+ * Workforce/Time-clock block, Marketplace, Taxonomy — were removed in
+ * the 2026-05-15 UI cleanup sprint; see docs/UI_FIX_REPORT.md).
+ *
+ * Role-driven (persona-aware sidebar, SOP authority):
+ *   - Base 6 modules: visible to every shop-side role, mechanics included
+ *       Dashboard · Aircraft · Work Orders · Squawks · Logbook · Parts & Inventory
+ *   - Shop/Admin only (role owner|admin):
+ *       Estimates · Invoices · Reports · Settings
+ * `role` is the authenticated user's DB org-role (currentUserRole), not
+ * a client toggle.
+ */
+function buildMechanicNav(role: OrgRole | null): NavItem[] {
   const isShopAdmin = role === "owner" || role === "admin";
 
-  // Dashboard is the shop command center. The old AI Command Center
-  // (/workspace) redirects here; the dashboard launches official module
-  // workflows instead of becoming its own source of record.
-  if (perm.dashboard || perm.aiCommandCenter) {
-    items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" });
-  }
-  if (perm.aircraft) {
-    items.push({ icon: Plane, label: "Aircraft", href: "/aircraft" });
-  }
-  if (perm.squawks) {
-    items.push({ icon: AlertTriangle, label: "Squawks", href: "/squawks" });
-  }
-  if (perm.workOrders) {
-    items.push({ icon: ClipboardList, label: "Work Orders", href: "/work-orders" });
-  }
-  // Estimates + Invoices — shop/admin only (mechanics don't see billing).
-  if (perm.estimates && isShopAdmin) {
+  // Base modules — every shop-side role (SOP 01 / 02 / 03 / 05 / 07 / 09).
+  const items: NavItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard",   href: "/dashboard" },
+    { icon: Plane,           label: "Aircraft",    href: "/aircraft" },
+    { icon: ClipboardList,   label: "Work Orders", href: "/work-orders" },
+    { icon: AlertTriangle,   label: "Squawks",     href: "/squawks" },
+  ];
+
+  // Estimates + Invoices — shop/admin only (SOP 04 / 06; mechanics don't bill).
+  if (isShopAdmin) {
     items.push({ icon: DollarSign, label: "Estimates", href: "/estimates" });
+    items.push({ icon: Receipt,    label: "Invoices",  href: "/invoices" });
   }
-  if (perm.invoices && isShopAdmin) {
-    items.push({ icon: Receipt, label: "Invoices", href: "/invoices" });
-  }
-  if (perm.logbook) {
-    items.push({ icon: BookOpen, label: "Logbook", href: "/logbook-entries" });
-  }
+
+  // Logbook — every shop-side role (SOP 07).
+  items.push({ icon: BookOpen, label: "Logbook", href: "/logbook-entries" });
+
+  // Parts & Inventory — every shop-side role (SOP 09).
   items.push({
     icon: Package,
     label: "Parts & Inventory",
@@ -164,29 +156,11 @@ function buildMechanicNav(perm: MechanicPermissions, role: OrgRole | null): NavI
       { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
     ],
   });
-  // Reports — shop/admin only.
-  if (isShopAdmin) {
-    items.push({ icon: FileText, label: "Reports", href: "/reports" });
-  }
 
-  // Settings + workforce/ops block — shop/admin only.
-  if (perm.settingsFull && isShopAdmin) {
+  // Reports + Settings — shop/admin only (SOP 08).
+  if (isShopAdmin) {
+    items.push({ icon: FileText, label: "Reports",  href: "/reports" });
     items.push({ icon: Settings, label: "Settings", href: "/settings" });
-    items.push({ icon: GitBranch, label: "Taxonomy", href: "/settings/taxonomy" });
-    items.push({ icon: ClipboardCheck, label: "Compliance",  href: "/compliance" });
-    items.push({ icon: CalendarClock,  label: "Expirations", href: "/documents/expiring" });
-    items.push({ icon: ClipboardList,  label: "Inspections", href: "/inspections" });
-    items.push({ icon: Bookmark,       label: "Continued",   href: "/continued" });
-    items.push({ icon: Mailbox,        label: "Approvals",   href: "/approvals" });
-    items.push({ icon: Wrench,         label: "Tools",       href: "/tools" });
-    items.push({ icon: Timer,          label: "Time clock",  href: "/time-clock" });
-    // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
-    items.push({ icon: CalendarDays,   label: "Scheduler",   href: "/scheduler" });
-    items.push({ icon: CalendarOff,    label: "Time Off",    href: "/time-off" });
-    items.push({ icon: ClockIcon,      label: "Clock In/Out", href: "/clock" });
-    items.push({ icon: Gauge,          label: "Meters",      href: "/meters" });
-    items.push({ icon: MapPin,         label: "Locations",   href: "/locations" });
-    items.push({ icon: Store,          label: "Marketplace", href: "/marketplace" });
   }
 
   return items;
@@ -467,7 +441,7 @@ function AppLayoutInner({
       ? adminNavItems
       : persona === "owner"
         ? ownerNavBase
-        : buildMechanicNav(activeMechanic.permissions, currentUserRole);
+        : buildMechanicNav(currentUserRole);
 
   // Spec 5.8 — filter nav by PersonaConfig.hiddenModules. Items without
   // a `module` key are always visible (back-compat: existing items don't
