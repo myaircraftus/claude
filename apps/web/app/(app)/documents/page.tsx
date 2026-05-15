@@ -1,7 +1,6 @@
 // SHOP DOCUMENTS: Part catalogs, aircraft manuals, service manuals,
 // Avionics manuals, service bulletins. Mechanic/shop access only.
 import { redirect } from 'next/navigation'
-import { cookies } from 'next/headers'
 import Link from '@/components/shared/tenant-link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { docTypesForPersona, type Persona } from '@/lib/documents/persona-scope'
@@ -448,12 +447,18 @@ export default async function DocumentsPage({
     )
     .eq('organization_id', orgId)
 
-  // Persona scope — the AppContext mirrors the active UI persona to a cookie
-  // (ui_persona). Mechanic persona only sees shop reference docs; owner sees
-  // everything. We default to owner if the cookie is missing so the page
-  // doesn't accidentally hide records on first load.
-  const personaCookie = cookies().get('ui_persona')?.value
-  const activePersona: Persona = personaCookie === 'shop' ? 'shop' : 'owner'
+  // Persona scope — use the AUTHORITATIVE server-resolved persona
+  // (getCurrentPersona, captured as phase13Persona above), NOT the
+  // ui_persona cookie. The cookie is written by a client-side effect, so
+  // on first paint / right after a persona switch it can be stale or
+  // missing — which previously defaulted a SHOP user to owner scope and
+  // wrongly showed them the owner's aircraft-records lockbox (logbooks,
+  // ADs, 337s, registration, insurance).
+  //
+  // Shop persona = mechanic reference only (maintenance/service manuals,
+  // parts catalogs, service bulletins, POH/AFM). Owner + admin see the
+  // full set including the aircraft lockbox.
+  const activePersona: Persona = phase13Persona === 'shop' ? 'shop' : 'owner'
   if (activePersona === 'shop') {
     query = query.in('doc_type', docTypesForPersona('shop'))
   }
@@ -590,7 +595,9 @@ export default async function DocumentsPage({
           <div>
             <h1 className="text-2xl font-bold text-foreground">Documents</h1>
             <p className="text-muted-foreground text-sm">
-              Your organization&apos;s document library
+              {activePersona === 'shop'
+                ? 'Maintenance and service manuals, parts catalogs, service bulletins, and shop reference material.'
+                : 'Your aircraft records lockbox — logbooks, ADs, 337s/8130s, registration, insurance, and manuals.'}
             </p>
           </div>
 

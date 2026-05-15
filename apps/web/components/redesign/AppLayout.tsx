@@ -102,8 +102,11 @@ const OWNER_NAV: NavItem[] = [
     ],
   },
 
-  // DOCUMENTS — standalone link, no sub-items (owner personal lockbox).
-  { icon: FolderOpen, label: "Documents", href: "/owner-documents" },
+  // DOCUMENTS — the shared /documents page is persona-scoped
+  // (lib/documents/persona-scope): owner persona sees the full aircraft-
+  // records lockbox + manuals; shop persona sees only mechanic reference
+  // docs. Owners upload the lockbox; the shop can only upload manuals.
+  { icon: FolderOpen, label: "Documents", href: "/documents" },
 
   // ECONOMICS section (default expanded).
   {
