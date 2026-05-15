@@ -15,6 +15,7 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { recomputeCompliance } from '@/lib/compliance/recompute'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type {
   OrgRole,
   ComplianceItemType,
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
       requires_rii: Boolean(body.requires_rii),
       notes: body.notes ?? null,
       created_by: ctx.user.id,
+      ...buildClassificationPatch(body),
     })
     .select('*')
     .single()

@@ -12,7 +12,7 @@ export default async function EstimatesPage() {
   const { data: estimates } = await supabase
     .from('estimates')
     .select(`
-      id, estimate_number, status, total, valid_until, service_type, created_at, updated_at,
+      id, estimate_number, status, total, valid_until, service_type, deposit_required, deposit_amount, approval_status, created_at, updated_at,
       aircraft:aircraft_id (id, tail_number, make, model),
       customer:customer_id (id, name, company)
     `)

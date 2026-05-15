@@ -18,6 +18,42 @@ function inferCategory(text: string) {
   return 'General'
 }
 
+function inferSuggestedTaxonomy(text: string) {
+  const normalized = text.toLowerCase()
+  const match = (ata: string, jasc: string, confidence: 'medium' | 'low' = 'medium') => ({
+    suggested_ata_code: ata,
+    suggested_jasc_code: jasc,
+    classification_source: 'suggested',
+    classification_confidence: confidence,
+    classification_status: 'suggested',
+  })
+
+  if (/(brake|caliper|pedal|rotor|disc)/.test(normalized)) return match('32', '3240')
+  if (/(tire|wheel|gear|strut)/.test(normalized)) return match('32', '3200', 'low')
+  if (/(transponder)/.test(normalized)) return match('34', '3452')
+  if (/(radio|comm|intercom|audio panel)/.test(normalized)) return match('23', '2300')
+  if (/(battery|charger)/.test(normalized)) return match('24', '2432')
+  if (/(alternator|generator)/.test(normalized)) return match('24', '2434')
+  if (/(wire|wiring|electrical short|bus|circuit breaker)/.test(normalized)) return match('24', '2497', 'low')
+  if (/(electrical|voltage|starter)/.test(normalized)) return match('24', '2400', 'low')
+  if (/(fuel|tank|cap|selector|leak)/.test(normalized)) return match('28', '2800', 'low')
+  if (/(spark plug|igniter)/.test(normalized)) return match('74', '7421')
+  if (/(magneto|mag )/.test(normalized)) return match('74', '7414')
+  if (/(ignition)/.test(normalized)) return match('74', '7400', 'low')
+  if (/(oil pressure|oil temp|oil temperature|oil leak|oil filter|oil)/.test(normalized)) return match('79', '7900', 'low')
+  if (/(prop governor)/.test(normalized)) return match('61', '6122')
+  if (/(prop|propeller)/.test(normalized)) return match('61', '6100', 'low')
+  if (/(engine|cylinder|rough running|compress)/.test(normalized)) return match('71', '7100', 'low')
+
+  return {
+    suggested_ata_code: null,
+    suggested_jasc_code: null,
+    classification_source: 'suggested',
+    classification_confidence: 'unknown',
+    classification_status: 'unclassified',
+  }
+}
+
 function inferSeverity(text: string, grounded: boolean): StructuredSeverity {
   const normalized = text.toLowerCase()
   if (grounded) return 'Critical'
@@ -41,6 +77,7 @@ function heuristicStructure(text: string, grounded: boolean) {
     severity,
     grounded: grounded || severity === 'Critical',
     structuredBy: 'heuristic',
+    ...inferSuggestedTaxonomy(trimmed),
   }
 }
 
@@ -105,6 +142,7 @@ export async function POST(req: NextRequest) {
       severity,
       grounded: Boolean((parsed?.grounded ?? grounded) || severity === 'Critical'),
       structuredBy: 'ai',
+      ...inferSuggestedTaxonomy(text),
     })
   } catch (error) {
     console.error('Squawk structure failed, falling back to heuristics:', error)

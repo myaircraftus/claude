@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { writeInvoiceAudit } from '@/lib/invoices/workflow'
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       *,
       line_items:invoice_line_items (*),
       customer:customer_id (id, name, email, billing_address),
+      payee:payee_id (id, name, email, billing_address),
       aircraft:aircraft_id (id, tail_number),
       organization:organization_id (id, name)
     `)
@@ -34,7 +36,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
 
   const orgName = (invoice.organization as any)?.name ?? 'Your MRO'
-  const customer = invoice.customer as any
+  const customer = ((invoice as any).payee ?? invoice.customer) as any
   const aircraft = invoice.aircraft as any
   const lineItems = ((invoice.line_items ?? []) as any[]).sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -263,7 +265,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           <p class="org-name">${orgName}</p>
         </div>
         <div class="invoice-meta">
-          <p>Issue Date: <strong>${formatDate(invoice.invoice_date)}</strong></p>
+          <p>Issue Date: <strong>${formatDate(invoice.issue_date ?? invoice.invoice_date)}</strong></p>
           <p>Due Date: <strong>${formatDate(invoice.due_date)}</strong></p>
           <p>Terms: <strong>${invoice.payment_terms ?? 'Net 30'}</strong></p>
           <p>Status: <strong>${(invoice.status ?? 'draft').replace('_', ' ').toUpperCase()}</strong></p>
@@ -315,6 +317,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
             <td class="label">Discount</td>
             <td class="value discount">-${formatCurrency(invoice.discount_amount)}</td>
           </tr>` : ''}
+          ${invoice.deposit_credit_total > 0 ? `
+          <tr>
+            <td class="label">Deposit/Credit Applied</td>
+            <td class="value discount">-${formatCurrency(invoice.deposit_credit_total)}</td>
+          </tr>` : ''}
           <tr class="total-row">
             <td>Total Due</td>
             <td class="value">${formatCurrency(invoice.balance_due ?? invoice.total)}</td>
@@ -337,6 +344,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   </html>`
 
   const filename = `invoice-${invoice.invoice_number ?? params.id}.html`
+
+  await supabase.from('invoice_share_events').insert({
+    organization_id: orgId,
+    invoice_id: params.id,
+    channel: 'pdf',
+    recipient: null,
+    sent_by: ctx.user.id,
+    delivery_status: 'sent',
+    metadata: { filename },
+  })
+
+  await writeInvoiceAudit(supabase, req, {
+    organizationId: orgId,
+    userId: ctx.user.id,
+    action: 'invoice_pdf_downloaded',
+    invoiceId: params.id,
+    aircraftId: invoice.aircraft_id,
+    metadata: { filename },
+  })
 
   return new NextResponse(html, {
     status: 200,

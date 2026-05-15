@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { describeEstimateTotal, sendOwnerApprovalEmail } from '@/lib/approvals'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import {
+  normalizeEstimateLineType,
+  normalizeEstimateStatus,
+  statusRequiresAircraft,
+  statusRequiresOwner,
+  writeEstimateAudit,
+  writeEstimateTimeline,
+} from '@/lib/estimates/workflow'
 import { createServerSupabase } from '@/lib/supabase/server'
-
-function normalizeEstimateStatus(value: unknown): string {
-  if (typeof value !== 'string') return 'draft'
-  const normalized = value.trim().toLowerCase()
-  if (['draft', 'sent', 'approved', 'rejected', 'converted'].includes(normalized)) {
-    return normalized
-  }
-  return 'draft'
-}
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 function toLineItems(
   organizationId: string,
@@ -45,7 +45,22 @@ function toLineItems(
     vendor: line.vendor ?? null,
     condition: line.condition ?? null,
     line_status: line.line_status ?? line.status ?? null,
+    source_type: line.source_type ?? null,
+    source_id: line.source_id ?? null,
+    source_label: line.source_label ?? line.source ?? 'Manual',
+    billable: line.billable ?? true,
+    owner_visible: line.owner_visible ?? true,
+    inventory_part_id: line.inventory_part_id ?? null,
+    inventory_status: line.inventory_status ?? null,
+    tax_code: line.tax_code ?? null,
+    amount_snapshot:
+      typeof line.amount === 'number'
+        ? line.amount
+        : typeof line.line_total === 'number'
+          ? line.line_total
+          : null,
     sort_order: index,
+    ...buildClassificationPatch(line),
   }))
 }
 
@@ -69,7 +84,10 @@ export async function GET(req: NextRequest) {
       *,
       aircraft:aircraft_id (id, tail_number, make, model, year),
       customer:customer_id (id, name, email, company),
-      line_items:estimate_line_items (*)
+      line_items:estimate_line_items (*),
+      ai_drafts:estimate_ai_drafts (*),
+      approvals:owner_approvals (*),
+      deposits:deposit_payments (*)
     `,
       { count: 'exact' }
     )
@@ -124,6 +142,13 @@ export async function POST(req: NextRequest) {
   }
 
   const status = shouldAutoSendForApproval ? 'sent' : requestedStatus
+  if (statusRequiresAircraft(status) && !aircraft) {
+    return NextResponse.json({ error: 'Aircraft is required before official estimate send or approval' }, { status: 400 })
+  }
+  if (statusRequiresOwner(status) && !resolvedCustomerId) {
+    return NextResponse.json({ error: 'Owner/customer is required before official estimate send or approval' }, { status: 400 })
+  }
+
   const laborTotal = Number(body.labor_total ?? 0)
   const partsTotal = Number(body.parts_total ?? 0)
   const outsideTotal = Number(body.outside_services_total ?? 0)
@@ -144,6 +169,23 @@ export async function POST(req: NextRequest) {
       created_by: ctx.user.id,
       mechanic_name: body.mechanic_name ?? null,
       status,
+      source_type: body.source_type ?? body.source_context ?? 'manual',
+      source_id: body.source_id ?? null,
+      estimate_type: body.estimate_type ?? body.service_type ?? null,
+      price_book_id: body.price_book_id ?? null,
+      tax_profile_id: body.tax_profile_id ?? null,
+      terms: body.terms ?? null,
+      deposit_required: Boolean(body.deposit_required),
+      deposit_amount: Number(body.deposit_amount ?? 0),
+      deposit_due_policy: body.deposit_due_policy ?? null,
+      deposit_status: body.deposit_required
+        ? body.deposit_status ?? 'requested'
+        : body.deposit_status ?? 'not_required',
+      approval_status:
+        body.approval_status ??
+        (status === 'sent' || status === 'awaiting_approval' ? 'sent' : status === 'ready_to_send' ? 'ready' : 'not_requested'),
+      owner_approval_summary: body.owner_approval_summary ?? null,
+      ai_review_status: body.ai_review_status ?? (body.ai_draft ? 'draft' : 'not_started'),
       service_type: body.service_type ?? null,
       assumptions: body.assumptions ?? null,
       internal_notes: body.internal_notes ?? null,
@@ -154,6 +196,7 @@ export async function POST(req: NextRequest) {
       total,
       valid_until: body.valid_until ?? null,
       linked_work_order_id: body.linked_work_order_id ?? null,
+      converted_work_order_id: body.converted_work_order_id ?? body.linked_work_order_id ?? null,
       linked_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
     })
     .select()
@@ -166,10 +209,14 @@ export async function POST(req: NextRequest) {
   const laborLines = Array.isArray(body.labor_lines) ? body.labor_lines : []
   const partsLines = Array.isArray(body.parts_lines) ? body.parts_lines : []
   const outsideLines = Array.isArray(body.outside_services) ? body.outside_services : []
+  const supplyLines = Array.isArray(body.supply_lines) ? body.supply_lines : []
+  const feeLines = Array.isArray(body.fee_lines) ? body.fee_lines : []
   const lineItems = [
-    ...toLineItems(organizationId, estimate.id, laborLines.map((line: any) => ({ ...line, item_type: 'labor' }))),
-    ...toLineItems(organizationId, estimate.id, partsLines.map((line: any) => ({ ...line, item_type: 'part' }))),
-    ...toLineItems(organizationId, estimate.id, outsideLines.map((line: any) => ({ ...line, item_type: 'outside_service' }))),
+    ...toLineItems(organizationId, estimate.id, laborLines.map((line: any) => ({ ...line, item_type: normalizeEstimateLineType(line.item_type ?? 'labor') }))),
+    ...toLineItems(organizationId, estimate.id, partsLines.map((line: any) => ({ ...line, item_type: normalizeEstimateLineType(line.item_type ?? 'part') }))),
+    ...toLineItems(organizationId, estimate.id, outsideLines.map((line: any) => ({ ...line, item_type: normalizeEstimateLineType(line.item_type ?? 'outside_service') }))),
+    ...toLineItems(organizationId, estimate.id, supplyLines.map((line: any) => ({ ...line, item_type: normalizeEstimateLineType(line.item_type ?? 'supply') }))),
+    ...toLineItems(organizationId, estimate.id, feeLines.map((line: any) => ({ ...line, item_type: normalizeEstimateLineType(line.item_type ?? 'fee') }))),
   ]
 
   if (lineItems.length > 0) {
@@ -177,6 +224,25 @@ export async function POST(req: NextRequest) {
     if (lineError) {
       return NextResponse.json({ error: lineError.message }, { status: 500 })
     }
+  }
+
+  if (body.ai_draft) {
+    await supabase.from('estimate_ai_drafts').insert({
+      organization_id: organizationId,
+      estimate_id: estimate.id,
+      aircraft_id: body.aircraft_id ?? null,
+      prompt: body.ai_draft.prompt ?? body.prompt ?? null,
+      transcript: body.ai_draft.transcript ?? body.transcript ?? null,
+      attachments: body.ai_draft.attachments ?? [],
+      selected_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
+      model_output_json: body.ai_draft.model_output_json ?? body.ai_draft,
+      confidence: typeof body.ai_draft.confidence === 'number' ? body.ai_draft.confidence : null,
+      warnings: body.ai_draft.warnings ?? [],
+      status: body.ai_review_status === 'accepted' ? 'accepted' : 'draft',
+      accepted_by: body.ai_review_status === 'accepted' ? ctx.user.id : null,
+      accepted_at: body.ai_review_status === 'accepted' ? new Date().toISOString() : null,
+      created_by: ctx.user.id,
+    })
   }
 
   const { data: fullEstimate } = await supabase
@@ -219,16 +285,36 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  await supabase.from('audit_logs').insert({
-    organization_id: organizationId,
-    user_id: ctx.user.id,
+  await writeEstimateAudit(supabase, req, {
+    organizationId,
+    userId: ctx.user.id,
     action: shouldAutoSendForApproval ? 'estimate.created.sent_for_approval' : 'estimate.created',
-    entity_type: 'estimate',
-    entity_id: estimate.id,
-    metadata_json: {
+    estimateId: estimate.id,
+    aircraftId: body.aircraft_id ?? null,
+    metadata: {
       estimate_number: estimateNumber,
       customer_id: resolvedCustomerId,
+      source_type: body.source_type ?? body.source_context ?? 'manual',
+      linked_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
+      deposit_required: Boolean(body.deposit_required),
+      deposit_amount: Number(body.deposit_amount ?? 0),
       owner_approval_email_sent: ownerApprovalEmailSent,
+    },
+  })
+
+  await writeEstimateTimeline(supabase, {
+    organizationId,
+    aircraftId: body.aircraft_id ?? null,
+    actorId: ctx.user.id,
+    action: shouldAutoSendForApproval ? 'estimate.created.sent_for_approval' : 'estimate.created',
+    estimateId: estimate.id,
+    title: `Estimate created: ${estimateNumber}`,
+    summary: body.service_type ?? body.customer_notes ?? null,
+    ownerVisible: status === 'sent' || status === 'awaiting_approval',
+    metadata: {
+      total,
+      deposit_required: Boolean(body.deposit_required),
+      linked_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
     },
   })
 

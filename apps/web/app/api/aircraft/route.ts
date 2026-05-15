@@ -129,12 +129,51 @@ export async function GET(_req: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch aircraft' }, { status: 500 })
     }
 
-    // Fetch document counts per aircraft in one query
-    const { data: docCounts } = await supabase
-      .from('documents')
-      .select('aircraft_id')
-      .eq('organization_id', orgId)
-      .not('aircraft_id', 'is', null)
+    // Fetch lightweight linked-record counts for the fleet list. Failures here
+    // should not block the aircraft list because the aircraft record is the
+    // primary source of truth for navigation.
+    const [
+      { data: docCounts },
+      { data: dueCounts },
+      { data: workOrderCounts },
+      { data: squawkCounts },
+      { data: invoiceCounts },
+      { data: timeSnapshots },
+    ] = await Promise.all([
+      supabase
+        .from('documents')
+        .select('aircraft_id')
+        .eq('organization_id', orgId)
+        .not('aircraft_id', 'is', null),
+      supabase
+        .from('aircraft_due_items')
+        .select('aircraft_id, status')
+        .eq('organization_id', orgId)
+        .is('deleted_at', null)
+        .in('status', ['overdue', 'due_now', 'due_soon', 'needs_review']),
+      supabase
+        .from('work_orders')
+        .select('aircraft_id, status')
+        .eq('organization_id', orgId)
+        .not('aircraft_id', 'is', null)
+        .not('status', 'in', '("closed","invoiced","paid","archived")'),
+      supabase
+        .from('squawks')
+        .select('aircraft_id, status, severity')
+        .eq('organization_id', orgId)
+        .not('aircraft_id', 'is', null)
+        .not('status', 'in', '("resolved","deferred")'),
+      supabase
+        .from('invoices')
+        .select('aircraft_id, status')
+        .eq('organization_id', orgId)
+        .not('aircraft_id', 'is', null)
+        .not('status', 'in', '("paid","void","writeoff")'),
+      supabase
+        .from('aircraft_time_snapshots')
+        .select('*')
+        .eq('organization_id', orgId),
+    ])
 
     const countMap: Record<string, number> = {}
     for (const doc of docCounts ?? []) {
@@ -143,9 +182,49 @@ export async function GET(_req: NextRequest) {
       }
     }
 
+    const linkedCounts = {
+      due: {} as Record<string, number>,
+      workOrders: {} as Record<string, number>,
+      squawks: {} as Record<string, number>,
+      invoices: {} as Record<string, number>,
+      highRisk: {} as Record<string, number>,
+    }
+    for (const item of dueCounts ?? []) {
+      if (!item.aircraft_id) continue
+      linkedCounts.due[item.aircraft_id] = (linkedCounts.due[item.aircraft_id] ?? 0) + 1
+      if (['overdue', 'due_now', 'needs_review'].includes(item.status)) {
+        linkedCounts.highRisk[item.aircraft_id] = (linkedCounts.highRisk[item.aircraft_id] ?? 0) + 1
+      }
+    }
+    for (const item of workOrderCounts ?? []) {
+      if (!item.aircraft_id) continue
+      linkedCounts.workOrders[item.aircraft_id] = (linkedCounts.workOrders[item.aircraft_id] ?? 0) + 1
+    }
+    for (const item of squawkCounts ?? []) {
+      if (!item.aircraft_id) continue
+      linkedCounts.squawks[item.aircraft_id] = (linkedCounts.squawks[item.aircraft_id] ?? 0) + 1
+      if (['urgent', 'grounding'].includes(item.severity)) {
+        linkedCounts.highRisk[item.aircraft_id] = (linkedCounts.highRisk[item.aircraft_id] ?? 0) + 1
+      }
+    }
+    for (const item of invoiceCounts ?? []) {
+      if (!item.aircraft_id) continue
+      linkedCounts.invoices[item.aircraft_id] = (linkedCounts.invoices[item.aircraft_id] ?? 0) + 1
+    }
+
+    const snapshotMap = new Map((timeSnapshots ?? []).map((row) => [row.aircraft_id, row]))
+
     const result = (aircraft ?? []).map(ac => ({
       ...ac,
       document_count: countMap[ac.id] ?? 0,
+      time_snapshot: snapshotMap.get(ac.id) ?? null,
+      risk_counts: {
+        due: linkedCounts.due[ac.id] ?? 0,
+        active_work_orders: linkedCounts.workOrders[ac.id] ?? 0,
+        open_squawks: linkedCounts.squawks[ac.id] ?? 0,
+        unpaid_invoices: linkedCounts.invoices[ac.id] ?? 0,
+        high_risk: linkedCounts.highRisk[ac.id] ?? 0,
+      },
     }))
 
     return NextResponse.json(result)
@@ -170,6 +249,28 @@ const createAircraftSchema = z.object({
   operator_name: z.string().max(120).optional(),
   operation_type: z.enum(AIRCRAFT_OPERATION_TYPES).optional(),
   operation_types: z.array(z.enum(AIRCRAFT_OPERATION_TYPES)).max(4).optional(),
+  taxonomy_aircraft_kind: z.enum(['fixed_wing', 'rotorcraft', 'experimental', 'unknown']).optional().nullable(),
+  taxonomy_engine_type: z.enum(['piston', 'turbine', 'jet', 'turboprop', 'electric', 'none', 'unknown']).optional().nullable(),
+  taxonomy_engine_count: z.number().int().min(0).optional().nullable(),
+  taxonomy_landing_gear_type: z.string().max(80).optional().nullable(),
+  taxonomy_profile: z.record(z.unknown()).optional(),
+  aircraft_workspace_status: z.enum(['active', 'in_maintenance', 'grounded', 'archived', 'needs_review']).optional(),
+  registered_owner_name: z.string().max(160).optional().nullable(),
+  maintenance_payer_customer_id: z.string().uuid().optional().nullable(),
+  aircraft_category: z.string().max(80).optional().nullable(),
+  aircraft_class: z.string().max(80).optional().nullable(),
+  engine_type: z.string().max(80).optional().nullable(),
+  engine_count: z.number().int().min(0).optional().nullable(),
+  home_base: z.string().max(80).optional().nullable(),
+  maintenance_program_type: z.enum(['annual', '100_hour', 'progressive', 'manufacturer_program', 'part_135_program', 'custom', 'unknown']).optional().nullable(),
+  primary_photo_url: z.string().url().optional().nullable(),
+  silhouette_style: z.enum(['single_engine_piston', 'multi_engine_piston', 'turboprop', 'jet', 'helicopter', 'glider', 'unknown']).optional(),
+  registry_source: z.string().max(120).optional().nullable(),
+  registry_status: z.string().max(120).optional().nullable(),
+  registry_lookup_at: z.string().datetime().optional().nullable(),
+  registry_raw: z.record(z.unknown()).optional(),
+  identity_review_status: z.enum(['confirmed', 'needs_review', 'manual']).optional(),
+  time_source_preference: z.enum(['manual', 'airbly', 'scheduling', 'adsb_estimate', 'mixed']).optional(),
   notes: z.string().max(2000).optional(),
   owner_customer_id: z.string().uuid().optional().nullable(),
 })
@@ -241,9 +342,15 @@ export async function POST(req: NextRequest) {
     const requestedOwnerCustomer = fields.owner_customer_id
       ? await findOwnerCustomer(supabase, organization_id, fields.owner_customer_id)
       : null
+    const requestedPayerCustomer = fields.maintenance_payer_customer_id
+      ? await findOwnerCustomer(supabase, organization_id, fields.maintenance_payer_customer_id)
+      : null
 
     if (fields.owner_customer_id && !requestedOwnerCustomer) {
       return NextResponse.json({ error: 'Owner customer not found' }, { status: 404 })
+    }
+    if (fields.maintenance_payer_customer_id && !requestedPayerCustomer) {
+      return NextResponse.json({ error: 'Maintenance payer customer not found' }, { status: 404 })
     }
 
     // Check for duplicate tail number in same org, including archived aircraft.
@@ -346,6 +453,36 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    await Promise.all([
+      supabase.from('aircraft_media').insert({
+        organization_id,
+        aircraft_id: aircraft.id,
+        media_type: 'silhouette',
+        alt_text: `Generated silhouette for ${aircraft.tail_number}`,
+        is_primary: true,
+        source: 'generated',
+        created_by: user.id,
+      }),
+      supabase.from('aircraft_timeline_events').insert({
+        organization_id,
+        aircraft_id: aircraft.id,
+        module: 'aircraft',
+        action: existingAircraft?.is_archived ? 'aircraft_restored' : 'aircraft_created',
+        source_record_type: 'aircraft',
+        source_record_id: aircraft.id,
+        title: existingAircraft?.is_archived ? 'Aircraft restored' : 'Aircraft created',
+        summary: `${aircraft.tail_number} ${[aircraft.make, aircraft.model].filter(Boolean).join(' ')}`.trim(),
+        actor_id: user.id,
+        metadata: {
+          source_context: 'aircraft_onboarding',
+          silhouette_style: fields.silhouette_style ?? 'unknown',
+          registry_source: fields.registry_source ?? null,
+        },
+      }),
+    ]).catch((error) => {
+      console.error('[POST /api/aircraft] non-blocking workspace projection error', error)
+    })
+
     // Audit log
     await supabase.from('audit_logs').insert({
       organization_id,
@@ -357,6 +494,8 @@ export async function POST(req: NextRequest) {
         tail_number: fields.tail_number,
         make: fields.make,
         model: fields.model,
+        identity_review_status: fields.identity_review_status ?? null,
+        maintenance_payer_customer_id: fields.maintenance_payer_customer_id ?? null,
         restored_from_archive: Boolean(existingAircraft?.is_archived),
       },
     })

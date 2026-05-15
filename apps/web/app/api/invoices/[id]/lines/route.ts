@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
+import { calculateInvoiceTotals, normalizeInvoiceLineType, paymentStatusForTotals, writeInvoiceAudit } from '@/lib/invoices/workflow'
 
 async function recalculateInvoiceTotals(supabase: any, invoiceId: string, orgId: string) {
   const { data: lines } = await supabase
@@ -13,21 +15,26 @@ async function recalculateInvoiceTotals(supabase: any, invoiceId: string, orgId:
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('tax_rate, discount_amount, amount_paid')
+    .select('tax_rate, discount_amount, fees_total, amount_paid, due_date')
     .eq('id', invoiceId)
     .single()
 
   if (!invoice) return
 
-  const tax_amount = Math.round(subtotal * (invoice.tax_rate ?? 0)) / 100
-  const total = subtotal + tax_amount - (invoice.discount_amount ?? 0)
+  const totals = calculateInvoiceTotals({
+    subtotal,
+    taxRate: invoice.tax_rate ?? 0,
+    discountAmount: invoice.discount_amount ?? 0,
+    feesTotal: invoice.fees_total ?? 0,
+  })
 
   await supabase
     .from('invoices')
     .update({
       subtotal,
-      tax_amount,
-      total,
+      tax_amount: totals.tax_amount,
+      total: totals.total,
+      payment_status: paymentStatusForTotals(totals.total, Number(invoice.amount_paid ?? 0), invoice.due_date).paymentStatus,
       updated_at: new Date().toISOString(),
     })
     .eq('id', invoiceId)
@@ -88,9 +95,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       description: body.description ?? '',
       quantity: body.quantity ?? 1,
       unit_price: body.unit_price ?? 0,
-      item_type: body.item_type ?? 'service',
+      item_type: normalizeInvoiceLineType(body.item_type),
       work_order_line_id: body.work_order_line_id ?? null,
       sort_order,
+      source_type: body.source_type ?? 'manual',
+      source_id: body.source_id ?? null,
+      source_label: body.source_label ?? 'Manual',
+      tax_category: body.tax_category ?? null,
+      billable: body.billable !== false,
+      owner_visible: body.owner_visible !== false,
+      approved_for_billing: body.approved_for_billing !== false,
+      linked_task_id: body.linked_task_id ?? null,
+      linked_part_id: body.linked_part_id ?? null,
+      linked_labor_id: body.linked_labor_id ?? null,
+      ...buildClassificationPatch(body),
     })
     .select()
     .single()
@@ -98,5 +116,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   await recalculateInvoiceTotals(supabase, params.id, orgId)
+  await writeInvoiceAudit(supabase, req, {
+    organizationId: orgId,
+    userId: ctx.user.id,
+    action: 'invoice_line_added',
+    invoiceId: params.id,
+    metadata: { line_id: data.id, source_type: data.source_type, source_label: data.source_label },
+  })
   return NextResponse.json(data, { status: 201 })
 }

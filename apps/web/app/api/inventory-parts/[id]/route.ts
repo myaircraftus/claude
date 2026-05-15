@@ -14,9 +14,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type { OrgRole, PartClass } from '@/types'
 
 const VALID_CLASSES: ReadonlySet<PartClass> = new Set(['consumable', 'rotable', 'serialized'])
+
+function buildPartTaxonomyPatch(body: Record<string, unknown>) {
+  const patch = buildClassificationPatch(body)
+  const result: Record<string, unknown> = {}
+  for (const key of ['ata_code', 'jasc_code', 'classification_status'] as const) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      result[key] = patch[key]
+    }
+  }
+  return result
+}
 
 export async function GET(
   req: NextRequest,
@@ -89,6 +101,7 @@ export async function PATCH(
     }
   }
   if (typeof body.is_archived === 'boolean') updates.is_archived = body.is_archived
+  Object.assign(updates, buildPartTaxonomyPatch(body))
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })

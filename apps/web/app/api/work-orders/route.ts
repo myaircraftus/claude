@@ -9,10 +9,12 @@ import {
 } from '@/lib/work-orders/checklists'
 import { toDbWorkOrderStatus } from '@/lib/work-orders/status'
 import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 function toWorkOrderLineType(value: unknown) {
   const raw = typeof value === 'string' ? value : ''
   if (raw === 'part' || raw === 'outside_service' || raw === 'discrepancy' || raw === 'note') return raw
+  if (['supply', 'fee', 'tax', 'discount'].includes(raw)) return 'outside_service'
   return 'labor'
 }
 
@@ -70,6 +72,7 @@ export async function GET(req: NextRequest) {
       corrective_action, findings, internal_notes, customer_notes:customer_visible_notes, labor_total,
       parts_total, outside_services_total, tax_amount, total:total_amount, opened_at, closed_at,
       created_at, updated_at, aircraft_id, customer_id, assigned_mechanic_id,
+      primary_ata_code, primary_jasc_code, classification_source, classification_confidence, classification_status,
       thread_id,
       aircraft:aircraft_id (id, tail_number, make, model),
       customer:customer_id (id, name, company, email)
@@ -181,6 +184,14 @@ export async function POST(req: NextRequest) {
       findings: body.findings ?? null,
       internal_notes: body.internal_notes ?? null,
       customer_visible_notes: body.customer_notes ?? body.customer_visible_notes ?? null,
+      ...buildClassificationPatch(
+        {
+          ...body,
+          primary_ata_code: body.primary_ata_code ?? body.ata_code,
+          primary_jasc_code: body.primary_jasc_code ?? body.jasc_code,
+        },
+        { ataKey: 'primary_ata_code', jascKey: 'primary_jasc_code' },
+      ),
     })
     .select()
     .single()
@@ -393,6 +404,14 @@ export async function POST(req: NextRequest) {
           rate: lineType === 'labor' ? unitPrice : null,
           notes: `Planned from estimate ${estimate.estimate_number ?? ''}`.trim(),
           sort_order: index,
+          planned_from_estimate_id: estimate.id,
+          estimate_line_item_id: line.id ?? null,
+          source_type: line.source_type ?? 'estimate',
+          source_id: line.source_id ?? line.id ?? null,
+          source_label: line.source_label ?? 'Estimate',
+          billable: line.billable ?? true,
+          owner_visible: line.owner_visible ?? true,
+          ...buildClassificationPatch(line),
         }
       })
 
@@ -412,7 +431,9 @@ export async function POST(req: NextRequest) {
         .from('estimates')
         .update({
           linked_work_order_id: data.id,
+          converted_work_order_id: data.id,
           status: 'converted',
+          approval_status: 'approved',
           updated_at: new Date().toISOString(),
         })
         .eq('id', estimate.id)

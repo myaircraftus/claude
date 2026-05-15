@@ -3,6 +3,18 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
+
+function buildPartTaxonomyPatch(body: Record<string, unknown>, includeUnset = false) {
+  const patch = buildClassificationPatch(body, { includeUnset })
+  const result: Record<string, unknown> = {}
+  for (const key of ['ata_code', 'jasc_code', 'classification_status'] as const) {
+    if (includeUnset || Object.prototype.hasOwnProperty.call(patch, key)) {
+      result[key] = patch[key]
+    }
+  }
+  return result
+}
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -92,6 +104,7 @@ export async function POST(req: NextRequest) {
     created_by: user.id,
     usage_count: body.usage_count ?? 0,
     last_ordered_at: body.last_ordered_at ?? null,
+    ...buildPartTaxonomyPatch(body, true),
   }
 
   // Auto-dedup: check if org + part_number + vendor already exists
@@ -125,6 +138,7 @@ export async function POST(req: NextRequest) {
         markup_percent: record.markup_percent,
         custom_rate: record.custom_rate,
         condition: record.condition,
+        ...buildPartTaxonomyPatch(body),
       })
       .eq('id', existing.id)
       .select()

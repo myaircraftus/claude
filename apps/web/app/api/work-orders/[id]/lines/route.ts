@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 async function recalculateTotals(supabase: any, workOrderId: string) {
   const { data: lines } = await supabase
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       rate: body.rate ?? null,
       notes: body.notes ?? null,
       sort_order,
+      ...buildClassificationPatch(body),
     })
     .select()
     .single()

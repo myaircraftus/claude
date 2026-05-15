@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest"
+    "test": "vitest",
+    "import:jasc-ata": "tsx scripts/import-jasc-ata.ts",
+    "seed:taxonomy": "tsx scripts/import-jasc-ata.ts"
   },
   "dependencies": {
     "@aws-sdk/client-textract": "^3.1027.0",

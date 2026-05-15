@@ -11,9 +11,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 import type { OrgRole, PartClass } from '@/types'
 
 const VALID_CLASSES: ReadonlySet<PartClass> = new Set(['consumable', 'rotable', 'serialized'])
+
+function buildPartTaxonomyPatch(body: Record<string, unknown>, includeUnset = false) {
+  const patch = buildClassificationPatch(body, { includeUnset })
+  const result: Record<string, unknown> = {}
+  for (const key of ['ata_code', 'jasc_code', 'classification_status'] as const) {
+    if (includeUnset || Object.prototype.hasOwnProperty.call(patch, key)) {
+      result[key] = patch[key]
+    }
+  }
+  return result
+}
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req)
@@ -109,6 +121,7 @@ export async function POST(req: NextRequest) {
       files:        Array.isArray(body.files)        ? body.files.map(String)        : [],
       alert_emails: Array.isArray(body.alert_emails) ? body.alert_emails.map(String) : [],
       created_by: ctx.user.id,
+      ...buildPartTaxonomyPatch(body, true),
     })
     .select('*')
     .single()

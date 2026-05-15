@@ -1,5 +1,5 @@
-// Mirror of migration 016 CHECK constraints for logbook_entries table.
-// Kept in sync with the DB so server-side validation matches the column constraints.
+// Mirror the active logbook_entries CHECK constraints. These include the
+// legacy values still in production plus the signed-record workflow statuses.
 
 export const VALID_ENTRY_TYPES = [
   "maintenance",
@@ -16,13 +16,28 @@ export const VALID_ENTRY_TYPES = [
   "owner_preventive",
 ] as const;
 
-export const VALID_STATUSES = ["draft", "final", "signed", "amended"] as const;
+export const VALID_STATUSES = [
+  "draft",
+  "ready_for_review",
+  "ready_to_sign",
+  "final",
+  "signed",
+  "published_to_owner",
+  "printed_unsigned",
+  "superseded",
+  "voided",
+  "voided_with_reason",
+  "amended",
+] as const;
 
 export const VALID_LOGBOOK_TYPES = [
   "airframe",
   "engine",
   "prop",
+  "propeller",
   "avionics",
+  "appliance",
+  "component",
   "multiple",
 ] as const;
 

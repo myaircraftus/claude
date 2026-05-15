@@ -115,47 +115,55 @@ const ownerNavItems: NavItem[] = [
 function buildMechanicNav(perm: MechanicPermissions): NavItem[] {
   const items: NavItem[] = [];
 
-  // AI Inbox is visible to every persona — Spec 0.3 places it at the top
-  // of the home screen. Phase 5 (Smart Home Screen) will replace the
-  // dashboard with this surface.
-  items.push({ icon: Inbox, label: "AI Inbox", href: "/inbox" });
-
-  if (perm.aiCommandCenter) {
-    items.push({ icon: Bot, label: "AI Command Center", href: "/workspace" });
-  }
-
-  // Flat structure (Operations Hub decision — no Mechanic Portal wrapper,
-  // no duplicate Dashboard). The mechanic dashboard at /mechanic?tab=dashboard
-  // IS the dashboard for the mechanic persona.
-  if (perm.dashboard) {
-    // Spec 5.1 — Mechanic Smart Home Screen replaces /mechanic?tab=dashboard.
-    items.push({ icon: LayoutDashboard, label: "My Day", href: "/my-day" });
+  // Dashboard is the shop command center. The old AI Command Center
+  // (/workspace) redirects here; the dashboard launches official module
+  // workflows instead of becoming its own source of record.
+  if (perm.dashboard || perm.aiCommandCenter) {
+    items.push({ icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" });
   }
   if (perm.aircraft) {
-    items.push({ icon: Plane, label: "Aircraft", href: "/mechanic", tab: "aircraft", badge: 3 });
+    items.push({ icon: Plane, label: "Aircraft", href: "/aircraft" });
   }
-  items.push({ icon: GitBranch, label: "Workflow", href: "/workflow" });
-  items.push({ icon: Package, label: "Parts", href: "/mechanic", tab: "parts" });
-  // Manuals — mechanic's reference library (parts catalogs, AMMs, SBs).
-  // Org-scoped, separate from per-aircraft documents the owner uploads.
-  items.push({ icon: BookOpen, label: "Manuals", href: "/manuals" });
+  if (perm.squawks) {
+    items.push({ icon: AlertTriangle, label: "Squawks", href: "/squawks" });
+  }
+  if (perm.workOrders) {
+    items.push({ icon: ClipboardList, label: "Work Orders", href: "/work-orders" });
+  }
+  if (perm.estimates) {
+    items.push({ icon: DollarSign, label: "Estimates", href: "/estimates" });
+  }
+  if (perm.invoices) {
+    items.push({ icon: Receipt, label: "Invoices", href: "/invoices" });
+  }
   if (perm.logbook) {
-    items.push({ icon: BookOpen, label: "Logbook", href: "/mechanic", tab: "logbook", badge: 3 });
+    items.push({ icon: BookOpen, label: "Logbook", href: "/logbook-entries" });
   }
+  items.push({
+    icon: Package,
+    label: "Parts & Inventory",
+    href: "/parts-inventory",
+    children: [
+      { icon: LayoutDashboard, label: "Dashboard", tab: "parts-dashboard", href: "/parts-inventory" },
+      { icon: Sparkles, label: "AI Parts Search", tab: "parts-ai-search", href: "/parts-inventory/ai-parts-search" },
+      { icon: Package, label: "Inventory", tab: "parts-inventory", href: "/parts-inventory/inventory" },
+      { icon: Truck, label: "Vendors", tab: "parts-vendors", href: "/parts-inventory/vendors" },
+      { icon: ShoppingCart, label: "Purchase Orders", tab: "parts-purchase-orders", href: "/parts-inventory/purchase-orders" },
+      { icon: Receipt, label: "RX Receipts", tab: "parts-rx-receipts", href: "/parts-inventory/rx-receipts" },
+      { icon: ArrowLeftRight, label: "Returns", tab: "parts-returns", href: "/parts-inventory/returns" },
+      { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
+    ],
+  });
+  items.push({ icon: FileText, label: "Reports", href: "/reports" });
 
-  // Documents (platform-wide) lives under Admin now — mechanics don't see
-  // it. Marketplace stays for full-access mechanics.
   if (perm.settingsFull) {
-    // Documents intentionally omitted — Operations Hub decision: it lives
-    // under Admin now, mechanics don't see it as a top-level entry.
+    items.push({ icon: Settings, label: "Settings", href: "/settings" });
+    items.push({ icon: GitBranch, label: "Taxonomy", href: "/settings/taxonomy" });
     items.push({ icon: ClipboardCheck, label: "Compliance",  href: "/compliance" });
     items.push({ icon: CalendarClock,  label: "Expirations", href: "/documents/expiring" });
     items.push({ icon: ClipboardList,  label: "Inspections", href: "/inspections" });
     items.push({ icon: Bookmark,       label: "Continued",   href: "/continued" });
     items.push({ icon: Mailbox,        label: "Approvals",   href: "/approvals" });
-    items.push({ icon: Package,        label: "Parts",       href: "/parts" });
-    items.push({ icon: ShoppingCart,   label: "Purchase orders", href: "/purchase-orders" });
-    items.push({ icon: Truck,          label: "Vendors",     href: "/vendors" });
     items.push({ icon: Wrench,         label: "Tools",       href: "/tools" });
     items.push({ icon: Timer,          label: "Time clock",  href: "/time-clock" });
     // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
@@ -233,7 +241,7 @@ function AppLayoutInner({
   const [activeOrgName, setActiveOrgName] = useState<string | null>(null);
 
   const [collapsed,         setCollapsed]         = useState(false);
-  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Mechanic Portal"]));
+  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Parts & Inventory", "Mechanic Portal"]));
   const [rolePickerOpen,    setRolePickerOpen]    = useState(false);
   // Phase 13.5 — collapsible category state, persisted to localStorage per user.
   const [profileId,           setProfileId]           = useState<string | null>(null);
@@ -462,11 +470,10 @@ function AppLayoutInner({
     for (const group of categorizedNav) {
       for (const item of group.items) {
         const href = item.href ?? (item.tab ? `/mechanic?tab=${item.tab}` : null);
-        if (!href) continue;
-        if (href === "/dashboard" && effectivePathname === "/dashboard") {
-          return group.category.id;
-        }
-        if (href !== "/dashboard" && effectivePathname.startsWith(href)) {
+        const childIsActive = item.children?.some((child) =>
+          child.href ? isRouteActive(child.href) : effectivePathname.startsWith("/mechanic") && activeTab === child.tab,
+        );
+        if ((href && isRouteActive(href)) || childIsActive) {
           return group.category.id;
         }
       }
@@ -546,6 +553,15 @@ function AppLayoutInner({
       next.has(label) ? next.delete(label) : next.add(label);
       return next;
     });
+  }
+
+  function isRouteActive(href?: string | null): boolean {
+    if (!href) return false;
+    if (href === "/dashboard") return effectivePathname === "/dashboard";
+    if (href === "/parts-inventory") {
+      return effectivePathname === "/parts-inventory" || effectivePathname === "/parts-inventory/dashboard";
+    }
+    return effectivePathname === href || effectivePathname.startsWith(`${href}/`);
   }
 
   const layoutStyle = {
@@ -658,14 +674,15 @@ function AppLayoutInner({
             const isExpanded  = expandedItems.has(item.label);
             const isOnMechanic = effectivePathname.startsWith("/mechanic");
             const navKey = navKeyForLabel(item.label);
+            const childIsActive = hasChildren && item.children?.some((child) =>
+              child.href ? isRouteActive(child.href) : isOnMechanic && activeTab === child.tab,
+            );
 
             const parentActive = hasChildren
-              ? isOnMechanic
+              ? Boolean(childIsActive || isRouteActive(item.href))
               : item.tab
               ? isOnMechanic && activeTab === item.tab
-              : item.href === "/dashboard"
-              ? effectivePathname === "/dashboard"
-              : !!item.href && effectivePathname.startsWith(item.href);
+              : isRouteActive(item.href);
 
             if (hasChildren) {
               return (
@@ -692,7 +709,7 @@ function AppLayoutInner({
                     <div className="mt-0.5 ml-3 pl-3 border-l border-[#A2B3CF]/25 space-y-0.5">
                       {item.children!.map((child) => {
                         const childActive = child.href
-                          ? effectivePathname.startsWith(child.href)
+                          ? isRouteActive(child.href)
                           : isOnMechanic && activeTab === child.tab;
                         const childKey = navKeyForLabel(child.label);
                         return (

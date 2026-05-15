@@ -9,9 +9,16 @@ import { Button } from '@/components/ui/button'
 const STATUS_COLOR: Record<string, string> = {
   draft:    'bg-slate-100 text-slate-600 border-slate-200',
   sent:     'bg-blue-50 text-blue-700 border-blue-200',
+  ready_to_send: 'bg-blue-50 text-blue-700 border-blue-200',
+  awaiting_approval: 'bg-purple-50 text-purple-700 border-purple-200',
+  awaiting_deposit: 'bg-amber-50 text-amber-700 border-amber-200',
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  deposit_paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   rejected: 'bg-red-50 text-red-700 border-red-200',
+  declined: 'bg-red-50 text-red-700 border-red-200',
   expired:  'bg-amber-50 text-amber-700 border-amber-200',
+  converted: 'bg-violet-50 text-violet-700 border-violet-200',
+  converted_to_work_order: 'bg-violet-50 text-violet-700 border-violet-200',
 }
 
 interface EstimateItem {
@@ -52,9 +59,11 @@ export function EstimatesListView({ estimates }: { estimates: EstimateItem[] }) 
             className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>
-        <Button disabled className="opacity-50">
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          New Estimate
+        <Button asChild>
+          <Link href="/estimates/new">
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            New Estimate
+          </Link>
         </Button>
       </div>
 
@@ -98,7 +107,7 @@ export function EstimatesListView({ estimates }: { estimates: EstimateItem[] }) 
                         'inline-flex items-center px-2 py-0.5 rounded text-[10px] border',
                         STATUS_COLOR[e.status] ?? STATUS_COLOR.draft,
                       )} style={{ fontWeight: 600 }}>
-                        {e.status.charAt(0).toUpperCase() + e.status.slice(1)}
+                        {e.status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                       </span>
                     </td>
                     <td className="px-4 py-3">
