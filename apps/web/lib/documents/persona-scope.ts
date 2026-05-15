@@ -34,6 +34,10 @@ export const OWNER_ONLY_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
   'lease_ownership',          // title / registration / bill of sale
   'insurance',                // policy / binder
   'compliance',               // generic compliance / certificate
+  // 'miscellaneous' = unclassified. An untyped document could be ANYTHING,
+  // including an owner lockbox record the ingestion pipeline never typed.
+  // It is owner-scoped so unclassified docs never leak into the shop view.
+  'miscellaneous',
 ])
 
 /** DocTypes that are mechanic shop-reference materials. */
@@ -45,16 +49,19 @@ export const MECHANIC_REFERENCE_DOC_TYPES: ReadonlySet<DocType> = new Set<DocTyp
 ])
 
 /**
- * DocTypes visible to both personas. Currently POH / AFM / AFM supplement —
- * they're aircraft-specific (live with the airframe) but mechanics also
- * routinely consult them. miscellaneous is also shown to both because we
- * can't infer scope. Auto-classifier may move it later.
+ * DocTypes visible to both personas — POH / AFM / AFM supplement. They're
+ * aircraft-specific (live with the airframe) but mechanics also routinely
+ * consult them, so they belong in the shop reference library too.
+ *
+ * NOTE: 'miscellaneous' is intentionally NOT here. It used to be — treated
+ * as "shared because we can't infer scope" — but that leaked the owner's
+ * unclassified lockbox documents into the shop Documents view. Unclassified
+ * now defaults to owner-scope (see OWNER_ONLY_DOC_TYPES).
  */
 export const SHARED_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
   'poh',
   'afm',
   'afm_supplement',
-  'miscellaneous',
 ])
 
 // Phase 18 mig 119 — mechanic persona collapsed into shop. The legacy
