@@ -73,16 +73,21 @@ export async function POST(req: NextRequest) {
 
   // 2. Owner / shop target.
   //
-  // For platform admins we use the view-as cookie (matches Sprint 18.4
-  // semantics) so the admin keeps their underlying admin privileges
-  // while previewing the customer surface.
+  // The switch writes organization_memberships.persona for the ACTIVE org —
+  // that is the column resolvePersona() reads FIRST, so it is what actually
+  // drives getCurrentPersona(), /api/me/orgs, the sidebar, and the route
+  // guards.
   //
-  // For non-admins we write organization_memberships.persona for the ACTIVE
-  // org — that is the column resolvePersona() reads first, so it is what
-  // actually drives getCurrentPersona(), /api/me/orgs, the sidebar, and the
-  // route guards. user_profiles.persona is also written as a fallback for
-  // future orgs whose membership persona is still null. Entitlement check
-  // guards against a shop user forging an owner view they haven't paid for.
+  // This applies to platform admins TOO. The pre-2026-05-15 design routed
+  // admins down a separate view-as-cookie path, but getEffectivePersona()
+  // only honors that cookie when the true persona resolves to 'admin' — and
+  // an admin whose membership/profile persona columns are null resolves to
+  // DEFAULT_PERSONA ('owner'), so the cookie was silently ignored and the
+  // switch did nothing. Writing the membership column works uniformly.
+  // Platform admins keep admin-console access via the is_platform_admin
+  // footer link (AdminFooterLink), independent of persona.
+
+  // Non-admins are entitlement-gated; admins are not (never billing-gated).
   if (!isPlatformAdmin) {
     const status = await getOrganizationBillingStatus(membership.organization_id)
     const entitlement = status[target]
@@ -96,66 +101,56 @@ export async function POST(req: NextRequest) {
         { status: 402 },
       )
     }
-
-    // PRIMARY write — organization_memberships.persona for the active org.
-    // resolvePersona() (lib/persona/config.ts) reads this column FIRST, so
-    // this is the write that actually changes the resolved persona. Writing
-    // only user_profiles.persona (the behavior before 2026-05-15) left the
-    // switch dead whenever membership.persona was non-null — the switcher
-    // appeared to do nothing and the sidebar stayed pinned to the old persona.
-    const { error: membershipError } = await supabase
-      .from('organization_memberships')
-      .update({ persona: target })
-      .eq('user_id', user.id)
-      .eq('organization_id', membership.organization_id)
-
-    if (membershipError) {
-      console.error('[api/persona/switch] organization_memberships update failed:', membershipError)
-      return NextResponse.json(
-        { error: 'Failed to persist persona switch' },
-        { status: 500 },
-      )
-    }
-
-    // SECONDARY (fallback) write — user_profiles.persona. Best-effort; a
-    // failure here never blocks the switch since the membership write above
-    // is authoritative for the active org.
-    const { error: profileError } = await supabase
-      .from('user_profiles')
-      .update({ persona: target })
-      .eq('id', user.id)
-    if (profileError) {
-      console.warn('[api/persona/switch] user_profiles fallback update failed (non-fatal):', profileError)
-    }
-
-    // Clear any lingering view-as cookie — a non-admin's effective persona
-    // should come from their profile row, not a cookie. Belt-and-braces.
-    cookies().set(VIEW_AS_COOKIE, '', { maxAge: 0, path: '/' })
-
-    return NextResponse.json({
-      ok: true,
-      persona: target,
-      homeRoute: PERSONA_CONFIG[target].homeRoute,
-      viewAs: false,
-    })
   }
 
-  // Platform admin → set view-as cookie (httpOnly so client JS can't forge it).
-  cookies().set(VIEW_AS_COOKIE, target, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    // Session-length cookie — admins typically don't want their view-as
-    // selection to persist across days. Closing the tab resets to admin.
-    maxAge: 60 * 60 * 12, // 12 hours
-  })
+  // PRIMARY write — organization_memberships.persona for the active org.
+  // `.select()` so we can detect a silent RLS no-op (0 rows updated → the
+  // switch would otherwise appear to succeed while changing nothing).
+  const { data: updatedRows, error: membershipError } = await supabase
+    .from('organization_memberships')
+    .update({ persona: target })
+    .eq('user_id', user.id)
+    .eq('organization_id', membership.organization_id)
+    .select('user_id')
+
+  if (membershipError) {
+    console.error('[api/persona/switch] organization_memberships update failed:', membershipError)
+    return NextResponse.json(
+      { error: 'Failed to persist persona switch' },
+      { status: 500 },
+    )
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    console.error('[api/persona/switch] organization_memberships update matched 0 rows', {
+      user: user.id,
+      org: membership.organization_id,
+    })
+    return NextResponse.json(
+      { error: 'Persona switch did not persist (no membership row updated)' },
+      { status: 500 },
+    )
+  }
+
+  // SECONDARY (fallback) write — user_profiles.persona. Best-effort; a
+  // failure here never blocks the switch since the membership write above
+  // is authoritative for the active org.
+  const { error: profileError } = await supabase
+    .from('user_profiles')
+    .update({ persona: target })
+    .eq('id', user.id)
+  if (profileError) {
+    console.warn('[api/persona/switch] user_profiles fallback update failed (non-fatal):', profileError)
+  }
+
+  // Clear any lingering view-as cookie — the resolved persona now comes from
+  // the membership row, so a stale cookie must not shadow it.
+  cookies().set(VIEW_AS_COOKIE, '', { maxAge: 0, path: '/' })
 
   return NextResponse.json({
     ok: true,
     persona: target,
     homeRoute: PERSONA_CONFIG[target].homeRoute,
-    viewAs: true,
+    viewAs: false,
   })
 }
 
