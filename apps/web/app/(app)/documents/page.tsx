@@ -1,3 +1,5 @@
+// SHOP DOCUMENTS: Part catalogs, aircraft manuals, service manuals,
+// Avionics manuals, service bulletins. Mechanic/shop access only.
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import Link from '@/components/shared/tenant-link'

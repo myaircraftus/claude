@@ -1,3 +1,6 @@
+// OWNER PERMISSIONS: All approval actions consolidated here.
+// Includes: estimate approvals, invoice approvals, work order line item approvals
+// (extra parts, labor, or any add-on to an open work order).
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'

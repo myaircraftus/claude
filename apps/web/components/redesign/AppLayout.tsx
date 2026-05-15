@@ -12,6 +12,7 @@ import {
   DollarSign, Eye,
   Calculator, Archive, RotateCcw, BarChart2, FolderOpen, Settings2, FileCheck,
   Calendar, Umbrella, LogIn, PieChart,
+  BrainCircuit, CheckSquare, TrendingUp, Upload, BadgeCheck,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -31,7 +32,6 @@ import {
 } from "@/lib/nav/categories";
 import { PaywallScreen } from "@/components/billing/PaywallScreen";
 import type { MechanicPermissions, TeamMember, Persona } from "./AppContext";
-import type { OrgRole } from "@/types";
 import { PartsStoreProvider } from "./workspace/PartsStore";
 import { Toaster } from "sonner";
 import { OnboardingProvider, useOnboarding } from "./onboarding/OnboardingContext";
@@ -67,43 +67,67 @@ type OwnerAircraftSummary = {
   model?: string | null;
 };
 
-/* ─── Owner nav ─────────────────────────────────────────────── */
-// Owners no longer have a top-level "Documents" entry — uploading and
-// browsing aircraft records lives on the Aircraft → Documents tab so the
-// flow is "pick aircraft, then docs" instead of two parallel surfaces.
-// The Documents page remains for platform admins as a global monitoring
-// view (failed ingestions, who uploaded what, human-review queue).
-const ownerNavItems: NavItem[] = [
-  // Spec 5.1 — Smart Home Screen as the owner home; legacy /dashboard
-  // stays accessible via direct URL for the stat-card view.
-  { icon: LayoutDashboard, label: "Home",             href: "/my-aircraft" },
-  { icon: Inbox,           label: "AI Inbox",         href: "/inbox" },
-  { icon: PlaneIcon,       label: "Aircraft",         href: "/aircraft" },
-  // Documents intentionally NOT in owner top-level nav (Operations Hub
-  // decision) — uploading/browsing aircraft records lives on the
-  // Aircraft → Documents tab. Documents page itself stays for platform
-  // admins as a global monitoring view.
-  { icon: Bot,             label: "Ask / AI Command", href: "/ask" },
-  { icon: ClipboardCheck,  label: "Compliance",       href: "/compliance" },
-  // Spec 5.8 — Costs is an owner-finance surface; hidden for mechanics.
-  { icon: DollarSign,      label: "Costs",            href: "/costs",            module: "owner-finances" },
-  { icon: CalendarClock,   label: "Expirations",      href: "/documents/expiring" },
-  { icon: ClipboardList,   label: "Inspections",      href: "/inspections" },
-  { icon: Bookmark,        label: "Continued",        href: "/continued" },
-  { icon: Mailbox,         label: "Approvals",        href: "/approvals" },
-  { icon: Package,         label: "Parts",            href: "/parts" },
-  { icon: ShoppingCart,    label: "Purchase orders",  href: "/purchase-orders" },
-  { icon: Truck,           label: "Vendors",          href: "/vendors" },
-  { icon: Wrench,          label: "Tools",            href: "/tools" },
-  { icon: Timer,           label: "Time clock",       href: "/time-clock" },
-  // ── Workforce group (sprints 2.5.1 + 2.5.2 + 2.5.3) ──
-  { icon: CalendarDays,    label: "Scheduler",        href: "/scheduler" },
-  { icon: CalendarOff,     label: "Time Off",         href: "/time-off" },
-  { icon: ClockIcon,       label: "Clock In/Out",     href: "/clock" },
-  { icon: Gauge,           label: "Meters",           href: "/meters" },
-  { icon: MapPin,          label: "Locations",        href: "/locations" },
-  { icon: Store,           label: "Marketplace",      href: "/marketplace" },
-  { icon: UserRound,       label: "Users",            href: "/settings" },
+/* ─── Owner sidebar (OWNER_NAV) ───────────────────────────────────
+ * The aircraft-owner sidebar (persona "owner"). Same structured,
+ * collapsible-section model as SHOP_ADMIN_NAV: section headers carry
+ * no href and only toggle their group; standalone links sit at the
+ * top/bottom. AIRCRAFT + ECONOMICS default to expanded (see the
+ * expandedItems initial state); EXPIRATION starts collapsed.
+ *
+ * Owners are read-only customers of a shop — see the OWNER PERMISSIONS
+ * comments at the top of each linked page for the per-surface action
+ * matrix. Settings is reached via the gear in the profile footer.
+ */
+const OWNER_NAV: NavItem[] = [
+  // Top — standalone link, no section.
+  { icon: LayoutDashboard, label: "Dashboard",      href: "/dashboard" },
+
+  // Standalone — owner logbook AI assistant.
+  { icon: BrainCircuit,    label: "Ask Logbook AI", href: "/ask-logbook-ai" },
+
+  // AIRCRAFT section (default expanded).
+  {
+    icon: Plane,
+    label: "AIRCRAFT",
+    children: [
+      { icon: LayoutDashboard, label: "Dashboard",     href: "/aircraft" },
+      { icon: ClipboardList,   label: "Due List",      href: "/aircraft/due-list" },
+      { icon: AlertTriangle,   label: "Squawks",       href: "/squawks" },
+      { icon: Calculator,      label: "Estimates",     href: "/estimates" },
+      { icon: Wrench,          label: "Work Orders",   href: "/work-orders" },
+      { icon: FileText,        label: "Invoices",      href: "/invoices" },
+      { icon: BookOpen,        label: "Logbook Entry", href: "/logbook-entries" },
+      { icon: CheckSquare,     label: "Approvals",     href: "/approvals" },
+      { icon: Sparkles,        label: "Intelligence",  href: "/aircraft/intelligence" },
+    ],
+  },
+
+  // DOCUMENTS — standalone link, no sub-items (owner personal lockbox).
+  { icon: FolderOpen, label: "Documents", href: "/owner-documents" },
+
+  // ECONOMICS section (default expanded).
+  {
+    icon: TrendingUp,
+    label: "ECONOMICS",
+    children: [
+      { icon: LayoutDashboard, label: "Dashboard",               href: "/economics" },
+      { icon: Upload,          label: "Upload Cost",              href: "/economics/upload-cost" },
+      { icon: DollarSign,      label: "Aircraft Operating Cost",  href: "/economics/operating-cost" },
+    ],
+  },
+
+  // EXPIRATION section (starts collapsed).
+  {
+    icon: ClockIcon,
+    label: "EXPIRATION",
+    children: [
+      { icon: FileCheck,  label: "Documents",                   href: "/expirations/owner-documents" },
+      { icon: BadgeCheck, label: "Licenses & Aircraft Records",  href: "/expirations/licenses" },
+    ],
+  },
+
+  // Bottom — standalone link, no section.
+  { icon: PieChart, label: "Reports", href: "/reports" },
 ];
 
 /* ─── Shop Admin sidebar (SOP-aligned sections) ───────────────────
@@ -187,41 +211,23 @@ const SHOP_ADMIN_NAV: NavItem[] = [
   { icon: PieChart,  label: "Reports",     href: "/reports" },
 ];
 
-/* ─── Mechanic sidebar nav builder ────────────────────────────────
- * Mechanic (org role mechanic / non-owner-admin) gets the reduced
- * maintenance-floor surface fixed in the 2026-05-15 cleanup sprint —
- * Dashboard, Aircraft, Work Orders, Squawks, Logbook, Parts & Inventory.
- * Shop-admin (role owner|admin) gets the structured SHOP_ADMIN_NAV.
- * `role` is the authenticated user's DB org-role (currentUserRole).
+/* ─── Sidebar nav routing model ───────────────────────────────────
+ * The sidebar is chosen by the active `persona` (the surface the user
+ * is currently in), which the persona switcher + server keep in sync
+ * with the user's role:
+ *
+ *   OWNER  (persona "owner", role 'owner')            → OWNER_NAV
+ *   SHOP   (persona "shop", any non-owner shop role:  → SHOP_ADMIN_NAV
+ *           mechanic, technician, service_writer,
+ *           shop_admin, manager, …)
+ *   ADMIN  (persona "admin", role 'platform_admin')   → adminNavItems
+ *
+ * There is no separate "mechanic portal" — mechanics ARE shop users
+ * and get the full SHOP_ADMIN_NAV. The old reduced 6-item mechanic
+ * nav was removed in the 2026-05-15 owner-nav sprint. The nav is keyed
+ * on `persona` (not raw role) so a platform admin who switches into
+ * the owner/shop persona to QA correctly sees that persona's sidebar.
  */
-function buildMechanicNav(role: OrgRole | null): NavItem[] {
-  const isShopAdmin = role === "owner" || role === "admin";
-  if (isShopAdmin) return SHOP_ADMIN_NAV;
-
-  // Mechanic nav — unchanged from the previous sprint.
-  return [
-    { icon: LayoutDashboard, label: "Dashboard",   href: "/dashboard" },
-    { icon: Plane,           label: "Aircraft",    href: "/aircraft" },
-    { icon: ClipboardList,   label: "Work Orders", href: "/work-orders" },
-    { icon: AlertTriangle,   label: "Squawks",     href: "/squawks" },
-    { icon: BookOpen,        label: "Logbook",     href: "/logbook-entries" },
-    {
-      icon: Package,
-      label: "Parts & Inventory",
-      href: "/parts-inventory",
-      children: [
-        { icon: LayoutDashboard, label: "Dashboard", tab: "parts-dashboard", href: "/parts-inventory" },
-        { icon: Sparkles, label: "AI Parts Search", tab: "parts-ai-search", href: "/parts-inventory/ai-parts-search" },
-        { icon: Package, label: "Inventory", tab: "parts-inventory", href: "/parts-inventory/inventory" },
-        { icon: Truck, label: "Vendors", tab: "parts-vendors", href: "/parts-inventory/vendors" },
-        { icon: ShoppingCart, label: "Purchase Orders", tab: "parts-purchase-orders", href: "/parts-inventory/purchase-orders" },
-        { icon: Receipt, label: "RX Receipts", tab: "parts-rx-receipts", href: "/parts-inventory/rx-receipts" },
-        { icon: ArrowLeftRight, label: "Returns", tab: "parts-returns", href: "/parts-inventory/returns" },
-        { icon: Gauge, label: "Analytics", tab: "parts-analytics", href: "/parts-inventory/analytics" },
-      ],
-    },
-  ];
-}
 
 /* ─── Tour key helper ────────────────────────────────────────── */
 function navKeyForLabel(label: string): string {
@@ -286,10 +292,10 @@ function AppLayoutInner({
   const [activeOrgName, setActiveOrgName] = useState<string | null>(null);
 
   const [collapsed,         setCollapsed]         = useState(false);
-  // Default-expanded collapsible sections. "AIRCRAFT" + "PARTS & INVENTORY"
-  // are the shop-admin sidebar sections that open on load; "EXPIRATION" and
-  // "WORK FORCE" are intentionally absent so they start collapsed.
-  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Parts & Inventory", "Mechanic Portal", "AIRCRAFT", "PARTS & INVENTORY"]));
+  // Default-expanded collapsible sections. Shop: "AIRCRAFT" + "PARTS &
+  // INVENTORY" open on load ("EXPIRATION"/"WORK FORCE" start collapsed).
+  // Owner: "AIRCRAFT" + "ECONOMICS" open on load ("EXPIRATION" collapsed).
+  const [expandedItems,     setExpandedItems]     = useState<Set<string>>(new Set(["Parts & Inventory", "Mechanic Portal", "AIRCRAFT", "PARTS & INVENTORY", "ECONOMICS"]));
   const [rolePickerOpen,    setRolePickerOpen]    = useState(false);
   // Phase 13.5 — collapsible category state, persisted to localStorage per user.
   const [profileId,           setProfileId]           = useState<string | null>(null);
@@ -452,18 +458,6 @@ function AppLayoutInner({
     ? "No aircraft yet"
     : "Aircraft";
 
-  const ownerAskHref = selectedOwnerAircraft
-    ? `/ask?aircraft=${encodeURIComponent(selectedOwnerAircraft.id)}`
-    : "/ask";
-
-  const ownerNavBase = ownerNavItems.map((item) => {
-    if (item.label !== "Logbook AI") return item;
-    return {
-      ...item,
-      href: ownerAskHref,
-    };
-  });
-
   // Admin items are ONLY accessible from the Admin entry (footer link from
   // Sprint 18.2) or via direct URL nav. Non-admins don't see them. Phase 18
   // Sprint 18.3 — expanded to surface the Phase 16 ops UI in 4 sub-categories
@@ -496,12 +490,15 @@ function AppLayoutInner({
     { icon: BookOpen,       label: "SOP Library",         href: "/sop-library" },
   ];
 
+  // Nav routing — keyed on the active persona (see the routing-model
+  // comment above OWNER_NAV). Shop persona = ALL shop roles incl.
+  // mechanics; they share the full SHOP_ADMIN_NAV.
   const navItemsRaw: NavItem[] =
     persona === "admin"
       ? adminNavItems
       : persona === "owner"
-        ? ownerNavBase
-        : buildMechanicNav(currentUserRole);
+        ? OWNER_NAV
+        : SHOP_ADMIN_NAV;
 
   // Spec 5.8 — filter nav by PersonaConfig.hiddenModules. Items without
   // a `module` key are always visible (back-compat: existing items don't
@@ -517,14 +514,14 @@ function AppLayoutInner({
   // dropped entirely. The active route's category is auto-expanded so the
   // user can see where they are.
   //
-  // Shop-admin (persona shop + org role owner|admin) uses the structured
-  // SHOP_ADMIN_NAV whose sections ARE collapsible NavItems-with-children —
-  // so it bypasses the category layer entirely (a single label-less group),
-  // and the per-item chevron sections do the grouping. Mechanic, owner, and
-  // admin personas keep the existing category grouping untouched.
-  const isShopAdminNav = persona === "shop" && (currentUserRole === "owner" || currentUserRole === "admin");
-  const categorizedNav = isShopAdminNav
-    ? [{ category: { id: "shop-admin-main", label: "" } as any, items: navItems }]
+  // Both the shop persona (SHOP_ADMIN_NAV) and the owner persona
+  // (OWNER_NAV) use the structured model whose sections ARE collapsible
+  // NavItems-with-children — so they bypass the category layer entirely
+  // (a single label-less group) and the per-item chevron sections do the
+  // grouping. The admin persona keeps the existing category grouping.
+  const usesSectionNav = persona === "shop" || persona === "owner";
+  const categorizedNav = usesSectionNav
+    ? [{ category: { id: "section-nav-main", label: "" } as any, items: navItems }]
     : groupNavItemsByCategory(navItems, persona);
   const activeCategoryId = (() => {
     for (const group of categorizedNav) {
@@ -1003,10 +1000,20 @@ function AppLayoutInner({
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className="text-white/40 text-[11px] truncate">{role}</span>
-                    {/* Persona role badge — reflects the authenticated user's
-                        DB org-role so they always know which surface they're
-                        in. Mechanic = blue, Shop Admin = navy. */}
-                    {(currentUserRole === "owner" || currentUserRole === "admin") && (
+                    {/* Persona badge — tells the user which surface they're
+                        in. Owner = amber/gold, Shop Admin = navy,
+                        Mechanic = blue. Owner is keyed on persona; the shop
+                        badges are keyed on the DB org-role within the shop
+                        persona. */}
+                    {persona === "owner" && (
+                      <span
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-400/20 text-amber-300"
+                        title="Aircraft owner — read-only customer access"
+                      >
+                        Owner
+                      </span>
+                    )}
+                    {persona === "shop" && (currentUserRole === "owner" || currentUserRole === "admin") && (
                       <span
                         className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[#1e3a5f] text-sky-200"
                         title="Full shop access"
@@ -1014,7 +1021,7 @@ function AppLayoutInner({
                         Shop Admin
                       </span>
                     )}
-                    {currentUserRole === "mechanic" && (
+                    {persona === "shop" && currentUserRole === "mechanic" && (
                       <span
                         className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-blue-500/20 text-blue-300"
                         title="Maintenance-floor access"

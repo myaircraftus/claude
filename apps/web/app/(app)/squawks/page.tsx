@@ -1,3 +1,5 @@
+// OWNER PERMISSIONS: Can view squawks for their aircraft. Can ADD new squawks.
+// Cannot: close or reassign squawks.
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { SquawksWorkspace } from '@/components/squawks/squawks-workspace'

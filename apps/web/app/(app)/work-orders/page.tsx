@@ -1,3 +1,6 @@
+// OWNER PERMISSIONS: Read-only. Can view ongoing + past work orders and stage progress.
+// Can use the chat button on an open work order.
+// Cannot: create, edit, or close work orders.
 import { WorkOrdersEmptyState } from './work-orders-shell'
 
 export const metadata = { title: 'Work Orders' }

@@ -1,3 +1,5 @@
+// OWNER PERMISSIONS: Read-only. Can view invoices.
+// Cannot: create or edit invoices.
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 import { InvoiceWorkflowBoard } from '@/components/invoices/invoice-workflow-board'

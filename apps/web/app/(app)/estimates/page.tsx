@@ -1,3 +1,5 @@
+// OWNER PERMISSIONS: Read-only. Can view estimates and approve/reject them.
+// Cannot: create or edit estimates.
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'

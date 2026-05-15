@@ -1,3 +1,5 @@
+// OWNER PERMISSIONS: Read-only. Can view entries generated from squawks or by the shop.
+// Cannot: create logbook entries.
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
