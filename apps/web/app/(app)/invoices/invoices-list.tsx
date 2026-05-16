@@ -52,13 +52,15 @@ interface Props {
     paid_this_month: number
   }
   workOrders: any[]
+  /** Owner persona — read-only: the New Invoice control is hidden. */
+  isOwner?: boolean
 }
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 }
 
-export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
+export function InvoicesList({ initialInvoices, stats, workOrders, isOwner = false }: Props) {
   const router = useTenantRouter()
   const [invoices, setInvoices] = useState(initialInvoices)
   const [filter, setFilter] = useState('all')
@@ -120,10 +122,12 @@ export function InvoicesList({ initialInvoices, stats, workOrders }: Props) {
             <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
             <p className="text-muted-foreground text-sm">Create and manage invoices for maintenance work</p>
           </div>
-          <Button onClick={() => { setCreateError(null); setShowNewDialog(true) }}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Invoice
-          </Button>
+          {!isOwner && (
+            <Button onClick={() => { setCreateError(null); setShowNewDialog(true) }}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Invoice
+            </Button>
+          )}
         </div>
 
         {/* Stats */}

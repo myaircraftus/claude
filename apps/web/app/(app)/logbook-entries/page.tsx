@@ -1,10 +1,14 @@
 // OWNER PERMISSIONS: Read-only. Can view entries generated from squawks or by the shop.
 // Cannot: create logbook entries.
+//
+// Clean list view. The inline 7-step LogbookWorkflowBoard documentation is
+// gone — this page now shows only the entries table. "+ New Entry" opens a
+// focused create modal. Entry rows show type + date + tail (never UUIDs).
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
-import { LogbookWorkflowBoard } from '@/components/logbook/logbook-workflow-board'
+import { LogbookEntriesListView } from './logbook-entries-list-view'
 
 export const metadata = { title: 'Logbook Entries' }
 
@@ -14,42 +18,31 @@ export default async function LogbookEntriesPage() {
   const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
-  const [entriesRes, workOrdersRes, aircraftRes] = await Promise.all([
+  const [entriesRes, aircraftRes] = await Promise.all([
     supabase
       .from('logbook_entries')
       .select(`
-        id, aircraft_id, work_order_id, entry_type, entry_date, status, signed_at, created_at,
-        hobbs_in, hobbs_out, tach_time, total_time, description,
-        mechanic_name, mechanic_cert_number,
-        logbook_type, target_logbook, source_type, source_id, source_references,
-        ai_review_status, owner_visible, revision_number, signature_certificate_id,
+        id, entry_type, entry_date, status, signed_at, created_at,
+        hobbs_in, hobbs_out, tach_time, total_time, description, mechanic_name,
         aircraft:aircraft_id (id, tail_number, make, model),
-        work_order:work_order_id (id, work_order_number, status)
+        work_order:work_order_id (id, work_order_number)
       `)
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
-      .limit(200),
-    supabase
-      .from('work_orders')
-      .select(`
-        id, work_order_number, status, aircraft_id, customer_id,
-        complaint, discrepancy, findings, corrective_action, customer_visible_notes,
-        total_amount, opened_at, closed_at, created_at,
-        aircraft:aircraft_id (id, tail_number, make, model),
-        lines:work_order_lines (*),
-        checklist:work_order_checklist_items (*)
-      `)
-      .eq('organization_id', orgId)
-      .in('status', ['open', 'in_progress', 'ready_for_signoff', 'closed', 'invoiced', 'paid'])
-      .order('created_at', { ascending: false })
-      .limit(100),
+      .limit(300),
     supabase
       .from('aircraft')
-      .select('id, tail_number, make, model, serial_number, status')
+      .select('id, tail_number, make, model')
       .eq('organization_id', orgId)
-      .order('tail_number', { ascending: true })
-      .limit(500),
+      .eq('is_archived', false)
+      .order('tail_number', { ascending: true }),
   ])
+
+  const entries = ((entriesRes.data ?? []) as any[]).map((e) => ({
+    ...e,
+    aircraft: Array.isArray(e.aircraft) ? e.aircraft[0] ?? null : e.aircraft ?? null,
+    work_order: Array.isArray(e.work_order) ? e.work_order[0] ?? null : e.work_order ?? null,
+  }))
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -57,11 +50,9 @@ export default async function LogbookEntriesPage() {
       <main className="flex-1 overflow-hidden flex">
         <div className="w-full flex flex-col">
           <OpsTabStrip active="logbook" />
-          <LogbookWorkflowBoard
-            entries={(entriesRes.data ?? []) as any[]}
-            workOrders={(workOrdersRes.data ?? []) as any[]}
+          <LogbookEntriesListView
+            entries={entries}
             aircraft={(aircraftRes.data ?? []) as any[]}
-            profile={profile as any}
             isOwner={isOwner}
           />
         </div>
