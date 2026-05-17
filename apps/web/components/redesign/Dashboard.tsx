@@ -65,7 +65,7 @@ const CREATE_ACTIONS: CreateAction[] = [
     rule: "Creates an aircraft-linked squawk.",
     tone: "red",
     icon: AlertTriangle,
-    href: "/mechanic?tab=squawks",
+    href: "/squawks",
   },
   {
     kind: "estimate",
@@ -74,7 +74,7 @@ const CREATE_ACTIONS: CreateAction[] = [
     rule: "Can convert to work order.",
     tone: "amber",
     icon: DollarSign,
-    href: "/mechanic?tab=estimates",
+    href: "/estimates",
   },
   {
     kind: "work-order",
@@ -99,7 +99,7 @@ const CREATE_ACTIONS: CreateAction[] = [
     rule: "Requires aircraft and signer.",
     tone: "purple",
     icon: BookOpen,
-    href: "/mechanic?tab=logbook",
+    href: "/logbook-entries",
   },
   {
     kind: "aircraft",
