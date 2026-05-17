@@ -467,6 +467,9 @@ export function AskExperience() {
   const [isLoading, setIsLoading] = useState(false)
   const [activeCitation, setActiveCitation] = useState<AnswerCitation | null>(null)
   const [previousQueries, setPreviousQueries] = useState<Array<{ id: string; question: string; created_at: string }>>([])
+  // Per-aircraft uploaded-document counts — drives the "no documents
+  // uploaded" empty state when a specific aircraft is selected.
+  const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const autoAskedQueryRef = useRef<string | null>(null)
@@ -478,6 +481,14 @@ export function AskExperience() {
   const inputPlaceholder = persona === 'shop'
     ? 'Ask about maintenance actions, parts, manuals, or draft entries...'
     : 'Ask about records, inspections, compliance, or aircraft history...'
+  // When a specific aircraft is selected, check whether any documents have
+  // been uploaded for it. A strict 0 (not undefined) means counts have
+  // loaded and the aircraft genuinely has no documents.
+  const selectedAircraft = selectedAircraftId !== 'all'
+    ? aircraft.find((a) => a.id === selectedAircraftId) ?? null
+    : null
+  const noDocumentsForAircraft =
+    selectedAircraft != null && documentCounts.get(selectedAircraftId) === 0
 
   useEffect(() => {
     let cancelled = false
@@ -561,6 +572,25 @@ export function AskExperience() {
     const nextSelection = aircraftParam || 'all'
     setSelectedAircraftId((current) => (current === nextSelection ? current : nextSelection))
   }, [aircraftParam])
+
+  // Load per-aircraft document counts so we can warn when a selected
+  // aircraft has no owner-uploaded documents.
+  useEffect(() => {
+    let cancelled = false
+    async function loadDocumentCounts() {
+      try {
+        const res = await fetch('/api/documents/aircraft-counts', { cache: 'no-store' })
+        if (!res.ok) return
+        const payload = await res.json()
+        if (cancelled || !payload?.counts) return
+        setDocumentCounts(new Map(Object.entries(payload.counts as Record<string, number>)))
+      } catch {
+        // non-fatal — the empty state simply won't trigger
+      }
+    }
+    void loadDocumentCounts()
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!canUseMechanicPersona && persona === 'shop') {
@@ -827,27 +857,47 @@ export function AskExperience() {
         <div className="flex-1 overflow-auto p-6">
           {messages.length === 0 ? (
             <div className="max-w-2xl mx-auto text-center pt-16">
-              <div className="w-16 h-16 rounded-2xl bg-primary/8 flex items-center justify-center mx-auto mb-5">
-                <Sparkles className="w-8 h-8 text-primary" />
-              </div>
-              <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
-                {persona === 'shop' ? 'What maintenance help do you need?' : 'What would you like to know?'}
-              </h2>
-              <p className="text-[14px] text-muted-foreground mb-8">
-                {emptyStateDescription}
-              </p>
-              <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
-                {suggestedPrompts.map((prompt) => (
-                  <button
-                    key={prompt}
-                    onClick={() => handleAsk(prompt)}
-                    className="text-left text-[12px] bg-white border border-border rounded-xl px-4 py-3 hover:border-primary/30 hover:bg-primary/3 transition-all"
-                    style={{ fontWeight: 500 }}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
+              {noDocumentsForAircraft ? (
+                /* Selected aircraft has zero uploaded documents — the AI has
+                   nothing to read, so guide the user instead of inviting
+                   questions that can't be answered. */
+                <>
+                  <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
+                    <FileText className="w-8 h-8 text-amber-500" />
+                  </div>
+                  <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
+                    No documents uploaded for {selectedAircraft?.tail_number ?? 'this aircraft'}
+                  </h2>
+                  <p className="text-[14px] text-muted-foreground mb-8 max-w-md mx-auto">
+                    The owner has not yet uploaded documents for this aircraft. You can only
+                    view this aircraft manually.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-2xl bg-primary/8 flex items-center justify-center mx-auto mb-5">
+                    <Sparkles className="w-8 h-8 text-primary" />
+                  </div>
+                  <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
+                    {persona === 'shop' ? 'What maintenance help do you need?' : 'What would you like to know?'}
+                  </h2>
+                  <p className="text-[14px] text-muted-foreground mb-8">
+                    {emptyStateDescription}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
+                    {suggestedPrompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => handleAsk(prompt)}
+                        className="text-left text-[12px] bg-white border border-border rounded-xl px-4 py-3 hover:border-primary/30 hover:bg-primary/3 transition-all"
+                        style={{ fontWeight: 500 }}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="max-w-2xl mx-auto space-y-4">
