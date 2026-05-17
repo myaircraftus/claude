@@ -235,7 +235,17 @@ export async function searchBm25(
     const { data, error } = await supabase.storage
       .from(STORAGE_BUCKET)
       .download(`${aircraftId}/bm25.json`)
-    if (error || !data) return []
+    if (error || !data) {
+      // Graceful degradation: a missing index just means keyword search is
+      // skipped for this aircraft — vector search is unaffected. Log it so the
+      // gap is visible, then fall back to an empty result.
+      console.warn(
+        '[bm25] index missing for aircraft ' +
+          aircraftId +
+          ' — returning [] (vector search is unaffected)'
+      )
+      return []
+    }
     const text = await data.text()
     index = JSON.parse(text) as Bm25IndexFile
   } catch {

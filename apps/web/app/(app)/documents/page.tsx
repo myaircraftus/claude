@@ -624,7 +624,7 @@ export default async function DocumentsPage({
             />
           </div>
 
-          {/* Filter bar */}
+          {/* Smart views */}
           <SmartViewBar counts={smartViewCounts} searchParams={searchParams} />
 
           {/* Filter bar */}

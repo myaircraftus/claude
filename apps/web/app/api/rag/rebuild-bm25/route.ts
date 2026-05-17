@@ -10,7 +10,13 @@
  *   { org_id }       — rebuild every non-archived aircraft in that org.
  *   {}               — rebuild every aircraft in the caller's own org.
  *
- * Returns { rebuilt, results: [{ aircraft_id, chunkCount }], duration_ms }.
+ * Each aircraft is rebuilt independently — one aircraft's failure is caught,
+ * recorded as a `failed` row in `rag_index_jobs`, and does NOT abort the rest
+ * of the loop. Successful rebuilds optionally log a `completed` row so the
+ * admin index-health endpoint can report freshness.
+ *
+ * Returns { rebuilt, failed, results: [...], duration_ms } where each result
+ * is `{ aircraft_id, chunkCount }` on success or `{ aircraft_id, error }`.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentPersona } from '@/lib/persona/server'
@@ -25,10 +31,10 @@ interface RebuildBody {
   org_id?: string
 }
 
-interface RebuildResult {
-  aircraft_id: string
-  chunkCount: number
-}
+/** Per-aircraft outcome — `chunkCount` on success, `error` on failure. */
+type RebuildResult =
+  | { aircraft_id: string; chunkCount: number }
+  | { aircraft_id: string; error: string }
 
 export async function POST(req: NextRequest) {
   const startedAt = Date.now()
@@ -72,14 +78,56 @@ export async function POST(req: NextRequest) {
     aircraftIds = ((data ?? []) as { id: string }[]).map((row) => row.id)
   }
 
+  const orgId = body.org_id ?? ctx.organizationId
+
+  // Rebuild each aircraft in its own try/catch so a single failure is
+  // isolated — recorded to rag_index_jobs and reported, never fatal.
   const results: RebuildResult[] = []
+  let rebuilt = 0
+  let failed = 0
+
   for (const aircraftId of aircraftIds) {
-    const { chunkCount } = await buildBm25Index(aircraftId)
-    results.push({ aircraft_id: aircraftId, chunkCount })
+    const jobStartedAt = new Date().toISOString()
+    try {
+      const { chunkCount } = await buildBm25Index(aircraftId)
+      results.push({ aircraft_id: aircraftId, chunkCount })
+      rebuilt += 1
+      // Optional success marker — gives the index-health endpoint a freshness
+      // signal. Best-effort: a logging failure must not fail the rebuild.
+      await service
+        .from('rag_index_jobs')
+        .insert({
+          aircraft_id: aircraftId,
+          org_id: orgId,
+          job_type: 'rebuild',
+          status: 'completed',
+          started_at: jobStartedAt,
+          completed_at: new Date().toISOString(),
+        })
+        .then(undefined, () => undefined)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'BM25 rebuild failed'
+      results.push({ aircraft_id: aircraftId, error: message })
+      failed += 1
+      // Record the failure so it surfaces in the admin index-health endpoint.
+      await service
+        .from('rag_index_jobs')
+        .insert({
+          aircraft_id: aircraftId,
+          org_id: orgId,
+          job_type: 'rebuild',
+          status: 'failed',
+          started_at: jobStartedAt,
+          completed_at: new Date().toISOString(),
+          error: message,
+        })
+        .then(undefined, () => undefined)
+    }
   }
 
   return NextResponse.json({
-    rebuilt: results.length,
+    rebuilt,
+    failed,
     results,
     duration_ms: Date.now() - startedAt,
   })

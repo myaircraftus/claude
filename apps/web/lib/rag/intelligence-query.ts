@@ -13,8 +13,9 @@ import { generateEmbeddings } from '@/lib/openai/embeddings'
 import { retrieveChunks } from '@/lib/rag/retrieval'
 import { generateAnswer } from '@/lib/rag/generation'
 import { parseStructuredQuery } from '@/lib/rag/query-parser'
-import { routeQuery, indexesForStrategy, type QueryStrategy } from '@/lib/rag/query-router'
+import { routeQuery, routeQueryAsync, indexesForStrategy, type QueryStrategy } from '@/lib/rag/query-router'
 import { searchBm25 } from '@/lib/rag/bm25-index'
+import { logQueryResult } from '@/lib/rag/feedback'
 import type { RetrievedChunk, DocType } from '@/types'
 import type {
   IntelligenceCitation,
@@ -75,7 +76,15 @@ export async function runIntelligenceQuery(args: {
   }
 
   try {
+    const startedAt = Date.now()
     const supabase = createServiceSupabase()
+
+    // The strategy actually used: the caller's override, else the auto-router.
+    // routeQueryAsync runs the free keyword pass first, then the embedding
+    // intent classifier when no keyword matches — so paraphrased questions
+    // ("has this plane been inspected recently?") still route to the tree
+    // layer instead of silently defaulting to vector-only. It never throws.
+    const usedStrategy = strategy ?? (await routeQueryAsync(question))
 
     // 1. Parse + embed the question.
     const parsed = await parseStructuredQuery({
@@ -98,9 +107,10 @@ export async function runIntelligenceQuery(args: {
     })
 
     // 3. PageIndex layer — BM25 + tree, best-effort, additive.
-    const idx = indexesForStrategy(strategy ?? routeQuery(question))
+    const idx = indexesForStrategy(usedStrategy)
     const have = new Set(chunks.map((c) => c.chunk_id))
     const extraIds = new Set<string>()
+    let treeNodesUsed = 0
     if (idx.bm25) {
       try {
         for (const hit of await searchBm25(aircraftId, question, 15)) {
@@ -113,7 +123,12 @@ export async function runIntelligenceQuery(args: {
     if (idx.tree) {
       try {
         for (const id of await treeChunkIds(supabase, aircraftId, question)) {
-          if (!have.has(id)) extraIds.add(id)
+          // Count only ids the tree branch newly contributed (not already
+          // present from vector or BM25).
+          if (!have.has(id) && !extraIds.has(id)) {
+            extraIds.add(id)
+            treeNodesUsed += 1
+          }
         }
       } catch (err) {
         console.error('[intelligence-query] tree lookup failed (vector unaffected):', err)
@@ -164,6 +179,19 @@ export async function runIntelligenceQuery(args: {
       entry_date: dateByChunk.get(c.chunkId) ?? null,
       excerpt: (c.quotedText ?? c.snippet ?? '').slice(0, 400),
     }))
+
+    // Log the query outcome to the RAG feedback loop (fire-and-forget — must
+    // not affect this function's return value or its never-throws contract).
+    void logQueryResult({
+      org_id: organizationId,
+      aircraft_id: aircraftId,
+      query: question,
+      strategy: usedStrategy,
+      chunk_count: chunks.length,
+      tree_nodes_used: treeNodesUsed,
+      answer_length: answer.answer.length,
+      duration_ms: Date.now() - startedAt,
+    })
 
     return {
       answer: answer.answer,

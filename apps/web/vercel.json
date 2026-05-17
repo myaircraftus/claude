@@ -69,6 +69,10 @@
     {
       "path": "/api/cron/email-queue-worker",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/invoices/reminders/send",
+      "schedule": "0 14 * * *"
     }
   ],
   "headers": [

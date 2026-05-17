@@ -37,11 +37,19 @@ const TREE_SIGNALS =
   /\b(where|which section|which chapter|chapter\s*\d|\bsection\b|when was the last|last time|show all|history of|is current on|missing|not been done|ever been)\b/i
 
 /**
- * Pick the retrieval strategy for a query. Pure + deterministic.
+ * Keyword-only routing pass. Pure + deterministic + fast.
+ *
+ * Returns a concrete strategy when SOME keyword pattern (or doc-type
+ * context) matches, or `null` when nothing matches — letting the caller
+ * decide what to do with an un-routed query (fall back to 'vector', or
+ * hand off to the embedding classifier).
  */
-export function routeQuery(query: string, context?: { docTypes?: string[] }): QueryStrategy {
+export function keywordRoute(
+  query: string,
+  context?: { docTypes?: string[] },
+): QueryStrategy | null {
   const q = (query ?? '').toLowerCase().trim()
-  if (!q) return 'vector'
+  if (!q) return null
 
   // AD numbers need an exact keyword match AND location reasoning.
   if (AD_NUMBER.test(q)) return 'hybrid_all'
@@ -64,8 +72,45 @@ export function routeQuery(query: string, context?: { docTypes?: string[] }): Qu
   // Exact-string lookups (part #, serial #, dates) → BM25 + vector.
   if (PART_NUMBER.test(q) || SERIAL_NUMBER.test(q) || DATE_LIKE.test(q)) return 'bm25'
 
-  // Everything else → vector only (the default).
-  return 'vector'
+  // Nothing matched — let the caller decide.
+  return null
+}
+
+/**
+ * Pick the retrieval strategy for a query. Pure + deterministic + sync.
+ *
+ * Behaviour-identical to the original keyword router: an un-matched query
+ * falls back to plain 'vector' search.
+ */
+export function routeQuery(query: string, context?: { docTypes?: string[] }): QueryStrategy {
+  return keywordRoute(query, context) ?? 'vector'
+}
+
+/**
+ * Async router — keyword pre-check, then an embedding-based intent
+ * classifier as the fallback.
+ *
+ * The keyword pass runs first because it is free and high-precision: a
+ * non-null result is returned immediately. Only when NO keyword pattern
+ * matches do we pay for an embedding round-trip. A low-confidence
+ * classification (below ROUTER_CONFIDENCE_THRESHOLD) degrades to plain
+ * 'vector' search rather than guessing a specialised index.
+ */
+export async function routeQueryAsync(
+  query: string,
+  context?: { docTypes?: string[] },
+): Promise<QueryStrategy> {
+  const keyword = keywordRoute(query, context)
+  if (keyword) return keyword
+
+  // Imported lazily so the sync `routeQuery` path stays dependency-free.
+  const { classifyQueryIntent, INTENT_STRATEGY, ROUTER_CONFIDENCE_THRESHOLD } = await import(
+    './router-classifier'
+  )
+
+  const { intent, confidence } = await classifyQueryIntent(query)
+  if (confidence < ROUTER_CONFIDENCE_THRESHOLD) return 'vector'
+  return INTENT_STRATEGY[intent]
 }
 
 /** Expand a strategy into the concrete set of indexes to query. */

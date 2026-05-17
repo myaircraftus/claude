@@ -2153,6 +2153,20 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       const ragAircraftId = (document as any)?.aircraft_id ?? null
       const ragOrgId = (document as any)?.organization_id ?? null
       if (!ragAircraftId) return
+      // Auto-retry visibility: if a prior rebuild for this aircraft failed,
+      // note that this upload's whole-aircraft rebuild naturally retries it.
+      const { data: priorFailed } = await supabase
+        .from('rag_index_jobs')
+        .select('id')
+        .eq('aircraft_id', ragAircraftId)
+        .eq('job_type', 'rebuild')
+        .eq('status', 'failed')
+        .limit(1)
+      if (priorFailed && priorFailed.length > 0) {
+        console.log(
+          `[ingestion] retrying previously-failed RAG index for aircraft ${ragAircraftId} via upload of doc ${documentId}`,
+        )
+      }
       const { data: ragJob } = await supabase
         .from('rag_index_jobs')
         .insert({

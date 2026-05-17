@@ -10,6 +10,7 @@ import { parseStructuredQuery } from '@/lib/rag/query-parser';
 import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
 import { routeQuery, indexesForStrategy, type QueryStrategy } from '@/lib/rag/query-router';
 import { searchBm25 } from '@/lib/rag/bm25-index';
+import { logQueryResult } from '@/lib/rag/feedback';
 import type { DocType, RetrievedChunk } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
@@ -341,7 +342,19 @@ export async function POST(req: NextRequest) {
       console.error('[query POST] Failed to increment query count:', incrementError);
     }
 
-    // 11. Return response
+    // 11. Log the query outcome to the RAG feedback loop (fire-and-forget).
+    void logQueryResult({
+      org_id: organizationId,
+      aircraft_id: parsedQuery.aircraftId ?? aircraft_id ?? null,
+      query: question,
+      strategy: routeQuery(question),
+      chunk_count: retrievedChunks.length,
+      tree_nodes_used: 0, // this route is vector-only
+      answer_length: answerResult.answer.length,
+      duration_ms: latencyMs,
+    });
+
+    // 12. Return response
     return NextResponse.json({
       query_id: queryRecord?.id ?? null,
       answer: answerResult.answer,
