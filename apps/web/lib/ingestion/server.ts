@@ -2144,6 +2144,55 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       }
     })()
 
+    // PageIndex post-upload trigger — rebuild the BM25 keyword index and the
+    // hierarchical document tree now that the existing pipeline has produced
+    // chunks + embeddings. Fire-and-forget, logged to rag_index_jobs; a
+    // failure here never affects the already-completed document. PageIndex
+    // indexes are aircraft-scoped, so reference docs with no aircraft skip it.
+    void (async () => {
+      const ragAircraftId = (document as any)?.aircraft_id ?? null
+      const ragOrgId = (document as any)?.organization_id ?? null
+      if (!ragAircraftId) return
+      const { data: ragJob } = await supabase
+        .from('rag_index_jobs')
+        .insert({
+          doc_id: documentId,
+          aircraft_id: ragAircraftId,
+          org_id: ragOrgId,
+          job_type: 'rebuild',
+          status: 'running',
+          started_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+      try {
+        const [{ buildBm25Index }, { buildDocumentTree }] = await Promise.all([
+          import('@/lib/rag/bm25-index'),
+          import('@/lib/rag/tree-builder'),
+        ])
+        await buildDocumentTree(documentId, ragAircraftId)
+        await buildBm25Index(ragAircraftId)
+        if (ragJob?.id) {
+          await supabase
+            .from('rag_index_jobs')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .eq('id', ragJob.id)
+        }
+      } catch (err) {
+        console.warn(`[ingestion] RAG index rebuild failed for ${documentId}:`, err)
+        if (ragJob?.id) {
+          await supabase
+            .from('rag_index_jobs')
+            .update({
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error: err instanceof Error ? err.message : String(err),
+            })
+            .eq('id', ragJob.id)
+        }
+      }
+    })()
+
     return { mode: 'inline', status: 'completed' }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Inline ingestion failed'

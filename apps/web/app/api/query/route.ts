@@ -8,7 +8,9 @@ import { retrieveChunks } from '@/lib/rag/retrieval';
 import { generateAnswer } from '@/lib/rag/generation';
 import { parseStructuredQuery } from '@/lib/rag/query-parser';
 import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
-import type { DocType } from '@/types';
+import { routeQuery, indexesForStrategy, type QueryStrategy } from '@/lib/rag/query-router';
+import { searchBm25 } from '@/lib/rag/bm25-index';
+import type { DocType, RetrievedChunk } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
 
@@ -44,6 +46,129 @@ const queryRequestSchema = z.object({
   doc_type_filter: z.array(z.enum(DOC_TYPE_VALUES)).optional(),
   conversation_history: z.array(conversationTurnSchema).max(20).optional(),
 });
+
+// ─── PageIndex enhancement — additive BM25 + tree retrieval layer ───────────
+//
+// Layers BM25 keyword search and PageIndex hierarchical-tree retrieval ON TOP
+// of the existing vector results. Never replaces them — every branch is
+// best-effort and on any failure the original vector chunks pass straight
+// through. The existing OCR → embedding → vector pipeline is untouched.
+
+/** Pick chunk ids from PageIndex tree nodes whose label/summary match the query. */
+async function selectTreeChunkIds(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  aircraftId: string,
+  question: string,
+): Promise<Array<{ chunkId: string; sectionHint: string }>> {
+  const { data: nodes } = await supabase
+    .from('page_tree_nodes')
+    .select('label, summary, level, chunk_ids')
+    .eq('aircraft_id', aircraftId)
+    .limit(2000)
+  if (!nodes || nodes.length === 0) return []
+
+  const terms = question.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3)
+  const ranked = (nodes as Array<Record<string, unknown>>)
+    .map((node) => {
+      const hay = `${node.label ?? ''} ${node.summary ?? ''}`.toLowerCase()
+      let score = 0
+      for (const term of terms) if (hay.includes(term)) score += 1
+      return { node, score }
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+
+  const out: Array<{ chunkId: string; sectionHint: string }> = []
+  for (const { node } of ranked) {
+    const ids = Array.isArray(node.chunk_ids) ? node.chunk_ids : []
+    for (const id of ids) {
+      if (typeof id === 'string') out.push({ chunkId: id, sectionHint: String(node.label ?? '') })
+    }
+  }
+  return out
+}
+
+async function applyPageIndexEnhancement(args: {
+  supabase: ReturnType<typeof createServiceSupabase>
+  strategy: QueryStrategy
+  aircraftId?: string
+  question: string
+  vectorChunks: RetrievedChunk[]
+}): Promise<RetrievedChunk[]> {
+  const { supabase, strategy, aircraftId, question, vectorChunks } = args
+  const idx = indexesForStrategy(strategy)
+  if (!aircraftId || (!idx.bm25 && !idx.tree)) return vectorChunks
+
+  const have = new Set(vectorChunks.map((c) => c.chunk_id))
+  // chunk_id → { keywordScore, sectionHint } for chunks the vector pass missed.
+  const extra = new Map<string, { keywordScore: number; sectionHint?: string }>()
+
+  if (idx.bm25) {
+    try {
+      const hits = await searchBm25(aircraftId, question, 15)
+      const max = Math.max(1, ...hits.map((h) => h.score))
+      for (const hit of hits) {
+        if (!have.has(hit.chunk_id) && !extra.has(hit.chunk_id)) {
+          extra.set(hit.chunk_id, { keywordScore: hit.score / max })
+        }
+      }
+    } catch (err) {
+      console.error('[query] BM25 retrieval failed (vector results unaffected):', err)
+    }
+  }
+
+  if (idx.tree) {
+    try {
+      for (const { chunkId, sectionHint } of await selectTreeChunkIds(supabase, aircraftId, question)) {
+        if (!have.has(chunkId)) {
+          const existing = extra.get(chunkId)
+          extra.set(chunkId, { keywordScore: existing?.keywordScore ?? 0.6, sectionHint })
+        }
+      }
+    } catch (err) {
+      console.error('[query] PageIndex tree retrieval failed (vector results unaffected):', err)
+    }
+  }
+
+  if (extra.size === 0) return vectorChunks
+
+  try {
+    const { data: rows } = await supabase
+      .from('document_chunks')
+      .select(
+        'id, document_id, aircraft_id, page_number, page_number_end, section_title, chunk_text, metadata_json, documents:document_id(title, doc_type)',
+      )
+      .in('id', Array.from(extra.keys()))
+
+    const merged = [...vectorChunks]
+    for (const row of (rows ?? []) as Array<Record<string, any>>) {
+      const doc = Array.isArray(row.documents) ? row.documents[0] : row.documents
+      const meta = extra.get(row.id as string)!
+      merged.push({
+        chunk_id: row.id as string,
+        document_id: row.document_id as string,
+        document_title: doc?.title ?? 'Document',
+        doc_type: (doc?.doc_type ?? 'miscellaneous') as DocType,
+        aircraft_id: (row.aircraft_id as string | null) ?? undefined,
+        page_number: typeof row.page_number === 'number' ? row.page_number : 0,
+        page_number_end: (row.page_number_end as number | null) ?? undefined,
+        section_title: meta.sectionHint ?? (row.section_title as string | null) ?? undefined,
+        chunk_text: (row.chunk_text as string) ?? '',
+        metadata_json: (row.metadata_json as Record<string, unknown>) ?? {},
+        vector_score: 0,
+        keyword_score: meta.keywordScore,
+        // Exact keyword / located-tree hits rank near the top — that is the
+        // whole point (vector search misses exact part / AD / serial strings).
+        combined_score: 0.6 + meta.keywordScore * 0.35,
+      })
+    }
+    return merged
+  } catch (err) {
+    console.error('[query] PageIndex chunk hydration failed (vector results unaffected):', err)
+    return vectorChunks
+  }
+}
 
 // ─── POST /api/query ───────────────────────────────────────────────────────────
 
