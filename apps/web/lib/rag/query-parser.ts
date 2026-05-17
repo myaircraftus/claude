@@ -30,6 +30,7 @@ const DOC_TYPE_ALIASES: Record<string, DocType> = {
   form337: 'form_337',
   '337': 'form_337',
   form_337: 'form_337',
+  stc: 'stc',
   form8130: 'form_8130',
   '8130': 'form_8130',
   form_8130: 'form_8130',

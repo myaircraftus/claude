@@ -82,7 +82,7 @@ export const DOCUMENT_GROUPS: DocumentGroupDefinition[] = [
     { label: 'FAA Form 8130 Documents', docType: 'form_8130' },
     'Original Conformity Documents',
     'Type Certificate Data Sheet (TCDS)',
-    'Supplemental Type Certificates (STCs)',
+    { label: 'Supplemental Type Certificates (STCs)', docType: 'stc', id: 'stc_records' },
     'STC ICAs',
     'Field Approvals',
     { label: 'FAA Form 337 Records', docType: 'form_337' },
@@ -543,6 +543,10 @@ const LEGACY_DOC_TYPE_MAPPING: Record<DocType, { groupId: string; detailId: stri
   form_337: {
     groupId: 'airworthiness_and_certification',
     detailId: 'faa_form_337_records',
+  },
+  stc: {
+    groupId: 'airworthiness_and_certification',
+    detailId: 'stc_records',
   },
   form_8130: {
     groupId: 'airworthiness_and_certification',

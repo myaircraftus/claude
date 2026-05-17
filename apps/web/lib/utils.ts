@@ -82,6 +82,7 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   work_order: 'Work Order',
   inspection_report: 'Inspection Report',
   form_337: 'Form 337',
+  stc: 'STC',
   form_8130: 'Form 8130',
   lease_ownership: 'Lease/Ownership',
   insurance: 'Insurance',

@@ -138,7 +138,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     const VALID_DOC_TYPES: DocType[] = [
       'logbook', 'poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual',
       'parts_catalog', 'service_bulletin', 'airworthiness_directive', 'work_order',
-      'inspection_report', 'form_337', 'form_8130', 'lease_ownership', 'insurance',
+      'inspection_report', 'form_337', 'stc', 'form_8130', 'lease_ownership', 'insurance',
       'compliance', 'miscellaneous',
     ]
     if (!VALID_DOC_TYPES.includes(patch.doc_type as DocType)) {
@@ -266,7 +266,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
   const VALID_DOC_TYPES: DocType[] = [
     'logbook', 'poh', 'afm', 'afm_supplement', 'maintenance_manual', 'service_manual',
     'parts_catalog', 'service_bulletin', 'airworthiness_directive', 'work_order',
-    'inspection_report', 'form_337', 'form_8130', 'lease_ownership', 'insurance',
+    'inspection_report', 'form_337', 'stc', 'form_8130', 'lease_ownership', 'insurance',
     'compliance', 'miscellaneous',
   ]
   if (patch.doc_type !== undefined && patch.doc_type !== null && !VALID_DOC_TYPES.includes(patch.doc_type as DocType)) {

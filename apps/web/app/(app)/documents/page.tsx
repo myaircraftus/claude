@@ -99,6 +99,7 @@ function matchesSmartView(row: DocumentMetaRow, view: SmartViewId) {
         row.document_group_id === 'ad_sb_and_service_information' ||
         row.document_group_id === 'faa_government_authority_correspondence' ||
         row.doc_type === 'form_337' ||
+        row.doc_type === 'stc' ||
         row.doc_type === 'form_8130' ||
         row.doc_type === 'airworthiness_directive'
       )
@@ -495,7 +496,7 @@ export default async function DocumentsPage({
     ])
   } else if (smartView === 'faa_docs') {
     query = query.or(
-      'document_group_id.eq.airworthiness_and_certification,document_group_id.eq.ad_sb_and_service_information,document_group_id.eq.faa_government_authority_correspondence,doc_type.eq.form_337,doc_type.eq.form_8130,doc_type.eq.airworthiness_directive'
+      'document_group_id.eq.airworthiness_and_certification,document_group_id.eq.ad_sb_and_service_information,document_group_id.eq.faa_government_authority_correspondence,doc_type.eq.form_337,doc_type.eq.stc,doc_type.eq.form_8130,doc_type.eq.airworthiness_directive'
     )
   } else if (smartView === 'reminder_drivers') {
     query = query.eq('reminder_relevance', true)

@@ -28,6 +28,7 @@ export const OWNER_ONLY_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
   'logbook',                  // engine / airframe / prop / avionics logs
   'inspection_report',        // annual / 100-hr inspection
   'form_337',                 // major repair / alteration on THIS aircraft
+  'stc',                      // supplemental type certificate for THIS aircraft
   'form_8130',                // 8130-3 airworthiness tag for installed parts
   'airworthiness_directive',  // AD compliance record for THIS aircraft
   'work_order',               // shop work order tied to a tail

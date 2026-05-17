@@ -38,6 +38,9 @@ export const DOCUMENT_TYPES = [
   'service_letter',
   'tcds',
   'training_manual',
+  // Modifications & alterations
+  'stc',
+  'form_337',
   // Operations
   'photo',
   'receipt',
@@ -265,6 +268,30 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     adminCanUpload: true,
   },
 
+  // ─── Modifications & Alterations ──────────────────────────────────────────
+  // STC and Form 337 are aircraft permanent records — owner-persona uploads
+  // (consistent with form_337 being OWNER_ONLY in persona-scope.ts).
+  stc: {
+    id: 'stc',
+    label: 'STC (Supplemental Type Certificate)',
+    description: 'FAA Supplemental Type Certificate authorizing an aircraft modification.',
+    category: 'Compliance',
+    requiresAircraftId: false,
+    ownerCanUpload: true,
+    shopCanUpload: false,
+    adminCanUpload: true,
+  },
+  form_337: {
+    id: 'form_337',
+    label: 'Form 337 (Major Repair & Alteration)',
+    description: 'FAA Form 337 documenting a major repair or major alteration on this aircraft.',
+    category: 'Compliance',
+    requiresAircraftId: true,
+    ownerCanUpload: true,
+    shopCanUpload: false,
+    adminCanUpload: true,
+  },
+
   // ─── Operations ───────────────────────────────────────────────────────────
   photo: {
     id: 'photo',
@@ -415,6 +442,9 @@ export function inferDocumentTypeFromLegacy(legacy: string | null | undefined): 
     case 'insurance':
       return 'aircraft_insurance'
     case 'form_337':
+      return 'form_337'
+    case 'stc':
+      return 'stc'
     case 'form_8130':
     case 'compliance':
     case 'miscellaneous':

@@ -116,6 +116,10 @@ export function PersonaAwareUploadModal({
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<UploadStatus>({ state: 'idle' })
+  // Optional STC / Form 337 metadata.
+  const [stcNumber, setStcNumber] = useState('')
+  const [form337Date, setForm337Date] = useState('')
+  const [relatedStcNumber, setRelatedStcNumber] = useState('')
 
   const allowedTypesInCategory = useMemo(
     () => getCategoryTypes(category).filter((m) => canPersonaUpload(persona, m.id)),
@@ -132,6 +136,17 @@ export function PersonaAwareUploadModal({
   async function handleSubmit() {
     if (submitDisabled || !file) return
     setStatus({ state: 'uploading' })
+
+    // STC / Form 337 metadata — stored on the existing documents columns
+    // (document_date + description) so no schema change is needed.
+    const extraDocumentDate =
+      documentType === 'form_337' && form337Date ? form337Date : null
+    const extraNotes =
+      documentType === 'stc' && stcNumber.trim()
+        ? `STC Number: ${stcNumber.trim()}`
+        : documentType === 'form_337' && relatedStcNumber.trim()
+          ? `Related STC: ${relatedStcNumber.trim()}`
+          : null
 
     try {
       // Step 1: get a pre-signed upload URL + documentId from /api/upload/init.
@@ -184,6 +199,8 @@ export function PersonaAwareUploadModal({
           // Phase 13.1 fields — server-side validation lives here.
           documentType,
           uploadedByPersona: persona,
+          documentDate: extraDocumentDate,
+          notes: extraNotes,
         }),
       })
       if (!completeRes.ok) {
@@ -301,6 +318,40 @@ export function PersonaAwareUploadModal({
             />
           </div>
 
+          {/* STC metadata — optional STC number. */}
+          {documentType === 'stc' && (
+            <div>
+              <Label>STC Number (optional)</Label>
+              <Input
+                value={stcNumber}
+                onChange={(e) => setStcNumber(e.target.value)}
+                placeholder="e.g. SA01234SE"
+              />
+            </div>
+          )}
+
+          {/* Form 337 metadata — optional date + related STC. */}
+          {documentType === 'form_337' && (
+            <>
+              <div>
+                <Label>337 Date (optional)</Label>
+                <Input
+                  type="date"
+                  value={form337Date}
+                  onChange={(e) => setForm337Date(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Related STC Number (optional)</Label>
+                <Input
+                  value={relatedStcNumber}
+                  onChange={(e) => setRelatedStcNumber(e.target.value)}
+                  placeholder="STC that authorized the alteration, if any"
+                />
+              </div>
+            </>
+          )}
+
           {/* File. */}
           <div>
             <Label>File (PDF or image)</Label>
@@ -396,6 +447,10 @@ function legacyDocTypeForNew(documentType: DocumentType): string {
       return 'maintenance_manual'
     case 'work_order_attachment':
       return 'work_order'
+    case 'stc':
+      return 'stc'
+    case 'form_337':
+      return 'form_337'
     case 'invoice':
     case 'receipt':
     case 'photo':

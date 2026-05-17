@@ -25,6 +25,7 @@ const DOC_TYPE_VALUES: [DocType, ...DocType[]] = [
   'work_order',
   'inspection_report',
   'form_337',
+  'stc',
   'form_8130',
   'lease_ownership',
   'insurance',
