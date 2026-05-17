@@ -35,6 +35,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
+import { EMPTY_ATA_JASC, hasAtaJasc, suggestAtaJasc, type AtaJascValue } from '@/lib/aviation/ata-jasc'
 import { cn, formatDateTime } from '@/lib/utils'
 
 export type AircraftOption = {
@@ -203,6 +205,8 @@ export function SquawksWorkspace({ mode, initialSquawks, aircraftOptions, locked
     reason: '',
     owner_visible: false,
   })
+  const [ataJasc, setAtaJasc] = useState<AtaJascValue>({ ...EMPTY_ATA_JASC })
+  const [ataJascSource, setAtaJascSource] = useState<'manual' | 'ai'>('manual')
 
   const selected = squawks.find((item) => item.id === selectedId) ?? squawks[0] ?? null
 
@@ -258,6 +262,26 @@ export function SquawksWorkspace({ mode, initialSquawks, aircraftOptions, locked
       suggested_ata_code: '',
       suggested_jasc_code: '',
     })
+    setAtaJasc({ ...EMPTY_ATA_JASC })
+    setAtaJascSource('manual')
+  }
+
+  function autoSuggestAtaJasc() {
+    const description = form.description.trim()
+    if (!description || hasAtaJasc(ataJasc)) return
+    suggestAtaJasc(description)
+      .then((suggestion) => {
+        if (suggestion && !hasAtaJasc(ataJasc)) {
+          setAtaJasc({
+            ata_code: suggestion.ata_code,
+            ata_description: suggestion.ata_description,
+            jasc_code: suggestion.jasc_code,
+            jasc_description: suggestion.jasc_description,
+          })
+          setAtaJascSource('ai')
+        }
+      })
+      .catch(() => {})
   }
 
   async function generateDraft() {
@@ -324,6 +348,10 @@ export function SquawksWorkspace({ mode, initialSquawks, aircraftOptions, locked
           source_context: mode === 'aircraft' ? 'aircraft_workspace' : 'squawks_global_queue',
           suggested_ata_code: form.suggested_ata_code || null,
           suggested_jasc_code: form.suggested_jasc_code || null,
+          confirmed_ata_code: ataJasc.ata_code,
+          confirmed_jasc_code: ataJasc.jasc_code,
+          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
+          classification_status: hasAtaJasc(ataJasc) ? 'classified' : 'unclassified',
           ai_draft: {
             prompt: form.transcript || form.description,
             suggested_title: form.title,
@@ -777,9 +805,21 @@ export function SquawksWorkspace({ mode, initialSquawks, aircraftOptions, locked
                 <Textarea
                   value={form.description}
                   onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+                  onBlur={autoSuggestAtaJasc}
                   className="min-h-[160px]"
                 />
               </div>
+              <AtaJascSelector
+                value={ataJasc}
+                onChange={(value, meta) => {
+                  setAtaJasc(value)
+                  setAtaJascSource(meta.source)
+                }}
+                aircraftId={form.aircraft_id || null}
+                suggestText={form.description}
+                label="ATA / JASC Classification"
+                compact
+              />
               <div className="space-y-2">
                 <Label>Owner Summary</Label>
                 <Textarea

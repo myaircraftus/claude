@@ -15,6 +15,8 @@ import {
   X, ClipboardList, FileText, Plane, Loader2, Wrench, ArrowRight, Paperclip,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
+import { shortAtaJasc, type AtaJascValue } from '@/lib/aviation/ata-jasc'
 
 export interface DueItem {
   id: string
@@ -31,6 +33,9 @@ export interface DueItem {
   next_due_hours: number | null
   status: string
   notes: string | null
+  ata_code: string | null
+  jasc_code: string | null
+  classification_status?: string | null
   aircraft: { id: string; tail_number: string; make: string | null; model: string | null } | null
 }
 
@@ -101,6 +106,9 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
   const [panelTab, setPanelTab] = useState<'compliance' | 'child' | 'work'>('compliance')
   const [panelForm, setPanelForm] = useState<PanelForm>(EMPTY_PANEL)
   const [applying, setApplying] = useState(false)
+  // Local overrides for classifications saved from the side panel — keeps the
+  // table + panel in sync without a full server round-trip / refetch.
+  const [classMap, setClassMap] = useState<Record<string, AtaJascValue>>({})
 
   const filtered = useMemo(() => {
     return items.filter((it) => {
@@ -111,6 +119,40 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
   }, [items, aircraftFilter, statusFilter])
 
   const panelItem = panelId ? items.find((i) => i.id === panelId) ?? null : null
+
+  function getClass(it: DueItem): AtaJascValue {
+    return (
+      classMap[it.id] ?? {
+        ata_code: it.ata_code,
+        ata_description: null,
+        jasc_code: it.jasc_code,
+        jasc_description: null,
+      }
+    )
+  }
+
+  async function saveClassification(itemId: string, value: AtaJascValue) {
+    setClassMap((m) => ({ ...m, [itemId]: value }))
+    try {
+      const res = await fetch(`/api/compliance/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ata_code: value.ata_code,
+          jasc_code: value.jasc_code,
+          classification_source: value.ata_code || value.jasc_code ? 'manual' : null,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j?.error ?? 'Could not save classification')
+        return
+      }
+      toast.success('Classification saved')
+    } catch {
+      toast.error('Network error saving classification')
+    }
+  }
 
   function openPanel(it: DueItem) {
     setPanelId(it.id)
@@ -160,9 +202,15 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
   function createWorkOrder() {
     const ids = [...selected]
     if (ids.length === 0) return
-    // TODO: the WO creation wizard does not yet read ?from=due-list&items= —
-    // pre-filling the selected compliance items is a follow-up.
-    router.push(`/work-orders/new?from=due-list&items=${ids.join(',')}`)
+    // There is no /work-orders/new route — work orders are created from the
+    // Work Orders list via the "New Work Order" modal. Route there so the
+    // button works instead of falling through to /work-orders/[id]. Pre-filling
+    // the selected compliance items is a follow-up once that modal accepts a
+    // ?from=due-list&items= payload.
+    toast.info(
+      `Create the work order from the Work Orders page — ${ids.length} item${ids.length === 1 ? '' : 's'} selected.`,
+    )
+    router.push('/work-orders')
   }
 
   if (items.length === 0) {
@@ -248,7 +296,7 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
             <table className="w-full text-sm">
               <thead className="bg-muted/30 border-b border-border">
                 <tr>
-                  {['', 'Tail No.', 'Source / Ref', 'Type / Description', 'Compliance', 'Interval', 'Next Due', 'Remaining'].map((h, i) => (
+                  {['', 'Tail No.', 'Source / Ref', 'Type / Description', 'ATA / JASC', 'Compliance', 'Interval', 'Next Due', 'Remaining'].map((h, i) => (
                     <th key={i} className="text-left px-3 py-2.5 text-[10.5px] uppercase tracking-wider text-muted-foreground" style={{ fontWeight: 600 }}>
                       {h}
                     </th>
@@ -286,6 +334,9 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                       <td className="px-3 py-2.5">
                         <div className="text-[13px] text-foreground">{it.title}</div>
                         <div className="text-[11px] text-muted-foreground capitalize">{it.item_type ?? ''}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-muted-foreground tabular-nums">
+                        {shortAtaJasc(getClass(it))}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-muted-foreground">
                         <div>{fmtDate(it.last_completed_date)}</div>
@@ -359,6 +410,17 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
               {panelTab === 'compliance' && (
                 <>
+                  <PanelSection title="ATA / JASC Classification">
+                    <AtaJascSelector
+                      value={getClass(panelItem)}
+                      onChange={(v) => saveClassification(panelItem.id, v)}
+                      aircraftId={panelItem.aircraft?.id ?? null}
+                      suggestText={`${panelItem.title} ${panelItem.notes ?? ''}`.trim()}
+                      label=""
+                      compact
+                    />
+                  </PanelSection>
+
                   <PanelSection title="Compliance">
                     <div className="grid grid-cols-3 gap-2">
                       <FieldInput label="Date" type="date" value={panelForm.date} onChange={(v) => setPanelForm((f) => ({ ...f, date: v }))} />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { normalizeEstimateStatus, writeEstimateAudit } from '@/lib/estimates/workflow'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { buildClassificationPatch } from '@/lib/taxonomy/format'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await resolveRequestOrgContext(req)
@@ -103,6 +104,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       updates[field] = body[field]
     }
   }
+
+  Object.assign(
+    updates,
+    buildClassificationPatch(body, {
+      ataKey: 'primary_ata_code',
+      jascKey: 'primary_jasc_code',
+    }),
+  )
 
   const { data: existing } = await supabase
     .from('estimates')

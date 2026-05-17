@@ -18,6 +18,8 @@ import { toast } from 'sonner'
 import { BookOpen, Plus, Search, Plane, CheckCircle2, X, Loader2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
+import { type AtaJascValue, EMPTY_ATA_JASC, hasAtaJasc } from '@/lib/aviation/ata-jasc'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -83,6 +85,14 @@ export function LogbookEntriesListView({
     target: 'airframe' as (typeof TARGETS)[number],
     description: '',
   })
+  const [ataJasc, setAtaJasc] = useState<AtaJascValue>({ ...EMPTY_ATA_JASC })
+  const [ataJascSource, setAtaJascSource] = useState<'manual' | 'ai'>('manual')
+
+  function closeCreate() {
+    setCreateOpen(false)
+    setAtaJasc({ ...EMPTY_ATA_JASC })
+    setAtaJascSource('manual')
+  }
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -115,6 +125,10 @@ export function LogbookEntriesListView({
           status: 'draft',
           source_type: 'logbook_module',
           description: form.description || undefined,
+          ata_code: ataJasc.ata_code,
+          jasc_code: ataJasc.jasc_code,
+          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
+          classification_status: hasAtaJasc(ataJasc) ? 'classified' : 'unclassified',
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -122,7 +136,7 @@ export function LogbookEntriesListView({
         toast.error(data?.error ?? `Create failed (${res.status})`)
         return
       }
-      setCreateOpen(false)
+      closeCreate()
       toast.success('Draft logbook entry created')
       if (data?.id) router.push(`/logbook-entries/${data.id}`)
       else router.refresh()
@@ -246,7 +260,7 @@ export function LogbookEntriesListView({
       {createOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4"
-          onClick={() => !saving && setCreateOpen(false)}
+          onClick={() => !saving && closeCreate()}
         >
           <div
             className="bg-background rounded-xl shadow-xl w-full max-w-md"
@@ -254,7 +268,7 @@ export function LogbookEntriesListView({
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="text-base font-semibold text-foreground">New Logbook Entry</h2>
-              <button onClick={() => !saving && setCreateOpen(false)} className="p-1 rounded hover:bg-muted">
+              <button onClick={() => !saving && closeCreate()} className="p-1 rounded hover:bg-muted">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -316,9 +330,22 @@ export function LogbookEntriesListView({
                   className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+              <div>
+                <AtaJascSelector
+                  value={ataJasc}
+                  onChange={(v, meta) => {
+                    setAtaJasc(v)
+                    setAtaJascSource(meta.source)
+                  }}
+                  aircraftId={form.aircraft_id || null}
+                  suggestText={form.description}
+                  label="ATA / JASC Classification"
+                  compact
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-              <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>Cancel</Button>
+              <Button variant="outline" onClick={() => closeCreate()} disabled={saving}>Cancel</Button>
               <Button onClick={createEntry} disabled={saving}>
                 {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Plus className="h-4 w-4 mr-1.5" />}
                 Create draft entry

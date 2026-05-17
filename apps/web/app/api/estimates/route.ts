@@ -198,6 +198,10 @@ export async function POST(req: NextRequest) {
       linked_work_order_id: body.linked_work_order_id ?? null,
       converted_work_order_id: body.converted_work_order_id ?? body.linked_work_order_id ?? null,
       linked_squawk_ids: Array.isArray(body.linked_squawk_ids) ? body.linked_squawk_ids : [],
+      ...buildClassificationPatch(body, {
+        ataKey: 'primary_ata_code',
+        jascKey: 'primary_jasc_code',
+      }),
     })
     .select()
     .single()

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, X, Loader2 } from 'lucide-react'
+import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
+import { EMPTY_ATA_JASC, hasAtaJasc, type AtaJascValue } from '@/lib/aviation/ata-jasc'
 
 interface Aircraft {
   id: string
@@ -19,6 +21,8 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
   const [complaint, setComplaint] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [ataJasc, setAtaJasc] = useState<AtaJascValue>({ ...EMPTY_ATA_JASC })
+  const [ataJascSource, setAtaJascSource] = useState<'manual' | 'ai'>('manual')
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -32,6 +36,9 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
           aircraft_id: aircraftId || null,
           complaint: complaint || null,
           status: 'open',
+          primary_ata_code: ataJasc.ata_code,
+          primary_jasc_code: ataJasc.jasc_code,
+          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
         }),
       })
       if (!res.ok) {
@@ -41,6 +48,8 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
       }
       const data = await res.json()
       setOpen(false)
+      setAtaJasc({ ...EMPTY_ATA_JASC })
+      setAtaJascSource('manual')
       router.push(`/work-orders/${data.id}`)
       router.refresh()
     } catch (err) {
@@ -89,6 +98,16 @@ export function NewWorkOrderButton({ aircraft }: { aircraft: Aircraft[] }) {
                   onChange={e => setComplaint(e.target.value)}
                   placeholder="Brief description of the issue"
                   className="mt-1"
+                />
+              </div>
+              <div>
+                <AtaJascSelector
+                  value={ataJasc}
+                  onChange={(v, meta) => { setAtaJasc(v); setAtaJascSource(meta.source) }}
+                  aircraftId={aircraftId || null}
+                  suggestText={complaint}
+                  label="ATA / JASC Classification"
+                  compact
                 />
               </div>
               {error && (

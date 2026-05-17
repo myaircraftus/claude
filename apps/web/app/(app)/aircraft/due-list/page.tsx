@@ -18,6 +18,7 @@ export default async function DueListPage() {
         interval_calendar_months, interval_hours,
         last_completed_date, last_completed_hours, last_completed_cycles,
         next_due_date, next_due_hours, status, notes,
+        ata_code, jasc_code, classification_status,
         aircraft:aircraft_id (id, tail_number, make, model)
       `)
       .eq('organization_id', orgId)

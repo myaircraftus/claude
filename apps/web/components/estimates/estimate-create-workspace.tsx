@@ -21,6 +21,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
+import { type AtaJascValue, EMPTY_ATA_JASC, hasAtaJasc } from '@/lib/aviation/ata-jasc'
 import { formatCurrency } from '@/lib/utils'
 
 type AircraftOption = {
@@ -91,6 +93,8 @@ export function EstimateCreateWorkspace({
   const [validUntil, setValidUntil] = useState(defaultValidUntil())
   const [terms, setTerms] = useState('Estimate is valid until the date shown. Final invoice is based on approved work-order actuals and approved changes.')
   const [prompt, setPrompt] = useState('')
+  const [ataJasc, setAtaJasc] = useState<AtaJascValue>({ ...EMPTY_ATA_JASC })
+  const [ataJascSource, setAtaJascSource] = useState<'manual' | 'ai'>('manual')
   const [selectedSquawks, setSelectedSquawks] = useState<string[]>(initialSquawkId ? [initialSquawkId] : [])
   const [depositRequired, setDepositRequired] = useState(true)
   const [depositAmount, setDepositAmount] = useState('300')
@@ -209,6 +213,10 @@ export function EstimateCreateWorkspace({
           valid_until: validUntil,
           terms,
           customer_notes: prompt,
+          primary_ata_code: ataJasc.ata_code,
+          primary_jasc_code: ataJasc.jasc_code,
+          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
+          classification_status: hasAtaJasc(ataJasc) ? 'classified' : 'unclassified',
           internal_notes: selectedSquawks.length ? `Selected squawks: ${selectedSquawks.join(', ')}` : null,
           linked_squawk_ids: selectedSquawks,
           deposit_required: depositRequired,
@@ -292,6 +300,17 @@ export function EstimateCreateWorkspace({
                 <Field label="Estimate Type" value={estimateType} onChange={setEstimateType} />
                 <Field label="Valid Until" value={validUntil} onChange={setValidUntil} type="date" />
               </div>
+              <AtaJascSelector
+                value={ataJasc}
+                onChange={(value, meta) => {
+                  setAtaJasc(value)
+                  setAtaJascSource(meta.source)
+                }}
+                aircraftId={aircraftId || null}
+                suggestText={prompt || estimateType}
+                label="ATA / JASC Classification"
+                compact
+              />
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                 AI context includes selected aircraft, owner, open squawks, prior work context, current estimate lines, and taxonomy labels where present.
               </div>
