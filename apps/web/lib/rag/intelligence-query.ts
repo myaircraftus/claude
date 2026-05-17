@@ -16,7 +16,11 @@ import { parseStructuredQuery } from '@/lib/rag/query-parser'
 import { routeQuery, indexesForStrategy, type QueryStrategy } from '@/lib/rag/query-router'
 import { searchBm25 } from '@/lib/rag/bm25-index'
 import type { RetrievedChunk, DocType } from '@/types'
-import type { IntelligenceCitation, IntelligenceQueryResult } from '@/lib/intelligence/types'
+import type {
+  IntelligenceCitation,
+  IntelligenceQueryResult,
+  AircraftRecordSearchHit,
+} from '@/lib/intelligence/types'
 
 /** Pull chunk ids from PageIndex tree nodes whose label/summary match the query. */
 async function treeChunkIds(
@@ -170,5 +174,112 @@ export async function runIntelligenceQuery(args: {
   } catch (err) {
     console.error('[intelligence-query] failed:', err)
     return empty
+  }
+}
+
+// ── Component History Search ────────────────────────────────────────────────
+
+/** Best-effort tach reading from a chunk's metadata or its text. */
+function extractTach(metadata: unknown, text: string): number | null {
+  const meta = (metadata ?? {}) as Record<string, unknown>
+  for (const key of ['tach', 'tach_time', 'tach_reading']) {
+    const v = meta[key]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  const m = /\btach(?:\s*time)?[:\s]+(\d{1,5}(?:\.\d{1,2})?)/i.exec(text || '')
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Raw record search for the Component History Search module — returns the
+ * matching chunks themselves (no LLM answer synthesis). `mode` controls which
+ * index is consulted: exact → BM25 only; semantic → vector only; smart → the
+ * router decides (vector always, BM25 when the query looks exact). Never
+ * throws — returns [] on any failure.
+ */
+export async function searchAircraftRecords(args: {
+  organizationId: string
+  aircraftId: string
+  query: string
+  mode: 'smart' | 'exact' | 'semantic'
+}): Promise<AircraftRecordSearchHit[]> {
+  const { organizationId, aircraftId, query, mode } = args
+  if (!query.trim()) return []
+
+  try {
+    const supabase = createServiceSupabase()
+    const results = new Map<string, AircraftRecordSearchHit>()
+
+    const wantVector = mode !== 'exact'
+    const wantBm25 =
+      mode === 'exact' || (mode === 'smart' && indexesForStrategy(routeQuery(query)).bm25)
+
+    if (wantVector) {
+      const parsed = await parseStructuredQuery({ organizationId, aircraftId, queryText: query })
+      const text = parsed.cleanedQuery || query
+      const [emb] = await generateEmbeddings([{ id: 'q', text }])
+      const chunks = await retrieveChunks({
+        organizationId,
+        aircraftId,
+        queryEmbedding: emb.embedding,
+        queryText: text,
+        docTypeFilter: parsed.docTypeFilter,
+        limit: 20,
+        parsedQuery: parsed,
+      })
+      for (const c of chunks) {
+        results.set(c.chunk_id, {
+          chunk_id: c.chunk_id,
+          document_id: c.document_id,
+          doc_name: c.document_title ?? 'Document',
+          doc_type: String(c.doc_type ?? 'document'),
+          page_number: typeof c.page_number === 'number' ? c.page_number : null,
+          entry_date: c.document_date ?? null,
+          tach: extractTach(c.metadata_json, c.chunk_text),
+          excerpt: (c.chunk_text ?? '').slice(0, 400),
+          relevance_score: c.combined_score ?? 0,
+        })
+      }
+    }
+
+    if (wantBm25) {
+      try {
+        const hits = await searchBm25(aircraftId, query, 20)
+        const missing = hits.filter((h) => !results.has(h.chunk_id))
+        if (missing.length > 0) {
+          const maxScore = Math.max(1, ...hits.map((h) => h.score))
+          const scoreById = new Map(hits.map((h) => [h.chunk_id, h.score]))
+          const { data: rows } = await supabase
+            .from('document_chunks')
+            .select(
+              'id, document_id, page_number, chunk_text, metadata_json, documents:document_id(title, doc_type, document_date)',
+            )
+            .in('id', missing.map((h) => h.chunk_id))
+          for (const r of (rows ?? []) as Array<Record<string, any>>) {
+            const doc = Array.isArray(r.documents) ? r.documents[0] : r.documents
+            results.set(r.id, {
+              chunk_id: r.id,
+              document_id: r.document_id,
+              doc_name: doc?.title ?? 'Document',
+              doc_type: String(doc?.doc_type ?? 'document'),
+              page_number: typeof r.page_number === 'number' ? r.page_number : null,
+              entry_date: doc?.document_date ?? null,
+              tach: extractTach(r.metadata_json, r.chunk_text),
+              excerpt: (r.chunk_text ?? '').slice(0, 400),
+              relevance_score: (scoreById.get(r.id) ?? 0) / maxScore,
+            })
+          }
+        }
+      } catch (err) {
+        console.error('[searchAircraftRecords] BM25 failed:', err)
+      }
+    }
+
+    return Array.from(results.values())
+      .sort((a, b) => b.relevance_score - a.relevance_score)
+      .slice(0, 20)
+  } catch (err) {
+    console.error('[searchAircraftRecords] failed:', err)
+    return []
   }
 }

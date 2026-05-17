@@ -9,6 +9,12 @@ export type IntelligenceModule =
   | 'prebuy'
   | 'ad-traceability'
   | 'missing-records'
+  | 'squawk-patterns'
+  | 'maintenance-forecast'
+  | 'market-value'
+  | 'lender-summary'
+  | 'component-search'
+  | 'time-comparison'
 
 /** A source reference attached to an AI-generated finding. */
 export interface IntelligenceCitation {
@@ -25,6 +31,19 @@ export interface IntelligenceQueryResult {
   citations: IntelligenceCitation[]
   /** Number of chunks the answer was generated from (0 = insufficient records). */
   chunkCount: number
+}
+
+/** A raw record-search hit (Component History Search — no answer synthesis). */
+export interface AircraftRecordSearchHit {
+  chunk_id: string
+  document_id: string
+  doc_name: string
+  doc_type: string
+  page_number: number | null
+  entry_date: string | null
+  tach: number | null
+  excerpt: string
+  relevance_score: number
 }
 
 export type IntelligenceSeverity = 'critical' | 'warning' | 'info'
