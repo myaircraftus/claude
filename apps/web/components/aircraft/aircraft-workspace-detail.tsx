@@ -304,6 +304,7 @@ export function AircraftWorkspaceDetail({ aircraftId }: { aircraftId: string }) 
             {actionsOpen ? (
               <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
                 <Link className={ACTION_ROW_CLASS} href={`/aircraft/${aircraft.id}/edit`}>Edit Aircraft</Link>
+                <Link className={ACTION_ROW_CLASS} href={`/aircraft/${aircraft.id}/intelligence`}>Aircraft Intelligence</Link>
                 <button className={ACTION_ROW_CLASS} onClick={() => { setTimeOpen(true); setActionsOpen(false) }}>Update Times</button>
                 <button className={ACTION_ROW_CLASS} onClick={() => { setDueOpen(true); setActionsOpen(false) }}>Create Due Item</button>
                 <button className={ACTION_ROW_CLASS} onClick={() => { generateAiDueList(); setActionsOpen(false) }} disabled={saving}>Generate AI Due List</button>
