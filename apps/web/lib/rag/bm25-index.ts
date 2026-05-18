@@ -244,27 +244,70 @@ async function loadIndex(
 }
 
 // ---------------------------------------------------------------------------
+// Concurrent-rebuild guard.
+//
+// A BM25 rebuild is a full snapshot: read every chunk for the scope, assemble,
+// upsert the JSON. The Storage upsert is atomic, so two concurrent rebuilds
+// never corrupt the file — but they DO race on freshness. If two uploads to
+// the same aircraft each trigger a rebuild, the rebuild that started from the
+// staler chunk snapshot can finish last and win, silently dropping the other
+// upload's chunks from the index until the next unrelated rebuild.
+//
+// Fix: fingerprint the chunk set (row count + newest created_at) immediately
+// before reading chunks and again immediately after persisting. If it changed,
+// a concurrent write landed inside our build window — the index we just wrote
+// may be missing rows, so rebuild from the fresh snapshot (capped retries).
+// No DB lock or queue: a full rebuild is idempotent, so the loop simply
+// converges on the latest state.
+// ---------------------------------------------------------------------------
+
+const MAX_REBUILD_ATTEMPTS = 3
+
+type ChunkScope = { aircraftId: string } | { organizationId: string }
+
+/**
+ * Fingerprint the chunk set for an index scope as `${count}:${latestCreatedAt}`.
+ * A change in either field between two reads means the chunk set was written
+ * to in between. Cheap: one HEAD-style count + the single newest row.
+ */
+async function chunkSetFingerprint(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  scope: ChunkScope,
+): Promise<string> {
+  let query = supabase
+    .from('document_chunks')
+    .select('created_at', { count: 'exact' })
+    .order('created_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+  query =
+    'aircraftId' in scope
+      ? query.eq('aircraft_id', scope.aircraftId)
+      : query.eq('organization_id', scope.organizationId).is('aircraft_id', null)
+
+  const { data, error, count } = await query
+  if (error) throw new Error(`bm25: failed to fingerprint chunk set: ${error.message}`)
+  const latest = (data?.[0] as { created_at?: string | null } | undefined)?.created_at ?? ''
+  return `${count ?? 0}:${latest}`
+}
+
+// ---------------------------------------------------------------------------
 // Per-aircraft index — unchanged public behavior.
 // ---------------------------------------------------------------------------
 
 /**
  * Build (or rebuild) the BM25 index for one aircraft and persist it.
  * Returns the number of chunks indexed.
+ *
+ * Concurrent-write safe: each attempt fingerprints the chunk set before and
+ * after the build; if a parallel upload changed it mid-build, the (already
+ * persisted) index may lag, so we rebuild from the fresh snapshot. See the
+ * "Concurrent-rebuild guard" note above.
  */
 export async function buildBm25Index(aircraftId: string): Promise<{ chunkCount: number }> {
   const supabase = createServiceSupabase()
 
-  const { data: chunkData, error: chunkErr } = await supabase
-    .from('document_chunks')
-    .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
-    .eq('aircraft_id', aircraftId)
-    .limit(100000)
-  if (chunkErr) throw new Error(`bm25: failed to read document_chunks: ${chunkErr.message}`)
-  const chunkRows = (chunkData ?? []) as ChunkRow[]
-
-  const documentsById = await loadDocuments(supabase, chunkRows)
-
   // Aircraft tail number — indexed so a query mentioning the tail matches.
+  // Static for the life of the rebuild, so it is read once outside the loop.
   let registration = ''
   const { data: aircraftData, error: aircraftErr } = await supabase
     .from('aircraft')
@@ -274,9 +317,33 @@ export async function buildBm25Index(aircraftId: string): Promise<{ chunkCount: 
   if (aircraftErr) throw new Error(`bm25: failed to read aircraft: ${aircraftErr.message}`)
   if (aircraftData) registration = ((aircraftData as AircraftRow).tail_number ?? '').toString()
 
-  const index = assembleIndex(chunkRows, documentsById, aircraftId, registration)
-  await persistIndex(supabase, `${aircraftId}/bm25.json`, index)
-  return { chunkCount: index.chunks.length }
+  let chunkCount = 0
+  for (let attempt = 1; attempt <= MAX_REBUILD_ATTEMPTS; attempt++) {
+    const fingerprintBefore = await chunkSetFingerprint(supabase, { aircraftId })
+
+    const { data: chunkData, error: chunkErr } = await supabase
+      .from('document_chunks')
+      .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
+      .eq('aircraft_id', aircraftId)
+      .limit(100000)
+    if (chunkErr) throw new Error(`bm25: failed to read document_chunks: ${chunkErr.message}`)
+    const chunkRows = (chunkData ?? []) as ChunkRow[]
+
+    const documentsById = await loadDocuments(supabase, chunkRows)
+    const index = assembleIndex(chunkRows, documentsById, aircraftId, registration)
+    await persistIndex(supabase, `${aircraftId}/bm25.json`, index)
+    chunkCount = index.chunks.length
+
+    const fingerprintAfter = await chunkSetFingerprint(supabase, { aircraftId })
+    if (fingerprintAfter === fingerprintBefore) break
+    if (attempt === MAX_REBUILD_ATTEMPTS) {
+      console.warn(
+        `[bm25] aircraft ${aircraftId}: chunk set still changing after ${MAX_REBUILD_ATTEMPTS} ` +
+          `rebuilds — persisted index may lag the newest upload; the next rebuild will reconcile`,
+      )
+    }
+  }
+  return { chunkCount }
 }
 
 /**
@@ -319,21 +386,36 @@ export async function buildReferenceBm25Index(
 ): Promise<{ chunkCount: number }> {
   const supabase = createServiceSupabase()
 
-  const { data: chunkData, error: chunkErr } = await supabase
-    .from('document_chunks')
-    .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
-    .eq('organization_id', organizationId)
-    .is('aircraft_id', null)
-    .limit(100000)
-  if (chunkErr) {
-    throw new Error(`bm25: failed to read reference document_chunks: ${chunkErr.message}`)
-  }
-  const chunkRows = (chunkData ?? []) as ChunkRow[]
+  let chunkCount = 0
+  for (let attempt = 1; attempt <= MAX_REBUILD_ATTEMPTS; attempt++) {
+    const fingerprintBefore = await chunkSetFingerprint(supabase, { organizationId })
 
-  const documentsById = await loadDocuments(supabase, chunkRows)
-  const index = assembleIndex(chunkRows, documentsById, `org:${organizationId}`, '')
-  await persistIndex(supabase, referenceKey(organizationId), index)
-  return { chunkCount: index.chunks.length }
+    const { data: chunkData, error: chunkErr } = await supabase
+      .from('document_chunks')
+      .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
+      .eq('organization_id', organizationId)
+      .is('aircraft_id', null)
+      .limit(100000)
+    if (chunkErr) {
+      throw new Error(`bm25: failed to read reference document_chunks: ${chunkErr.message}`)
+    }
+    const chunkRows = (chunkData ?? []) as ChunkRow[]
+
+    const documentsById = await loadDocuments(supabase, chunkRows)
+    const index = assembleIndex(chunkRows, documentsById, `org:${organizationId}`, '')
+    await persistIndex(supabase, referenceKey(organizationId), index)
+    chunkCount = index.chunks.length
+
+    const fingerprintAfter = await chunkSetFingerprint(supabase, { organizationId })
+    if (fingerprintAfter === fingerprintBefore) break
+    if (attempt === MAX_REBUILD_ATTEMPTS) {
+      console.warn(
+        `[bm25] org ${organizationId} reference index: chunk set still changing after ` +
+          `${MAX_REBUILD_ATTEMPTS} rebuilds — persisted index may lag; next rebuild reconciles`,
+      )
+    }
+  }
+  return { chunkCount }
 }
 
 /**
