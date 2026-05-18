@@ -178,7 +178,11 @@ export async function PATCH(
     if (updatePayload.status === "ready_for_review") updatePayload.ready_for_review_at = updatePayload.updated_at;
     if (updatePayload.status === "ready_to_sign") updatePayload.ready_to_sign_at = updatePayload.updated_at;
     if (updatePayload.status === "printed_unsigned") updatePayload.printed_unsigned_at = updatePayload.updated_at;
-    if (updatePayload.status === "published_to_owner") updatePayload.published_to_owner_at = updatePayload.updated_at;
+    if (updatePayload.status === "published_to_owner" || updatePayload.status === "signed") {
+      // Publishing / signing flips the owner-visibility gate on.
+      updatePayload.published_to_owner_at = updatePayload.updated_at;
+      updatePayload.owner_visible = true;
+    }
     if (updatePayload.status === "voided" || updatePayload.status === "voided_with_reason") updatePayload.voided_at = updatePayload.updated_at;
   }
   if (body.logbook_type !== undefined) updatePayload.logbook_type = normalizeLogbookType(body.logbook_type);

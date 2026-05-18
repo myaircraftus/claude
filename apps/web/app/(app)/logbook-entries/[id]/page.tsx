@@ -12,6 +12,8 @@
 
 import { redirect, notFound } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { getCurrentPersona } from '@/lib/persona/server'
+import { applyOwnerLogbookVisibility } from '@/lib/logbook/visibility'
 import { LogbookEntryDetail } from '@/components/logbook/logbook-entry-detail'
 
 export const dynamic = 'force-dynamic'
@@ -36,10 +38,20 @@ export default async function LogbookEntryPage({ params }: PageProps) {
     .single()
   if (!membership) redirect('/onboarding')
 
-  const { data: entry } = await supabase
-    .from('logbook_entries')
-    .select(
-      `
+  // Owner-visibility gate — an owner opening a mechanic draft's URL directly
+  // gets a 404 (the filtered query returns null → notFound below).
+  let persona = 'shop'
+  try {
+    persona = (await getCurrentPersona()).persona
+  } catch {
+    // defensive — session already proven above
+  }
+
+  const { data: entry } = await applyOwnerLogbookVisibility(
+    supabase
+      .from('logbook_entries')
+      .select(
+        `
       id, entry_date, entry_type, logbook_type, status,
       description, tach_time, total_time, hobbs_in, hobbs_out,
       parts_used, references_used, ad_numbers,
@@ -58,10 +70,12 @@ export default async function LogbookEntryPage({ params }: PageProps) {
       revisions:logbook_entry_revisions (*),
       output_events:logbook_output_events (*)
     `,
-    )
-    .eq('id', params.id)
-    .eq('organization_id', membership.organization_id)
-    .maybeSingle()
+      )
+      .eq('id', params.id)
+      .eq('organization_id', membership.organization_id),
+    persona,
+    user.id,
+  ).maybeSingle()
 
   if (!entry) notFound()
 

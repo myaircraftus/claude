@@ -20,6 +20,8 @@ import {
   writeLogbookAudit,
   writeLogbookTimeline,
 } from "@/lib/logbook/workflow";
+import { getCurrentPersona } from "@/lib/persona/server";
+import { applyOwnerLogbookVisibility, OWNER_PERSONA } from "@/lib/logbook/visibility";
 
 export async function GET(req: NextRequest) {
   const ctx = await resolveRequestOrgContext(req);
@@ -72,6 +74,17 @@ export async function GET(req: NextRequest) {
   if (date_from) query = query.gte("entry_date", date_from);
   if (date_to) query = query.lte("entry_date", date_to);
 
+  // Owner-visibility gate — the owner persona sees only entries published to
+  // them (owner_visible) or that they created. Shop/admin see everything.
+  // (Defense-in-depth: the logbook_select RLS policy enforces the same rule.)
+  let persona = "shop";
+  try {
+    persona = (await getCurrentPersona()).persona;
+  } catch {
+    // defensive — ctx already proved a session
+  }
+  query = applyOwnerLogbookVisibility(query, persona, ctx.user.id);
+
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -88,6 +101,16 @@ export async function POST(req: NextRequest) {
 
   if (!MECHANIC_AND_ABOVE.includes(ctx.role)) {
     return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+  }
+
+  // An owner-persona member creating an entry → it is owner-visible from the
+  // start (owner records belong to the owner). Mechanic/shop drafts stay
+  // owner_visible=false until signed/published.
+  let creatorPersona = "shop";
+  try {
+    creatorPersona = (await getCurrentPersona()).persona;
+  } catch {
+    // defensive — ctx already proved a session
   }
 
   let body: Record<string, any>;
@@ -250,7 +273,7 @@ export async function POST(req: NextRequest) {
     ia_flag: Boolean(body.ia_flag),
     ai_review_status: body.ai_review_status ?? (sourceType === "work_order" ? "needs_review" : "draft"),
     ai_warnings: Array.isArray(body.ai_warnings) ? body.ai_warnings : [],
-    owner_visible: Boolean(body.owner_visible),
+    owner_visible: Boolean(body.owner_visible) || creatorPersona === OWNER_PERSONA,
     status,
     created_by: user.id,
     ...buildClassificationPatch(body),

@@ -179,6 +179,9 @@ export async function POST(
     .from("logbook_entries")
     .update({
       status: "signed",
+      // Signing publishes the entry to the owner — wire the visibility gate.
+      owner_visible: true,
+      published_to_owner_at: nowIso,
       signed_at: nowIso,
       signed_by: user.id,
       signer_id: user.id,

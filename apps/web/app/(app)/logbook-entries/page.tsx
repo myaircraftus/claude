@@ -6,6 +6,7 @@
 // focused create modal. Entry rows show type + date + tail (never UUIDs).
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { getCurrentPersona } from '@/lib/persona/server'
+import { applyOwnerLogbookVisibility } from '@/lib/logbook/visibility'
 import { Topbar } from '@/components/shared/topbar'
 import { OpsTabStrip } from '@/components/ops/ops-tab-strip'
 import { LogbookEntriesListView } from './logbook-entries-list-view'
@@ -19,15 +20,20 @@ export default async function LogbookEntriesPage() {
   const orgId = membership.organization_id
 
   const [entriesRes, aircraftRes] = await Promise.all([
-    supabase
-      .from('logbook_entries')
-      .select(`
-        id, entry_type, entry_date, status, signed_at, created_at,
-        hobbs_in, hobbs_out, tach_time, total_time, description, mechanic_name,
-        aircraft:aircraft_id (id, tail_number, make, model),
-        work_order:work_order_id (id, work_order_number)
-      `)
-      .eq('organization_id', orgId)
+    // Owner-visibility gate — owners see only published/own entries.
+    applyOwnerLogbookVisibility(
+      supabase
+        .from('logbook_entries')
+        .select(`
+          id, entry_type, entry_date, status, signed_at, created_at,
+          hobbs_in, hobbs_out, tach_time, total_time, description, mechanic_name,
+          aircraft:aircraft_id (id, tail_number, make, model),
+          work_order:work_order_id (id, work_order_number)
+        `)
+        .eq('organization_id', orgId),
+      persona,
+      profile.id,
+    )
       .order('created_at', { ascending: false })
       .limit(300),
     supabase

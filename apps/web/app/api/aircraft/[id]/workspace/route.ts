@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { getCurrentPersona } from '@/lib/persona/server'
+import { applyOwnerLogbookVisibility } from '@/lib/logbook/visibility'
 
 function countBy(rows: Array<Record<string, any>>, field: string) {
   return rows.reduce<Record<string, number>>((acc, row) => {
@@ -42,6 +44,15 @@ export async function GET(
 ) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Owner-visibility gate for the logbook tab — owners see only published/own
+  // entries (the logbook_select RLS policy enforces the same rule).
+  let persona = 'shop'
+  try {
+    persona = (await getCurrentPersona()).persona
+  } catch {
+    // defensive — ctx already proved a session
+  }
 
   const supabase = createServerSupabase()
   const { data: aircraft, error: aircraftError } = await supabase
@@ -149,11 +160,15 @@ export async function GET(
       .eq('aircraft_id', params.id)
       .order('created_at', { ascending: false })
       .limit(25),
-    supabase
-      .from('logbook_entries')
-      .select('id, entry_date, logbook_type, status, description, tach_time, total_time, ata_code, jasc_code, signed_at')
-      .eq('organization_id', ctx.organizationId)
-      .eq('aircraft_id', params.id)
+    applyOwnerLogbookVisibility(
+      supabase
+        .from('logbook_entries')
+        .select('id, entry_date, logbook_type, status, description, tach_time, total_time, ata_code, jasc_code, signed_at')
+        .eq('organization_id', ctx.organizationId)
+        .eq('aircraft_id', params.id),
+      persona,
+      ctx.user.id,
+    )
       .order('entry_date', { ascending: false })
       .limit(25),
     supabase
