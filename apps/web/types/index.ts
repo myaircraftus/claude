@@ -85,6 +85,17 @@ export interface DocumentProcessingState {
  */
 export type OrgType = 'owner' | 'shop' | 'flight-school' | 'fbo' | 'operator'
 
+/**
+ * Owner persona sub-type (SOP-DOC-001 §2.2). Stored on `organizations`.
+ * Controls which dashboard modules are shown — NEVER document permissions.
+ */
+export type OrganizationOperationType =
+  | 'private'
+  | 'partnership'
+  | 'flight_school'
+  | 'flying_club'
+  | 'corporate'
+
 export interface Organization {
   id: string
   name: string
@@ -100,6 +111,11 @@ export interface Organization {
   logo_url?: string
   /** Spec 0.1: owner | shop | flight-school | fbo | operator. */
   org_type?: OrgType | null
+  /**
+   * SOP-DOC-001 §2.2 — owner persona sub-type. Drives dashboard module
+   * visibility only. Defaults to 'private'.
+   */
+  operation_type: OrganizationOperationType
   /** Primary airport ICAO/IATA (e.g. "KAPA"). */
   home_base?: string | null
   /** Billing contact email. */
