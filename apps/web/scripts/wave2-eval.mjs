@@ -30,6 +30,15 @@
  *   EVAL_OUT     Results JSON path (default wave2-eval-results.json)
  *   EVAL_LABEL   A label stored in the results (e.g. "baseline" / "post-wave2")
  *   EVAL_LIMIT   Top-K depth to retrieve (default 20)
+ *
+ * CI RECALL-FLOOR GATE (optional — see .github/workflows/rag-eval.yml)
+ *   When any of the following are set, the script asserts the measured
+ *   recall@20 is at or above the given percentage and exits non-zero if not.
+ *   Unset = no assertion (a plain manual run is unchanged).
+ *   EVAL_FLOOR_SCOPED_PAGE_AT20   aircraft-scoped page-level recall@20 floor
+ *   EVAL_FLOOR_SCOPED_DOC_AT20    aircraft-scoped doc-level  recall@20 floor
+ *   EVAL_FLOOR_ORG_DOC_AT20       org-wide       doc-level  recall@20 floor
+ *   EVAL_FLOOR_ORG_PAGE_AT20      org-wide       page-level recall@20 floor
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -272,6 +281,39 @@ async function main() {
   if (errors.length) console.log(`\n  ${errors.length} case(s) errored`)
   console.log('═══════════════════════════════════════════════════════')
   console.log(`\nResults written to ${OUT}`)
+
+  // ── CI recall-floor gate ────────────────────────────────────────────────
+  // Each floor is opt-in via an env var. With none set this block is a no-op,
+  // so a plain `node scripts/wave2-eval.mjs` run behaves exactly as before.
+  const floorChecks = [
+    ['EVAL_FLOOR_SCOPED_PAGE_AT20', 'aircraft-scoped page-recall@20', scopedSummary.page.at20_pct],
+    ['EVAL_FLOOR_SCOPED_DOC_AT20', 'aircraft-scoped doc-recall@20', scopedSummary.doc.at20_pct],
+    ['EVAL_FLOOR_ORG_DOC_AT20', 'org-wide doc-recall@20', orgWideSummary.doc.at20_pct],
+    ['EVAL_FLOOR_ORG_PAGE_AT20', 'org-wide page-recall@20', orgWideSummary.page.at20_pct],
+  ]
+  const breaches = []
+  for (const [envKey, label, measuredPct] of floorChecks) {
+    const raw = process.env[envKey]
+    if (raw === undefined || raw === '') continue
+    const floor = Number(raw)
+    if (!Number.isFinite(floor)) {
+      console.error(`[wave2-eval] ignoring ${envKey}="${raw}" — not a number`)
+      continue
+    }
+    const verdict = measuredPct >= floor ? 'ok' : 'BELOW FLOOR'
+    console.log(`  gate: ${label}  measured ${measuredPct}%  floor ${floor}%  → ${verdict}`)
+    if (measuredPct < floor) breaches.push(`${label}: ${measuredPct}% < ${floor}%`)
+  }
+  if (errors.length) {
+    // A retrieval RPC / embedding failure makes the recall numbers untrustworthy
+    // — fail the gate rather than pass on an artificially low denominator.
+    breaches.push(`${errors.length} eval case(s) errored — recall numbers unreliable`)
+  }
+  if (breaches.length > 0) {
+    console.error('\n[wave2-eval] RECALL REGRESSION — CI gate failed:')
+    for (const b of breaches) console.error(`  ✗ ${b}`)
+    process.exit(1)
+  }
 }
 
 main().catch((err) => {

@@ -1,0 +1,96 @@
+name: RAG retrieval-recall gate
+
+# Catches a retrieval-recall regression before it can merge to main.
+#
+# scripts/wave2-eval.mjs embeds a fixed set of DB-verified questions and checks
+# that the gold (document, page) is still returned by the live
+# search_canonical_documents RPC. It is READ-ONLY against the database and
+# spends a few cents of OpenAI embedding tokens per run.
+#
+# SCOPE NOTE: this exercises the vector-retrieval RPC only — not BM25, the
+# PageIndex tree, vision, HyDE or the cross-encoder rerank. It is a tripwire
+# for the canonical embedding layer + the RPC, not a full /api/query test
+# (that path needs an authenticated session cookie and is not CI-able). A
+# regression in hybrid-merge or BM25 code will NOT be caught here.
+#
+# It runs only on PRs that touch retrieval-path code (and on manual dispatch)
+# so doc-only or unrelated PRs do not spend tokens.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/lib/rag/**'
+      - 'apps/web/app/api/query/**'
+      - 'apps/web/app/api/ask/**'
+      - 'apps/web/lib/ingestion/**'
+      - 'apps/web/scripts/wave2-eval.mjs'
+      - 'apps/web/scripts/wave2-eval-cases.json'
+      - 'supabase/migrations/**'
+      - '.github/workflows/rag-eval.yml'
+  workflow_dispatch:
+
+jobs:
+  retrieval-recall:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fork PRs do not receive repo secrets. Without DB + OpenAI credentials
+      # the eval cannot run — skip the gate cleanly rather than fail red.
+      - name: Guard — required secrets present
+        id: guard
+        env:
+          SVC: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OAI: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$SVC" ] && [ -n "$OAI" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Required secrets missing — skipping recall gate (expected on fork PRs)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install pnpm
+        if: steps.guard.outputs.run == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The recall floors are deliberately set BELOW the measured baseline
+      # (aircraft-scoped page@20 31%, doc@20 62%; org-wide doc@20 40%) so a
+      # single case lost to embedding / ANN nondeterminism does not flake the
+      # build, while a genuine 2+-case regression still fails it. The cases
+      # file has 13 aircraft-scoped and 20 org-wide cases.
+      - name: Run retrieval-recall eval (gated)
+        if: steps.guard.outputs.run == 'true'
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EVAL_LABEL: ci
+          EVAL_FLOOR_SCOPED_PAGE_AT20: '23'
+          EVAL_FLOOR_SCOPED_DOC_AT20: '46'
+          EVAL_FLOOR_ORG_DOC_AT20: '30'
+        run: node scripts/wave2-eval.mjs
+
+      # Keep the per-case breakdown even when the gate fails, so a regression
+      # can be diagnosed from the workflow run.
+      - name: Upload eval results
+        if: ${{ always() && steps.guard.outputs.run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave2-eval-results
+          path: apps/web/wave2-eval-results.json
+          if-no-files-found: ignore
