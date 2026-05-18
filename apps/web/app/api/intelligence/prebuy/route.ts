@@ -16,8 +16,10 @@ import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
+import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type {
   IntelligenceCitation,
+  IntelligenceReport,
   IntelligenceStatus,
   IntelligenceRisk,
 } from '@/lib/intelligence/types'
@@ -358,8 +360,13 @@ export async function POST(req: NextRequest) {
   const { section: overall, risk, flagCount, reviewCount } =
     overallRiskSection(analysisSections)
 
-  const report = {
-    module: 'prebuy' as const,
+  const report: IntelligenceReport<{
+    risk: IntelligenceRisk
+    flagCount: number
+    reviewCount: number
+    sections: PrebuySection[]
+  }> = {
+    module: 'prebuy',
     aircraft_id: aircraftId,
     generated_at: new Date().toISOString(),
     cached: false,
@@ -371,11 +378,14 @@ export async function POST(req: NextRequest) {
     },
   }
 
+  // Attach the deterministic quality self-score before caching/returning.
+  report.quality_score = scoreIntelligenceReport(report)
+
   await writeIntelligenceCache(supabase, {
     aircraftId,
     orgId: ctx.organizationId,
     module: 'prebuy',
-    result: report,
+    result: report as unknown as Record<string, unknown>,
   })
 
   return NextResponse.json(report)

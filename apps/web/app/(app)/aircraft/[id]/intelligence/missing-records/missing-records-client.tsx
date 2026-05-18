@@ -11,7 +11,9 @@ import { useMemo, useState } from 'react'
 import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation, IntelligenceSeverity } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -45,6 +47,7 @@ export interface MissingRecordsReport {
   aircraft_id: string
   generated_at: string
   cached: boolean
+  quality_score?: IntelligenceQualityScore
   data:
     | { empty: true }
     | {
@@ -490,6 +493,8 @@ export function MissingRecordsClient({
       {/* --- Results --- */}
       {!loading && hasReport && !isEmpty && (
         <div>
+          <QualityBadge score={report?.quality_score} />
+
           {/* Counts summary */}
           <div className="flex items-center gap-2 flex-wrap mb-4 mr-print-card">
             {findings.length === 0 ? (

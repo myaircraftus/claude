@@ -54,13 +54,16 @@ interface Props {
   workOrders: any[]
   /** Owner persona — read-only: the New Invoice control is hidden. */
   isOwner?: boolean
+  /** Server-side pagination — current page (1-based) and total page count. */
+  page?: number
+  totalPages?: number
 }
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
 }
 
-export function InvoicesList({ initialInvoices, stats, workOrders, isOwner = false }: Props) {
+export function InvoicesList({ initialInvoices, stats, workOrders, isOwner = false, page = 1, totalPages = 1 }: Props) {
   const router = useTenantRouter()
   const [invoices, setInvoices] = useState(initialInvoices)
   const [filter, setFilter] = useState('all')
@@ -258,9 +261,35 @@ export function InvoicesList({ initialInvoices, stats, workOrders, isOwner = fal
             </div>
             <div className="px-4 py-2 border-t border-border bg-muted/20">
               <span className="text-xs text-muted-foreground">
-                {filtered.length} invoice{filtered.length !== 1 ? 's' : ''}
+                {filtered.length} invoice{filtered.length !== 1 ? 's' : ''} on this page
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Pagination — server-side, ?page= param. The status tabs above
+            filter only the current page; use Previous/Next for the rest. */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => router.push(`/invoices?page=${page - 1}`)}
+              disabled={page <= 1}
+              className="h-8 px-3 rounded-md border border-border text-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => router.push(`/invoices?page=${page + 1}`)}
+              disabled={page >= totalPages}
+              className="h-8 px-3 rounded-md border border-border text-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
           </div>
         )}
 

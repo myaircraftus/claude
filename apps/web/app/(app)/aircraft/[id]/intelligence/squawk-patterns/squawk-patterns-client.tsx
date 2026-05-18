@@ -19,7 +19,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's SquawkPatternsData) -------------
 interface SquawkCluster {
@@ -48,6 +50,7 @@ export interface SquawkPatternsReport {
   generated_at: string
   data: SquawkPatternsData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 type SortKey = 'frequency' | 'recent' | 'unresolved'
@@ -252,6 +255,7 @@ export function SquawkPatternsClient({
         {/* Report — clusters found */}
         {!loading && hasReport && data && clusters.length > 0 && (
           <div className="space-y-4">
+            <QualityBadge score={report?.quality_score} />
             {/* (1) Recurring Squawk Clusters */}
             <section className="print-card rounded-xl border border-border bg-white p-5">
               <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">

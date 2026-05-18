@@ -36,12 +36,17 @@ interface EstimateItem {
 export function EstimatesListView({
   estimates,
   isOwner = false,
+  page = 1,
+  totalPages = 1,
 }: {
   estimates: EstimateItem[]
   /** Owner persona — read-only: the create-estimate control is hidden.
       Approve/reject lives on the /estimates/[id] detail page and is
       intentionally NOT gated here (owners approve/reject estimates). */
   isOwner?: boolean
+  /** Server-side pagination — current page (1-based) and total page count. */
+  page?: number
+  totalPages?: number
 }) {
   const [q, setQ] = useState('')
   const filtered = useMemo(() => {
@@ -152,6 +157,40 @@ export function EstimatesListView({
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination — server-side, ?page= param. The search box above
+            filters only the current page; use Previous/Next for the rest. */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-end gap-2 pt-4">
+            {page > 1 ? (
+              <Link
+                href={`/estimates?page=${page - 1}`}
+                className="h-8 px-3 rounded-md border border-border text-sm hover:bg-muted transition-colors flex items-center"
+              >
+                Previous
+              </Link>
+            ) : (
+              <span className="h-8 px-3 rounded-md border border-border/50 text-sm text-muted-foreground/50 flex items-center cursor-not-allowed">
+                Previous
+              </span>
+            )}
+            <span className="text-sm text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            {page < totalPages ? (
+              <Link
+                href={`/estimates?page=${page + 1}`}
+                className="h-8 px-3 rounded-md border border-border text-sm hover:bg-muted transition-colors flex items-center"
+              >
+                Next
+              </Link>
+            ) : (
+              <span className="h-8 px-3 rounded-md border border-border/50 text-sm text-muted-foreground/50 flex items-center cursor-not-allowed">
+                Next
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -11,7 +11,9 @@ import Link from '@/components/shared/tenant-link'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 import {
   ShieldCheck,
   Loader2,
@@ -52,6 +54,7 @@ interface AdReport {
   generated_at?: string
   cached?: boolean
   data?: AdTraceabilityData
+  quality_score?: IntelligenceQualityScore
 }
 
 type FilterKey = 'all' | 'complied' | 'recurring' | 'flagged'
@@ -312,6 +315,8 @@ export function AdTraceabilityClient({
       {/* Report body */}
       {report && !isEmpty && (
         <>
+          <QualityBadge score={report.quality_score} />
+
           {/* Filter row */}
           <div className="no-print mb-3 flex items-center gap-1.5 flex-wrap">
             {FILTERS.map((f) => {

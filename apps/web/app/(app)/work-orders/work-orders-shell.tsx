@@ -79,12 +79,17 @@ export function WorkOrdersShell({
   aircraft,
   children,
   isOwner = false,
+  page = 1,
+  totalPages = 1,
 }: {
   workOrders: WorkOrderListItem[]
   aircraft: ShellAircraft[]
   children: React.ReactNode
   /** Owner persona — read-only: the create-WO control is hidden (PART 3A). */
   isOwner?: boolean
+  /** Server-side pagination — current page (1-based) and total page count. */
+  page?: number
+  totalPages?: number
 }) {
   const pathname = usePathname()
   const router = useTenantRouter()
@@ -246,6 +251,40 @@ export function WorkOrdersShell({
                 </div>
               )}
             </div>
+
+            {/* Pagination — server-side, ?page= param. Search + status
+                filter above operate on the current page only. */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border">
+                <Link
+                  href={`/work-orders?page=${page - 1}`}
+                  aria-disabled={page <= 1}
+                  className={cn(
+                    'h-7 px-2.5 rounded-md border border-border text-xs flex items-center transition-colors',
+                    page <= 1
+                      ? 'pointer-events-none opacity-40'
+                      : 'hover:bg-muted',
+                  )}
+                >
+                  Previous
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <Link
+                  href={`/work-orders?page=${page + 1}`}
+                  aria-disabled={page >= totalPages}
+                  className={cn(
+                    'h-7 px-2.5 rounded-md border border-border text-xs flex items-center transition-colors',
+                    page >= totalPages
+                      ? 'pointer-events-none opacity-40'
+                      : 'hover:bg-muted',
+                  )}
+                >
+                  Next
+                </Link>
+              </div>
+            )}
           </div>
         )}
 

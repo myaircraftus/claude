@@ -20,7 +20,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's TimeComparisonData) -------------
 type Severity = 'critical' | 'warning' | 'info'
@@ -51,6 +53,7 @@ export interface TimeComparisonReport {
   generated_at: string
   data: TimeComparisonData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 const PROGRESS_STEPS = [
@@ -236,6 +239,7 @@ export function TimeComparisonClient({
         {/* Report */}
         {!loading && hasReport && data && (
           <div className="space-y-4">
+            <QualityBadge score={report?.quality_score} />
             <SummaryCards data={data} />
             <TimelineCard data={data} />
             <DiscrepancyCard discrepancies={data.discrepancies ?? []} />

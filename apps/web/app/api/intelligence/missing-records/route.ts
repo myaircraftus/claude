@@ -23,8 +23,13 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
+import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
-import type { IntelligenceCitation, IntelligenceSeverity } from '@/lib/intelligence/types'
+import type {
+  IntelligenceCitation,
+  IntelligenceReport,
+  IntelligenceSeverity,
+} from '@/lib/intelligence/types'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -378,19 +383,25 @@ export async function POST(req: NextRequest) {
     info: findings.filter((f) => f.severity === 'info').length,
   }
 
-  const report = {
-    module: 'missing-records' as const,
+  const report: IntelligenceReport<{
+    findings: MissingRecordFinding[]
+    counts: { critical: number; warning: number; info: number }
+  }> = {
+    module: 'missing-records',
     aircraft_id: aircraftId,
     generated_at: new Date().toISOString(),
     cached: false,
     data: { findings, counts },
   }
 
+  // Attach the deterministic quality self-score before caching/returning.
+  report.quality_score = scoreIntelligenceReport(report)
+
   await writeIntelligenceCache(supabase, {
     aircraftId,
     orgId,
     module: 'missing-records',
-    result: report,
+    result: report as unknown as Record<string, unknown>,
   })
 
   return NextResponse.json(report)

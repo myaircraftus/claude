@@ -21,7 +21,8 @@ import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
-import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
+import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -228,8 +229,12 @@ export async function POST(req: NextRequest) {
   const ads: TraceabilityAd[] = extracted.map(classifyAd)
   const citations: IntelligenceCitation[] = query.citations
 
-  const result = {
-    module: 'ad-traceability' as const,
+  const result: IntelligenceReport<{
+    disclaimer: string
+    ads: TraceabilityAd[]
+    citations: IntelligenceCitation[]
+  }> = {
+    module: 'ad-traceability',
     aircraft_id: aircraftId,
     generated_at: new Date().toISOString(),
     cached: false,
@@ -240,11 +245,14 @@ export async function POST(req: NextRequest) {
     },
   }
 
+  // Attach the deterministic quality self-score before caching/returning.
+  result.quality_score = scoreIntelligenceReport(result)
+
   await writeIntelligenceCache(supabase, {
     aircraftId,
     orgId: ctx.organizationId,
     module: 'ad-traceability',
-    result,
+    result: result as unknown as Record<string, unknown>,
   })
 
   return NextResponse.json(result)

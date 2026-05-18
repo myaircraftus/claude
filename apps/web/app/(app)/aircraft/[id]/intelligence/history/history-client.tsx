@@ -17,7 +17,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's HistoryData) --------------------
 interface Section {
@@ -53,6 +55,7 @@ export interface HistoryReport {
   generated_at: string
   data: HistoryData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 const PROGRESS_STEPS = [
@@ -232,6 +235,7 @@ export function HistoryClient({
         {/* Report */}
         {!loading && hasReport && data && (
           <div className="space-y-4">
+            <QualityBadge score={report?.quality_score} />
             <IdentityCard section={data.identity} />
             <TimelineCard section={data.timeline} />
             <NarrativeCard

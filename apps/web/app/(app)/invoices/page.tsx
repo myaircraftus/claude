@@ -12,23 +12,42 @@ import { getCurrentPersona } from '@/lib/persona/server'
 
 export const metadata = { title: 'Invoices' }
 
-export default async function InvoicesRoute() {
+// Server-side pagination: 25 rows/page via ?page=. The list previously
+// loaded up to 300 invoices for the org on every render. Stats are still
+// computed over the whole org, but via a slim status/amount-only projection
+// rather than hydrating 300 fully-joined rows into the client.
+const PAGE_SIZE = 25
+
+export default async function InvoicesRoute({
+  searchParams,
+}: {
+  searchParams: { page?: string }
+}) {
   const { supabase, profile, membership } = await requireAppServerSession()
   const { persona } = await getCurrentPersona()
   const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
-  const [invoicesRes, workOrdersRes] = await Promise.all([
+  const page = Math.max(1, parseInt(searchParams.page ?? '1', 10))
+  const offset = (page - 1) * PAGE_SIZE
+
+  const [invoicesRes, statRowsRes, workOrdersRes] = await Promise.all([
     supabase
       .from('invoices')
       .select(`
         id, invoice_number, status, total, balance_due, due_date, issue_date, created_at,
         aircraft:aircraft_id (id, tail_number),
         customer:customer_id (id, name)
-      `)
+      `, { count: 'exact' })
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
-      .limit(300),
+      .range(offset, offset + PAGE_SIZE - 1),
+    // Slim org-wide projection for the stat cards — no joins, only the
+    // columns the four stats need.
+    supabase
+      .from('invoices')
+      .select('status, total, balance_due, due_date, issue_date, created_at')
+      .eq('organization_id', orgId),
     supabase
       .from('work_orders')
       .select('id, work_order_number, status, total_amount, aircraft:aircraft_id (tail_number)')
@@ -44,20 +63,24 @@ export default async function InvoicesRoute() {
     customer: Array.isArray(i.customer) ? i.customer[0] ?? null : i.customer ?? null,
   }))
 
+  const totalCount = invoicesRes.count ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
   const now = Date.now()
   const monthStart = new Date()
   monthStart.setUTCDate(1)
   const isUnpaid = (s: string) => s !== 'paid' && s !== 'void' && s !== 'writeoff'
 
+  const statRows = (statRowsRes.data ?? []) as any[]
   const stats = {
-    total_invoices: invoices.length,
-    total_outstanding: invoices
+    total_invoices: totalCount,
+    total_outstanding: statRows
       .filter((i) => isUnpaid(i.status))
       .reduce((s, i) => s + Number(i.balance_due ?? 0), 0),
-    overdue_count: invoices.filter(
+    overdue_count: statRows.filter(
       (i) => isUnpaid(i.status) && i.due_date && new Date(i.due_date).getTime() < now,
     ).length,
-    paid_this_month: invoices
+    paid_this_month: statRows
       .filter((i) => i.status === 'paid' && new Date(i.issue_date ?? i.created_at) >= monthStart)
       .reduce((s, i) => s + Number(i.total ?? 0), 0),
   }
@@ -77,6 +100,8 @@ export default async function InvoicesRoute() {
         stats={stats}
         workOrders={workOrders}
         isOwner={isOwner}
+        page={page}
+        totalPages={totalPages}
       />
     </div>
   )

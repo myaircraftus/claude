@@ -19,7 +19,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's ForecastData) -------------------
 interface CurrentTimes {
@@ -50,6 +52,7 @@ export interface ForecastReport {
   generated_at: string
   data: ForecastData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 const PROGRESS_STEPS = [
@@ -301,6 +304,7 @@ export function MaintenanceForecastClient({
         {/* Report */}
         {!loading && hasReport && data && (
           <div className="space-y-4">
+            <QualityBadge score={report?.quality_score} />
             <CurrentTimesCard data={data} />
             <TimelineCard upcoming={data.upcoming} />
             <OverdueCard overdue={data.overdue} />

@@ -19,6 +19,7 @@ import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
+import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
 
 export const dynamic = 'force-dynamic'
@@ -446,6 +447,9 @@ export async function POST(req: NextRequest) {
     cached: false,
     data,
   }
+
+  // Attach the deterministic quality self-score before caching/returning.
+  report.quality_score = scoreIntelligenceReport(report)
 
   await writeIntelligenceCache(supabase, {
     aircraftId,

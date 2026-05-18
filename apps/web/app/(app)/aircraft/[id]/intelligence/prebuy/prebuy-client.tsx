@@ -12,11 +12,13 @@ import { toast } from 'sonner'
 import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type {
   IntelligenceCitation,
   IntelligenceStatus,
   IntelligenceRisk,
 } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 import {
   ClipboardCheck,
   RefreshCw,
@@ -47,6 +49,7 @@ export interface PrebuyReport {
   aircraft_id: string
   generated_at: string
   cached: boolean
+  quality_score?: IntelligenceQualityScore
   data:
     | { empty: true }
     | {
@@ -383,6 +386,7 @@ export function PrebuyClient({
       {/* Report */}
       {!running && reportData && (
         <div className="space-y-4">
+          <QualityBadge score={report?.quality_score} />
           {/* Risk badge */}
           {(() => {
             const rm = RISK_META[reportData.risk]

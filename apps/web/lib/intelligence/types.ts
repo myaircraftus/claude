@@ -3,6 +3,7 @@
  * ad-traceability / missing-records modules).
  */
 import type { QueryConfidence } from '@/types'
+import type { IntelligenceQualityScore } from './quality-score'
 
 export type IntelligenceModule =
   | 'history'
@@ -62,4 +63,10 @@ export interface IntelligenceReport<T = Record<string, unknown>> {
   data: T
   /** true when served from intelligence_cache rather than freshly generated. */
   cached: boolean
+  /**
+   * Deterministic 0-100 self-score of report quality. Set just before the
+   * report is cached/returned; omitted for empty-state reports. Cached as part
+   * of result_json — no DB schema change.
+   */
+  quality_score?: IntelligenceQualityScore
 }

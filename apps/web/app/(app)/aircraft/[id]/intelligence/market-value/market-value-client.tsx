@@ -20,7 +20,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's MarketValueData) ----------------
 type AvionicsTier = 'basic_vfr' | 'ifr' | 'glass'
@@ -53,6 +55,7 @@ export interface MarketValueReport {
   generated_at: string
   data: MarketValueData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 const PROGRESS_STEPS = [
@@ -304,6 +307,7 @@ export function MarketValueClient({
         {/* Report */}
         {!loading && hasReport && data && (
           <div className="space-y-4">
+            <QualityBadge score={report?.quality_score} />
             <ProfileCard
               data={data}
               avionics={avionics}

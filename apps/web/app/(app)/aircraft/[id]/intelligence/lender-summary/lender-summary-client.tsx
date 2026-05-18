@@ -21,7 +21,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CitationChips } from '@/components/intelligence/CitationChips'
+import { QualityBadge } from '@/components/intelligence/QualityBadge'
 import type { IntelligenceCitation } from '@/lib/intelligence/types'
+import type { IntelligenceQualityScore } from '@/lib/intelligence/quality-score'
 
 // --- Report shape (mirrors the API route's LenderSummaryData) --------------
 interface LenderHeader {
@@ -76,6 +78,7 @@ export interface LenderSummaryReport {
   generated_at: string
   data: LenderSummaryData
   cached: boolean
+  quality_score?: IntelligenceQualityScore
 }
 
 const PROGRESS_STEPS = [
@@ -338,8 +341,10 @@ export function LenderSummaryClient({
 
         {/* Report — the print artifact */}
         {!loading && hasReport && data && (
-          <div className="rounded-xl border border-border bg-white print-card">
-            <HeaderBlock header={data.header} />
+          <>
+            <QualityBadge score={report?.quality_score} />
+            <div className="rounded-xl border border-border bg-white print-card">
+              <HeaderBlock header={data.header} />
             <div className="px-6 pb-6 space-y-5">
               <AirworthinessBlock section={data.airworthiness} />
               <TitleBlock section={data.title} />
@@ -359,7 +364,8 @@ export function LenderSummaryClient({
                 inspection or official FAA / NTSB records.
               </p>
             </div>
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>

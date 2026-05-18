@@ -22,6 +22,7 @@ import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
+import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
 
 export const dynamic = 'force-dynamic'
@@ -212,6 +213,68 @@ export async function POST(req: NextRequest) {
   const q = (question: string, strategy: Parameters<typeof runIntelligenceQuery>[0]['strategy']) =>
     runIntelligenceQuery({ organizationId, aircraftId, question, strategy })
 
+  // --- Targeted RAG fallbacks ---------------------------------------------
+  // Each section below prefers a sibling module's cache and only needs a
+  // fresh RAG query when that cache is absent. Those fallback queries are
+  // independent of one another, so we decide which are needed up front and
+  // run them all concurrently — parallelized — independent RAG queries.
+  const needAnnualQuery = !(historyData?.current_status as { text?: string } | undefined)?.text
+  const needAdQuery = !Array.isArray(adData?.ads)
+  const needTitleQuery = !(historyData?.identity as { text?: string } | undefined)?.text
+  const historyTimelineForGate = historyData?.timeline as
+    | { annuals?: { text?: string }; overhauls?: { text?: string } }
+    | undefined
+  const needMaintenanceQuery = !(
+    historyTimelineForGate?.annuals?.text || historyTimelineForGate?.overhauls?.text
+  )
+  const prebuyDamageForGate = Array.isArray(prebuyData?.sections)
+    ? (prebuyData!.sections as Array<{ id?: string; summary?: string }>).find(
+        (s) => s.id === 'damage-history',
+      )
+    : undefined
+  const needDamageQuery =
+    !(historyData?.damage as { text?: string } | undefined)?.text &&
+    !prebuyDamageForGate?.summary
+
+  const [annualFallback, adFallback, titleFallback, maintFallback, damageFallback] =
+    await Promise.all([
+      needAnnualQuery
+        ? q(
+            'What is the current annual inspection status and expiration date for this aircraft?',
+            'tree',
+          )
+        : Promise.resolve(null),
+      needAdQuery
+        ? q(
+            'Are any airworthiness directives overdue or lacking compliance evidence in these records?',
+            'hybrid_all',
+          )
+        : Promise.resolve(null),
+      needTitleQuery
+        ? q(
+            'List all STCs on file with their STC numbers, and all Form 337 major repair/alteration ' +
+              'records with their dates and descriptions.',
+            'hybrid_all',
+          )
+        : Promise.resolve(null),
+      needMaintenanceQuery
+        ? q(
+            'Summarize the maintenance history: how many years of records are on file, total ' +
+              'documented airframe hours, the most recent annual inspection (date and IA), engine ' +
+              'time since major overhaul (SMOH) and overhaul date, and propeller time since prop ' +
+              'overhaul (SPOH).',
+            'tree',
+          )
+        : Promise.resolve(null),
+      needDamageQuery
+        ? q(
+            'Find any references to damage, accidents, hard landings, prop strikes, lightning ' +
+              'strikes, or insurance claims in these maintenance records.',
+            'hybrid_vb',
+          )
+        : Promise.resolve(null),
+    ])
+
   // --- 1. Header ----------------------------------------------------------
   let preparedBy = 'Aircraft Owner'
   try {
@@ -245,13 +308,9 @@ export async function POST(req: NextRequest) {
   if (historyCurrentStatus?.text) {
     annualNarrative = String(historyCurrentStatus.text)
     pushCitations(historyCurrentStatus.citations)
-  } else {
-    const annualRes = await q(
-      'What is the current annual inspection status and expiration date for this aircraft?',
-      'tree',
-    )
-    annualNarrative = annualRes.answer
-    pushCitations(annualRes.citations)
+  } else if (annualFallback) {
+    annualNarrative = annualFallback.answer
+    pushCitations(annualFallback.citations)
   }
 
   const annualLower = annualNarrative.toLowerCase()
@@ -278,15 +337,11 @@ export async function POST(req: NextRequest) {
       openAdCount === 0
         ? 'No overdue or undocumented ADs in the uploaded records.'
         : `${openAdCount} AD${openAdCount === 1 ? '' : 's'} overdue or lacking compliance evidence.`
-  } else {
-    const adRes = await q(
-      'Are any airworthiness directives overdue or lacking compliance evidence in these records?',
-      'hybrid_all',
-    )
-    pushCitations(adRes.citations)
-    openAdNote = adRes.chunkCount === 0
+  } else if (adFallback) {
+    pushCitations(adFallback.citations)
+    openAdNote = adFallback.chunkCount === 0
       ? 'No AD compliance records were found to evaluate.'
-      : adRes.answer
+      : adFallback.answer
   }
 
   // Open squawks: always a direct, authoritative DB count.
@@ -318,14 +373,9 @@ export async function POST(req: NextRequest) {
   if (historyIdentity?.text) {
     titleText = String(historyIdentity.text)
     pushCitations(historyIdentity.citations)
-  } else {
-    const titleRes = await q(
-      'List all STCs on file with their STC numbers, and all Form 337 major repair/alteration ' +
-        'records with their dates and descriptions.',
-      'hybrid_all',
-    )
-    titleText = titleRes.answer
-    pushCitations(titleRes.citations)
+  } else if (titleFallback) {
+    titleText = titleFallback.answer
+    pushCitations(titleFallback.citations)
   }
 
   // Form 337 count from a direct documents query (authoritative).
@@ -367,16 +417,9 @@ export async function POST(req: NextRequest) {
       pushCitations(historyTimeline.overhauls.citations)
     }
     maintenanceText = parts.join('\n\n')
-  } else {
-    const maintRes = await q(
-      'Summarize the maintenance history: how many years of records are on file, total ' +
-        'documented airframe hours, the most recent annual inspection (date and IA), engine ' +
-        'time since major overhaul (SMOH) and overhaul date, and propeller time since prop ' +
-        'overhaul (SPOH).',
-      'tree',
-    )
-    maintenanceText = maintRes.answer
-    pushCitations(maintRes.citations)
+  } else if (maintFallback) {
+    maintenanceText = maintFallback.answer
+    pushCitations(maintFallback.citations)
   }
 
   // Years of records: span of document upload-relevant dates if available.
@@ -419,14 +462,9 @@ export async function POST(req: NextRequest) {
   } else if (prebuyDamage?.summary) {
     incidentText = String(prebuyDamage.summary)
     pushCitations(prebuyDamage.citations)
-  } else {
-    const damageRes = await q(
-      'Find any references to damage, accidents, hard landings, prop strikes, lightning ' +
-        'strikes, or insurance claims in these maintenance records.',
-      'hybrid_vb',
-    )
-    incidentText = damageRes.answer
-    pushCitations(damageRes.citations)
+  } else if (damageFallback) {
+    incidentText = damageFallback.answer
+    pushCitations(damageFallback.citations)
   }
 
   const incidentLower = incidentText.toLowerCase()
@@ -495,6 +533,9 @@ export async function POST(req: NextRequest) {
     data,
     cached: false,
   }
+
+  // Attach the deterministic quality self-score before caching/returning.
+  report.quality_score = scoreIntelligenceReport(report)
 
   await writeIntelligenceCache(supabase, {
     aircraftId,

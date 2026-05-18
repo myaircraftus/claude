@@ -2209,8 +2209,12 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           import('@/lib/rag/bm25-index'),
           import('@/lib/rag/tree-builder'),
         ])
-        await buildDocumentTree(documentId, ragAircraftId)
-        await buildBm25Index(ragAircraftId)
+        // Tree + BM25 builds are independent (both only read document_chunks,
+        // neither consumes the other's output) — run them in parallel.
+        await Promise.all([
+          buildDocumentTree(documentId, ragAircraftId),
+          buildBm25Index(ragAircraftId),
+        ])
         if (ragJob?.id) {
           await supabase
             .from('rag_index_jobs')

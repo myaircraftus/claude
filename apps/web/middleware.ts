@@ -7,6 +7,9 @@ export async function middleware(request: NextRequest) {
   const tenantMatch = extractTenantPathname(originalPathname)
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-request-pathname', originalPathname)
+  // Forward the raw query string so server-component LAYOUTS (which Next.js
+  // does not pass `searchParams` to) can read pagination params like ?page=.
+  requestHeaders.set('x-request-search', request.nextUrl.search)
   let effectivePathname = originalPathname
   let effectiveUrl = request.nextUrl.clone()
 
