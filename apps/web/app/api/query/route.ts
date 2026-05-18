@@ -220,6 +220,9 @@ async function hybridRetrieve(args: {
           'id, document_id, aircraft_id, page_number, page_number_end, section_title, chunk_text, metadata_json, documents:document_id(title, doc_type)',
         )
         .in('id', needHydration)
+        // P0 SECURITY defense-in-depth — never hydrate a chunk from another
+        // org even if a BM25/tree hit somehow surfaced a foreign chunk_id.
+        .eq('organization_id', organizationId)
       for (const row of (rows ?? []) as Array<Record<string, any>>) {
         const slot = slots.get(row.id as string)
         if (!slot) continue
@@ -433,6 +436,25 @@ export async function POST(req: NextRequest) {
 
   const { question, aircraft_id, doc_type_filter, conversation_history } = body;
   const persona = body.persona ?? 'owner';
+
+  // ── P0 SECURITY — verify a body-supplied aircraft_id belongs to the caller's
+  // org. /api/query runs on the service client (RLS bypassed); the BM25 index
+  // and PageIndex tree are keyed by aircraft_id alone, so without this check a
+  // caller could pass another org's aircraft_id and pull that org's chunks.
+  if (aircraft_id) {
+    const { data: ownedAircraft } = await supabase
+      .from('aircraft')
+      .select('id')
+      .eq('id', aircraft_id)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    if (!ownedAircraft) {
+      return NextResponse.json(
+        { error: 'Aircraft not found in your organization' },
+        { status: 403 },
+      )
+    }
+  }
 
   try {
     // ── 1. Structured query parse — cleanedQuery + any explicit filters ──
