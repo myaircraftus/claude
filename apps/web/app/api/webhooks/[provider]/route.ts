@@ -1,11 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'node:crypto'
 import { createServiceSupabase } from '@/lib/supabase/server'
+
+/** Constant-time secret comparison. Length mismatch short-circuits to false. */
+function secretsMatch(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length === 0 || ab.length !== bb.length) return false
+  return timingSafeEqual(ab, bb)
+}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { provider: string } }
 ) {
   const { provider } = params
+
+  // Webhook authenticity. This endpoint mutates safety-relevant aircraft data
+  // (total_time_hours, which drives inspection / AD timing), so a forged
+  // payload is a real attack. Require a shared secret and FAIL CLOSED — if
+  // INTEGRATION_WEBHOOK_SECRET is unset the endpoint rejects everything (an
+  // unsecured webhook must not function).
+  const expectedSecret = process.env.INTEGRATION_WEBHOOK_SECRET ?? ''
+  const providedSecret =
+    req.headers.get('x-webhook-secret') ??
+    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+    ''
+  if (!secretsMatch(providedSecret, expectedSecret)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   let body: any
   try {

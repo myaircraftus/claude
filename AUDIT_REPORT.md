@@ -5,12 +5,20 @@ Branch: `audit/enterprise-clean`
 
 ## Baselines
 - TypeScript errors before: 76
-- TypeScript errors after: _TBD_
-- Recall page@20 (aircraft-scoped) before: 31%
-- Recall doc@20 (aircraft-scoped) before: 62%
-- Recall page@20 (aircraft-scoped) after: _TBD_
-- Source files audited: 2,003 `.ts`/`.tsx` under `apps/web`
-- Commits on audit branch: _TBD_
+- TypeScript errors after: 76 (no regression — Phase 5 tsc-reduction not yet done)
+- Recall page@20 (aircraft-scoped) before: 31% / doc@20 62%
+- Recall after: unchanged — no retrieval-path code was modified (migrations only
+  add indexes + enable RLS on dormant tables; neither alters query results)
+- Source files: 2,003 `.ts`/`.tsx` under `apps/web`
+- Branch: `audit/enterprise-clean` (NOT pushed — awaiting review per the brief)
+
+## Coverage of this pass
+Phases **0, 1, 4, 8 — done.** Phases **3, 6 — substantially done** (392 routes
+surveyed; headers + webhook fixed; a few items noted for follow-up). Phases
+**2, 5, 7, 9 — not yet started** — this audit is scoped by the brief as a
+multi-session effort; the highest-severity items (admin freeze, the critical
+RLS hole, the unsigned webhook, missing security headers) were prioritized and
+fixed first.
 
 ## 🚨 CRITICAL FINDINGS (security/data)
 
@@ -79,7 +87,21 @@ the memo returns the same array and the effect does not re-fire. `tsc` clean.
 _Pending._
 
 ## Phase 3 — API Route Findings
-_Pending._
+
+392 `route.ts` files surveyed. The codebase follows a consistent auth pattern
+(`createServerSupabase().auth.getUser()` + a membership lookup, or
+`createServiceSupabase()` with an `organization_id` filter derived from an
+authenticated membership). Genuine deviations:
+
+| Route | Issue | Action | Status |
+|---|---|---|---|
+| `webhooks/[provider]` | **No signature/secret validation.** A forged POST could overwrite `aircraft.total_time_hours` (safety-relevant — drives inspection/AD timing) for any org that has the integration connected. | Added fail-closed shared-secret check (`INTEGRATION_WEBHOOK_SECRET`, constant-time compare) | ✅ Fixed |
+| `aircraft/[id]/tracking/{live,recent,refresh,flights,provider-config}` (5 routes) | No in-code auth or org-membership check — they key off `params.id` and rely solely on RLS via `createServerSupabase`. `provider-config` PATCH has no feature-flag gate either. The tracking tables DO have RLS enabled (1 policy each), so this is missing defense-in-depth rather than a confirmed open leak — but in-code org verification should be added and the RLS policies confirmed org-scoped. | Documented — not fixed this pass | ⚠️ Noted |
+| `documents/route.ts` GET, `aircraft/[id]/tracking/provider-config`, `parts/library/apply-markup` | No try/catch — an unhandled throw (`reconcileOrganizationStaleDocuments`, `await req.json()`) escapes as a raw 500 | Documented — low severity | ⚠️ Noted |
+
+Webhook/cron/OAuth-callback routes that are unauthenticated by design were
+verified to validate a signature/secret (Stripe, Intuit) — except the
+`[provider]` webhook above, now fixed.
 
 ## Phase 4 — Database Findings
 
@@ -97,7 +119,25 @@ _Pending._
 _Pending._
 
 ## Phase 6 — Security
-_Pending._
+
+| Check | Result | Status |
+|---|---|---|
+| Security headers | **Two `next.config` files existed** — Next.js loads `.mjs` first, and the `.mjs` had only `X-Content-Type-Options` + `X-Frame-Options` (and only on `/api/*`). The full CSP / HSTS / Referrer-Policy / Permissions-Policy set lived in `next.config.ts` — **never loaded, dead code.** Merged the full set into `next.config.mjs` (CSP, HSTS, X-Frame DENY, Referrer-Policy, Permissions-Policy on every route; SAMEORIGIN override kept for the PDF-preview iframe). Deleted the dead `next.config.ts`. | ✅ Fixed |
+| Unsigned webhook | `webhooks/[provider]` — see Phase 3 | ✅ Fixed |
+| SQL injection | Greps for `${}` interpolation into `.from()`/`.rpc()` found only `Buffer.from()` Basic-auth headers and an error string — **no SQL string interpolation.** The Supabase query builder (parameterized) is used throughout. | ✅ Pass |
+| Hardcoded secrets | Grep for `sk-`/`secret_`/inline passwords found only `process.env.*` references — no committed secrets. | ✅ Pass |
+| File-upload MIME/size validation | Not audited this pass | ⚠️ Deferred |
+| Auth-token revocation behavior | Not audited this pass | ⚠️ Deferred |
+
+## Phase 8 — RAG Pipeline Verification
+
+| Check | Result |
+|---|---|
+| `bm25-index.ts` canonical-layer pagination | ✅ Pass — `.range()`-by-`id` paging; the exact-multiple-of-1000 edge case terminates correctly (next page returns 0 rows → break); concurrent inserts during paging are caught by the fingerprint recheck-retry guard. |
+| `structured-events.ts` SQL count path | ✅ Pass — verified live: N714VH "annual" count ≈ 50 matches the DB; the deterministic count path returns SQL-backed figures. |
+| Ingestion always writes OCR confidence | ✅ Pass — **0 of 16,724** `document_pages` rows have a NULL `ocr_confidence`. The future Vision-OCR trigger is not blocked. |
+| Citation persistence | ✅ Pass — **573 citations across 369 queries** in the last 2h (the `citations.chunk_id` FK was already dropped in prior work, so inserts succeed). |
+| `/api/query` P0 aircraft-scope validation | ✅ Pass — a body `aircraft_id` is verified against the caller's org; a tail-resolved `aircraftId` is org-scoped by construction in `parseStructuredQuery`. |
 
 ## Phase 7 — Performance
 _Pending._
