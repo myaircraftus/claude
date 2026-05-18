@@ -23,7 +23,7 @@ import {
   PersonaAwareUploadModal,
   type AircraftOption,
 } from './persona-aware-upload-modal'
-import type { DocumentCategory, DocumentType } from '@/lib/documents/persona-taxonomy'
+import type { DocumentType } from '@/lib/documents/persona-taxonomy'
 import type { TierSlug } from '@/lib/billing/pricing-config'
 
 export interface PersonaAwareUploadButtonProps {
@@ -31,7 +31,6 @@ export interface PersonaAwareUploadButtonProps {
   organizationId: string
   aircraftOptions: AircraftOption[]
   defaultAircraftId?: string
-  defaultCategory?: DocumentCategory
   /** Override the auto-generated label. */
   label?: string
   /** Variant for the trigger button. */
@@ -47,7 +46,6 @@ export function PersonaAwareUploadButton({
   organizationId,
   aircraftOptions,
   defaultAircraftId,
-  defaultCategory,
   label,
   variant = 'default',
   size = 'default',
@@ -68,7 +66,6 @@ export function PersonaAwareUploadButton({
         organizationId={organizationId}
         aircraftOptions={aircraftOptions}
         defaultAircraftId={defaultAircraftId}
-        defaultCategory={defaultCategory}
         open={open}
         onOpenChange={setOpen}
         onUploaded={onUploaded}

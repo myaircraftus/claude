@@ -1,46 +1,35 @@
 'use client'
 
 /**
- * Phase 13.2 — persona-strict upload modal.
+ * SOP-DOC-001 Item 3 — persona-differentiated upload modal.
  *
- * Drop-in lightweight uploader keyed off the new `document_type` taxonomy
- * (mig 103 / lib/documents/persona-taxonomy.ts). Sits alongside the legacy
- * `upload-dropzone.tsx` (which uses the 4-level scanner taxonomy) so we can
- * surface a streamlined per-persona entry point on /aircraft/[id],
- * /my-aircraft, /documents, and /admin without rewriting the legacy 2200-line
- * dropzone.
+ * The owner and shop personas see entirely different upload category sets,
+ * defined in lib/documents/upload-categories.ts (SOP §6). Tier 1 categories
+ * are shown immediately; Tier 2 categories are revealed with a "Show more"
+ * toggle (progressive disclosure, so neither persona is overwhelmed).
  *
- * Render rules:
- *   - Only categories that contain ≥1 type the current persona can upload
- *     are rendered (via getAllowedCategories)
- *   - Only types within those categories that the persona can upload are
- *     rendered (via canPersonaUpload)
- *   - When the user selects a type with requiresAircraftId, the aircraft
- *     selector appears and the form refuses to submit without an aircraftId
+ * Each category maps to one or more real DocumentType values from
+ * persona-taxonomy.ts — that taxonomy and /api/upload/complete remain the
+ * enforced Iron Wall; these category groups only control what the modal
+ * displays per persona.
  *
- * Server contract:
- *   - Calls /api/upload/init for the pre-signed URL + documentId
- *   - PUT-uploads the file to Supabase storage
- *   - Calls /api/upload/complete with the new fields:
- *       documentType: <DocumentType>
- *       uploadedByPersona: <Persona>
- *       aircraftId: <uuid | null>
- *
- * The route validates persona × type via canPersonaUpload server-side and
- * returns 403 PERSONA_TYPE_BLOCKED_V2 if the client tries to bypass.
+ * Server contract (unchanged):
+ *   - POST /api/upload          → pre-signed URL + documentId
+ *   - PUT  <uploadUrl>          → file bytes to Supabase storage
+ *   - POST /api/upload/complete → documents row; validates persona × type
  */
 import { useMemo, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { Persona } from '@/types'
 import {
-  DOCUMENT_CATEGORIES,
   DOCUMENT_TYPE_META,
-  canPersonaUpload,
-  getAllowedCategories,
-  getCategoryTypes,
   requiresAircraftId,
-  type DocumentCategory,
   type DocumentType,
 } from '@/lib/documents/persona-taxonomy'
+import {
+  getUploadCategoryGroups,
+  type UploadCategoryGroup,
+} from '@/lib/documents/upload-categories'
 import { SlaBanner } from '@/components/billing/SlaBanner'
 import type { TierSlug } from '@/lib/billing/pricing-config'
 import { Button } from '@/components/ui/button'
@@ -68,14 +57,12 @@ export interface AircraftOption {
 }
 
 export interface PersonaAwareUploadModalProps {
-  /** Active persona. Drives which categories/types render. */
+  /** Active persona. Drives which category set (owner vs shop) renders. */
   persona: Persona
-  /** User's aircraft for the aircraft selector (only owners/admins/shops fill this). */
+  /** User's aircraft for the aircraft selector. */
   aircraftOptions: AircraftOption[]
   /** Pre-selected aircraft (e.g. when launched from /aircraft/[id]). Locks the selector. */
   defaultAircraftId?: string
-  /** Pre-selected category, e.g. 'Aircraft Records' on the per-aircraft page. */
-  defaultCategory?: DocumentCategory
   /** When mounted as a controlled dialog, parent owns open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -83,7 +70,7 @@ export interface PersonaAwareUploadModalProps {
   onUploaded?: (documentId: string, documentType: DocumentType) => void
   /** Org id is needed by the server contract. */
   organizationId: string
-  /** Phase 14: effective tier for the SLA banner. Optional — defaults to beta. */
+  /** Effective tier for the SLA banner. Optional — defaults to beta. */
   effectiveTier?: TierSlug
 }
 
@@ -97,21 +84,19 @@ export function PersonaAwareUploadModal({
   persona,
   aircraftOptions,
   defaultAircraftId,
-  defaultCategory,
   open,
   onOpenChange,
   onUploaded,
   organizationId,
   effectiveTier = 'beta',
 }: PersonaAwareUploadModalProps) {
-  const allowedCategories = useMemo(() => getAllowedCategories(persona), [persona])
-  const initialCategory: DocumentCategory =
-    (defaultCategory && allowedCategories.includes(defaultCategory)
-      ? defaultCategory
-      : allowedCategories[0]) ?? 'Other'
+  const groups = useMemo(() => getUploadCategoryGroups(persona), [persona])
+  const tier1Groups = useMemo(() => groups.filter((g) => g.tier === 1), [groups])
+  const tier2Groups = useMemo(() => groups.filter((g) => g.tier === 2), [groups])
 
-  const [category, setCategory] = useState<DocumentCategory>(initialCategory)
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>('')
   const [documentType, setDocumentType] = useState<DocumentType | ''>('')
+  const [showMore, setShowMore] = useState(false)
   const [aircraftId, setAircraftId] = useState<string | undefined>(defaultAircraftId)
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -121,10 +106,18 @@ export function PersonaAwareUploadModal({
   const [form337Date, setForm337Date] = useState('')
   const [relatedStcNumber, setRelatedStcNumber] = useState('')
 
-  const allowedTypesInCategory = useMemo(
-    () => getCategoryTypes(category).filter((m) => canPersonaUpload(persona, m.id)),
-    [category, persona],
+  const selectedGroup = useMemo(
+    () => groups.find((g) => g.key === selectedGroupKey) ?? null,
+    [groups, selectedGroupKey],
   )
+
+  function selectGroup(group: UploadCategoryGroup) {
+    setSelectedGroupKey(group.key)
+    // Single-type categories auto-select their type; multi-type categories
+    // surface a type picker.
+    setDocumentType(group.documentTypes.length === 1 ? group.documentTypes[0] : '')
+  }
+
   const needsAircraft = documentType ? requiresAircraftId(documentType) : false
   const submitDisabled =
     !file ||
@@ -149,7 +142,7 @@ export function PersonaAwareUploadModal({
           : null
 
     try {
-      // Step 1: get a pre-signed upload URL + documentId from /api/upload/init.
+      // Step 1: get a pre-signed upload URL + documentId.
       const initRes = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,12 +184,10 @@ export function PersonaAwareUploadModal({
           fileSize: file.size,
           mimeType: file.type || 'application/pdf',
           aircraftId: aircraftId ?? null,
-          // Legacy doc_type: best-effort fallback so the existing
-          // classifier/list views still work; the new document_type below
-          // is what the persona×type RLS+route actually checks.
+          // Legacy doc_type fallback so existing classifier/list views work;
+          // documentType below is what the persona × type RLS+route checks.
           docType: legacyDocTypeForNew(documentType as DocumentType),
           title: title.trim(),
-          // Phase 13.1 fields — server-side validation lives here.
           documentType,
           uploadedByPersona: persona,
           documentDate: extraDocumentDate,
@@ -207,10 +198,11 @@ export function PersonaAwareUploadModal({
         const err = await completeRes.json().catch(() => ({}))
         throw new Error(err.error ?? `Upload complete failed (${completeRes.status})`)
       }
-      const completeBody = (await completeRes.json()) as { documentId: string }
+      const completeBody = (await completeRes.json()) as { documentId?: string; document_id?: string }
+      const newId = completeBody.documentId ?? completeBody.document_id ?? initBody.documentId
 
-      setStatus({ state: 'success', documentId: completeBody.documentId })
-      onUploaded?.(completeBody.documentId, documentType as DocumentType)
+      setStatus({ state: 'success', documentId: newId })
+      onUploaded?.(newId, documentType as DocumentType)
       // Close after brief success flash so user sees the confirmation.
       setTimeout(() => onOpenChange(false), 400)
     } catch (err) {
@@ -220,67 +212,95 @@ export function PersonaAwareUploadModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Upload document</DialogTitle>
-          <DialogDescription>
-            {personaUploadHint(persona)}
-          </DialogDescription>
+          <DialogDescription>{personaUploadHint(persona)}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Phase 14: tier-aware SLA banner above the picker. */}
+          {/* Tier-aware SLA banner above the picker. */}
           <SlaBanner tier={effectiveTier} />
 
-          {/* Category accordion — persona-filtered. */}
+          {/* Category picker — persona-specific, Tier 1 / Tier 2. */}
           <div>
             <Label>Category</Label>
-            <Select
-              value={category}
-              onValueChange={(v) => {
-                setCategory(v as DocumentCategory)
-                setDocumentType('') // reset type when category changes
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {allowedCategories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="mt-1.5 space-y-1.5">
+              {tier1Groups.map((g) => (
+                <CategoryCard
+                  key={g.key}
+                  group={g}
+                  selected={selectedGroupKey === g.key}
+                  onSelect={() => selectGroup(g)}
+                />
+              ))}
+            </div>
 
-          {/* Type — persona-filtered within the category. */}
-          <div>
-            <Label>Document type</Label>
-            <Select
-              value={documentType}
-              onValueChange={(v) => setDocumentType(v as DocumentType)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select type" />
-              </SelectTrigger>
-              <SelectContent>
-                {allowedTypesInCategory.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {documentType && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {DOCUMENT_TYPE_META[documentType].description}
-              </p>
+            {tier2Groups.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowMore((v) => !v)}
+                  className="mt-2 flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                      showMore ? 'rotate-180' : ''
+                    }`}
+                  />
+                  {showMore ? 'Show less' : `Show ${tier2Groups.length} more categories`}
+                </button>
+                {/* grid-rows 0fr→1fr gives a smooth height animation. */}
+                <div
+                  className={`grid transition-all duration-200 ${
+                    showMore ? 'grid-rows-[1fr] opacity-100 mt-1.5' : 'grid-rows-[0fr] opacity-0'
+                  }`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="space-y-1.5">
+                      {tier2Groups.map((g) => (
+                        <CategoryCard
+                          key={g.key}
+                          group={g}
+                          selected={selectedGroupKey === g.key}
+                          onSelect={() => selectGroup(g)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
-          {/* Aircraft selector — only shown for aircraft_* types. */}
+          {/* Type — only when the chosen category offers more than one. */}
+          {selectedGroup && selectedGroup.documentTypes.length > 1 && (
+            <div>
+              <Label>Document type</Label>
+              <Select
+                value={documentType}
+                onValueChange={(v) => setDocumentType(v as DocumentType)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedGroup.documentTypes.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {DOCUMENT_TYPE_META[t].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {documentType && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              {DOCUMENT_TYPE_META[documentType].description}
+            </p>
+          )}
+
+          {/* Aircraft selector — only for aircraft_* types. */}
           {needsAircraft && (
             <div>
               <Label>Aircraft</Label>
@@ -392,14 +412,41 @@ export function PersonaAwareUploadModal({
   )
 }
 
+/** One selectable category card — label, description, example file types. */
+function CategoryCard({
+  group,
+  selected,
+  onSelect,
+}: {
+  group: UploadCategoryGroup
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-lg border p-2.5 text-left transition-colors ${
+        selected
+          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+          : 'border-border hover:border-primary/40 hover:bg-muted/40'
+      }`}
+    >
+      <p className="text-sm font-semibold text-foreground">{group.label}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
+      <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
+        {group.exampleFileTypes}
+      </p>
+    </button>
+  )
+}
+
 function personaUploadHint(persona: Persona): string {
   switch (persona) {
     case 'owner':
       return 'Upload aircraft records for an aircraft you own. Reference manuals are uploaded by the shop.'
     case 'shop':
-      // Phase 18 mig 119 — shop spans the former mechanic + shop surfaces. The
-      // upload hint now lists everything except the owner-only sensitive types.
-      return 'Upload reference manuals, parts catalogs, service bulletins, ADs, work-order attachments, invoices, and most aircraft documents. Aircraft logbooks and registrations stay owner-only.'
+      return 'Upload reference manuals, parts catalogs, ADs/SBs and shop documentation. Aircraft logbooks and registrations stay owner-only.'
     case 'admin':
       return 'Platform admin — upload any document type for any aircraft.'
     default:
