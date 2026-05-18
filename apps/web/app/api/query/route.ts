@@ -255,15 +255,24 @@ async function hybridRetrieve(args: {
   // vector retriever already filtered at SQL level, but BM25 + tree surfaced
   // their chunks unfiltered, so we drop any merged chunk whose doc_type is
   // outside the allow-set here, before ranking.
+  // Doc-type filter is a SOFT signal, not a hard gate. A topic-INFERRED
+  // doc_type guess must never *exclude* a genuinely relevant chunk (the
+  // historical "no records found" false-empty class of bug). Chunks outside
+  // the allow-set are kept but demoted; the cross-encoder reranker below then
+  // judges true relevance over the full pool — so doc-type can only add
+  // precision, never starve recall.
   const merged = [...slots.values()]
     .filter((s): s is Slot & { chunk: RetrievedChunk } => s.chunk != null)
-    .filter((s) => !docTypeAllow || docTypeAllow.has(s.chunk.doc_type))
-    .map((s) => ({
-      ...s.chunk,
-      vector_score: s.vec,
-      keyword_score: s.bm,
-      combined_score: s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2,
-    }))
+    .map((s) => {
+      const docTypeMatch = !docTypeAllow || docTypeAllow.has(s.chunk.doc_type)
+      return {
+        ...s.chunk,
+        vector_score: s.vec,
+        keyword_score: s.bm,
+        combined_score:
+          (s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2) * (docTypeMatch ? 1 : 0.5),
+      }
+    })
     .sort((a, b) => b.combined_score - a.combined_score)
 
   // ── Wave 1 — cross-encoder rerank ──
