@@ -21,11 +21,11 @@
  * the rows through the LLM extraction pass lets it judge topic relevance
  * from the clean `description`, so the messy column is never trusted.
  *
- * Each synthetic chunk carries a REAL document_chunks.id (resolved by
- * document_id + page) so the citations FK and page anchoring keep working.
- * Events whose page has no chunk row are dropped (~2%) — they would have no
- * resolvable citation. Best-effort: any failure returns [] and the caller
- * falls back to the retrieved chunks alone.
+ * Each synthetic chunk is keyed `mev:<event id>` and carries the event's real
+ * document_id + page_number, so its citation opens the correct PDF page. The
+ * citations.chunk_id FK to document_chunks was dropped, so chunk_id is just a
+ * soft pointer — no per-event document_chunks lookup is needed. Best-effort:
+ * any failure returns [] and the caller falls back to the retrieved chunks.
  */
 import type { AggregationType, ParsedQueryIntent } from '@/lib/rag/query-parser'
 import type { createServiceSupabase } from '@/lib/supabase/server'
@@ -164,32 +164,17 @@ export async function fetchStructuredEventChunks(args: {
     )
     if (rows.length === 0) return []
 
-    // Resolve each (document, page) to a real document_chunks.id so the
-    // citation FK + page anchoring keep working.
+    // Each structured event becomes a synthetic chunk keyed `mev:<id>`. The
+    // citation carries the event's REAL document_id + page_number (so it opens
+    // the right PDF page); chunk_id is only a soft pointer now — the
+    // citations.chunk_id FK to document_chunks was dropped, so there is no need
+    // to resolve every event to a document_chunks row. (That resolution also
+    // hit the PostgREST 1000-row cap and silently dropped ~85% of events.)
     const documentIds = Array.from(new Set(rows.map((row) => row.document_id)))
-    const pageNumbers = Array.from(new Set(rows.map((row) => row.source_page)))
-
-    const [{ data: chunkData }, { data: documentData }] = await Promise.all([
-      supabase
-        .from('document_chunks')
-        .select('id, document_id, page_number, chunk_index')
-        .in('document_id', documentIds)
-        .in('page_number', pageNumbers)
-        .order('chunk_index', { ascending: true })
-        .limit(5000),
-      supabase.from('documents').select('id, title, doc_type').in('id', documentIds),
-    ])
-
-    // First chunk per (document, page) — chunk_index ascending.
-    const chunkIdByDocPage = new Map<string, string>()
-    for (const chunk of (chunkData ?? []) as Array<{
-      id: string
-      document_id: string
-      page_number: number
-    }>) {
-      const key = `${chunk.document_id}:${chunk.page_number}`
-      if (!chunkIdByDocPage.has(key)) chunkIdByDocPage.set(key, chunk.id)
-    }
+    const { data: documentData } = await supabase
+      .from('documents')
+      .select('id, title, doc_type')
+      .in('id', documentIds)
 
     const documentById = new Map<string, { title: string | null; doc_type: string | null }>()
     for (const doc of (documentData ?? []) as Array<{
@@ -200,13 +185,10 @@ export async function fetchStructuredEventChunks(args: {
       documentById.set(doc.id, { title: doc.title, doc_type: doc.doc_type })
     }
 
-    const chunks: RetrievedChunk[] = []
-    for (const row of rows) {
-      const chunkId = chunkIdByDocPage.get(`${row.document_id}:${row.source_page}`)
-      if (!chunkId) continue // no chunk on that page — would have no citation
+    return rows.map((row): RetrievedChunk => {
       const document = documentById.get(row.document_id)
-      chunks.push({
-        chunk_id: chunkId,
+      return {
+        chunk_id: `mev:${row.id}`,
         document_id: row.document_id,
         document_title: document?.title ?? 'Maintenance record',
         doc_type: (document?.doc_type ?? 'logbook') as DocType,
@@ -217,9 +199,8 @@ export async function fetchStructuredEventChunks(args: {
         vector_score: 0,
         keyword_score: 0,
         combined_score: 0,
-      })
-    }
-    return chunks
+      }
+    })
   } catch (err) {
     console.error('[structured-events] fetch failed — returning []:', err)
     return []

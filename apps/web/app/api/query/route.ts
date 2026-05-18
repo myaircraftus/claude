@@ -590,7 +590,7 @@ async function runAggregationAnswer(args: {
 
     // Keep only the chunks the final events were sourced from so the
     // inline [N] citations resolve to real sources. Filter the augmented set
-    // so structured-event chunks (real document_chunks ids) resolve too.
+    // so structured-event chunks (mev: synthetic ids) resolve too.
     const sourceIds = new Set(
       finalEvents
         .map((e) => e.source_chunk_id)
@@ -629,8 +629,19 @@ async function runAggregationAnswer(args: {
             ? 'Sum the relevant values across the events and show the total, citing each contributing event.'
             : `Report the single ${aggregationType} event below with its date and citation.`
 
+    // The exact count(*) is presented as a database FACT, not an instruction —
+    // the answer model's system prompt tells it to answer only from grounded
+    // data, so a bare "answer N" instruction gets ignored in favor of counting
+    // the visible excerpts. Framed as ground-truth data, it lands.
+    const totalFact =
+      totalRecords != null
+        ? `[AUTHORITATIVE DATABASE FACT] This aircraft has exactly ${totalRecords} ` +
+          `maintenance records on file, counted directly from the structured ` +
+          `maintenance database. Treat this number as ground truth.\n\n`
+        : ''
     const augmentedQuestion =
       `${question}\n\n` +
+      totalFact +
       `[STRUCTURED EXTRACTION — answer using ONLY these deduplicated events]\n` +
       `${structuredContext}\n\n` +
       `INSTRUCTION: ${directive}\n\n` +
