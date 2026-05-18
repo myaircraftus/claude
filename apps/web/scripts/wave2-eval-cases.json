@@ -1,0 +1,186 @@
+{
+  "_README": [
+    "Wave 2 RETRIEVAL-RECALL baseline eval cases for scripts/wave2-eval.mjs.",
+    "",
+    "Each case is a real question whose answer was VERIFIED to live on a specific",
+    "(document, page) in the canonical retrieval layer (canonical_document_chunks).",
+    "The harness embeds the question, runs the live search_canonical_documents RPC,",
+    "and checks whether the gold page appears in the top-K results.",
+    "",
+    "This measures retrieval RECALL — the exact thing Wave 2 (contextual retrieval)",
+    "is designed to improve. Run it before Wave 2 for a baseline, and again after,",
+    "to get a provable before/after number.",
+    "",
+    "org: 82042eee-1d20-49a4-be12-12f73e335392 (Horizon Flights — 247K-chunk corpus).",
+    "Cases authored 2026-05-18 from verified corpus content.",
+    "",
+    "Fields: id, question, gold_document_ids[], gold_pages[], fact (the verified",
+    "answer that lives on the gold page), doc_type."
+  ],
+  "org_id": "82042eee-1d20-49a4-be12-12f73e335392",
+  "cases": [
+    {
+      "id": "log-ad-2010-04-05-interval",
+      "question": "On N757VB's propeller, how often does recurring airworthiness directive AD 2010-04-05 have to be repeated?",
+      "gold_document_ids": ["dc045ff5-429a-4405-9927-8cfd9591429c"],
+      "gold_pages": [8],
+      "fact": "Recurring AD 2010-04-05 due every 750 hours",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-seat-rail-ad",
+      "question": "Which airworthiness directive covered the inspection of the pilot and copilot seat rails on N757VB?",
+      "gold_document_ids": ["ff427da2-4428-40f2-b884-5389386cc4cf"],
+      "gold_pages": [4],
+      "fact": "C/W AD 2011-10-09 by visual inspection of pilot and copilot seat rails",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-alternator-solenoid-pn",
+      "question": "What is the part number of the alternator solenoid that was replaced on N562AF?",
+      "gold_document_ids": ["b5e9de80-a70f-4809-83c1-610fcf30fc74"],
+      "gold_pages": [3],
+      "fact": "Remove and replace alternator solenoid p/n X61-0029",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-beacon-bulb-pn",
+      "question": "What is the part number of the beacon light bulb replaced on N562AF in 2023?",
+      "gold_document_ids": ["b5e9de80-a70f-4809-83c1-610fcf30fc74"],
+      "gold_pages": [3],
+      "fact": "Replaced beacon light bulb p/n 5043301",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-compression-may-2016",
+      "question": "What were the four cylinder compression readings on N757VB's engine in the May 2016 maintenance entry?",
+      "gold_document_ids": ["3a570bbd-7584-41ed-bf60-ddee6e925bb1"],
+      "gold_pages": [5],
+      "fact": "Compression test CYL#1 79/80, CYL#2 79/80, CYL#3 76/80, CYL#4 78/80",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-n80587-no-start",
+      "question": "Why would N80587 not start in the April 2012 airframe logbook entry?",
+      "gold_document_ids": ["aa1c8a79-401a-4912-9031-7e68bf157825"],
+      "gold_pages": [217],
+      "fact": "Would not start; removed bottom spark plugs, found full of lead",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-tsmoh-feb-2023",
+      "question": "What was the engine time since major overhaul (TSMOH) on N757VB in the February 2023 entry?",
+      "gold_document_ids": ["cadc2c4c-b4ec-49d7-84eb-5173c2d8af53"],
+      "gold_pages": [10],
+      "fact": "TSMOH 1536.9, TACH 1237 on 2/3/2023",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-spark-plug-pn",
+      "question": "What new spark plug part number was installed on N757VB's engine cylinders 1 and 2?",
+      "gold_document_ids": ["cadc2c4c-b4ec-49d7-84eb-5173c2d8af53"],
+      "gold_pages": [4],
+      "fact": "Replaced spark plugs with new P/N UREM37BY on No1 and No2 cylinders",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-prop-model-n89114",
+      "question": "What make and model of propeller is installed on N89114?",
+      "gold_document_ids": ["def33cd5-e751-4f2d-ac05-13b620bc9e07"],
+      "gold_pages": [7],
+      "fact": "Sensenich 72CKS6-0-54 propeller, S/N K5656",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-elt-battery-due-2015",
+      "question": "When was the ELT battery next due on N562AF after the February 2015 inspection?",
+      "gold_document_ids": ["c472b120-b689-45ee-ada5-00e013b041b9"],
+      "gold_pages": [6],
+      "fact": "ELT battery next due June 2015",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-total-time-oct-2018",
+      "question": "What was the total airframe time on N562AF at the October 2018 annual inspection?",
+      "gold_document_ids": ["c472b120-b689-45ee-ada5-00e013b041b9"],
+      "gold_pages": [18],
+      "fact": "N562AF Total Time 5791.3 on 10/24/2018",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-prop-serial-n757vb",
+      "question": "What is the serial number of the propeller installed on N757VB?",
+      "gold_document_ids": ["0bd2524a-1580-4e2f-b386-7c3cd00a9cac"],
+      "gold_pages": [15, 16],
+      "fact": "Propeller model 1A103, serial number BG084",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "log-n757vb-serial-type",
+      "question": "What aircraft type and serial number are recorded for N757VB in its airframe logbook?",
+      "gold_document_ids": ["ff427da2-4428-40f2-b884-5389386cc4cf"],
+      "gold_pages": [3, 16],
+      "fact": "C152, serial number 15280028",
+      "doc_type": "logbook"
+    },
+    {
+      "id": "poh-oil-sump-quantity",
+      "question": "How many quarts of oil should the Cessna engine sump be filled to for normal flights of less than 3 hours?",
+      "gold_document_ids": ["78cf82b5-94cd-4444-b083-c44acfdf252f"],
+      "gold_pages": [31],
+      "fact": "Fill to 7 quart level for normal flights less than 3 hours; sump capacity 8 quarts",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-fuel-capacity",
+      "question": "What is the total fuel capacity of the Cessna in the pilot operating handbook?",
+      "gold_document_ids": [
+        "78cf82b5-94cd-4444-b083-c44acfdf252f",
+        "3b7bbc43-b8de-4801-8cb5-054c47683111"
+      ],
+      "gold_pages": [2],
+      "fact": "Fuel capacity total 39 gallons; engine 145 rated HP at 2700 RPM",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-towbar-turn-limit",
+      "question": "What is the maximum nosewheel turn limit when using the tow-bar on the Cessna?",
+      "gold_document_ids": ["78cf82b5-94cd-4444-b083-c44acfdf252f"],
+      "gold_pages": [17],
+      "fact": "When using the tow-bar never exceed the turning limit of 30 degrees either side of center",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-garmin-bluetooth-devices",
+      "question": "How many portable electronic devices can the Garmin GPS 175 / GNX 375 pair with over Bluetooth?",
+      "gold_document_ids": ["3db99ee6-b5f9-44ce-b564-6c6d568965f0"],
+      "gold_pages": [45],
+      "fact": "Supports Bluetooth pairing with up to 13 portable electronic devices",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-garmin-fde",
+      "question": "When must FDE prediction be used with the Garmin GPS 175 as a primary means of navigation?",
+      "gold_document_ids": ["3db99ee6-b5f9-44ce-b564-6c6d568965f0"],
+      "gold_pages": [69],
+      "fact": "Under FAR parts 91, 121, 125, 135 FDE must be used prior to all oceanic or remote area flights",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-garmin-terrain-alert",
+      "question": "What conditions trigger a TERRAIN caution alert on the Garmin GPS 175?",
+      "gold_document_ids": ["3db99ee6-b5f9-44ce-b564-6c6d568965f0"],
+      "gold_pages": [192],
+      "fact": "Reduced required terrain clearance, imminent terrain impact, premature descent",
+      "doc_type": "poh"
+    },
+    {
+      "id": "poh-garmin-map-priority",
+      "question": "On the Garmin GPS 175 map, which feature is drawn at the highest priority over all others?",
+      "gold_document_ids": ["3db99ee6-b5f9-44ce-b564-6c6d568965f0"],
+      "gold_pages": [79],
+      "fact": "Map drawing priority level 1 is Traffic, level 2 Ownship",
+      "doc_type": "poh"
+    }
+  ]
+}

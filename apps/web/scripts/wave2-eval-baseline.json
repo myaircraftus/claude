@@ -1,0 +1,228 @@
+{
+  "label": "baseline",
+  "generated_at": "2026-05-18T13:12:29.632Z",
+  "cases_total": 20,
+  "cases_errored": 0,
+  "org_wide": {
+    "n": 20,
+    "page": {
+      "at5": 1,
+      "at10": 1,
+      "at20": 1,
+      "at5_pct": 5,
+      "at10_pct": 5,
+      "at20_pct": 5,
+      "mrr": 0.05
+    },
+    "doc": {
+      "at5": 5,
+      "at10": 5,
+      "at20": 5,
+      "at5_pct": 25,
+      "at10_pct": 25,
+      "at20_pct": 25
+    }
+  },
+  "aircraft_scoped": {
+    "n": 13,
+    "page": {
+      "at5": 1,
+      "at10": 1,
+      "at20": 1,
+      "at5_pct": 8,
+      "at10_pct": 8,
+      "at20_pct": 8,
+      "mrr": 0.0769
+    },
+    "doc": {
+      "at5": 2,
+      "at10": 2,
+      "at20": 2,
+      "at5_pct": 15,
+      "at10_pct": 15,
+      "at20_pct": 15
+    }
+  },
+  "per_case": [
+    {
+      "id": "log-ad-2010-04-05-interval",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-seat-rail-ad",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-alternator-solenoid-pn",
+      "doc_type": "logbook",
+      "tail": "N562AF",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-beacon-bulb-pn",
+      "doc_type": "logbook",
+      "tail": "N562AF",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-compression-may-2016",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-n80587-no-start",
+      "doc_type": "logbook",
+      "tail": "N80587",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": 1,
+      "scoped_doc_rank": 1
+    },
+    {
+      "id": "log-tsmoh-feb-2023",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-spark-plug-pn",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-prop-model-n89114",
+      "doc_type": "logbook",
+      "tail": "N89114",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-elt-battery-due-2015",
+      "doc_type": "logbook",
+      "tail": "N562AF",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": 3,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": 3
+    },
+    {
+      "id": "log-total-time-oct-2018",
+      "doc_type": "logbook",
+      "tail": "N562AF",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-prop-serial-n757vb",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "log-n757vb-serial-type",
+      "doc_type": "logbook",
+      "tail": "N757VB",
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-oil-sump-quantity",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-fuel-capacity",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-towbar-turn-limit",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": null,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-garmin-bluetooth-devices",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": 1,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-garmin-fde",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": 1,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-garmin-terrain-alert",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": 1,
+      "org_wide_doc_rank": 1,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    },
+    {
+      "id": "poh-garmin-map-priority",
+      "doc_type": "poh",
+      "tail": null,
+      "org_wide_page_rank": null,
+      "org_wide_doc_rank": 1,
+      "scoped_page_rank": null,
+      "scoped_doc_rank": null
+    }
+  ]
+}
