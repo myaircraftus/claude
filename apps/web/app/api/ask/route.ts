@@ -23,6 +23,7 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { classifyAskQuestion } from '@/lib/ask/question-classifier'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -224,7 +225,10 @@ BEHAVIOR RULES:
 5. When looking up maintenance history, call search_logbook.
 6. You may call multiple tools in sequence when needed.
 7. After tools return results, synthesize a concise, helpful response. Do not just dump raw JSON.
-8. For safety-critical items (ADs, limits, emergency procedures), always note the user should verify with the actual document and a qualified aviation professional.`
+8. For safety-critical items (ADs, limits, emergency procedures), always note the user should verify with the actual document and a qualified aviation professional.
+
+SCOPE:
+You ONLY answer questions about THIS user's aircraft, their maintenance records and documents, and aviation maintenance in general. For clearly off-topic or general-knowledge questions (geography, trivia, news, celebrities, math, coding, anything unrelated to aircraft maintenance), do NOT answer from general knowledge — briefly decline in one sentence and steer the user back to their aircraft records.`
 
 // Phase 18 mig 119 — mechanic merged into shop. The /api/ask route now
 // branches on 'owner' vs 'shop'; legacy 'mechanic' inputs are coerced to
@@ -332,6 +336,184 @@ function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] 
   return AI_TOOLS.filter((tool) => allowed.has(tool.function.name as AiToolName)) as OpenAI.Chat.ChatCompletionTool[]
 }
 
+// ── Agent runner ─────────────────────────────────────────────────────────────────
+
+/** Assembled output of one /api/ask agent run — the data the POST handler serializes. */
+interface AskAgentResult {
+  answer: string
+  artifacts: Artifact[]
+  citations: any[]
+  /** RAG confidence: 'high' | 'medium' | 'low' | 'insufficient_evidence' | undefined. */
+  confidence: string | undefined
+  followUps: string[]
+  toolCalls: string[]
+}
+
+/**
+ * Run one GPT-4o tool-calling agent pass (max 3 rounds) and return the
+ * assembled artifacts / citations / confidence / follow-ups / tool calls.
+ *
+ * This is the SINGLE source of truth for the agent loop. The POST handler
+ * calls it once for a single-aircraft (or single org-wide) request, and once
+ * per aircraft when fanning out across "All Aircraft". Behavior for a single
+ * call is byte-identical to the pre-refactor inline loop.
+ *
+ * `aircraftId` is the already-resolved canonical aircraft id (or undefined for
+ * an org-wide pass). This helper never resolves canonical ids itself.
+ */
+async function runAskAgent(
+  req: NextRequest,
+  openai: OpenAI,
+  opts: {
+    question: string
+    persona: AskPersona
+    aircraftId?: string
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+  },
+): Promise<AskAgentResult> {
+  const { question, persona, aircraftId, conversationHistory } = opts
+  const personaTools = toolsForPersona(persona)
+
+  // Build initial messages
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: 'system', content: buildSystemPrompt(persona) },
+    ...conversationHistory.map(
+      (m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam),
+    ),
+    {
+      role: 'user',
+      content: aircraftId
+        ? `[Context: aircraft_id=${aircraftId}]\n\n${question}`
+        : question,
+    },
+  ]
+
+  const artifacts: Artifact[] = []
+  const toolCallsMade: string[] = []
+  // Citations collected from any search_documents tool calls so the UI can
+  // render "click citation → highlight source" for the user's demo flow.
+  const collectedCitations: any[] = []
+  const collectedFollowUps: string[] = []
+  let ragConfidence: string | undefined
+
+  // ── Tool-calling loop (max 3 rounds) ───────────────────────────────────────
+  let round = 0
+  while (round < 3) {
+    round++
+
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+      temperature: 0.3,
+      max_tokens: 1500,
+      tools: personaTools,
+      tool_choice: 'auto',
+      messages,
+    })
+
+    const choice = response.choices[0]
+    const msg = choice.message
+
+    // Add assistant message to history
+    messages.push(msg as OpenAI.Chat.ChatCompletionMessageParam)
+
+    // If no tool calls → final answer
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      return {
+        answer: msg.content ?? '',
+        artifacts,
+        // Confidence reflects RAG evidence only — never hard-code 'high' just
+        // because a non-RAG tool produced an artifact (audit fix: an artifact
+        // is not evidence of answer accuracy).
+        confidence: ragConfidence,
+        citations: collectedCitations,
+        followUps: collectedFollowUps,
+        toolCalls: toolCallsMade,
+      }
+    }
+
+    // Dispatch each tool call
+    const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = []
+    for (const tc of msg.tool_calls) {
+      let args: Record<string, unknown> = {}
+      try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
+
+      // Inject aircraft_id from context if not provided
+      if (!args.aircraft_id && aircraftId) {
+        args.aircraft_id = aircraftId
+      }
+
+      toolCallsMade.push(tc.function.name)
+      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args)
+      if (artifact) artifacts.push(artifact)
+      if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
+      if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
+      if (confidence) ragConfidence = confidence
+
+      toolResults.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: JSON.stringify(result),
+      })
+    }
+
+    // Add tool results to messages and loop
+    messages.push(...toolResults)
+  }
+
+  // Exhausted rounds — return what we have.
+  return {
+    answer: 'I gathered some results for you. See the cards below.',
+    artifacts,
+    confidence: ragConfidence,
+    citations: collectedCitations,
+    followUps: collectedFollowUps,
+    toolCalls: toolCallsMade,
+  }
+}
+
+// ── Fan-out helpers ──────────────────────────────────────────────────────────────
+
+/** Confidence ranking for the mixed-confidence "minimum wins" rule. */
+const CONFIDENCE_RANK: Record<string, number> = {
+  insufficient_evidence: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+}
+
+/**
+ * Pick the MINIMUM (least confident) value across the aircraft that returned
+ * data. When results are mixed, the minimum is the honest answer. Aircraft
+ * with no confidence at all (undefined — e.g. no RAG evidence) are ignored
+ * here; they are surfaced as "no records found" lines in the answer instead.
+ */
+function minConfidence(values: Array<string | undefined>): string | undefined {
+  const known = values.filter(
+    (v): v is string => typeof v === 'string' && Object.prototype.hasOwnProperty.call(CONFIDENCE_RANK, v),
+  )
+  if (known.length === 0) return undefined
+  let lowest = known[0]
+  for (const v of known) {
+    if (CONFIDENCE_RANK[v] < CONFIDENCE_RANK[lowest]) lowest = v
+  }
+  return lowest
+}
+
+/** Run an array of async tasks with a hard concurrency cap, preserving order. */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = []
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit)
+    const batchResults = await Promise.all(batch.map((item) => task(item)))
+    results.push(...batchResults)
+  }
+  return results
+}
+
 // ── POST handler ───────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -376,105 +558,174 @@ export async function POST(req: NextRequest) {
   if (!question) return NextResponse.json({ error: 'question is required' }, { status: 400 })
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const personaTools = toolsForPersona(persona)
-
-  // Build initial messages
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: buildSystemPrompt(persona) },
-    ...conversation_history.map(m => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
-    {
-      role: 'user',
-      content: aircraft_id
-        ? `[Context: aircraft_id=${resolvedAircraftId ?? aircraft_id}]\n\n${question}`
-        : question,
-    },
-  ]
-
-  const artifacts: Artifact[] = []
-  const toolCallsMade: string[] = []
-  // Citations collected from any search_documents tool calls so the UI can
-  // render "click citation → highlight source" for the user's demo flow.
-  const collectedCitations: any[] = []
-  const collectedFollowUps: string[] = []
-  let ragConfidence: string | undefined
 
   try {
-    // ── Tool-calling loop (max 3 rounds) ───────────────────────────────────────
-    let round = 0
-    while (round < 3) {
-      round++
-
-      const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-        temperature: 0.3,
-        max_tokens: 1500,
-        tools: personaTools,
-        tool_choice: 'auto',
-        messages,
+    // ── Single-aircraft path: aircraft_id is set ───────────────────────────────
+    // Behavior is byte-identical to the pre-refactor inline loop.
+    if (aircraft_id) {
+      const result = await runAskAgent(req, openai, {
+        question,
+        persona,
+        aircraftId: resolvedAircraftId ?? aircraft_id,
+        conversationHistory: conversation_history,
       })
-
-      const choice = response.choices[0]
-      const msg = choice.message
-
-      // Add assistant message to history
-      messages.push(msg as OpenAI.Chat.ChatCompletionMessageParam)
-
-      // If no tool calls → final answer
-      if (!msg.tool_calls || msg.tool_calls.length === 0) {
-        const answer = msg.content ?? ''
-        return NextResponse.json({
-          answer,
-          artifacts: artifacts.length > 0 ? artifacts : undefined,
-          tool_calls_made: toolCallsMade.length > 0 ? toolCallsMade : undefined,
-          // Propagate RAG citations + metadata captured from any search_documents calls.
-          // Confidence reflects RAG evidence only — never hard-code 'high' just
-          // because a non-RAG tool produced an artifact (audit fix: an artifact
-          // is not evidence of answer accuracy).
-          confidence: ragConfidence,
-          citations: collectedCitations,
-          warning_flags: [],
-          follow_up_questions: collectedFollowUps,
-        })
-      }
-
-      // Dispatch each tool call
-      const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = []
-      for (const tc of msg.tool_calls) {
-        let args: Record<string, unknown> = {}
-        try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
-
-        // Inject aircraft_id from context if not provided
-        if (!args.aircraft_id && resolvedAircraftId) {
-          args.aircraft_id = resolvedAircraftId
-        }
-
-        toolCallsMade.push(tc.function.name)
-        const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args)
-        if (artifact) artifacts.push(artifact)
-        if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
-        if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
-        if (confidence) ragConfidence = confidence
-
-        toolResults.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: JSON.stringify(result),
-        })
-      }
-
-      // Add tool results to messages and loop
-      messages.push(...toolResults)
+      return NextResponse.json({
+        answer: result.answer,
+        artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
+        tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+        confidence: result.confidence,
+        citations: result.citations,
+        warning_flags: [],
+        follow_up_questions: result.followUps,
+      })
     }
 
-    // If we exhaust rounds, return what we have
+    // ── "All Aircraft" path: aircraft_id is undefined ──────────────────────────
+    // Classify the question: org_wide → one pass; per_aircraft → fan out.
+    const kind = await classifyAskQuestion(question)
+
+    // org_wide → existing single org-wide pass (aircraftId undefined). Unchanged.
+    if (kind === 'org_wide') {
+      const result = await runAskAgent(req, openai, {
+        question,
+        persona,
+        aircraftId: undefined,
+        conversationHistory: conversation_history,
+      })
+      return NextResponse.json({
+        answer: result.answer,
+        artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
+        tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+        confidence: result.confidence,
+        citations: result.citations,
+        warning_flags: [],
+        follow_up_questions: result.followUps,
+      })
+    }
+
+    // per_aircraft → fan out: one agent pass per aircraft, in parallel.
+    const { data: fleetRows } = await supabase
+      .from('aircraft')
+      .select('id, tail_number')
+      .eq('organization_id', orgContext.organizationId)
+      .eq('is_archived', false)
+      .order('tail_number', { ascending: true })
+
+    const fleet: Array<{ id: string; tail_number: string }> = (fleetRows ?? [])
+      .map((row) => ({
+        id: typeof row.id === 'string' ? row.id : '',
+        tail_number:
+          typeof row.tail_number === 'string' && row.tail_number.trim()
+            ? row.tail_number
+            : 'Unknown tail',
+      }))
+      .filter((row) => row.id)
+
+    // No aircraft to fan out over — degrade gracefully to a single org-wide pass.
+    if (fleet.length === 0) {
+      const result = await runAskAgent(req, openai, {
+        question,
+        persona,
+        aircraftId: undefined,
+        conversationHistory: conversation_history,
+      })
+      return NextResponse.json({
+        answer: result.answer,
+        artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
+        tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+        confidence: result.confidence,
+        citations: result.citations,
+        warning_flags: [],
+        follow_up_questions: result.followUps,
+      })
+    }
+
+    // Run one agent pass per aircraft. Concurrency capped at 10 — orgs with
+    // more than 10 aircraft batch in groups of 10. A failure on one aircraft
+    // degrades to a "no records found" line, never an uncaught throw.
+    const perAircraft = await runWithConcurrency(fleet, 10, async (ac) => {
+      try {
+        const result = await runAskAgent(req, openai, {
+          question,
+          persona,
+          aircraftId: ac.id,
+          conversationHistory: conversation_history,
+        })
+        return { aircraft: ac, result, error: false }
+      } catch (err) {
+        console.error(`[api/ask] fan-out failed for ${ac.tail_number}:`, err)
+        return { aircraft: ac, result: null as AskAgentResult | null, error: true }
+      }
+    })
+
+    // Assemble ONE response. Every aircraft gets a line — never silently omit.
+    const answerLines: string[] = []
+    const mergedCitations: any[] = []
+    const mergedToolCalls = new Set<string>()
+    const confidences: Array<string | undefined> = []
+
+    for (const { aircraft, result, error } of perAircraft) {
+      const tail = aircraft.tail_number
+
+      // A failed pass, a no-confidence pass, or an empty answer all surface as
+      // "no records found" — the user still sees the tail listed.
+      const hasData =
+        !error &&
+        result != null &&
+        result.confidence !== undefined &&
+        result.confidence !== 'insufficient_evidence' &&
+        Boolean(result.answer && result.answer.trim())
+
+      if (!hasData || !result) {
+        const note =
+          result?.confidence === 'low'
+            ? 'low-confidence — verify against the source documents'
+            : 'no records found'
+        answerLines.push(`${tail} — ${note}`)
+        if (result?.confidence) confidences.push(result.confidence)
+        continue
+      }
+
+      // Flatten the per-aircraft answer onto a single line, tail first.
+      const oneLine = result.answer.replace(/\s+/g, ' ').trim()
+      answerLines.push(`${tail} — ${oneLine}`)
+      confidences.push(result.confidence)
+
+      // Merge citations, labelling each with the tail so the UI shows which
+      // aircraft it belongs to. We extend sectionTitle (an existing optional
+      // field the UI already consumes) rather than introduce a new shape.
+      for (const cite of result.citations ?? []) {
+        if (cite && typeof cite === 'object') {
+          const existingSection =
+            typeof (cite as any).sectionTitle === 'string'
+              ? (cite as any).sectionTitle
+              : ''
+          mergedCitations.push({
+            ...cite,
+            sectionTitle: existingSection
+              ? `${tail} — ${existingSection}`
+              : tail,
+          })
+        } else {
+          mergedCitations.push(cite)
+        }
+      }
+
+      for (const t of result.toolCalls ?? []) mergedToolCalls.add(t)
+    }
+
     return NextResponse.json({
-      answer: 'I gathered some results for you. See the cards below.',
-      artifacts: artifacts.length > 0 ? artifacts : undefined,
-      tool_calls_made: toolCallsMade,
-      citations: collectedCitations,
+      answer: answerLines.join('\n'),
+      // Per-aircraft artifacts are intentionally omitted — a fleet-wide answer
+      // is a text rollup, not a single actionable card.
+      artifacts: undefined,
+      // confidence = MINIMUM across aircraft that returned data. If results are
+      // mixed, the least-confident value is the honest answer.
+      confidence: minConfidence(confidences),
+      citations: mergedCitations,
       warning_flags: [],
-      follow_up_questions: collectedFollowUps,
-      confidence: ragConfidence,
+      follow_up_questions: [],
+      tool_calls_made: mergedToolCalls.size > 0 ? Array.from(mergedToolCalls) : undefined,
     })
   } catch (err: any) {
     console.error('[api/ask] Error:', err)
