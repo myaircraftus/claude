@@ -6,10 +6,21 @@ import { resolveRequestOrgContext } from '@/lib/auth/context';
 import { generateEmbeddings } from '@/lib/openai/embeddings';
 import { retrieveChunks } from '@/lib/rag/retrieval';
 import { generateAnswer } from '@/lib/rag/generation';
-import { parseStructuredQuery } from '@/lib/rag/query-parser';
+import {
+  parseStructuredQuery,
+  detectAggregationQuery,
+  inferRelevantDocTypes,
+  type AggregationType,
+} from '@/lib/rag/query-parser';
 import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
 import { searchBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
+import { generateHypotheticalDocument } from '@/lib/rag/hyde';
+import {
+  extractAggregationEvents,
+  formatAggregationContext,
+  pickFirstOrLastEvent,
+} from '@/lib/rag/aggregation';
 import type { DocType, RetrievedChunk } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
@@ -45,6 +56,8 @@ const queryRequestSchema = z.object({
   aircraft_id: z.string().uuid().optional(),
   doc_type_filter: z.array(z.enum(DOC_TYPE_VALUES)).optional(),
   conversation_history: z.array(conversationTurnSchema).max(20).optional(),
+  // Persona drives the HyDE prompt voice. Optional — defaults to 'owner'.
+  persona: z.enum(['owner', 'mechanic', 'admin']).optional(),
 });
 
 // ─── PageIndex enhancement — additive BM25 + tree retrieval layer ───────────
@@ -101,12 +114,18 @@ interface HybridRetrieval {
 /**
  * Hybrid retrieval — vector + BM25 + PageIndex tree run CONCURRENTLY
  * (Promise.all), merged + de-duplicated by chunk_id, then ranked by a weighted
- * blend: vector 0.45 + bm25 0.35 + tree 0.20. Returns the top 8 chunks.
+ * blend: vector 0.45 + bm25 0.35 + tree 0.20. Returns the top `limit` chunks.
  *
  * Each retriever is independently try/caught — one failing (or no aircraft
  * scope) just contributes nothing; the others still rank. This is plain
  * Promise.all concurrency, not an agent framework. The caller wraps the whole
  * call in try/catch and falls back to vector-only on an unexpected failure.
+ *
+ * `docTypeFilter` is enforced two ways. The vector retriever (`retrieveChunks`)
+ * filters at the SQL level. BM25 + tree carry no doc_type in their index
+ * files, so they always RUN unfiltered and the doc-type filter is applied to
+ * the MERGED, hydrated candidate set (every merged chunk has a `doc_type`)
+ * before ranking. All three retrievers run regardless of the filter.
  */
 async function hybridRetrieve(args: {
   supabase: ReturnType<typeof createServiceSupabase>
@@ -115,10 +134,14 @@ async function hybridRetrieve(args: {
   queryEmbedding: number[]
   queryText: string
   question: string
-  docTypeFilter?: DocType[]
+  docTypeFilter?: DocType[] | null
   parsedQuery: Awaited<ReturnType<typeof parseStructuredQuery>>
+  limit?: number
 }): Promise<HybridRetrieval> {
   const { supabase, organizationId, aircraftId, queryEmbedding, queryText, question, docTypeFilter, parsedQuery } = args
+  const limit = args.limit ?? 8
+  const docTypeAllow =
+    docTypeFilter && docTypeFilter.length > 0 ? new Set<DocType>(docTypeFilter) : null
 
   type TreeHit = { chunkId: string; sectionHint: string }
   type Bm25Hits = Awaited<ReturnType<typeof searchBm25>>
@@ -127,7 +150,13 @@ async function hybridRetrieve(args: {
   //    never rejects — a failed retriever simply contributes no chunks.
   const vStart = Date.now()
   const vectorP = retrieveChunks({
-    organizationId, aircraftId, queryEmbedding, queryText, docTypeFilter, limit: 20, parsedQuery,
+    organizationId,
+    aircraftId,
+    queryEmbedding,
+    queryText,
+    docTypeFilter: docTypeAllow ? [...docTypeAllow] : undefined,
+    limit: Math.max(20, limit),
+    parsedQuery,
   })
     .then((r) => ({ r, ms: Date.now() - vStart }))
     .catch((err) => {
@@ -216,9 +245,15 @@ async function hybridRetrieve(args: {
     }
   }
 
-  // ── Weighted rank → top 8 ──
+  // ── Weighted rank → top `limit` ──
+  //
+  // Doc-type filter is applied to the MERGED, hydrated candidate set: the
+  // vector retriever already filtered at SQL level, but BM25 + tree surfaced
+  // their chunks unfiltered, so we drop any merged chunk whose doc_type is
+  // outside the allow-set here, before ranking.
   const ranked = [...slots.values()]
     .filter((s): s is Slot & { chunk: RetrievedChunk } => s.chunk != null)
+    .filter((s) => !docTypeAllow || docTypeAllow.has(s.chunk.doc_type))
     .map((s) => ({
       ...s.chunk,
       vector_score: s.vec,
@@ -226,7 +261,7 @@ async function hybridRetrieve(args: {
       combined_score: s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2,
     }))
     .sort((a, b) => b.combined_score - a.combined_score)
-    .slice(0, 8)
+    .slice(0, limit)
 
   const strategiesUsed: string[] = []
   if (vec.r.length > 0) strategiesUsed.push('vector')
@@ -238,6 +273,108 @@ async function hybridRetrieve(args: {
     strategiesUsed,
     latencies: { vector: vec.ms, bm25: bm.ms, tree: tr.ms },
     treeNodesUsed: tr.r.length,
+  }
+}
+
+// ─── Aggregation answer path ─────────────────────────────────────────────────
+//
+// For count / list / sum / first / last queries we run a structured event
+// extraction pass over a wider chunk set, deduplicate near-identical events,
+// then ground the answer in that exhaustive event list. Only the chunks that
+// the extracted events actually came from are handed to generateAnswer +
+// citation enrichment, so the inline [N] citations point at real sources.
+//
+// On any extraction failure this falls back to the normal generateAnswer over
+// the (already wider, top-25) retrieved chunks.
+
+/** Extracted topic noun for an empty-state "No records found for X" message. */
+function aggregationTopic(question: string): string {
+  return question.replace(/[?]+\s*$/, '').trim()
+}
+
+async function runAggregationAnswer(args: {
+  question: string
+  cleanedQuery: string
+  aggregationType: AggregationType
+  retrievedChunks: RetrievedChunk[]
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
+}): Promise<{
+  answerResult: Awaited<ReturnType<typeof generateAnswer>>
+  answerChunks: RetrievedChunk[]
+}> {
+  const { question, cleanedQuery, aggregationType, retrievedChunks, conversationHistory } = args
+
+  try {
+    const events = await extractAggregationEvents(cleanedQuery, retrievedChunks)
+
+    // Extraction found nothing — report it honestly. NEVER report 0 as a
+    // count answer.
+    if (events.length === 0) {
+      return {
+        answerResult: {
+          answer: `No records found for ${aggregationTopic(question)}.`,
+          confidence: 'insufficient_evidence',
+          confidenceScore: 0,
+          citations: [],
+          citedChunkIds: [],
+          warningFlags: ['partial_information'],
+          followUpQuestions: [],
+          tokensPrompt: 0,
+          tokensCompletion: 0,
+        },
+        answerChunks: [],
+      }
+    }
+
+    // For first/last, narrow to the single chosen event.
+    const finalEvents =
+      aggregationType === 'first' || aggregationType === 'last'
+        ? (() => {
+            const picked = pickFirstOrLastEvent(events, aggregationType)
+            return picked ? [picked] : events
+          })()
+        : events
+
+    // Keep only the chunks the final events were sourced from so the
+    // inline [N] citations resolve to real sources.
+    const sourceIds = new Set(
+      finalEvents
+        .map((e) => e.source_chunk_id)
+        .filter((id): id is string => Boolean(id)),
+    )
+    const sourceChunks = retrievedChunks.filter((c) => sourceIds.has(c.chunk_id))
+    // If the model gave no usable source ids, fall back to the full set so
+    // the answer is still grounded and citations still resolve.
+    const answerChunks = sourceChunks.length > 0 ? sourceChunks : retrievedChunks
+
+    // Build an augmented question: the structured event list is appended so
+    // the answer model counts/enumerates from the deduplicated events rather
+    // than guessing from raw chunk text. The instruction tells it how to
+    // respond per aggregation type.
+    const structuredContext = formatAggregationContext(question, aggregationType, finalEvents)
+    const directive =
+      aggregationType === 'count'
+        ? `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
+        : aggregationType === 'list'
+          ? 'Provide the full list of events; each event must be its own line with a citation.'
+          : aggregationType === 'sum'
+            ? 'Sum the relevant values across the events and show the total, citing each contributing event.'
+            : `Report the single ${aggregationType} event below with its date and citation.`
+
+    const augmentedQuestion =
+      `${question}\n\n` +
+      `[STRUCTURED EXTRACTION — answer using ONLY these deduplicated events]\n` +
+      `${structuredContext}\n\n` +
+      `INSTRUCTION: ${directive}`
+
+    const answerResult = await generateAnswer(augmentedQuestion, answerChunks, conversationHistory)
+    return { answerResult, answerChunks }
+  } catch (err) {
+    // Extraction pass failed — fall back to the normal generateAnswer over
+    // the (wider, top-25) retrieved chunks.
+    console.error('[query] aggregation extraction failed — falling back to generateAnswer:', err)
+    const answerResult = await generateAnswer(question, retrievedChunks, conversationHistory)
+    return { answerResult, answerChunks: retrievedChunks }
   }
 }
 
@@ -295,8 +432,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { question, aircraft_id, doc_type_filter, conversation_history } = body;
+  const persona = body.persona ?? 'owner';
 
   try {
+    // ── 1. Structured query parse — cleanedQuery + any explicit filters ──
     const parsedQuery = await parseStructuredQuery({
       organizationId,
       aircraftId: aircraft_id,
@@ -304,29 +443,94 @@ export async function POST(req: NextRequest) {
       queryText: question,
     })
 
-    const embeddingText = parsedQuery.cleanedQuery || question
+    const cleanedQuery = parsedQuery.cleanedQuery || question
 
-    // 5. Generate query embedding
-    const [embeddingResult] = await generateEmbeddings([{ id: 'query', text: embeddingText }]);
-    const queryEmbedding = embeddingResult.embedding;
+    // ── 2. Doc-type pre-filter. An EXPLICIT filter from the structured
+    //    parse (doc:… token or request doc_type_filter) always wins; the
+    //    topic-inferred filter is used only when no explicit one exists. ──
+    const explicitDocTypeFilter =
+      parsedQuery.docTypeFilter && parsedQuery.docTypeFilter.length > 0
+        ? parsedQuery.docTypeFilter
+        : null
+    let inferredDocTypeFilter: DocType[] | null = null
+    if (!explicitDocTypeFilter) {
+      const inferred = inferRelevantDocTypes(cleanedQuery)
+      inferredDocTypeFilter = inferred ? (inferred as DocType[]) : null
+    }
+    const effectiveDocTypeFilter: DocType[] | null =
+      explicitDocTypeFilter ?? inferredDocTypeFilter
 
-    // 6. Hybrid retrieval — vector + BM25 + tree run CONCURRENTLY, merged,
-    //    weighted-ranked, top 8. Falls back to vector-only if hybrid throws.
+    // ── 3. Aggregation-query detection — count / list / sum / first / last ──
+    const aggregation = detectAggregationQuery(cleanedQuery)
+
+    // ── 4. Dual embed (HyDE). In parallel: generate the hypothetical
+    //    logbook entry AND embed the real query. Then embed the hypothetical.
+    //    Vector search uses the HyDE embedding; BM25 + tree keep the real
+    //    query terms. On any HyDE failure, the hypothetical equals the
+    //    question and we fall back to the real query embedding. ──
+    const [hypothetical, [realQueryEmbeddingResult]] = await Promise.all([
+      generateHypotheticalDocument(cleanedQuery, persona),
+      generateEmbeddings([{ id: 'query', text: cleanedQuery }]),
+    ])
+    const realQueryEmbedding = realQueryEmbeddingResult.embedding
+
+    const hydeUsed = hypothetical.trim() !== cleanedQuery.trim()
+    const hydeHypothetical = hydeUsed ? hypothetical.slice(0, 500) : null
+
+    let vectorEmbedding = realQueryEmbedding
+    if (hydeUsed) {
+      try {
+        const [hydeEmbeddingResult] = await generateEmbeddings([
+          { id: 'hyde', text: hypothetical },
+        ])
+        vectorEmbedding = hydeEmbeddingResult.embedding
+      } catch (err) {
+        // Embedding the hypothetical failed — fall back to the real query
+        // embedding so retrieval still runs.
+        console.error('[query] HyDE embedding failed — using query embedding:', err)
+        vectorEmbedding = realQueryEmbedding
+      }
+    }
+
+    // ── 5. Hybrid retrieval — vector + BM25 + tree CONCURRENTLY, merged,
+    //    weighted-ranked. Aggregation queries pull a wider set (25) so the
+    //    extraction pass can enumerate exhaustively; otherwise top 8.
+    //    Falls back to vector-only if hybrid throws. ──
+    const retrievalLimit = aggregation.isAggregation ? 25 : 8
     let retrievedChunks: RetrievedChunk[]
     let strategiesUsed: string[] = ['vector']
     let retrieverLatencies: HybridRetrieval['latencies'] = { vector: 0, bm25: 0, tree: 0 }
     let treeNodesUsed = 0
-    try {
-      const hybrid = await hybridRetrieve({
+    let docTypeFallbackTriggered = false
+
+    const runHybrid = (filter: DocType[] | null) =>
+      hybridRetrieve({
         supabase,
         organizationId,
         aircraftId: parsedQuery.aircraftId ?? aircraft_id,
-        queryEmbedding,
-        queryText: embeddingText,
-        question,
-        docTypeFilter: parsedQuery.docTypeFilter ?? doc_type_filter,
+        queryEmbedding: vectorEmbedding,
+        queryText: cleanedQuery,
+        question: cleanedQuery,
+        docTypeFilter: filter,
         parsedQuery,
+        limit: retrievalLimit,
       })
+
+    try {
+      let hybrid = await runHybrid(effectiveDocTypeFilter)
+
+      // Doc-type fallback: a filtered retrieval that yields <3 chunks is
+      // re-run once unfiltered so a too-narrow filter never starves the
+      // answer. All three retrievers always run on each pass.
+      if (effectiveDocTypeFilter && hybrid.chunks.length < 3) {
+        console.warn(
+          `[query] doc-type filter [${effectiveDocTypeFilter.join(',')}] returned ` +
+            `${hybrid.chunks.length} chunks (<3) — retrying unfiltered`,
+        )
+        docTypeFallbackTriggered = true
+        hybrid = await runHybrid(null)
+      }
+
       retrievedChunks = hybrid.chunks
       strategiesUsed = hybrid.strategiesUsed.length > 0 ? hybrid.strategiesUsed : ['vector']
       retrieverLatencies = hybrid.latencies
@@ -336,24 +540,38 @@ export async function POST(req: NextRequest) {
       retrievedChunks = await retrieveChunks({
         organizationId,
         aircraftId: parsedQuery.aircraftId ?? aircraft_id,
-        queryEmbedding,
-        queryText: embeddingText,
-        docTypeFilter: parsedQuery.docTypeFilter ?? doc_type_filter,
-        limit: 20,
+        queryEmbedding: vectorEmbedding,
+        queryText: cleanedQuery,
+        docTypeFilter: effectiveDocTypeFilter ?? undefined,
+        limit: Math.max(20, retrievalLimit),
         parsedQuery,
       });
     }
 
-    // 7. Generate answer via generateAnswer
-    const answerResult = await generateAnswer(
-      question,
-      retrievedChunks,
-      conversation_history
-    );
+    // ── 6. Answer generation. Aggregation queries run a structured event
+    //    extraction pass first; non-aggregation queries use the normal
+    //    top-8 generateAnswer flow unchanged. ──
+    let answerResult: Awaited<ReturnType<typeof generateAnswer>>
+    let answerChunks: RetrievedChunk[] = retrievedChunks
+
+    if (aggregation.isAggregation) {
+      const handled = await runAggregationAnswer({
+        question,
+        cleanedQuery,
+        aggregationType: aggregation.aggregationType!,
+        retrievedChunks,
+        conversationHistory: conversation_history,
+      })
+      answerResult = handled.answerResult
+      answerChunks = handled.answerChunks
+    } else {
+      answerResult = await generateAnswer(question, retrievedChunks, conversation_history)
+      answerChunks = retrievedChunks
+    }
 
     const enrichedCitations = await enrichAnswerCitationsWithAnchors({
       citations: answerResult.citations,
-      retrievedChunks,
+      retrievedChunks: answerChunks,
       supabase,
     })
 
@@ -454,6 +672,12 @@ export async function POST(req: NextRequest) {
       tree_nodes_used: treeNodesUsed,
       answer_length: answerResult.answer.length,
       duration_ms: latencyMs,
+      hyde_used: hydeUsed,
+      hyde_hypothetical: hydeHypothetical,
+      doc_type_filter_used: effectiveDocTypeFilter
+        ? effectiveDocTypeFilter.join(',')
+        : null,
+      doc_type_fallback_triggered: docTypeFallbackTriggered,
     });
 
     // 12. Return response

@@ -23,6 +23,14 @@ export async function logQueryResult(params: {
   tree_nodes_used: number
   answer_length: number
   duration_ms: number
+  /** HyDE: true when a hypothetical document was generated and embedded. */
+  hyde_used?: boolean
+  /** HyDE: the generated hypothetical logbook entry (truncated ≤500 chars). */
+  hyde_hypothetical?: string | null
+  /** Doc-type pre-filter: comma-joined doc_type values, or null when unfiltered. */
+  doc_type_filter_used?: string | null
+  /** Doc-type pre-filter: true when a thin filtered result was retried unfiltered. */
+  doc_type_fallback_triggered?: boolean
 }): Promise<void> {
   try {
     const queryHash = createHash('sha256').update(params.query).digest('hex')
@@ -37,6 +45,12 @@ export async function logQueryResult(params: {
       tree_nodes_used: params.tree_nodes_used,
       answer_length: params.answer_length,
       duration_ms: params.duration_ms,
+      hyde_used: params.hyde_used ?? false,
+      hyde_hypothetical: params.hyde_hypothetical
+        ? params.hyde_hypothetical.slice(0, 500)
+        : null,
+      doc_type_filter_used: params.doc_type_filter_used ?? null,
+      doc_type_fallback_triggered: params.doc_type_fallback_triggered ?? false,
     })
   } catch (err) {
     // Feedback logging is best-effort — never block or fail a query on it.

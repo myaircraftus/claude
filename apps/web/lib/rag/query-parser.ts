@@ -143,6 +143,137 @@ function stripStructuredTerms(queryText: string) {
   }
 }
 
+// ─── Aggregation-query detection ────────────────────────────────────────────
+//
+// "How many times…", "list every…", "total hours…", "last time…", "first
+// time…" style questions need a different retrieval + answer strategy than a
+// point lookup: pull more chunks and run a structured event-extraction pass so
+// the model can count/enumerate exhaustively rather than guess from 8 chunks.
+
+export type AggregationType = 'count' | 'list' | 'sum' | 'first' | 'last'
+
+/**
+ * Classify whether `question` is an aggregation query (count / list / sum /
+ * first / last). Case-insensitive. When several patterns match, the more
+ * specific intent wins: count/list/sum outrank first/last.
+ */
+export function detectAggregationQuery(question: string): {
+  isAggregation: boolean
+  aggregationType: AggregationType | null
+} {
+  const q = question.toLowerCase()
+
+  const isCount =
+    /how many times/.test(q) ||
+    /how often/.test(q) ||
+    /number of times/.test(q) ||
+    /how frequently/.test(q) ||
+    /total number of/.test(q) ||
+    /\bcount\b/.test(q)
+
+  const isList =
+    /list all/.test(q) ||
+    /every time/.test(q) ||
+    /all occurrences/.test(q) ||
+    /full history/.test(q) ||
+    /complete list/.test(q) ||
+    /all entries/.test(q)
+
+  const isSum =
+    /total hours/.test(q) ||
+    /total time/.test(q) ||
+    /\bcumulative\b/.test(q)
+
+  const isLast =
+    /last time/.test(q) ||
+    /most recent/.test(q) ||
+    /\blatest\b/.test(q) ||
+    /when was the last/.test(q)
+
+  const isFirst = /first time/.test(q) || /when was the first/.test(q)
+
+  // Specific intents (count/list/sum) win over first/last when both match.
+  if (isCount) return { isAggregation: true, aggregationType: 'count' }
+  if (isList) return { isAggregation: true, aggregationType: 'list' }
+  if (isSum) return { isAggregation: true, aggregationType: 'sum' }
+  if (isLast) return { isAggregation: true, aggregationType: 'last' }
+  if (isFirst) return { isAggregation: true, aggregationType: 'first' }
+
+  return { isAggregation: false, aggregationType: null }
+}
+
+// ─── Doc-type inference (pre-filtering) ─────────────────────────────────────
+//
+// Maps the *topic* of a question to the document types most likely to hold
+// the answer, so retrieval can pre-filter and avoid drowning the answer in
+// irrelevant doc types. Returns `null` for general questions (search all).
+// Every value below is a REAL DocType — non-existent values like
+// `aircraft_annual` would filter to zero rows.
+
+interface DocTypeRule {
+  pattern: RegExp
+  docTypes: DocType[]
+}
+
+const DOC_TYPE_INFERENCE_RULES: DocTypeRule[] = [
+  // Inspection / annual.
+  {
+    pattern:
+      /\b(annual|100[\s-]?hour|100hr|biennial|bfr|flight review|inspection|returned to service)\b/i,
+    docTypes: ['logbook', 'inspection_report', 'compliance'],
+  },
+  // Airworthiness directives.
+  {
+    pattern: /\b(ad|airworthiness directive|compliance)\b/i,
+    docTypes: ['airworthiness_directive', 'stc', 'form_337', 'compliance'],
+  },
+  // Engine / propeller.
+  {
+    pattern:
+      /\b(engine|prop|propeller|overhaul|smoh|spoh|tbo|compression|mag check|oil change)\b/i,
+    docTypes: ['logbook', 'inspection_report'],
+  },
+  // Avionics / equipment.
+  {
+    pattern:
+      /\b(avionics|transponder|ads-?b|gps|radio|altimeter|pitot|vor check|ifr)\b/i,
+    docTypes: ['logbook', 'stc', 'inspection_report'],
+  },
+  // Damage / accident.
+  {
+    pattern:
+      /\b(damage|accident|incident|prop strike|gear collapse|hard landing|repair|337)\b/i,
+    docTypes: ['form_337', 'logbook', 'inspection_report'],
+  },
+  // Ownership / registration.
+  {
+    pattern: /\b(registration|owner|title|bill of sale|transfer|n-?number)\b/i,
+    docTypes: ['lease_ownership'],
+  },
+  // Weight & balance.
+  {
+    pattern: /\b(weight|balance|w&b|cg|empty weight)\b/i,
+    docTypes: ['stc', 'form_337'],
+  },
+]
+
+/**
+ * Infer the relevant DocType filter for a question. Returns `null` when no
+ * category matches (search all doc types). When several categories match,
+ * the union of their doc-type arrays is returned (deduplicated).
+ */
+export function inferRelevantDocTypes(question: string): string[] | null {
+  const matched = new Set<DocType>()
+
+  for (const rule of DOC_TYPE_INFERENCE_RULES) {
+    if (rule.pattern.test(question)) {
+      for (const docType of rule.docTypes) matched.add(docType)
+    }
+  }
+
+  return matched.size > 0 ? Array.from(matched) : null
+}
+
 export async function parseStructuredQuery(params: {
   organizationId: string
   aircraftId?: string
