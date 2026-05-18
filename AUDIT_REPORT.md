@@ -82,7 +82,16 @@ _Pending._
 _Pending._
 
 ## Phase 4 — Database Findings
-_Pending._
+
+| Finding | Detail | Action | Status |
+|---|---|---|---|
+| RLS disabled on 13 tables | see 🚨 C-1 | migration `..130000` enables RLS + revokes TRUNCATE | ✅ Fixed |
+| ~330 FK columns lack a covering index | perf risk on joins | migration `..140000` indexes the 14 columns on hot tables (5k–224k rows: RAG embeddings, OCR pipeline, review queue, vision) | ✅ Fixed (hot set) |
+| ~315 remaining unindexed FK columns | small/dormant tables | Deliberately left — index write-cost not justified at current row counts; revisit per-table as volume grows | ⚠️ Noted |
+| 12 tables with no PRIMARY KEY | the dormant marketplace/atlas set (`part_orders`, `chat_payments`, `digital_signatures`, `parts_catalog`, etc.) | Not fixed — dormant features, mostly empty; needs an `id` column + PK added before they go live | ⚠️ Noted |
+| Orphaned data check | `document_chunks`, `document_pages`, `canonical_document_chunks` with no parent doc | **0 orphans** — clean | ✅ Pass |
+| RLS-on / 0-policy tables | `app_settings`, `ingestion_failures`, `contact_submissions`, `signup_attempts`, `claude_review_requests`, `aircraft_registry_*` | Intentional — service-role-only, fail-closed | ✅ Pass |
+| `text` columns that should be enums | `status` / `type` / `event_type` etc. across many tables | Not converted — enum migration on live data is risky and the `event_type` fuzziness is a known data-cleanliness item; noted for a dedicated normalization pass | ⚠️ Noted |
 
 ## Phase 5 — Code Quality
 _Pending._
