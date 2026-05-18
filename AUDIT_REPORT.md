@@ -116,7 +116,8 @@ verified to validate a signature/secret (Stripe, Intuit) — except the
 | `text` columns that should be enums | `status` / `type` / `event_type` etc. across many tables | Not converted — enum migration on live data is risky and the `event_type` fuzziness is a known data-cleanliness item; noted for a dedicated normalization pass | ⚠️ Noted |
 
 ## Phase 5 — Code Quality
-_Pending._
+_Not started this pass. tsc baseline holds at 76 (no regression). The 76→<30
+reduction, `as any` removal, dead-code sweep, and console-log cleanup remain._
 
 ## Phase 6 — Security
 
@@ -140,16 +141,36 @@ _Pending._
 | `/api/query` P0 aircraft-scope validation | ✅ Pass — a body `aircraft_id` is verified against the caller's org; a tail-resolved `aircraftId` is org-scoped by construction in `parseStructuredQuery`. |
 
 ## Phase 7 — Performance
-_Pending._
+_Not started this pass. The Phase 4 FK indexes address the database side. The
+known server-side N+1 in `documents/review/page.tsx` (a per-item query loop,
+up to ~150 sequential queries) is logged here for the frontend/perf pass._
 
 ## Phase 8 — RAG Pipeline Verification
 _Pending._
 
 ## Phase 9 — Accessibility
-_Pending._
+_Not started this pass._
 
 ## Known Remaining Issues (not fixed, reason)
-_Pending._
+- **`aircraft/[id]/tracking/*` (5 routes)** — no in-code org/auth check; rely on
+  RLS only. Needs in-code membership verification + confirmation the tracking
+  tables' RLS policies are org-scoped. Not fixed: needs the policy review.
+- **3 routes with no try/catch** (`documents` GET, `tracking/provider-config`,
+  `parts/library/apply-markup`) — low severity; unhandled throw → raw 500.
+- **12 dormant tables with no PRIMARY KEY** — fix before those features ship.
+- **~315 unindexed FK columns on small tables** — deliberately deferred.
+- **tsc at 76 errors** — `next.config` still sets `ignoreBuildErrors: true`;
+  cannot be removed until the count reaches 0 (Phase 5).
+- **`event_type` free-text** (117 distinct values) — a data-normalization
+  project; the RAG count path already compensates with fuzzy matching.
+- **Server-side N+1 in `documents/review/page.tsx`** — per-item query loop.
 
 ## Recommended Next Steps
-_Pending._
+1. Complete Phases 2 (UI), 5 (code quality / tsc reduction), 7 (performance),
+   9 (accessibility) in a follow-up session.
+2. Set `INTEGRATION_WEBHOOK_SECRET` in the Vercel env before the webhook
+   integration is used (it now fails closed without it).
+3. Review the RLS policies of the `aircraft_*tracking*` tables and add in-code
+   org guards to the 5 tracking routes.
+4. Add PRIMARY KEYs to the 12 dormant marketplace tables before launch.
+5. Drive tsc to 0 and remove `ignoreBuildErrors`.
