@@ -473,6 +473,18 @@ async function runAskAgent(
 
 // ── Fan-out helpers ──────────────────────────────────────────────────────────────
 
+/**
+ * One aircraft's section in a fanned-out "All Aircraft" answer. `answer` carries
+ * GLOBALLY-renumbered `[N]` markers so they resolve against the merged
+ * `citations` array. `has_data` is false for failed / insufficient / empty
+ * aircraft (their `answer` is the short "No records found." style line).
+ */
+export interface PerAircraftAnswer {
+  tail: string
+  answer: string
+  has_data: boolean
+}
+
 /** Confidence ranking for the mixed-confidence "minimum wins" rule. */
 const CONFIDENCE_RANK: Record<string, number> = {
   insufficient_evidence: 0,
@@ -658,11 +670,17 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // Assemble ONE response. Every aircraft gets a line — never silently omit.
+    // Assemble ONE response. Every aircraft gets a section — never silently
+    // omit. We process aircraft in fleet order and maintain a running global
+    // citation offset: each aircraft's inline `[k]` markers are rewritten to
+    // `[k + offset]` so they resolve against the single merged `citations`
+    // array, and `offset` advances by that aircraft's citation count.
     const answerLines: string[] = []
     const mergedCitations: any[] = []
+    const perAircraftSections: PerAircraftAnswer[] = []
     const mergedToolCalls = new Set<string>()
     const confidences: Array<string | undefined> = []
+    let citationOffset = 0
 
     for (const { aircraft, result, error } of perAircraft) {
       const tail = aircraft.tail_number
@@ -677,24 +695,38 @@ export async function POST(req: NextRequest) {
         Boolean(result.answer && result.answer.trim())
 
       if (!hasData || !result) {
-        const note =
+        const sectionAnswer =
           result?.confidence === 'low'
-            ? 'low-confidence — verify against the source documents'
-            : 'no records found'
-        answerLines.push(`${tail} — ${note}`)
+            ? 'Low confidence — verify against the source documents.'
+            : 'No records found.'
+        answerLines.push(`${tail} — ${sectionAnswer}`)
+        perAircraftSections.push({ tail, answer: sectionAnswer, has_data: false })
         if (result?.confidence) confidences.push(result.confidence)
         continue
       }
 
-      // Flatten the per-aircraft answer onto a single line, tail first.
-      const oneLine = result.answer.replace(/\s+/g, ' ').trim()
+      // Renumber this aircraft's inline `[k]` markers to `[k + offset]` so they
+      // line up with where this aircraft's citations land in the merged array.
+      const offset = citationOffset
+      const renumbered = result.answer.replace(
+        /\[(\d+)\]/g,
+        (_m, k: string) => `[${parseInt(k, 10) + offset}]`,
+      )
+
+      // Flatten the per-aircraft answer onto a single line for the flat
+      // backward-compat `answer` string; the structured section keeps the
+      // multi-line answer with the globally-renumbered markers.
+      const oneLine = renumbered.replace(/\s+/g, ' ').trim()
       answerLines.push(`${tail} — ${oneLine}`)
+      perAircraftSections.push({ tail, answer: renumbered.trim(), has_data: true })
       confidences.push(result.confidence)
 
-      // Merge citations, labelling each with the tail so the UI shows which
-      // aircraft it belongs to. We extend sectionTitle (an existing optional
-      // field the UI already consumes) rather than introduce a new shape.
-      for (const cite of result.citations ?? []) {
+      // Merge citations in fleet order, labelling each with the tail so the UI
+      // shows which aircraft it belongs to. We extend sectionTitle (an existing
+      // optional field the UI already consumes) rather than introduce a new
+      // shape. Advance the offset by this aircraft's citation count.
+      const aircraftCitations = result.citations ?? []
+      for (const cite of aircraftCitations) {
         if (cite && typeof cite === 'object') {
           const existingSection =
             typeof (cite as any).sectionTitle === 'string'
@@ -710,6 +742,7 @@ export async function POST(req: NextRequest) {
           mergedCitations.push(cite)
         }
       }
+      citationOffset += aircraftCitations.length
 
       for (const t of result.toolCalls ?? []) mergedToolCalls.add(t)
     }
@@ -723,6 +756,9 @@ export async function POST(req: NextRequest) {
       // mixed, the least-confident value is the honest answer.
       confidence: minConfidence(confidences),
       citations: mergedCitations,
+      // Structured per-aircraft sections so the UI can render each aircraft as
+      // its own block. One entry per aircraft, fleet order, never omitted.
+      per_aircraft: perAircraftSections,
       warning_flags: [],
       follow_up_questions: [],
       tool_calls_made: mergedToolCalls.size > 0 ? Array.from(mergedToolCalls) : undefined,

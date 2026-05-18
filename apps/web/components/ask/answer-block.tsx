@@ -4,6 +4,17 @@ import { AlertTriangle, BookMarked, ChevronRight } from 'lucide-react'
 import { ConfidenceBadge } from './confidence-badge'
 import type { AnswerCitation, QueryConfidence } from '@/types'
 
+/**
+ * One aircraft's section in a fanned-out "All Aircraft" answer. `answer` carries
+ * globally-renumbered `[N]` markers that resolve against the `citations` prop.
+ * Mirrors the `PerAircraftAnswer` shape returned by /api/ask.
+ */
+export interface PerAircraftAnswer {
+  tail: string
+  answer: string
+  has_data: boolean
+}
+
 interface AnswerBlockProps {
   answer: string
   confidence: QueryConfidence
@@ -12,6 +23,12 @@ interface AnswerBlockProps {
   followUpQuestions: string[]
   onCitationClick: (citation: AnswerCitation) => void
   onFollowUp: (question: string) => void
+  /**
+   * When present and non-empty, the answer area renders as a vertical list of
+   * per-aircraft sections instead of a single paragraph. Absent for
+   * single-aircraft and org-wide answers.
+   */
+  perAircraft?: PerAircraftAnswer[]
 }
 
 const WARNING_LABELS: Record<string, string> = {
@@ -29,6 +46,7 @@ export function AnswerBlock({
   followUpQuestions,
   onCitationClick,
   onFollowUp,
+  perAircraft,
 }: AnswerBlockProps) {
   // Build the same deeplink the Sources pills use so cmd/ctrl-click
   // opens the full-page viewer at the exact cited entry. Returns null if the
@@ -94,7 +112,11 @@ export function AnswerBlock({
     })
   }
 
-  const isInsufficient = confidence === 'insufficient_evidence'
+  // A fanned-out "All Aircraft" answer renders as per-aircraft sections. This
+  // takes precedence over the amber "insufficient" box — a 19-aircraft rollup
+  // must never be crammed into that small single-message box.
+  const hasPerAircraft = Array.isArray(perAircraft) && perAircraft.length > 0
+  const isInsufficient = !hasPerAircraft && confidence === 'insufficient_evidence'
 
   return (
     <div className="space-y-4">
@@ -116,7 +138,26 @@ export function AnswerBlock({
       )}
 
       {/* Answer text */}
-      {isInsufficient ? (
+      {hasPerAircraft ? (
+        /* Fanned-out "All Aircraft" answer: one clearly-separated section per
+           aircraft. Renders even when confidence is insufficient_evidence — a
+           fleet-wide rollup must not collapse into the amber single-message box. */
+        <div className="prose prose-sm max-w-none text-foreground leading-relaxed">
+          {perAircraft!.map((section, i) => (
+            <div
+              key={`${section.tail}-${i}`}
+              className={`${i > 0 ? 'border-t border-border/60 pt-3 mt-3' : ''} ${
+                section.has_data ? '' : 'opacity-70'
+              }`}
+            >
+              <p className="text-[13px] font-semibold text-foreground !mb-1">
+                {section.tail}
+              </p>
+              <p className="!mt-0">{renderAnswerWithCitations(section.answer)}</p>
+            </div>
+          ))}
+        </div>
+      ) : isInsufficient ? (
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
           <div className="flex items-start gap-3">
             <BookMarked className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />

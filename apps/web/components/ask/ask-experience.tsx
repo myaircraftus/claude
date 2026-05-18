@@ -7,7 +7,7 @@ import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown,
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { AnswerBlock } from '@/components/ask/answer-block'
+import { AnswerBlock, type PerAircraftAnswer } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
 import { useAppContext } from '@/components/redesign/AppContext'
@@ -33,6 +33,8 @@ interface Message {
   warningFlags?: string[]
   followUpQuestions?: string[]
   artifacts?: Artifact[]
+  /** Present only for fanned-out "All Aircraft" answers — one section per aircraft. */
+  perAircraft?: PerAircraftAnswer[]
   timestamp: Date
 }
 
@@ -668,6 +670,8 @@ export function AskExperience() {
         warningFlags: data.warning_flags ?? [],
         followUpQuestions: data.follow_up_questions ?? [],
         artifacts: data.artifacts ?? [],
+        // Only present for fanned-out "All Aircraft" answers; undefined otherwise.
+        perAircraft: Array.isArray(data.per_aircraft) ? data.per_aircraft : undefined,
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, assistantMsg])
@@ -918,6 +922,7 @@ export function AskExperience() {
                           citations={msg.citations ?? []}
                           warningFlags={msg.warningFlags ?? []}
                           followUpQuestions={msg.followUpQuestions ?? []}
+                          perAircraft={msg.perAircraft}
                           onCitationClick={handleCitationSelect}
                           onFollowUp={handleAsk}
                         />
