@@ -278,6 +278,19 @@ export interface Document {
   uploaded_by?: string
   uploader_role?: UploaderRole
   uploader_name?: string
+  /**
+   * SOP-DOC-001 §6 — persona that uploaded this document. Drives the
+   * "Shared by [shop]" attribution badge and owner edit/delete gating.
+   * NULL on legacy rows whose uploader is no longer an org member.
+   */
+  uploader_persona?: 'owner' | 'shop' | 'admin' | null
+  /** SOP-DOC-001 §5 — true when the aircraft owner may see this document. */
+  owner_visible?: boolean
+  /**
+   * SOP-DOC-001 §5 — set when a shop explicitly shares this document to the
+   * owner via the Shared Records Flow. NULL = not shared via the flow.
+   */
+  published_to_owner_at?: string | null
   allow_download?: boolean
   community_listing?: boolean
   manual_access?: ManualAccess
