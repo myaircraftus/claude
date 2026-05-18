@@ -12,7 +12,10 @@ import {
   inferRelevantDocTypes,
   type AggregationType,
 } from '@/lib/rag/query-parser';
-import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
+import {
+  enrichAnswerCitationsWithAnchors,
+  buildAnswerCitationFromChunk,
+} from '@/lib/rag/citation-anchors';
 import { searchBm25, searchReferenceBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
@@ -511,6 +514,63 @@ function appendBasisIfMissing(result: Awaited<ReturnType<typeof generateAnswer>>
   }
 }
 
+/**
+ * Build a count answer deterministically from a SQL count + structured-event
+ * exemplars — no extraction or generation LLM call. count questions go through
+ * here once the count is known: the number is exact (SQL), and routing the
+ * answer through the generation model only made it slow (p90 60s+, occasional
+ * 128s hangs) and unreliable (the model recounted the excerpts and ignored the
+ * figure). Exemplars come straight from the structured events, already carrying
+ * real document_id + page_number for citations.
+ */
+function buildCountAnswer(args: {
+  countValue: number
+  approximate: boolean
+  label: string
+  keywords: string[]
+  structuredChunks: RetrievedChunk[]
+}): { answerResult: Awaited<ReturnType<typeof generateAnswer>>; answerChunks: RetrievedChunk[] } {
+  const { countValue, approximate, label, keywords, structuredChunks } = args
+  const lc = keywords.map((k) => k.toLowerCase())
+  const matching =
+    lc.length > 0
+      ? structuredChunks.filter((c) => lc.some((k) => c.chunk_text.toLowerCase().includes(k)))
+      : structuredChunks
+  const exemplars = (matching.length > 0 ? matching : structuredChunks).slice(0, 10)
+  const citations = exemplars.map(buildAnswerCitationFromChunk)
+
+  let answer: string
+  if (countValue <= 0) {
+    answer = `No ${label} were found in the maintenance records on file for this aircraft.${BASIS_SENTENCE}`
+  } else {
+    const lead = approximate
+      ? `Based on the maintenance records on file, there are approximately ${countValue} ${label} for this aircraft — this is a keyword match over transcribed records, so treat it as an estimate.`
+      : `Based on the maintenance records on file, this aircraft has ${countValue} ${label}.`
+    const lines = exemplars.map(
+      (c, i) => `${i + 1}. ${c.chunk_text.replace(/\s+/g, ' ').slice(0, 200)} [${i + 1}]`,
+    )
+    answer =
+      lead +
+      (exemplars.length > 0 ? `\n\nRepresentative records:\n${lines.join('\n')}` : '') +
+      BASIS_SENTENCE
+  }
+
+  return {
+    answerResult: {
+      answer,
+      confidence: countValue <= 0 ? 'insufficient_evidence' : approximate ? 'medium' : 'high',
+      confidenceScore: countValue <= 0 ? 0 : approximate ? 0.6 : 0.9,
+      citations,
+      citedChunkIds: exemplars.map((c) => c.chunk_id),
+      warningFlags: [],
+      followUpQuestions: [],
+      tokensPrompt: 0,
+      tokensCompletion: 0,
+    },
+    answerChunks: exemplars,
+  }
+}
+
 async function runAggregationAnswer(args: {
   question: string
   cleanedQuery: string
@@ -562,18 +622,20 @@ async function runAggregationAnswer(args: {
   ])
   const augmentedChunks = retrievedChunks.concat(structuredChunks)
 
-  // Resolve the authoritative count for count questions and frame it as a
-  // database FACT (an "answer N" instruction alone gets ignored — the answer
-  // model's system prompt says to ground answers only in provided data).
-  let countFact = ''
+  // count questions: resolve the count from SQL and answer deterministically,
+  // skipping the extraction + generation LLM machinery. If classification
+  // failed (countTopic empty) we fall through to the extraction path below.
   if (isCountQuery && countTopic) {
     if (countTopic.isGrandTotal && totalRecords != null) {
-      countFact =
-        `[AUTHORITATIVE DATABASE FACT] This aircraft has exactly ${totalRecords} ` +
-        `maintenance records on file, counted directly from the structured ` +
-        `maintenance database. The answer to this total-count question is ` +
-        `exactly ${totalRecords} — state it as ground truth.`
-    } else if (countTopic.keywords.length > 0) {
+      return buildCountAnswer({
+        countValue: totalRecords,
+        approximate: false,
+        label: 'maintenance records on file',
+        keywords: [],
+        structuredChunks,
+      })
+    }
+    if (countTopic.keywords.length > 0) {
       const matched = await countEventsMatching(
         supabase,
         organizationId,
@@ -581,12 +643,13 @@ async function runAggregationAnswer(args: {
         countTopic.keywords,
       )
       if (matched != null) {
-        countFact =
-          `[AUTHORITATIVE DATABASE FACT] The structured maintenance database ` +
-          `holds ${matched} record(s) matching ${JSON.stringify(countTopic.keywords)} ` +
-          `for this aircraft, out of ${totalRecords ?? 'all'} total records on file. ` +
-          `Answer the count as approximately ${matched} — use the word ` +
-          `"approximately", as it is a keyword match over transcribed records.`
+        return buildCountAnswer({
+          countValue: matched,
+          approximate: true,
+          label: `maintenance records mentioning "${countTopic.keywords.join('" / "')}"`,
+          keywords: countTopic.keywords,
+          structuredChunks,
+        })
       }
     }
   }
@@ -640,17 +703,11 @@ async function runAggregationAnswer(args: {
     // than guessing from raw chunk text. The instruction tells it how to
     // respond per aggregation type.
     const structuredContext = formatAggregationContext(question, aggregationType, finalEvents)
-    // count: the chunk-extraction figure (finalEvents.length) only reflects
-    // what was retrieved+extracted — it undercounts badly. The real count
-    // comes from SQL (countFact, above); the directive just tells the model to
-    // use it rather than recount the excerpts.
+    // count only reaches here as a fallback (SQL count classification failed);
+    // the chunk-extraction figure is the best available in that case.
     const directive =
       aggregationType === 'count'
-        ? countFact
-          ? 'Use the authoritative database fact above for the count — do NOT ' +
-            'recount from the excerpts. Then list up to 15 representative ' +
-            'matching events with citations (never more than 15).'
-          : `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
+        ? `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
         : aggregationType === 'list'
           ? 'Provide the full list of events; each event must be its own line with a citation.'
           : aggregationType === 'sum'
@@ -659,7 +716,6 @@ async function runAggregationAnswer(args: {
 
     const augmentedQuestion =
       `${question}\n\n` +
-      (countFact ? `${countFact}\n\n` : '') +
       `[STRUCTURED EXTRACTION — answer using ONLY these deduplicated events]\n` +
       `${structuredContext}\n\n` +
       `INSTRUCTION: ${directive}\n\n` +
