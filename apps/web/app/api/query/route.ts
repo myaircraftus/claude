@@ -24,6 +24,7 @@ import {
   formatAggregationContext,
   pickFirstOrLastEvent,
 } from '@/lib/rag/aggregation';
+import { fetchStructuredEventChunks } from '@/lib/rag/structured-events';
 import type { DocType, RetrievedChunk } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
@@ -463,20 +464,57 @@ function aggregationTopic(question: string): string {
   return question.replace(/[?]+\s*$/, '').trim()
 }
 
+// The structured event list is drawn from the maintenance records on file —
+// it is not, and cannot claim to be, the complete real-world history. This
+// line is appended to every aggregation answer so the model states that basis
+// honestly rather than implying an exhaustive count.
+const AGGREGATION_BASIS_NOTE =
+  'BASIS: the events above are the maintenance records currently on file — ' +
+  'transcribed-and-approved logbook entries plus retrieved document pages. ' +
+  'In your answer, explicitly state that the result reflects the records on ' +
+  'file and may not include logbook entries that have not yet been uploaded, ' +
+  'transcribed, or approved. Do not imply the count is the complete history.'
+
 async function runAggregationAnswer(args: {
   question: string
   cleanedQuery: string
   aggregationType: AggregationType
   retrievedChunks: RetrievedChunk[]
+  supabase: ReturnType<typeof createServiceSupabase>
+  organizationId: string
+  aircraftId?: string | null
+  parsedQuery: Awaited<ReturnType<typeof parseStructuredQuery>>
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
 }): Promise<{
   answerResult: Awaited<ReturnType<typeof generateAnswer>>
   answerChunks: RetrievedChunk[]
 }> {
-  const { question, cleanedQuery, aggregationType, retrievedChunks, conversationHistory } = args
+  const {
+    question,
+    cleanedQuery,
+    aggregationType,
+    retrievedChunks,
+    supabase,
+    organizationId,
+    aircraftId,
+    parsedQuery,
+    conversationHistory,
+  } = args
+
+  // Recall booster: retrieved chunks alone undercount aggregation answers
+  // (page-recall@20 ~31%). Pull the org/aircraft's structured maintenance
+  // events and extract over the union so the count/list sees events whose
+  // chunk was never retrieved. Best-effort — [] on any failure.
+  const structuredChunks = await fetchStructuredEventChunks({
+    supabase,
+    organizationId,
+    aircraftId,
+    parsedQuery,
+  })
+  const augmentedChunks = retrievedChunks.concat(structuredChunks)
 
   try {
-    const events = await extractAggregationEvents(cleanedQuery, retrievedChunks)
+    const events = await extractAggregationEvents(cleanedQuery, augmentedChunks)
 
     // Extraction found nothing — report it honestly. NEVER report 0 as a
     // count answer.
@@ -507,16 +545,17 @@ async function runAggregationAnswer(args: {
         : events
 
     // Keep only the chunks the final events were sourced from so the
-    // inline [N] citations resolve to real sources.
+    // inline [N] citations resolve to real sources. Filter the augmented set
+    // so structured-event chunks (real document_chunks ids) resolve too.
     const sourceIds = new Set(
       finalEvents
         .map((e) => e.source_chunk_id)
         .filter((id): id is string => Boolean(id)),
     )
-    const sourceChunks = retrievedChunks.filter((c) => sourceIds.has(c.chunk_id))
+    const sourceChunks = augmentedChunks.filter((c) => sourceIds.has(c.chunk_id))
     // If the model gave no usable source ids, fall back to the full set so
     // the answer is still grounded and citations still resolve.
-    const answerChunks = sourceChunks.length > 0 ? sourceChunks : retrievedChunks
+    const answerChunks = sourceChunks.length > 0 ? sourceChunks : augmentedChunks
 
     // Build an augmented question: the structured event list is appended so
     // the answer model counts/enumerates from the deduplicated events rather
@@ -536,16 +575,17 @@ async function runAggregationAnswer(args: {
       `${question}\n\n` +
       `[STRUCTURED EXTRACTION — answer using ONLY these deduplicated events]\n` +
       `${structuredContext}\n\n` +
-      `INSTRUCTION: ${directive}`
+      `INSTRUCTION: ${directive}\n\n` +
+      `${AGGREGATION_BASIS_NOTE}`
 
     const answerResult = await generateAnswer(augmentedQuestion, answerChunks, conversationHistory)
     return { answerResult, answerChunks }
   } catch (err) {
     // Extraction pass failed — fall back to the normal generateAnswer over
-    // the (wider, top-25) retrieved chunks.
+    // the augmented chunk set (retrieved + structured maintenance events).
     console.error('[query] aggregation extraction failed — falling back to generateAnswer:', err)
-    const answerResult = await generateAnswer(question, retrievedChunks, conversationHistory)
-    return { answerResult, answerChunks: retrievedChunks }
+    const answerResult = await generateAnswer(question, augmentedChunks, conversationHistory)
+    return { answerResult, answerChunks: augmentedChunks }
   }
 }
 
@@ -750,6 +790,10 @@ export async function POST(req: NextRequest) {
         cleanedQuery,
         aggregationType: aggregation.aggregationType!,
         retrievedChunks,
+        supabase,
+        organizationId,
+        aircraftId: parsedQuery.aircraftId ?? aircraft_id ?? null,
+        parsedQuery,
         conversationHistory: conversation_history,
       })
       answerResult = handled.answerResult
