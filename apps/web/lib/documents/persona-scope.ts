@@ -1,131 +1,99 @@
 /**
- * Persona-scoped document rules.
+ * Persona-scoped document rules — LEGACY `DocType` adapter.
  *
- * Owners and mechanics see different documents and can upload different
- * documents — same database, different lens:
+ * SOP-DOC-001 §8.4 — `lib/documents/persona-taxonomy.ts` is the SINGLE
+ * SOURCE OF TRUTH for document persona permissions. This module used to
+ * keep its own hand-maintained owner / shop / shared `DocType` sets, and
+ * they drifted out of sync with the taxonomy — e.g. it had
+ * `airworthiness_directive` owner-only, while the taxonomy (correctly, per
+ * SOP §4.2) has AD/SB documents shop-uploaded.
  *
- *   OWNER persona:    aircraft-specific records that belong to a tail
- *                     (logbooks, ADs, work orders, registration, insurance,
- *                     inspection reports, 337s, 8130s).
- *
- *   MECHANIC persona: maintenance reference / shop documentation that
- *                     applies across aircraft (maintenance manuals, service
- *                     manuals, parts catalogs, service bulletins, POH/AFM
- *                     for reference).
- *
- * Strict enforcement on upload: if a user is on the mechanic persona and
- * tries to upload a logbook (or any owner-only DocType), the server rejects
- * the upload with a clear "this belongs to the aircraft owner" message.
- *
- * If a user has both personas, they should switch to "Owner" to upload an
- * aircraft logbook. Mechanic uploads stay scoped to shop documentation.
+ * That duplication is now gone. This module exists ONLY to answer the same
+ * permission question for the legacy `doc_type` enum (`DocType`, mig 004):
+ * it maps each legacy `DocType` to its modern `DocumentType` via
+ * `inferDocumentTypeFromLegacy` and delegates to `canPersonaUpload`. Every
+ * ruling is derived — persona-scope and persona-taxonomy can no longer
+ * disagree.
  */
-
 import type { DocType } from '@/types'
+import { canPersonaUpload, inferDocumentTypeFromLegacy } from './persona-taxonomy'
 
-/** DocTypes that are aircraft-specific records — owner-only by default. */
-export const OWNER_ONLY_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
-  'logbook',                  // engine / airframe / prop / avionics logs
-  'inspection_report',        // annual / 100-hr inspection
-  'form_337',                 // major repair / alteration on THIS aircraft
-  'stc',                      // supplemental type certificate for THIS aircraft
-  'form_8130',                // 8130-3 airworthiness tag for installed parts
-  'airworthiness_directive',  // AD compliance record for THIS aircraft
-  'work_order',               // shop work order tied to a tail
-  'lease_ownership',          // title / registration / bill of sale
-  'insurance',                // policy / binder
-  'compliance',               // generic compliance / certificate
-  // 'miscellaneous' = unclassified. An untyped document could be ANYTHING,
-  // including an owner lockbox record the ingestion pipeline never typed.
-  // It is owner-scoped so unclassified docs never leak into the shop view.
-  'miscellaneous',
-])
+/** UI persona. `admin` is handled inside persona-taxonomy.ts, not here. */
+export type Persona = 'owner' | 'shop'
 
-/** DocTypes that are mechanic shop-reference materials. */
-export const MECHANIC_REFERENCE_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
+/** Every legal legacy `doc_type` enum value (mig 004). */
+const DOC_TYPE_VALUES: readonly DocType[] = [
+  'logbook',
+  'poh',
+  'afm',
+  'afm_supplement',
   'maintenance_manual',
   'service_manual',
   'parts_catalog',
   'service_bulletin',
-])
+  'airworthiness_directive',
+  'work_order',
+  'inspection_report',
+  'form_337',
+  'stc',
+  'form_8130',
+  'lease_ownership',
+  'insurance',
+  'compliance',
+  'miscellaneous',
+]
 
 /**
- * DocTypes visible to both personas — POH / AFM / AFM supplement. They're
- * aircraft-specific (live with the airframe) but mechanics also routinely
- * consult them, so they belong in the shop reference library too.
- *
- * NOTE: 'miscellaneous' is intentionally NOT here. It used to be — treated
- * as "shared because we can't infer scope" — but that leaked the owner's
- * unclassified lockbox documents into the shop Documents view. Unclassified
- * now defaults to owner-scope (see OWNER_ONLY_DOC_TYPES).
+ * `miscellaneous` is the one legacy `DocType` with no modern-taxonomy
+ * equivalent — `inferDocumentTypeFromLegacy` maps it lossily to `other`,
+ * which both personas may upload. An unclassified document could be
+ * anything, including an owner's private lockbox record, so it stays
+ * owner-scoped here rather than inheriting `other`'s shared scope. This is
+ * a deliberate legacy-only safety decision — it scopes a value the source
+ * of truth simply does not model, so it is not a competing rule table.
  */
-export const SHARED_DOC_TYPES: ReadonlySet<DocType> = new Set<DocType>([
-  'poh',
-  'afm',
-  'afm_supplement',
-])
+const LEGACY_OWNER_SCOPED: ReadonlySet<DocType> = new Set<DocType>(['miscellaneous'])
 
-// Phase 18 mig 119 — mechanic persona collapsed into shop. The legacy
-// MECHANIC_REFERENCE_DOC_TYPES set still drives the upload-permission gate
-// for the shop persona (and any stray 'mechanic' callers).
-export type Persona = 'owner' | 'shop'
-
-/**
- * Can the given persona UPLOAD this DocType?
- * - Owner can upload anything.
- * - Shop can only upload reference + shared types (post-Phase-18 the shop
- *   surface absorbs the previous mechanic upload permissions).
- */
+/** Can `persona` UPLOAD this legacy `DocType`? Derived from persona-taxonomy. */
 export function personaCanUpload(persona: Persona | 'mechanic', docType: DocType): boolean {
-  if (persona === 'owner') return true
-  // 'shop' (and legacy 'mechanic') get the reference-doc set.
-  if (MECHANIC_REFERENCE_DOC_TYPES.has(docType)) return true
-  if (SHARED_DOC_TYPES.has(docType)) return true
-  return false
+  if (LEGACY_OWNER_SCOPED.has(docType)) return persona === 'owner'
+  return canPersonaUpload(persona, inferDocumentTypeFromLegacy(docType))
 }
 
 /**
- * Can the given persona SEE this DocType in their documents list?
- * Same rule as upload — mechanics shouldn't browse aircraft logbooks
- * because those are owner records.
+ * Can `persona` SEE this legacy `DocType` in their documents list? Same
+ * rule as upload — a shop must not browse owner aircraft records, and an
+ * owner must not browse shop-internal MRO references (SOP §1.1).
  */
 export function personaCanView(persona: Persona, docType: DocType): boolean {
   return personaCanUpload(persona, docType)
 }
 
-/**
- * Human-readable rejection message when persona-scope blocks an upload.
- * Used by both /api/upload/init and /api/upload/complete so the client
- * sees the same copy.
- */
+/** Human-readable rejection message when persona-scope blocks an upload. */
 export function buildPersonaRejection(docType: DocType): string {
-  if (OWNER_ONLY_DOC_TYPES.has(docType)) {
+  const human = docType.replace(/_/g, ' ')
+  if (!personaCanUpload('shop', docType)) {
+    // Owner-only document type — a shop attempted the upload.
     return (
-      `"${docType.replace(/_/g, ' ')}" is an aircraft-specific record and ` +
-      `belongs to the aircraft owner. Switch to the Owner persona to upload ` +
-      `this — or, if you only have a mechanic role, ask the aircraft owner ` +
-      `to upload it from their account.`
+      `"${human}" is an aircraft-specific owner record. It can only be ` +
+      `uploaded from the Owner persona — switch personas, or ask the ` +
+      `aircraft owner to upload it from their account.`
     )
   }
-  return (
-    `Mechanic accounts can only upload shop reference documents ` +
-    `(maintenance manuals, service manuals, parts catalogs, service bulletins, ` +
-    `POH / AFM). Switch to Owner persona to upload aircraft records.`
-  )
+  if (!personaCanUpload('owner', docType)) {
+    // Shop-only document type — an owner attempted the upload.
+    return (
+      `"${human}" is a shop reference / operational document. It can only ` +
+      `be uploaded from the Shop persona.`
+    )
+  }
+  return `"${human}" cannot be uploaded by this persona.`
 }
 
 /**
- * Filter a list of DocType values to those a persona can see/upload.
- * Used by the persona-aware document list to produce the correct WHERE
- * clause input.
+ * Filter every legacy `DocType` down to those a persona can see / upload.
+ * Used by the persona-aware documents list to build its WHERE clause.
  */
 export function docTypesForPersona(persona: Persona): DocType[] {
-  if (persona === 'owner') {
-    return [
-      ...OWNER_ONLY_DOC_TYPES,
-      ...MECHANIC_REFERENCE_DOC_TYPES,
-      ...SHARED_DOC_TYPES,
-    ] as DocType[]
-  }
-  return [...MECHANIC_REFERENCE_DOC_TYPES, ...SHARED_DOC_TYPES] as DocType[]
+  return DOC_TYPE_VALUES.filter((dt) => personaCanView(persona, dt))
 }

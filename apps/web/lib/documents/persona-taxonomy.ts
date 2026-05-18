@@ -1,3 +1,10 @@
+// SOURCE OF TRUTH for document persona permissions.
+// shopCanUpload: false = owner-only upload. See SOP-DOC-001 Section 4.
+// Do NOT modify without updating SOP-DOC-001.
+//
+// lib/documents/persona-scope.ts answers the same question for the legacy
+// `doc_type` enum — it DERIVES every ruling from this file and must never
+// re-introduce its own permission table.
 /**
  * Phase 13.1 — persona-strict document type taxonomy.
  *

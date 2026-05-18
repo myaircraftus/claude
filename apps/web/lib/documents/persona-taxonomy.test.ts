@@ -106,23 +106,18 @@ describe('persona-taxonomy: persona × type matrix (mirrors mig 103)', () => {
     expect(canPersonaUpload('mechanic', 'parts_catalog')).toBe(true)
     expect(canPersonaUpload('mechanic', 'service_bulletin')).toBe(true)
     expect(canPersonaUpload('mechanic', 'wiring_diagram')).toBe(true)
-    // Shop CAN upload non-logbook aircraft types — the merge makes mechanic
-    // GAIN this capability (which is OK since shop already had it).
-    expect(canPersonaUpload('mechanic', 'aircraft_poh')).toBe(true)
+    // Post-lockdown (mig 20260517110000): the shop persona — and therefore
+    // the legacy 'mechanic' alias — cannot upload ANY aircraft_* record.
+    expect(canPersonaUpload('mechanic', 'aircraft_poh')).toBe(false)
     expect(canPersonaUpload('mechanic', 'aircraft_logbook')).toBe(false)
   })
 
-  // Shop: everything EXCEPT aircraft_logbook + aircraft_registration
-  it('shop CANNOT upload aircraft_logbook or aircraft_registration', () => {
-    expect(canPersonaUpload('shop', 'aircraft_logbook')).toBe(false)
-    expect(canPersonaUpload('shop', 'aircraft_registration')).toBe(false)
-  })
-  it('shop CAN upload other aircraft_* types (insurance, poh, afm, ...)', () => {
-    expect(canPersonaUpload('shop', 'aircraft_airworthiness')).toBe(true)
-    expect(canPersonaUpload('shop', 'aircraft_insurance')).toBe(true)
-    expect(canPersonaUpload('shop', 'aircraft_poh')).toBe(true)
-    expect(canPersonaUpload('shop', 'aircraft_afm')).toBe(true)
-    expect(canPersonaUpload('shop', 'aircraft_annual')).toBe(true)
+  // Shop: post-lockdown (mig 20260517110000) the shop persona cannot upload
+  // ANY aircraft_* record — they are owner-only (SOP-DOC-001 §4).
+  it('shop CANNOT upload any aircraft_* type', () => {
+    for (const t of DOCUMENT_TYPES.filter((d) => d.startsWith('aircraft_'))) {
+      expect(canPersonaUpload('shop', t), `shop/${t}`).toBe(false)
+    }
   })
   it('shop CAN upload reference manuals', () => {
     expect(canPersonaUpload('shop', 'maintenance_manual')).toBe(true)
@@ -146,15 +141,15 @@ describe('persona-taxonomy: getAllowedCategories', () => {
     expect(cats).not.toContain('Compliance')
   })
 
-  it('shop sees every category (post Phase-18 merge: shop is the union of old shop + old mechanic)', () => {
+  it('shop sees Reference / Compliance / Operations / Other — not Aircraft Records', () => {
     const cats = getAllowedCategories('shop')
     expect(cats).toContain('Reference Manuals')
     expect(cats).toContain('Compliance')
     expect(cats).toContain('Operations')
     expect(cats).toContain('Other')
-    // Shop has visibility into Aircraft Records (just can't upload logbook
-    // or registration; the other types are uploadable).
-    expect(cats).toContain('Aircraft Records')
+    // Post-lockdown: every aircraft_* type is owner-only, so the shop has
+    // NO uploadable type in the Aircraft Records category (SOP-DOC-001 §4).
+    expect(cats).not.toContain('Aircraft Records')
   })
 
   it('admin sees every category', () => {
