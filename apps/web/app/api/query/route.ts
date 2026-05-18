@@ -16,6 +16,7 @@ import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
 import { searchBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
+import { rerankChunks } from '@/lib/rag/rerank';
 import {
   extractAggregationEvents,
   formatAggregationContext,
@@ -254,7 +255,7 @@ async function hybridRetrieve(args: {
   // vector retriever already filtered at SQL level, but BM25 + tree surfaced
   // their chunks unfiltered, so we drop any merged chunk whose doc_type is
   // outside the allow-set here, before ranking.
-  const ranked = [...slots.values()]
+  const merged = [...slots.values()]
     .filter((s): s is Slot & { chunk: RetrievedChunk } => s.chunk != null)
     .filter((s) => !docTypeAllow || docTypeAllow.has(s.chunk.doc_type))
     .map((s) => ({
@@ -264,12 +265,20 @@ async function hybridRetrieve(args: {
       combined_score: s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2,
     }))
     .sort((a, b) => b.combined_score - a.combined_score)
-    .slice(0, limit)
+
+  // ── Wave 1 — cross-encoder rerank ──
+  // The weighted blend above is a recall filter; a cross-encoder rerank is
+  // the precision pass. Take a wide candidate pool from the merge, rerank by
+  // true query relevance, keep the top `limit`. Best-effort: with no
+  // COHERE_API_KEY this returns the merge order unchanged (identity).
+  const rerankPool = merged.slice(0, Math.max(limit * 4, 30))
+  const { chunks: ranked, reranked } = await rerankChunks(question, rerankPool, limit)
 
   const strategiesUsed: string[] = []
   if (vec.r.length > 0) strategiesUsed.push('vector')
   if (bm.r.length > 0) strategiesUsed.push('bm25')
   if (tr.r.length > 0) strategiesUsed.push('tree')
+  if (reranked) strategiesUsed.push('rerank')
 
   return {
     chunks: ranked,
