@@ -279,11 +279,17 @@ export interface Document {
   uploader_role?: UploaderRole
   uploader_name?: string
   /**
-   * SOP-DOC-001 §6 — persona that uploaded this document. Drives the
-   * "Shared by [shop]" attribution badge and owner edit/delete gating.
-   * NULL on legacy rows whose uploader is no longer an org member.
+   * Phase 13.1 — modern persona-strict document_type taxonomy value
+   * (a `DocumentType` from lib/documents/persona-taxonomy.ts; typed as
+   * string here to avoid a types ⇄ persona-taxonomy import cycle).
    */
-  uploader_persona?: 'owner' | 'shop' | 'admin' | null
+  document_type?: string
+  /**
+   * SOP-DOC-001 §6 — persona that uploaded this document (owner | shop |
+   * mechanic | admin). Drives the "Shared by [shop]" attribution badge and
+   * owner edit/delete gating. Maintained by /api/upload/complete.
+   */
+  uploaded_by_persona?: Persona | 'mechanic'
   /** SOP-DOC-001 §5 — true when the aircraft owner may see this document. */
   owner_visible?: boolean
   /**
