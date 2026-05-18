@@ -407,6 +407,15 @@ export default async function DocumentsPage({
 
   const aircraftList = (aircraftRows ?? []) as { id: string; tail_number: string }[]
 
+  // Org name powers the SOP-DOC-001 §6 "Shared by [shop]" attribution badge
+  // on shop-uploaded records in the owner's Aircraft Records Vault.
+  const { data: orgRow } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', orgId)
+    .single()
+  const orgName = (orgRow?.name as string | undefined) ?? 'the shop'
+
   // Phase 13.2 — persona-aware upload entry point. Resolve full 4-value
   // persona (owner | mechanic | shop | admin) for the persona-strict modal.
   // Falls back to owner if resolution fails (won't crash the page).
@@ -649,6 +658,8 @@ export default async function DocumentsPage({
             totalCount={totalCount}
             currentUserId={user.id}
             currentUserRole={membership.role}
+            currentPersona={activePersona}
+            sharedByName={orgName}
           />
 
           {/* Pagination */}

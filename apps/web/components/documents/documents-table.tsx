@@ -9,6 +9,7 @@ import { resolveStoredDocumentClassification } from '@/lib/documents/taxonomy'
 import { coerceDocumentProcessingState } from '@/lib/documents/processing-state'
 import { FileText, Plane, Lock, Unlock, Download, RotateCcw, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { SharedRecordBadge, SharedToOwnerBadge } from '@/components/documents/SharedRecordBadge'
 import type { Document, ParsingStatus } from '@/types'
 
 // Statuses where the row should also show the step-by-step processing timeline
@@ -33,6 +34,10 @@ interface DocumentsTableProps {
   totalCount: number
   currentUserId: string
   currentUserRole?: string
+  /** SOP-DOC-001 §6 — active persona; drives shared-record attribution. */
+  currentPersona?: 'owner' | 'shop' | 'admin'
+  /** Name shown in the "Shared by [shop]" badge for shop-uploaded records. */
+  sharedByName?: string
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -68,6 +73,8 @@ export function DocumentsTable({
   totalCount,
   currentUserId,
   currentUserRole,
+  currentPersona,
+  sharedByName,
 }: DocumentsTableProps) {
   const [selected, setSelected] = useState<DocumentRow | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
@@ -611,34 +618,48 @@ export function DocumentsTable({
                         </div>
                       </td>
 
-                      {/* Sharing */}
+                      {/* Sharing — SOP-DOC-001 §6 attribution + download state */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {doc.uploaded_by === currentUserId ? (
-                            <button
-                              type="button"
-                              onClick={(e) => toggleAllowDownload(doc, e)}
-                              className="flex items-center gap-1 text-xs hover:text-foreground text-muted-foreground"
-                              title={doc.allow_download ? 'Downloads allowed' : 'Downloads locked'}
-                            >
-                              {doc.allow_download ? (
-                                <Unlock className="h-3.5 w-3.5 text-green-600" />
-                              ) : (
-                                <Lock className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          ) : doc.allow_download ? (
-                            <a
-                              href={`/api/marketplace/download/${doc.id}`}
-                              title="Download"
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                            </a>
-                          ) : (
-                            <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                        <div className="flex flex-col items-start gap-1">
+                          {/* Owner view: shop-uploaded records are shared,
+                              read-only, and attributed to the shop. */}
+                          {currentPersona === 'owner' && doc.uploaded_by_persona === 'shop' && (
+                            <SharedRecordBadge
+                              shopName={sharedByName || 'the shop'}
+                              sharedAt={doc.published_to_owner_at || doc.uploaded_at}
+                            />
                           )}
+                          {/* Shop view: confirm a record already shared out. */}
+                          {currentPersona === 'shop' && doc.published_to_owner_at && (
+                            <SharedToOwnerBadge sharedAt={doc.published_to_owner_at} />
+                          )}
+                          <div className="flex items-center gap-2">
+                            {doc.uploaded_by === currentUserId ? (
+                              <button
+                                type="button"
+                                onClick={(e) => toggleAllowDownload(doc, e)}
+                                className="flex items-center gap-1 text-xs hover:text-foreground text-muted-foreground"
+                                title={doc.allow_download ? 'Downloads allowed' : 'Downloads locked'}
+                              >
+                                {doc.allow_download ? (
+                                  <Unlock className="h-3.5 w-3.5 text-green-600" />
+                                ) : (
+                                  <Lock className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            ) : doc.allow_download ? (
+                              <a
+                                href={`/api/marketplace/download/${doc.id}`}
+                                title="Download"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            ) : (
+                              <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                          </div>
                         </div>
                       </td>
 
@@ -678,7 +699,12 @@ export function DocumentsTable({
         onClose={() => setSelected(null)}
         onDeleted={handleDeleted}
         onDocumentPatched={patchDocument}
-        canDelete={canDeleteDocuments}
+        canDelete={
+          // SOP-DOC-001 §5.3 — a record shared from a shop is read-only in
+          // the owner view: the owner can view and download it, never delete.
+          canDeleteDocuments &&
+          !(currentPersona === 'owner' && selected?.uploaded_by_persona === 'shop')
+        }
       />
     </>
   )
