@@ -24,7 +24,10 @@ import {
   formatAggregationContext,
   pickFirstOrLastEvent,
 } from '@/lib/rag/aggregation';
-import { fetchStructuredEventChunks } from '@/lib/rag/structured-events';
+import {
+  fetchStructuredEventChunks,
+  countAircraftMaintenanceEvents,
+} from '@/lib/rag/structured-events';
 import type { DocType, RetrievedChunk } from '@/types';
 
 // ─── Request schema ────────────────────────────────────────────────────────────
@@ -361,21 +364,28 @@ async function hybridRetrieve(args: {
   }
 
   // ── Hydrate chunks that only BM25 / tree surfaced (no vector RetrievedChunk) ──
+  // BM25 now indexes the canonical layer, so its hits are canonical chunk ids;
+  // the PageIndex tree may reference either layer. Hydrate from
+  // canonical_document_chunks first, then document_chunks for any leftovers.
   const needHydration = [...slots.entries()].filter(([, s]) => !s.chunk).map(([id]) => id)
   if (needHydration.length > 0) {
-    try {
+    const hydrateFromTable = async (
+      table: 'canonical_document_chunks' | 'document_chunks',
+      ids: string[],
+    ) => {
+      if (ids.length === 0) return
       const { data: rows } = await supabase
-        .from('document_chunks')
+        .from(table)
         .select(
           'id, document_id, aircraft_id, page_number, page_number_end, section_title, chunk_text, metadata_json, documents:document_id(title, doc_type)',
         )
-        .in('id', needHydration)
+        .in('id', ids)
         // P0 SECURITY defense-in-depth — never hydrate a chunk from another
         // org even if a BM25/tree hit somehow surfaced a foreign chunk_id.
         .eq('organization_id', organizationId)
       for (const row of (rows ?? []) as Array<Record<string, any>>) {
         const slot = slots.get(row.id as string)
-        if (!slot) continue
+        if (!slot || slot.chunk) continue
         const doc = Array.isArray(row.documents) ? row.documents[0] : row.documents
         slot.chunk = {
           chunk_id: row.id as string,
@@ -393,6 +403,11 @@ async function hybridRetrieve(args: {
           combined_score: 0,
         }
       }
+    }
+    try {
+      await hydrateFromTable('canonical_document_chunks', needHydration)
+      const stillMissing = needHydration.filter((id) => !slots.get(id)?.chunk)
+      await hydrateFromTable('document_chunks', stillMissing)
     } catch (err) {
       console.error('[query] hybrid chunk hydration failed:', err)
     }
@@ -475,6 +490,25 @@ const AGGREGATION_BASIS_NOTE =
   'file and may not include logbook entries that have not yet been uploaded, ' +
   'transcribed, or approved. Do not imply the count is the complete history.'
 
+// The model is told to state the basis (above) but only does so ~half the
+// time, so we also append it deterministically when it is missing — every
+// substantive aggregation answer then carries the caveat.
+const BASIS_SENTENCE =
+  ' (Based on the maintenance records currently on file — this may not ' +
+  'include logbook entries that have not yet been uploaded, transcribed, or ' +
+  'approved.)'
+const BASIS_PRESENT_RE = /on file|may not include|not yet been (uploaded|transcribed|approved)/i
+
+function appendBasisIfMissing(result: Awaited<ReturnType<typeof generateAnswer>>): void {
+  if (
+    result.answer &&
+    result.confidence !== 'insufficient_evidence' &&
+    !BASIS_PRESENT_RE.test(result.answer)
+  ) {
+    result.answer = `${result.answer.trimEnd()}${BASIS_SENTENCE}`
+  }
+}
+
 async function runAggregationAnswer(args: {
   question: string
   cleanedQuery: string
@@ -505,12 +539,22 @@ async function runAggregationAnswer(args: {
   // (page-recall@20 ~31%). Pull the org/aircraft's structured maintenance
   // events and extract over the union so the count/list sees events whose
   // chunk was never retrieved. Best-effort — [] on any failure.
-  const structuredChunks = await fetchStructuredEventChunks({
-    supabase,
-    organizationId,
-    aircraftId,
-    parsedQuery,
-  })
+  //
+  // totalRecords is the EXACT count(*) of the aircraft's maintenance records —
+  // the trustworthy denominator for "how many entries" questions, which the
+  // chunk-extraction count alone undercounts badly.
+  const [structuredChunks, totalRecords] = await Promise.all([
+    fetchStructuredEventChunks({
+      supabase,
+      organizationId,
+      aircraftId,
+      parsedQuery,
+      aggregationType,
+    }),
+    aggregationType === 'count' && aircraftId
+      ? countAircraftMaintenanceEvents(supabase, organizationId, aircraftId)
+      : Promise.resolve(null),
+  ])
   const augmentedChunks = retrievedChunks.concat(structuredChunks)
 
   try {
@@ -562,9 +606,23 @@ async function runAggregationAnswer(args: {
     // than guessing from raw chunk text. The instruction tells it how to
     // respond per aggregation type.
     const structuredContext = formatAggregationContext(question, aggregationType, finalEvents)
+    // count: the chunk-extraction figure (finalEvents.length) is only what was
+    // retrieved+extracted — it undercounts. When we have the exact count(*)
+    // (totalRecords), make that the authority for total-entry questions and
+    // the honest denominator for type-specific counts.
+    const countDirective =
+      totalRecords != null
+        ? `The structured maintenance record holds exactly ${totalRecords} total dated ` +
+          `entries for this aircraft. If the question asks for the TOTAL number of ` +
+          `maintenance entries/records, answer exactly ${totalRecords}. If it asks how ` +
+          `many of a SPECIFIC type (annuals, oil changes, AD compliances, etc.), count ` +
+          `only the matching events in the structured list below, state that number, ` +
+          `and note it is drawn from the ${totalRecords} records on file. List up to 15 ` +
+          `representative matching events with citations — never more than 15.`
+        : `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
     const directive =
       aggregationType === 'count'
-        ? `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
+        ? countDirective
         : aggregationType === 'list'
           ? 'Provide the full list of events; each event must be its own line with a citation.'
           : aggregationType === 'sum'
@@ -579,12 +637,14 @@ async function runAggregationAnswer(args: {
       `${AGGREGATION_BASIS_NOTE}`
 
     const answerResult = await generateAnswer(augmentedQuestion, answerChunks, conversationHistory)
+    appendBasisIfMissing(answerResult)
     return { answerResult, answerChunks }
   } catch (err) {
     // Extraction pass failed — fall back to the normal generateAnswer over
     // the augmented chunk set (retrieved + structured maintenance events).
     console.error('[query] aggregation extraction failed — falling back to generateAnswer:', err)
     const answerResult = await generateAnswer(question, augmentedChunks, conversationHistory)
+    appendBasisIfMissing(answerResult)
     return { answerResult, answerChunks: augmentedChunks }
   }
 }
@@ -645,26 +705,34 @@ export async function POST(req: NextRequest) {
   const { question, aircraft_id, doc_type_filter, conversation_history } = body;
   const persona = body.persona ?? 'owner';
 
-  // ── P0 SECURITY — verify a body-supplied aircraft_id belongs to the caller's
-  // org. /api/query runs on the service client (RLS bypassed); the BM25 index
-  // and PageIndex tree are keyed by aircraft_id alone, so without this check a
-  // caller could pass another org's aircraft_id and pull that org's chunks.
-  if (aircraft_id) {
-    const { data: ownedAircraft } = await supabase
-      .from('aircraft')
-      .select('id')
-      .eq('id', aircraft_id)
-      .eq('organization_id', organizationId)
-      .maybeSingle()
-    if (!ownedAircraft) {
-      return NextResponse.json(
-        { error: 'Aircraft not found in your organization' },
-        { status: 403 },
-      )
-    }
-  }
-
   try {
+    // ── P0 SECURITY — verify a body-supplied aircraft_id belongs to the
+    // caller's org. /api/query runs on the service client (RLS bypassed); the
+    // BM25 index and PageIndex tree are keyed by aircraft_id alone, so without
+    // this check a caller could pass another org's aircraft_id and pull that
+    // org's chunks. Inside the try so a DB hiccup returns a JSON 500, not an
+    // uncaught crash that surfaces as an opaque platform error.
+    if (aircraft_id) {
+      const { data: ownedAircraft, error: ownedAircraftError } = await supabase
+        .from('aircraft')
+        .select('id')
+        .eq('id', aircraft_id)
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+      if (ownedAircraftError) {
+        return NextResponse.json(
+          { error: 'Could not verify aircraft ownership', details: ownedAircraftError.message },
+          { status: 500 },
+        )
+      }
+      if (!ownedAircraft) {
+        return NextResponse.json(
+          { error: 'Aircraft not found in your organization' },
+          { status: 403 },
+        )
+      }
+    }
+
     // ── 1. Structured query parse — cleanedQuery + any explicit filters ──
     const parsedQuery = await parseStructuredQuery({
       organizationId,

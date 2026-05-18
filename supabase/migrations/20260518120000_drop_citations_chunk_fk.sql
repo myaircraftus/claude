@@ -1,0 +1,14 @@
+-- citations.chunk_id carried a FK to document_chunks(id), but the live
+-- retrieval path (search_canonical_documents RPC) returns
+-- canonical_document_chunks ids, while the BM25, vision and structured-event
+-- retrievers return document_chunks ids — a mix of id namespaces in one
+-- column. The single FK could never be satisfied for canonical-sourced
+-- citations, so the citation batch insert failed on every query whose cited
+-- chunk came from the vector retriever ("[query POST] Failed to store
+-- citations"). It was silent: the answer + its citations are returned from
+-- the API response, so only the citations table went unpopulated.
+--
+-- chunk_id is a soft pointer used for anchor resolution and debugging, not a
+-- hard relation — drop the constraint. The document_id FK (the meaningful
+-- one) is unchanged.
+ALTER TABLE public.citations DROP CONSTRAINT IF EXISTS citations_chunk_id_fkey;

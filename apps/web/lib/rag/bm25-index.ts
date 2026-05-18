@@ -265,6 +265,49 @@ const MAX_REBUILD_ATTEMPTS = 3
 
 type ChunkScope = { aircraftId: string } | { organizationId: string }
 
+/** PostgREST caps a single response at ~1000 rows — page through in 1000s. */
+const CHUNK_PAGE_SIZE = 1000
+
+/**
+ * Read every chunk for an index scope from the canonical layer, paginated.
+ *
+ * BM25 indexes the CANONICAL chunk layer (the curated, deduplicated layer the
+ * vector search also uses) — not the raw document_chunks layer. The raw layer
+ * runs to tens of thousands of chunks per aircraft, which would make the
+ * persisted index file huge and slow to load on every query; the canonical
+ * layer is ~hundreds–2.5k per aircraft. Indexing the same layer the vector
+ * retriever uses also means BM25 hits share the vector retriever's chunk-id
+ * space, so the hybrid merge can dedupe across the two.
+ *
+ * Pagination is mandatory: PostgREST caps a response at ~1000 rows regardless
+ * of `.limit()`, so a single fetch silently truncates larger aircraft.
+ */
+async function fetchScopedChunks(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  scope: ChunkScope,
+): Promise<ChunkRow[]> {
+  const rows: ChunkRow[] = []
+  for (let offset = 0; ; offset += CHUNK_PAGE_SIZE) {
+    let query = supabase
+      .from('canonical_document_chunks')
+      .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
+      .order('id', { ascending: true })
+      .range(offset, offset + CHUNK_PAGE_SIZE - 1)
+    query =
+      'aircraftId' in scope
+        ? query.eq('aircraft_id', scope.aircraftId)
+        : query.eq('organization_id', scope.organizationId).is('aircraft_id', null)
+    const { data, error } = await query
+    if (error) {
+      throw new Error(`bm25: failed to read canonical_document_chunks: ${error.message}`)
+    }
+    const batch = (data ?? []) as ChunkRow[]
+    rows.push(...batch)
+    if (batch.length < CHUNK_PAGE_SIZE) break
+  }
+  return rows
+}
+
 /**
  * Fingerprint the chunk set for an index scope as `${count}:${latestCreatedAt}`.
  * A change in either field between two reads means the chunk set was written
@@ -275,7 +318,7 @@ async function chunkSetFingerprint(
   scope: ChunkScope,
 ): Promise<string> {
   let query = supabase
-    .from('document_chunks')
+    .from('canonical_document_chunks')
     .select('created_at', { count: 'exact' })
     .order('created_at', { ascending: false, nullsFirst: false })
     .limit(1)
@@ -321,14 +364,7 @@ export async function buildBm25Index(aircraftId: string): Promise<{ chunkCount: 
   for (let attempt = 1; attempt <= MAX_REBUILD_ATTEMPTS; attempt++) {
     const fingerprintBefore = await chunkSetFingerprint(supabase, { aircraftId })
 
-    const { data: chunkData, error: chunkErr } = await supabase
-      .from('document_chunks')
-      .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
-      .eq('aircraft_id', aircraftId)
-      .limit(100000)
-    if (chunkErr) throw new Error(`bm25: failed to read document_chunks: ${chunkErr.message}`)
-    const chunkRows = (chunkData ?? []) as ChunkRow[]
-
+    const chunkRows = await fetchScopedChunks(supabase, { aircraftId })
     const documentsById = await loadDocuments(supabase, chunkRows)
     const index = assembleIndex(chunkRows, documentsById, aircraftId, registration)
     await persistIndex(supabase, `${aircraftId}/bm25.json`, index)
@@ -390,17 +426,7 @@ export async function buildReferenceBm25Index(
   for (let attempt = 1; attempt <= MAX_REBUILD_ATTEMPTS; attempt++) {
     const fingerprintBefore = await chunkSetFingerprint(supabase, { organizationId })
 
-    const { data: chunkData, error: chunkErr } = await supabase
-      .from('document_chunks')
-      .select('id, document_id, aircraft_id, page_number, section_title, chunk_text')
-      .eq('organization_id', organizationId)
-      .is('aircraft_id', null)
-      .limit(100000)
-    if (chunkErr) {
-      throw new Error(`bm25: failed to read reference document_chunks: ${chunkErr.message}`)
-    }
-    const chunkRows = (chunkData ?? []) as ChunkRow[]
-
+    const chunkRows = await fetchScopedChunks(supabase, { organizationId })
     const documentsById = await loadDocuments(supabase, chunkRows)
     const index = assembleIndex(chunkRows, documentsById, `org:${organizationId}`, '')
     await persistIndex(supabase, referenceKey(organizationId), index)

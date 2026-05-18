@@ -27,7 +27,7 @@
  * resolvable citation. Best-effort: any failure returns [] and the caller
  * falls back to the retrieved chunks alone.
  */
-import type { ParsedQueryIntent } from '@/lib/rag/query-parser'
+import type { AggregationType, ParsedQueryIntent } from '@/lib/rag/query-parser'
 import type { createServiceSupabase } from '@/lib/supabase/server'
 import type { DocType, RetrievedChunk } from '@/types'
 
@@ -35,8 +35,10 @@ type ServiceClient = ReturnType<typeof createServiceSupabase>
 
 /** OCR misreads handwritten dates into impossible years — clamp to a sane window. */
 const PLAUSIBLE_MIN_DATE = '1955-01-01'
-/** Most-recent N events; the LLM extraction pass then filters by topic. */
+/** Most-recent N events (last / sum) — the LLM extraction pass filters by topic. */
 const DEFAULT_LIMIT = 80
+/** count / list need completeness, not just recency — pull a much wider set. */
+const COMPLETENESS_LIMIT = 250
 
 interface MaintenanceEventRow {
   id: string
@@ -107,10 +109,15 @@ export async function fetchStructuredEventChunks(args: {
   organizationId: string
   aircraftId?: string | null
   parsedQuery: ParsedQueryIntent
+  aggregationType?: AggregationType
   limit?: number
 }): Promise<RetrievedChunk[]> {
-  const { supabase, organizationId, aircraftId, parsedQuery } = args
-  const limit = args.limit ?? DEFAULT_LIMIT
+  const { supabase, organizationId, aircraftId, parsedQuery, aggregationType } = args
+  // count/list need a near-complete view; first needs the EARLIEST events, not
+  // the most recent; last/sum are fine with a recent window.
+  const wantsCompleteness = aggregationType === 'count' || aggregationType === 'list'
+  const limit = args.limit ?? (wantsCompleteness ? COMPLETENESS_LIMIT : DEFAULT_LIMIT)
+  const ascending = aggregationType === 'first'
 
   try {
     const today = new Date().toISOString().slice(0, 10)
@@ -146,7 +153,7 @@ export async function fetchStructuredEventChunks(args: {
     }
     if (orParts.length > 0) query = query.or(orParts.join(','))
 
-    query = query.order('event_date', { ascending: false }).limit(limit)
+    query = query.order('event_date', { ascending }).limit(limit)
 
     const { data, error } = await query
     if (error) throw new Error(error.message)
@@ -216,5 +223,33 @@ export async function fetchStructuredEventChunks(args: {
   } catch (err) {
     console.error('[structured-events] fetch failed — returning []:', err)
     return []
+  }
+}
+
+/**
+ * Exact count of an aircraft's maintenance records on file — count(*) over
+ * maintenance_events within the plausible date window. This is the trustworthy
+ * denominator for "how many maintenance entries / records" questions, which
+ * the chunk-extraction path systematically undercounts (it can only count what
+ * retrieval surfaced). Returns null on any failure so the caller falls back.
+ */
+export async function countAircraftMaintenanceEvents(
+  supabase: ServiceClient,
+  organizationId: string,
+  aircraftId: string,
+): Promise<number | null> {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const { count, error } = await supabase
+      .from('maintenance_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('aircraft_id', aircraftId)
+      .gte('event_date', PLAUSIBLE_MIN_DATE)
+      .lte('event_date', today)
+    if (error) return null
+    return count ?? null
+  } catch {
+    return null
   }
 }
