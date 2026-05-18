@@ -13,7 +13,7 @@ import {
   type AggregationType,
 } from '@/lib/rag/query-parser';
 import { enrichAnswerCitationsWithAnchors } from '@/lib/rag/citation-anchors';
-import { searchBm25 } from '@/lib/rag/bm25-index';
+import { searchBm25, searchReferenceBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
 import { rerankChunks } from '@/lib/rag/rerank';
@@ -166,14 +166,28 @@ async function hybridRetrieve(args: {
     })
 
   const bStart = Date.now()
-  const bm25P: Promise<{ r: Bm25Hits; ms: number }> = aircraftId
-    ? searchBm25(aircraftId, question, 15)
-        .then((r) => ({ r, ms: Date.now() - bStart }))
-        .catch((err) => {
-          console.error('[query] BM25 retrieval failed:', err)
-          return { r: [] as Bm25Hits, ms: Date.now() - bStart }
-        })
-    : Promise.resolve({ r: [] as Bm25Hits, ms: 0 })
+  // BM25 keyword retrieval — query the per-AIRCRAFT index (if an aircraft is
+  // in scope) AND the per-ORG REFERENCE index (manuals / ADs / parts catalogs
+  // are relevant regardless of which aircraft is selected — Wave 1.3). Merge,
+  // dedupe by chunk_id keeping the higher score. Never rejects.
+  const bm25P: Promise<{ r: Bm25Hits; ms: number }> = (async () => {
+    try {
+      const [aircraftHits, referenceHits] = await Promise.all([
+        aircraftId ? searchBm25(aircraftId, question, 15) : Promise.resolve([] as Bm25Hits),
+        searchReferenceBm25(organizationId, question, 15),
+      ])
+      const byChunk = new Map<string, Bm25Hits[number]>()
+      for (const h of [...aircraftHits, ...referenceHits]) {
+        const prev = byChunk.get(h.chunk_id)
+        if (!prev || h.score > prev.score) byChunk.set(h.chunk_id, h)
+      }
+      const merged = [...byChunk.values()].sort((a, b) => b.score - a.score).slice(0, 15)
+      return { r: merged, ms: Date.now() - bStart }
+    } catch (err) {
+      console.error('[query] BM25 retrieval failed:', err)
+      return { r: [] as Bm25Hits, ms: Date.now() - bStart }
+    }
+  })()
 
   const tStart = Date.now()
   const treeP: Promise<{ r: TreeHit[]; ms: number }> = aircraftId

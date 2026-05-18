@@ -2177,7 +2177,25 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
     void (async () => {
       const ragAircraftId = (document as any)?.aircraft_id ?? null
       const ragOrgId = (document as any)?.organization_id ?? null
-      if (!ragAircraftId) return
+      if (!ragAircraftId) {
+        // Wave 1.3 — an aircraft-less reference document (maintenance manual,
+        // AD/SB, parts catalog, wiring diagram) gets an ORG-scoped BM25
+        // keyword index so it is searchable by part / AD number, not
+        // vector-only. Best-effort; a failure never affects the doc.
+        if (ragOrgId) {
+          try {
+            const { buildReferenceBm25Index } = await import('@/lib/rag/bm25-index')
+            const { chunkCount } = await buildReferenceBm25Index(ragOrgId)
+            console.log(
+              `[ingestion] reference BM25 index rebuilt for org ${ragOrgId} ` +
+                `(${chunkCount} chunks) after doc ${documentId}`,
+            )
+          } catch (err) {
+            console.warn(`[ingestion] reference BM25 rebuild failed for ${documentId}:`, err)
+          }
+        }
+        return
+      }
       // Auto-retry visibility: if a prior rebuild for this aircraft failed,
       // note that this upload's whole-aircraft rebuild naturally retries it.
       const { data: priorFailed } = await supabase
