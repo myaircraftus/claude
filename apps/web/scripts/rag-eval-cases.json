@@ -1,84 +1,176 @@
 {
   "_README": [
-    "RAG accuracy eval cases for scripts/rag-eval.mjs (SOP audit — Wave 1.8).",
+    "RAG accuracy eval cases for scripts/rag-eval.mjs — the END-TO-END harness.",
     "",
-    "ask-stress-test.mjs measures STRUCTURE (citations present, not empty, not",
-    "slow). This file measures ACCURACY — each case asserts what a *correct*",
-    "answer must look like, so a regression in answer quality fails the eval.",
+    "Unlike wave2-eval.mjs (which measures the retrieval layer in isolation),",
+    "this runs the full /api/ask flow and asserts what a CORRECT answer must",
+    "look like. It needs YOUR authenticated session cookie — see the rag-eval.mjs",
+    "header for how to run it.",
     "",
-    "Expand `cases` with real questions for your fleet. The TEMPLATE-* cases",
-    "below show every assertion type — fill in a real aircraft_id and the real",
-    "expected facts, then delete the TEMPLATE- prefix.",
+    "The 20 fact cases below were authored from corpus content verified directly",
+    "against the database (the same ground truth as wave2-eval-cases.json), so a",
+    "pass means the full app actually surfaced and stated the real answer.",
+    "Some cases are expected to fail today — that is the point: the pass-rate is",
+    "the true measured end-to-end accuracy number. Re-run before/after changes.",
     "",
-    "Assertion types (all optional; a case passes only if ALL of its assertions pass):",
-    "  mustContainAny  [string]  answer contains >=1 of these (case-insensitive)",
-    "  mustContainAll  [string]  answer contains ALL of these",
-    "  mustNotContain  [string]  answer contains NONE of these",
-    "  minCitations    number    answer cites >= N source documents",
-    "  minConfidence   string    confidence >= this (insufficient<low<medium<high)",
-    "  insufficient    boolean   true = answer MUST be insufficient_evidence",
-    "                            (use for off-topic / no-data questions)"
+    "Assertion types: mustContainAny / mustContainAll / mustNotContain,",
+    "minCitations, minConfidence, insufficient (see rag-eval-cases header history)."
   ],
   "cases": [
     {
       "id": "offtopic-trivia-rejected",
       "question": "What is the capital of France?",
       "persona": "owner",
-      "expect": {
-        "insufficient": true,
-        "comment": "Off-topic. Ask Logbook AI must not answer general trivia from its own knowledge."
-      }
+      "expect": { "insufficient": true, "comment": "Off-topic — must not answer general trivia." }
     },
     {
-      "id": "offtopic-other-aircraft-rejected",
+      "id": "offtopic-joke-rejected",
       "question": "Tell me a joke about airplanes.",
       "persona": "owner",
-      "expect": {
-        "insufficient": true,
-        "comment": "Not a records question — must decline rather than free-associate."
-      }
+      "expect": { "insufficient": true, "comment": "Not a records question — must decline." }
     },
     {
       "id": "substantive-answer-must-cite",
       "question": "What does the maintenance history say about the engine?",
       "persona": "owner",
-      "expect": {
-        "minCitations": 1,
-        "comment": "Any substantive, non-insufficient answer must cite at least one source document."
-      }
+      "expect": { "minCitations": 1, "comment": "Any substantive answer must cite a source." }
     },
     {
-      "id": "TEMPLATE-last-annual-single-aircraft",
-      "question": "When was the last annual inspection?",
-      "aircraft_id": "REPLACE_WITH_REAL_AIRCRAFT_UUID",
+      "id": "log-ad-2010-04-05-interval",
+      "question": "On N757VB's propeller, how often does recurring airworthiness directive AD 2010-04-05 have to be repeated?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
       "persona": "owner",
-      "expect": {
-        "mustContainAny": ["REPLACE_WITH_EXPECTED_DATE_OR_FINDING"],
-        "minCitations": 1,
-        "minConfidence": "medium",
-        "comment": "TEMPLATE — fill aircraft_id + the real expected annual date, then remove the TEMPLATE- prefix."
-      }
+      "expect": { "mustContainAny": ["750"], "minCitations": 1, "comment": "Answer: every 750 hours." }
     },
     {
-      "id": "TEMPLATE-part-number-lookup-manual",
-      "question": "REPLACE — a question whose answer lives in an uploaded manual (e.g. a part or AD number)",
-      "persona": "shop",
-      "expect": {
-        "mustContainAny": ["REPLACE_WITH_EXPECTED_PART_OR_SPEC"],
-        "minCitations": 1,
-        "comment": "TEMPLATE — verifies the reference (manual) BM25 index works for keyword lookups."
-      }
-    },
-    {
-      "id": "TEMPLATE-no-data-aircraft-honest-empty",
-      "question": "When was the last overhaul?",
-      "aircraft_id": "REPLACE_WITH_AIRCRAFT_THAT_HAS_NO_RECORDS",
+      "id": "log-seat-rail-ad",
+      "question": "Which airworthiness directive covered the inspection of the pilot and copilot seat rails on N757VB?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
       "persona": "owner",
-      "expect": {
-        "insufficient": true,
-        "mustNotContain": ["0 ", "never"],
-        "comment": "TEMPLATE — an aircraft with no records must return insufficient_evidence, never a fabricated count."
-      }
+      "expect": { "mustContainAny": ["2011-10-09"], "minCitations": 1, "comment": "Answer: AD 2011-10-09." }
+    },
+    {
+      "id": "log-alternator-solenoid-pn",
+      "question": "What is the part number of the alternator solenoid that was replaced on N562AF?",
+      "aircraft_id": "7fbbb357-f192-470a-b64b-e1a6a4e364a7",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["X61-0029"], "minCitations": 1, "comment": "Answer: X61-0029." }
+    },
+    {
+      "id": "log-beacon-bulb-pn",
+      "question": "What is the part number of the beacon light bulb replaced on N562AF in 2023?",
+      "aircraft_id": "7fbbb357-f192-470a-b64b-e1a6a4e364a7",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["5043301"], "minCitations": 1, "comment": "Answer: 5043301." }
+    },
+    {
+      "id": "log-compression-may-2016",
+      "question": "What were the cylinder compression readings on N757VB's engine in the May 2016 maintenance entry?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["79/80", "76/80", "78/80"], "minCitations": 1, "comment": "Compression: 79/80, 79/80, 76/80, 78/80." }
+    },
+    {
+      "id": "log-n80587-no-start",
+      "question": "Why would N80587 not start in the April 2012 airframe logbook entry?",
+      "aircraft_id": "2bea4d62-d06b-49d1-a617-59739d810ebc",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["spark plug"], "minCitations": 1, "comment": "Answer: spark plugs fouled/full of lead." }
+    },
+    {
+      "id": "log-tsmoh-feb-2023",
+      "question": "What was the engine time since major overhaul (TSMOH) on N757VB in the February 2023 entry?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["1536.9"], "minCitations": 1, "comment": "Answer: TSMOH 1536.9." }
+    },
+    {
+      "id": "log-spark-plug-pn",
+      "question": "What new spark plug part number was installed on N757VB's engine cylinders 1 and 2?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["UREM37BY"], "minCitations": 1, "comment": "Answer: UREM37BY." }
+    },
+    {
+      "id": "log-prop-model-n89114",
+      "question": "What make and model of propeller is installed on N89114?",
+      "aircraft_id": "284ed57c-25e9-4849-8d9e-c959abc62141",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["72CKS6", "Sensenich"], "minCitations": 1, "comment": "Answer: Sensenich 72CKS6-0-54." }
+    },
+    {
+      "id": "log-elt-battery-due-2015",
+      "question": "When was the ELT battery next due on N562AF after the February 2015 inspection?",
+      "aircraft_id": "7fbbb357-f192-470a-b64b-e1a6a4e364a7",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["June 2015", "2015"], "minCitations": 1, "comment": "Answer: ELT battery due June 2015." }
+    },
+    {
+      "id": "log-total-time-oct-2018",
+      "question": "What was the total airframe time on N562AF at the October 2018 annual inspection?",
+      "aircraft_id": "7fbbb357-f192-470a-b64b-e1a6a4e364a7",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["5791"], "minCitations": 1, "comment": "Answer: total time 5791.3." }
+    },
+    {
+      "id": "log-prop-serial-n757vb",
+      "question": "What is the serial number of the propeller installed on N757VB?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["BG084"], "minCitations": 1, "comment": "Answer: propeller S/N BG084." }
+    },
+    {
+      "id": "log-n757vb-serial-type",
+      "question": "What aircraft type and serial number are recorded for N757VB in its airframe logbook?",
+      "aircraft_id": "29b307ac-6a49-4399-89c3-ff12e2ae86b0",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["15280028"], "minCitations": 1, "comment": "Answer: C152, S/N 15280028." }
+    },
+    {
+      "id": "poh-oil-sump-quantity",
+      "question": "How many quarts of oil should the Cessna engine sump be filled to for normal flights of less than 3 hours?",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["7 quart", "7 qt"], "minCitations": 1, "comment": "Answer: 7 quarts." }
+    },
+    {
+      "id": "poh-fuel-capacity",
+      "question": "What is the total fuel capacity of the Cessna in the pilot operating handbook?",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["39 gal"], "minCitations": 1, "comment": "Answer: 39 gallons." }
+    },
+    {
+      "id": "poh-towbar-turn-limit",
+      "question": "What is the maximum nosewheel turn limit when using the tow-bar on the Cessna?",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["30 degree", "30°", "30 deg"], "minCitations": 1, "comment": "Answer: 30 degrees either side of center." }
+    },
+    {
+      "id": "poh-garmin-bluetooth-devices",
+      "question": "How many portable electronic devices can the Garmin GPS 175 / GNX 375 pair with over Bluetooth?",
+      "aircraft_id": "8e8638e4-ec63-49e5-8a69-222e3570f85f",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["13"], "minCitations": 1, "comment": "Answer: up to 13 devices." }
+    },
+    {
+      "id": "poh-garmin-fde",
+      "question": "When must FDE prediction be used with the Garmin GPS 175 as a primary means of navigation?",
+      "aircraft_id": "8e8638e4-ec63-49e5-8a69-222e3570f85f",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["oceanic", "remote area"], "minCitations": 1, "comment": "Answer: oceanic or remote-area flights." }
+    },
+    {
+      "id": "poh-garmin-terrain-alert",
+      "question": "What conditions trigger a TERRAIN caution alert on the Garmin GPS 175?",
+      "aircraft_id": "8e8638e4-ec63-49e5-8a69-222e3570f85f",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["terrain", "premature descent"], "minCitations": 1, "comment": "Answer: reduced terrain clearance / imminent impact / premature descent." }
+    },
+    {
+      "id": "poh-garmin-map-priority",
+      "question": "On the Garmin GPS 175 map, which feature is drawn at the highest priority over all others?",
+      "aircraft_id": "8e8638e4-ec63-49e5-8a69-222e3570f85f",
+      "persona": "owner",
+      "expect": { "mustContainAny": ["traffic"], "minCitations": 1, "comment": "Answer: Traffic (priority level 1)." }
     }
   ]
 }
