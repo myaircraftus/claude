@@ -17,6 +17,8 @@ import { searchBm25, searchReferenceBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
 import { rerankChunks } from '@/lib/rag/rerank';
+import { hybridRetrieve as retrieveVisionPages } from '@/lib/vision/retriever';
+import { embedVisionQuery } from '@/lib/vision/workers/modal';
 import {
   extractAggregationEvents,
   formatAggregationContext,
@@ -103,12 +105,118 @@ async function selectTreeChunkIds(
   return out
 }
 
+// ─── Vision retrieval — ColQwen2 page-image RAG (Wave 1.7c) ─────────────────
+//
+// Adds the vision index as a fourth, purely-ADDITIVE retriever. The Modal
+// ColQwen2 query encoder embeds the question; the vision-only ANN + MaxSim
+// retriever returns its best page matches; each page is mapped back to its
+// text chunks and merged into the candidate pool with a bonus score. When
+// vision is unconfigured or the GPU is unreachable this contributes nothing
+// and the text pipeline is byte-identical to before.
+
+/** Short timeout for the hot query path — a cold Modal GPU must never stall
+ *  a text answer. Vision simply drops out for that one query if it's slow. */
+const VISION_QUERY_TIMEOUT_MS = 8000
+
+/** Additive bonus weight for a chunk whose page also matched the ColQwen2
+ *  vision index. Tunable via VISION_BLEND_WEIGHT (0-1); default 0.25. */
+function readVisionBlendWeight(): number {
+  const env = process.env.VISION_BLEND_WEIGHT
+  if (env) {
+    const n = Number(env)
+    if (Number.isFinite(n) && n >= 0 && n <= 1) return n
+  }
+  return 0.25
+}
+
+/**
+ * Best-effort ColQwen2 vision retrieval, returned as text-chunk hits so the
+ * caller can merge them straight into the hybrid candidate pool.
+ *
+ * Pipeline: embedVisionQuery (Modal query encoder) → vision-only ANN +
+ * MaxSim retriever → map each (document, page) hit to its document_chunks
+ * rows. Returns [] on ANY failure or when vision is unconfigured — never
+ * throws, and never runs the retriever with stub query vectors.
+ */
+async function retrieveVisionChunkHits(args: {
+  supabase: ReturnType<typeof createServiceSupabase>
+  organizationId: string
+  aircraftId?: string
+  question: string
+  limit: number
+}): Promise<Array<{ chunk_id: string; score: number }>> {
+  try {
+    const embedded = await embedVisionQuery(args.question, {
+      timeoutMs: VISION_QUERY_TIMEOUT_MS,
+    })
+    // No key/URL, cold GPU, timeout, or malformed response — skip vision.
+    if (!embedded) return []
+
+    const pages = await retrieveVisionPages(
+      args.supabase,
+      args.organizationId,
+      args.question,
+      {
+        mode: 'vision',
+        k: Math.max(args.limit, 8),
+        candidateCap: 12,
+        querySummaryVector: embedded.summaryVector,
+        queryVectorTokens: embedded.tokenVectors,
+      },
+    )
+    if (pages.length === 0) return []
+
+    // Best vision score per (document_id, page_number).
+    const scoreByKey = new Map<string, number>()
+    for (const p of pages) {
+      const key = `${p.source_document_id}:${p.page_number}`
+      const prev = scoreByKey.get(key)
+      if (prev === undefined || p.score_vision > prev) {
+        scoreByKey.set(key, p.score_vision)
+      }
+    }
+
+    // Map (document, page) → text chunk ids. A page may carry several
+    // chunks; each inherits the page's vision score.
+    const docIds = [...new Set(pages.map((p) => p.source_document_id))]
+    const pageNums = [...new Set(pages.map((p) => p.page_number))]
+    const { data: rows } = await args.supabase
+      .from('document_chunks')
+      .select('id, document_id, page_number, aircraft_id')
+      .eq('organization_id', args.organizationId)
+      .in('document_id', docIds)
+      .in('page_number', pageNums)
+
+    const hits: Array<{ chunk_id: string; score: number }> = []
+    for (const row of (rows ?? []) as Array<{
+      id: string
+      document_id: string
+      page_number: number
+      aircraft_id: string | null
+    }>) {
+      // Aircraft scoping — when the query targets an aircraft, keep that
+      // aircraft's chunks plus aircraft-less reference docs (mirrors the
+      // reference-BM25 policy, Wave 1.3). Org-wide queries keep everything.
+      if (args.aircraftId && row.aircraft_id && row.aircraft_id !== args.aircraftId) {
+        continue
+      }
+      const score = scoreByKey.get(`${row.document_id}:${row.page_number}`)
+      if (score === undefined) continue
+      hits.push({ chunk_id: row.id, score })
+    }
+    return hits
+  } catch (err) {
+    console.error('[query] vision retrieval failed:', err)
+    return []
+  }
+}
+
 interface HybridRetrieval {
   chunks: RetrievedChunk[]
   /** Which retrievers returned ≥1 result. */
   strategiesUsed: string[]
   /** Per-retriever wall-clock latency (ms). */
-  latencies: { vector: number; bm25: number; tree: number }
+  latencies: { vector: number; bm25: number; tree: number; vision: number }
   treeNodesUsed: number
 }
 
@@ -143,6 +251,7 @@ async function hybridRetrieve(args: {
   const limit = args.limit ?? 8
   const docTypeAllow =
     docTypeFilter && docTypeFilter.length > 0 ? new Set<DocType>(docTypeFilter) : null
+  const visionBlendWeight = readVisionBlendWeight()
 
   type TreeHit = { chunkId: string; sectionHint: string }
   type Bm25Hits = Awaited<ReturnType<typeof searchBm25>>
@@ -199,22 +308,37 @@ async function hybridRetrieve(args: {
         })
     : Promise.resolve({ r: [] as TreeHit[], ms: 0 })
 
-  const [vec, bm, tr] = await Promise.all([vectorP, bm25P, treeP])
+  // ── Fourth retriever — ColQwen2 vision index (Wave 1.7c). Best-effort and
+  //    purely additive: contributes nothing when vision is unconfigured or
+  //    the GPU is unreachable, and never rejects. ──
+  const visStart = Date.now()
+  const visionP: Promise<{ r: Array<{ chunk_id: string; score: number }>; ms: number }> =
+    retrieveVisionChunkHits({ supabase, organizationId, aircraftId, question, limit })
+      .then((r) => ({ r, ms: Date.now() - visStart }))
+      .catch((err) => {
+        console.error('[query] vision retrieval failed:', err)
+        return {
+          r: [] as Array<{ chunk_id: string; score: number }>,
+          ms: Date.now() - visStart,
+        }
+      })
+
+  const [vec, bm, tr, vis] = await Promise.all([vectorP, bm25P, treeP, visionP])
 
   // ── Merge + per-retriever normalized scores, keyed by chunk_id ──
-  interface Slot { chunk: RetrievedChunk | null; vec: number; bm: number; tree: number; sectionHint?: string }
+  interface Slot { chunk: RetrievedChunk | null; vec: number; bm: number; tree: number; vision: number; sectionHint?: string }
   const slots = new Map<string, Slot>()
 
   const vMax = Math.max(1e-9, ...vec.r.map((c) => c.combined_score ?? c.vector_score ?? 0))
   for (const c of vec.r) {
-    slots.set(c.chunk_id, { chunk: c, vec: (c.combined_score ?? c.vector_score ?? 0) / vMax, bm: 0, tree: 0 })
+    slots.set(c.chunk_id, { chunk: c, vec: (c.combined_score ?? c.vector_score ?? 0) / vMax, bm: 0, tree: 0, vision: 0 })
   }
 
   const bMax = Math.max(1e-9, ...bm.r.map((h) => h.score))
   for (const h of bm.r) {
     const s = slots.get(h.chunk_id)
     if (s) s.bm = h.score / bMax
-    else slots.set(h.chunk_id, { chunk: null, vec: 0, bm: h.score / bMax, tree: 0 })
+    else slots.set(h.chunk_id, { chunk: null, vec: 0, bm: h.score / bMax, tree: 0, vision: 0 })
   }
 
   tr.r.forEach((t, i) => {
@@ -222,8 +346,18 @@ async function hybridRetrieve(args: {
     const treeScore = (tr.r.length - i) / tr.r.length
     const s = slots.get(t.chunkId)
     if (s) { s.tree = Math.max(s.tree, treeScore); s.sectionHint = s.sectionHint ?? t.sectionHint }
-    else slots.set(t.chunkId, { chunk: null, vec: 0, bm: 0, tree: treeScore, sectionHint: t.sectionHint })
+    else slots.set(t.chunkId, { chunk: null, vec: 0, bm: 0, tree: treeScore, vision: 0, sectionHint: t.sectionHint })
   })
+
+  // Vision hits — a bonus signal keyed by chunk_id, merged the same way as
+  // BM25. The MaxSim score is already 0-1; normalize by the in-set max so the
+  // strongest vision page earns the full bonus and the rest scale relative.
+  const visMax = Math.max(1e-9, ...vis.r.map((h) => h.score))
+  for (const h of vis.r) {
+    const s = slots.get(h.chunk_id)
+    if (s) s.vision = Math.max(s.vision, h.score / visMax)
+    else slots.set(h.chunk_id, { chunk: null, vec: 0, bm: 0, tree: 0, vision: h.score / visMax })
+  }
 
   // ── Hydrate chunks that only BM25 / tree surfaced (no vector RetrievedChunk) ──
   const needHydration = [...slots.entries()].filter(([, s]) => !s.chunk).map(([id]) => id)
@@ -284,7 +418,8 @@ async function hybridRetrieve(args: {
         vector_score: s.vec,
         keyword_score: s.bm,
         combined_score:
-          (s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2) * (docTypeMatch ? 1 : 0.5),
+          (s.vec * 0.45 + s.bm * 0.35 + s.tree * 0.2 + s.vision * visionBlendWeight) *
+          (docTypeMatch ? 1 : 0.5),
       }
     })
     .sort((a, b) => b.combined_score - a.combined_score)
@@ -301,12 +436,13 @@ async function hybridRetrieve(args: {
   if (vec.r.length > 0) strategiesUsed.push('vector')
   if (bm.r.length > 0) strategiesUsed.push('bm25')
   if (tr.r.length > 0) strategiesUsed.push('tree')
+  if (vis.r.length > 0) strategiesUsed.push('vision')
   if (reranked) strategiesUsed.push('rerank')
 
   return {
     chunks: ranked,
     strategiesUsed,
-    latencies: { vector: vec.ms, bm25: bm.ms, tree: tr.ms },
+    latencies: { vector: vec.ms, bm25: bm.ms, tree: tr.ms, vision: vis.ms },
     treeNodesUsed: tr.r.length,
   }
 }
@@ -553,7 +689,7 @@ export async function POST(req: NextRequest) {
     const retrievalLimit = aggregation.isAggregation ? 25 : 8
     let retrievedChunks: RetrievedChunk[]
     let strategiesUsed: string[] = ['vector']
-    let retrieverLatencies: HybridRetrieval['latencies'] = { vector: 0, bm25: 0, tree: 0 }
+    let retrieverLatencies: HybridRetrieval['latencies'] = { vector: 0, bm25: 0, tree: 0, vision: 0 }
     let treeNodesUsed = 0
     let docTypeFallbackTriggered = false
 
@@ -715,7 +851,8 @@ export async function POST(req: NextRequest) {
     console.log(
       `[query] hybrid retrieval — strategies=${strategiesUsed.join('+')} ` +
         `latency_ms vector=${retrieverLatencies.vector} bm25=${retrieverLatencies.bm25} ` +
-        `tree=${retrieverLatencies.tree} total=${latencyMs} slow_query=${slowQuery}`,
+        `tree=${retrieverLatencies.tree} vision=${retrieverLatencies.vision} ` +
+        `total=${latencyMs} slow_query=${slowQuery}`,
     )
     void logQueryResult({
       org_id: organizationId,
