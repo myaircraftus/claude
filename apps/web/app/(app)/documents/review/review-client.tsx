@@ -371,9 +371,21 @@ function QueueItemCard({
   const segment = item.ocr_entry_segment ?? {}
   const event = item.ocr_extracted_event ?? {}
   const reasoning = job.arbitration_reasoning ?? {}
-  const fieldResults = reasoning.field_results ?? {}
+  // fieldResults / fieldCandidates MUST be referentially stable: they feed the
+  // `keywordSuggestions` useMemo, which feeds the selectedKeywords useEffect.
+  // A bare `?? {}` / `?? []` allocates a fresh object every render, so the memo
+  // recomputed every render, the effect re-fired every render, and its
+  // setSelectedKeywords(...) re-rendered — an infinite loop that froze the
+  // whole admin review page. useMemo pins the empty defaults.
+  const fieldResults = useMemo(
+    () => job.arbitration_reasoning?.field_results ?? {},
+    [job.arbitration_reasoning],
+  )
   const warnings: string[] = reasoning.validator_warnings ?? []
-  const fieldCandidates: any[] = item.fieldCandidates ?? []
+  const fieldCandidates: any[] = useMemo(
+    () => item.fieldCandidates ?? [],
+    [item.fieldCandidates],
+  )
   const fieldConflicts: any[] = item.fieldConflicts ?? []
   const arbStatus: string = job.arbitration_status ?? 'pending'
   // Prefer the rescored confidence (set by /api/admin/rescore-confidence) — it
