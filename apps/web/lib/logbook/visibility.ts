@@ -1,9 +1,11 @@
 /**
  * Owner logbook-entry visibility gate.
  *
- * Owners see only logbook entries that have been published to them
- * (owner_visible = true — set when a mechanic signs the entry) or that the
- * owner created themselves. Shop / mechanic / admin personas see everything,
+ * Owners see logbook entries that have been published to them (owner_visible
+ * = true — set when a mechanic signs the entry), that the owner created
+ * themselves, or that are `historical` (OCR-transcribed records from the
+ * owner's own already-completed paper logbooks — the owner's documents, always
+ * theirs to retrieve). Shop / mechanic / admin personas see everything,
  * including unsigned drafts.
  *
  * This is the app-layer companion to the persona-aware `logbook_select` RLS
@@ -20,8 +22,9 @@ export const OWNER_PERSONA = 'owner'
  * Apply the owner logbook-entry visibility filter to a Supabase query builder.
  *
  * For the owner persona it narrows to `owner_visible = true OR created_by =
- * <userId>`. For every other persona (shop / mechanic / admin) the query is
- * returned unchanged — they keep full visibility.
+ * <userId> OR status = 'historical'`. For every other persona (shop /
+ * mechanic / admin) the query is returned unchanged — they keep full
+ * visibility.
  *
  * Generic over any Postgrest builder exposing `.or()`.
  */
@@ -31,5 +34,5 @@ export function applyOwnerLogbookVisibility<T extends { or(filter: string): T }>
   userId: string,
 ): T {
   if (persona !== OWNER_PERSONA) return query
-  return query.or(`owner_visible.eq.true,created_by.eq.${userId}`)
+  return query.or(`owner_visible.eq.true,created_by.eq.${userId},status.eq.historical`)
 }

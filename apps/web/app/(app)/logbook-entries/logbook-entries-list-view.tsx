@@ -27,6 +27,8 @@ const STATUS_COLOR: Record<string, string> = {
   signed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   printed_unsigned: 'bg-blue-50 text-blue-700 border-blue-200',
+  // Historical: OCR-transcribed records from the owner's paper logbooks.
+  historical: 'bg-slate-50 text-slate-600 border-slate-200',
   void: 'bg-slate-100 text-slate-600 border-slate-200',
 }
 

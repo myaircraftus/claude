@@ -28,6 +28,10 @@ export const VALID_STATUSES = [
   "voided",
   "voided_with_reason",
   "amended",
+  // Historical: an OCR-transcribed entry from the owner's already-completed
+  // paper logbooks. Read-only, owner-visible immediately, not in the mechanic
+  // draft -> sign workflow.
+  "historical",
 ] as const;
 
 export const VALID_LOGBOOK_TYPES = [
