@@ -461,7 +461,12 @@ export default async function DocumentsPage({
   // full set including the aircraft lockbox.
   const activePersona: Persona = phase13Persona === 'shop' ? 'shop' : 'owner'
   if (activePersona === 'shop') {
+    // SOP-DOC-001 §6.2 — the MRO Library: cross-aircraft shop reference docs.
     query = query.in('doc_type', docTypesForPersona('shop'))
+  } else {
+    // SOP-DOC-001 §5 — the Aircraft Records Vault: only owner-visible
+    // documents (owner-uploaded records + shop records shared to the owner).
+    query = query.eq('owner_visible', true)
   }
 
   if (searchParams.aircraft) {
@@ -525,6 +530,9 @@ export default async function DocumentsPage({
     .eq('organization_id', orgId)
   if (activePersona === 'shop') {
     statsQuery = statsQuery.in('doc_type', docTypesForPersona('shop'))
+  } else {
+    // Mirror the Aircraft Records Vault gate so the stat cards match the list.
+    statsQuery = statsQuery.eq('owner_visible', true)
   }
   if (searchParams.aircraft) {
     statsQuery = statsQuery.eq('aircraft_id', searchParams.aircraft)
@@ -560,7 +568,9 @@ export default async function DocumentsPage({
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar
         profile={profile}
-        breadcrumbs={[{ label: 'Documents' }]}
+        breadcrumbs={[
+          { label: activePersona === 'shop' ? 'MRO Library' : 'Aircraft Records Vault' },
+        ]}
         actions={
           <div className="inline-flex items-center gap-2">
             {/* Spec polish.voice-camera-rollout — scan a logbook page or
@@ -592,13 +602,16 @@ export default async function DocumentsPage({
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
 
-          {/* Header */}
+          {/* Header — SOP-DOC-001 §6: owners get the Aircraft Records Vault,
+              shops get the MRO Library. Separate names, separate queries. */}
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Documents</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {activePersona === 'shop' ? 'MRO Library' : 'Aircraft Records Vault'}
+            </h1>
             <p className="text-muted-foreground text-sm">
               {activePersona === 'shop'
-                ? 'Maintenance and service manuals, parts catalogs, service bulletins, and shop reference material.'
-                : 'Your aircraft records lockbox — logbooks, ADs, 337s/8130s, registration, insurance, and manuals.'}
+                ? 'One searchable maintenance intelligence system for every aircraft you service.'
+                : 'Know and protect your aircraft history.'}
             </p>
           </div>
 
