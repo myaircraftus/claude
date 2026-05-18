@@ -197,15 +197,19 @@ const SHOP_ADMIN_NAV: NavItem[] = [
     ],
   },
 
-  // WORK FORCE section (starts collapsed).
+  // WORK FORCE section (starts collapsed). SOP-WRK-001 §3.1.
   {
     icon: Users,
     label: "WORK FORCE",
     children: [
-      { icon: Calendar, label: "Scheduler",    href: "/workforce/scheduler",  tab: "workforce-scheduler" },
-      { icon: Timer,    label: "Time Clock",   href: "/workforce/time-clock", tab: "workforce-time-clock" },
-      { icon: Umbrella, label: "Time Off",     href: "/workforce/time-off",   tab: "workforce-time-off" },
-      { icon: LogIn,    label: "Clock In/Out", href: "/workforce/clock",      tab: "workforce-clock" },
+      { icon: LayoutDashboard, label: "Dashboard",    href: "/workforce/dashboard",  tab: "workforce-dashboard" },
+      { icon: Calendar,        label: "Scheduler",    href: "/workforce/scheduler",  tab: "workforce-scheduler" },
+      { icon: Timer,           label: "Time Clock",   href: "/workforce/time-clock", tab: "workforce-time-clock" },
+      { icon: ClipboardList,   label: "Timesheets",   href: "/workforce/timesheets", tab: "workforce-timesheets" },
+      { icon: Umbrella,        label: "Time Off",     href: "/workforce/time-off",   tab: "workforce-time-off" },
+      { icon: LogIn,           label: "Clock In/Out", href: "/workforce/clock",      tab: "workforce-clock" },
+      { icon: HardHat,         label: "Team",         href: "/workforce/team",       tab: "workforce-team" },
+      { icon: BarChart2,       label: "Reports",      href: "/workforce/reports",    tab: "workforce-reports" },
     ],
   },
 
