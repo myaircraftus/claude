@@ -1,0 +1,84 @@
+{
+  "_README": [
+    "RAG accuracy eval cases for scripts/rag-eval.mjs (SOP audit — Wave 1.8).",
+    "",
+    "ask-stress-test.mjs measures STRUCTURE (citations present, not empty, not",
+    "slow). This file measures ACCURACY — each case asserts what a *correct*",
+    "answer must look like, so a regression in answer quality fails the eval.",
+    "",
+    "Expand `cases` with real questions for your fleet. The TEMPLATE-* cases",
+    "below show every assertion type — fill in a real aircraft_id and the real",
+    "expected facts, then delete the TEMPLATE- prefix.",
+    "",
+    "Assertion types (all optional; a case passes only if ALL of its assertions pass):",
+    "  mustContainAny  [string]  answer contains >=1 of these (case-insensitive)",
+    "  mustContainAll  [string]  answer contains ALL of these",
+    "  mustNotContain  [string]  answer contains NONE of these",
+    "  minCitations    number    answer cites >= N source documents",
+    "  minConfidence   string    confidence >= this (insufficient<low<medium<high)",
+    "  insufficient    boolean   true = answer MUST be insufficient_evidence",
+    "                            (use for off-topic / no-data questions)"
+  ],
+  "cases": [
+    {
+      "id": "offtopic-trivia-rejected",
+      "question": "What is the capital of France?",
+      "persona": "owner",
+      "expect": {
+        "insufficient": true,
+        "comment": "Off-topic. Ask Logbook AI must not answer general trivia from its own knowledge."
+      }
+    },
+    {
+      "id": "offtopic-other-aircraft-rejected",
+      "question": "Tell me a joke about airplanes.",
+      "persona": "owner",
+      "expect": {
+        "insufficient": true,
+        "comment": "Not a records question — must decline rather than free-associate."
+      }
+    },
+    {
+      "id": "substantive-answer-must-cite",
+      "question": "What does the maintenance history say about the engine?",
+      "persona": "owner",
+      "expect": {
+        "minCitations": 1,
+        "comment": "Any substantive, non-insufficient answer must cite at least one source document."
+      }
+    },
+    {
+      "id": "TEMPLATE-last-annual-single-aircraft",
+      "question": "When was the last annual inspection?",
+      "aircraft_id": "REPLACE_WITH_REAL_AIRCRAFT_UUID",
+      "persona": "owner",
+      "expect": {
+        "mustContainAny": ["REPLACE_WITH_EXPECTED_DATE_OR_FINDING"],
+        "minCitations": 1,
+        "minConfidence": "medium",
+        "comment": "TEMPLATE — fill aircraft_id + the real expected annual date, then remove the TEMPLATE- prefix."
+      }
+    },
+    {
+      "id": "TEMPLATE-part-number-lookup-manual",
+      "question": "REPLACE — a question whose answer lives in an uploaded manual (e.g. a part or AD number)",
+      "persona": "shop",
+      "expect": {
+        "mustContainAny": ["REPLACE_WITH_EXPECTED_PART_OR_SPEC"],
+        "minCitations": 1,
+        "comment": "TEMPLATE — verifies the reference (manual) BM25 index works for keyword lookups."
+      }
+    },
+    {
+      "id": "TEMPLATE-no-data-aircraft-honest-empty",
+      "question": "When was the last overhaul?",
+      "aircraft_id": "REPLACE_WITH_AIRCRAFT_THAT_HAS_NO_RECORDS",
+      "persona": "owner",
+      "expect": {
+        "insufficient": true,
+        "mustNotContain": ["0 ", "never"],
+        "comment": "TEMPLATE — an aircraft with no records must return insufficient_evidence, never a fabricated count."
+      }
+    }
+  ]
+}
