@@ -27,6 +27,8 @@ import {
 import {
   fetchStructuredEventChunks,
   countAircraftMaintenanceEvents,
+  countEventsMatching,
+  deriveCountTopic,
 } from '@/lib/rag/structured-events';
 import type { DocType, RetrievedChunk } from '@/types';
 
@@ -537,13 +539,15 @@ async function runAggregationAnswer(args: {
 
   // Recall booster: retrieved chunks alone undercount aggregation answers
   // (page-recall@20 ~31%). Pull the org/aircraft's structured maintenance
-  // events and extract over the union so the count/list sees events whose
+  // events and extract over the union so list/first/last sees events whose
   // chunk was never retrieved. Best-effort — [] on any failure.
   //
-  // totalRecords is the EXACT count(*) of the aircraft's maintenance records —
-  // the trustworthy denominator for "how many entries" questions, which the
-  // chunk-extraction count alone undercounts badly.
-  const [structuredChunks, totalRecords] = await Promise.all([
+  // For count questions the count itself comes from SQL, not chunk extraction
+  // (the LLM cannot reliably count across hundreds of events): totalRecords is
+  // the exact count(*) of all the aircraft's records, and deriveCountTopic
+  // classifies whether the question wants that grand total or a work-type count.
+  const isCountQuery = aggregationType === 'count' && Boolean(aircraftId)
+  const [structuredChunks, totalRecords, countTopic] = await Promise.all([
     fetchStructuredEventChunks({
       supabase,
       organizationId,
@@ -551,11 +555,41 @@ async function runAggregationAnswer(args: {
       parsedQuery,
       aggregationType,
     }),
-    aggregationType === 'count' && aircraftId
-      ? countAircraftMaintenanceEvents(supabase, organizationId, aircraftId)
+    isCountQuery
+      ? countAircraftMaintenanceEvents(supabase, organizationId, aircraftId as string)
       : Promise.resolve(null),
+    isCountQuery ? deriveCountTopic(question) : Promise.resolve(null),
   ])
   const augmentedChunks = retrievedChunks.concat(structuredChunks)
+
+  // Resolve the authoritative count for count questions and frame it as a
+  // database FACT (an "answer N" instruction alone gets ignored — the answer
+  // model's system prompt says to ground answers only in provided data).
+  let countFact = ''
+  if (isCountQuery && countTopic) {
+    if (countTopic.isGrandTotal && totalRecords != null) {
+      countFact =
+        `[AUTHORITATIVE DATABASE FACT] This aircraft has exactly ${totalRecords} ` +
+        `maintenance records on file, counted directly from the structured ` +
+        `maintenance database. The answer to this total-count question is ` +
+        `exactly ${totalRecords} — state it as ground truth.`
+    } else if (countTopic.keywords.length > 0) {
+      const matched = await countEventsMatching(
+        supabase,
+        organizationId,
+        aircraftId as string,
+        countTopic.keywords,
+      )
+      if (matched != null) {
+        countFact =
+          `[AUTHORITATIVE DATABASE FACT] The structured maintenance database ` +
+          `holds ${matched} record(s) matching ${JSON.stringify(countTopic.keywords)} ` +
+          `for this aircraft, out of ${totalRecords ?? 'all'} total records on file. ` +
+          `Answer the count as approximately ${matched} — use the word ` +
+          `"approximately", as it is a keyword match over transcribed records.`
+      }
+    }
+  }
 
   try {
     const events = await extractAggregationEvents(cleanedQuery, augmentedChunks)
@@ -606,42 +640,26 @@ async function runAggregationAnswer(args: {
     // than guessing from raw chunk text. The instruction tells it how to
     // respond per aggregation type.
     const structuredContext = formatAggregationContext(question, aggregationType, finalEvents)
-    // count: the chunk-extraction figure (finalEvents.length) is only what was
-    // retrieved+extracted — it undercounts. When we have the exact count(*)
-    // (totalRecords), make that the authority for total-entry questions and
-    // the honest denominator for type-specific counts.
-    const countDirective =
-      totalRecords != null
-        ? `The structured maintenance record holds exactly ${totalRecords} total dated ` +
-          `entries for this aircraft. If the question asks for the TOTAL number of ` +
-          `maintenance entries/records, answer exactly ${totalRecords}. If it asks how ` +
-          `many of a SPECIFIC type (annuals, oil changes, AD compliances, etc.), count ` +
-          `only the matching events in the structured list below, state that number, ` +
-          `and note it is drawn from the ${totalRecords} records on file. List up to 15 ` +
-          `representative matching events with citations — never more than 15.`
-        : `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
+    // count: the chunk-extraction figure (finalEvents.length) only reflects
+    // what was retrieved+extracted — it undercounts badly. The real count
+    // comes from SQL (countFact, above); the directive just tells the model to
+    // use it rather than recount the excerpts.
     const directive =
       aggregationType === 'count'
-        ? countDirective
+        ? countFact
+          ? 'Use the authoritative database fact above for the count — do NOT ' +
+            'recount from the excerpts. Then list up to 15 representative ' +
+            'matching events with citations (never more than 15).'
+          : `State the count (${finalEvents.length}) explicitly, then list each event with its citation.`
         : aggregationType === 'list'
           ? 'Provide the full list of events; each event must be its own line with a citation.'
           : aggregationType === 'sum'
             ? 'Sum the relevant values across the events and show the total, citing each contributing event.'
             : `Report the single ${aggregationType} event below with its date and citation.`
 
-    // The exact count(*) is presented as a database FACT, not an instruction —
-    // the answer model's system prompt tells it to answer only from grounded
-    // data, so a bare "answer N" instruction gets ignored in favor of counting
-    // the visible excerpts. Framed as ground-truth data, it lands.
-    const totalFact =
-      totalRecords != null
-        ? `[AUTHORITATIVE DATABASE FACT] This aircraft has exactly ${totalRecords} ` +
-          `maintenance records on file, counted directly from the structured ` +
-          `maintenance database. Treat this number as ground truth.\n\n`
-        : ''
     const augmentedQuestion =
       `${question}\n\n` +
-      totalFact +
+      (countFact ? `${countFact}\n\n` : '') +
       `[STRUCTURED EXTRACTION — answer using ONLY these deduplicated events]\n` +
       `${structuredContext}\n\n` +
       `INSTRUCTION: ${directive}\n\n` +
