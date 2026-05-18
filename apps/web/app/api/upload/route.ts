@@ -17,6 +17,11 @@ import {
   isDocumentDetailId,
   isDocumentGroupId,
 } from '@/lib/documents/taxonomy'
+import {
+  personaCanUpload,
+  buildPersonaRejection,
+  type Persona,
+} from '@/lib/documents/persona-scope'
 
 const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024 // 500 MB
 const ALLOWED_MIME_TYPES = ['application/pdf']
@@ -201,6 +206,29 @@ export async function POST(req: NextRequest) {
 
   if (!VALID_DOC_TYPES.includes(docType as DocType)) {
     return NextResponse.json({ error: 'Invalid document category selected.' }, { status: 400 })
+  }
+
+  // ── Persona Iron Wall parity (Wave 1.6) ──
+  // /api/upload/complete enforces persona x doc_type, but this legacy
+  // multipart route historically skipped it — letting a shop-persona user
+  // upload an owner-only doc type here (or vice versa). Resolve the persona
+  // from the membership and enforce the same rule. Placed BEFORE the storage
+  // upload so a rejection needs no cleanup. If the persona cannot be resolved
+  // the check is skipped, so a legitimate upload is never broken.
+  const { data: uploadPersonaRow } = await serviceClient
+    .from('organization_memberships')
+    .select('persona')
+    .eq('organization_id', orgId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+  const uploadPersona = uploadPersonaRow?.persona as Persona | 'mechanic' | null | undefined
+  if (uploadPersona === 'owner' || uploadPersona === 'shop' || uploadPersona === 'mechanic') {
+    if (!personaCanUpload(uploadPersona, docType as DocType)) {
+      return NextResponse.json(
+        { error: buildPersonaRejection(docType as DocType), code: 'PERSONA_SCOPE_BLOCKED' },
+        { status: 403 },
+      )
+    }
   }
   if ((documentGroupIdRaw && !documentGroupId) || (documentDetailIdRaw && !documentDetailId)) {
     return NextResponse.json(
