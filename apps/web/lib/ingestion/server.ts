@@ -1,6 +1,7 @@
 import { tasks } from '@trigger.dev/sdk/v3'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { generateEmbeddings } from '@/lib/openai/embeddings'
+import { contextualizeCanonicalDocument } from '@/lib/rag/contextual'
 import { buildClassificationStorageFieldsBySelection } from '@/lib/documents/classification'
 import {
   buildInitialDocumentProcessingState,
@@ -2033,6 +2034,20 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
         supabase,
         document,
       })
+    }
+
+    // Wave 2 — Contextual Retrieval. Generate a short context blurb for each
+    // canonical chunk and re-embed (context_text || chunk_text). Best-effort:
+    // contextualizeCanonicalDocument never throws, and any chunk left with a
+    // NULL context_text is recovered by scripts/wave2-contextualize.mjs.
+    try {
+      const ctxResult = await contextualizeCanonicalDocument(supabase, documentId)
+      console.log(
+        `[ingestion] contextual retrieval: ${ctxResult.contextualized}/${ctxResult.total} ` +
+          `chunks contextualized${ctxResult.skipped ? ` (skipped: ${ctxResult.reason})` : ''}`,
+      )
+    } catch (err) {
+      console.warn('[ingestion] contextualization step failed (non-fatal):', err)
     }
 
     await persistMetadata({
