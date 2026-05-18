@@ -1,0 +1,422 @@
+{
+  "generated_at": "2026-05-18T16:06:11.183Z",
+  "sample_pages": 40,
+  "errors": 0,
+  "verdict": {
+    "b_wins": 37,
+    "a_wins": 3,
+    "ties": 0
+  },
+  "mean_b_improvement_0_10": 7.35,
+  "mean_gibberish_ratio": {
+    "current_ocr": 0.159,
+    "gpt4o_vision": 0.115
+  },
+  "pilot_cost_usd": 0.27,
+  "cost_per_page_usd": 0.0069,
+  "full_corpus_retranscribe_cost_usd": 102,
+  "full_corpus_pages": 15319,
+  "elapsed_min": 0.9,
+  "per_page": [
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#8",
+      "ocr_gibberish": 0.22,
+      "new_gibberish": 0.12,
+      "ocr_len": 6785,
+      "new_len": 2682,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more complete and accurate, providing specific details about inspections and repairs, while A contains garbled text and lacks clarity."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#28",
+      "ocr_gibberish": 0.38,
+      "new_gibberish": 0.59,
+      "ocr_len": 7021,
+      "new_len": 237,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is complete and accurate, providing specific details about a part, while Transcription A is garbled and lacks coherent information."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#19",
+      "ocr_gibberish": 0.07,
+      "new_gibberish": 0.08,
+      "ocr_len": 5667,
+      "new_len": 1178,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more accurate, complete, and free of gibberish compared to A."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#11",
+      "ocr_gibberish": 0.14,
+      "new_gibberish": 0.13,
+      "ocr_len": 1409,
+      "new_len": 1406,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more complete, accurate, and organized, providing specific details about maintenance performed, including dates, tach times, and compliance with directives."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#8",
+      "ocr_gibberish": 0.08,
+      "new_gibberish": 0.06,
+      "ocr_len": 377,
+      "new_len": 1473,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more detailed, includes specific inspection procedures, and provides a certification statement, making it more complete and accurate."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#18",
+      "ocr_gibberish": 0.07,
+      "new_gibberish": 0.06,
+      "ocr_len": 514,
+      "new_len": 1229,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B provides detailed maintenance records and specific actions taken, while Transcription A is incomplete and lacks critical information."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#20",
+      "ocr_gibberish": 0.21,
+      "new_gibberish": 0.15,
+      "ocr_len": 7219,
+      "new_len": 1601,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is complete, accurate, and free of gibberish, providing detailed maintenance records and certification, while Transcription A is largely garbled and incomplete."
+    },
+    {
+      "page": "0a7f0d36-ef51-4b29-94ad-fbe34e93a76e#2",
+      "ocr_gibberish": 0.07,
+      "new_gibberish": 0.15,
+      "ocr_len": 100,
+      "new_len": 1067,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more detailed and includes specific engine and propeller information, maintenance records, and certifications that are missing in Transcription A."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#2",
+      "ocr_gibberish": 0.04,
+      "new_gibberish": 0.07,
+      "ocr_len": 1528,
+      "new_len": 2768,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly more detailed and accurate, providing specific information about the propeller, including part numbers, work order details, and compliance with regulations, which A lacks."
+    },
+    {
+      "page": "338ec27a-2ac4-40ed-b869-1daf2efa30d8#1",
+      "ocr_gibberish": 0,
+      "new_gibberish": 0.09,
+      "ocr_len": 77,
+      "new_len": 536,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "B is significantly more complete and accurate, providing detailed information about the aircraft and engine maintenance records."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#43",
+      "ocr_gibberish": 0.17,
+      "new_gibberish": 0.08,
+      "ocr_len": 851,
+      "new_len": 80,
+      "winner": "A",
+      "b_improvement": 0,
+      "note": "Transcription A contains relevant information despite errors, while B does not provide any transcription."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#35",
+      "ocr_gibberish": 0.17,
+      "new_gibberish": 0.33,
+      "ocr_len": 9020,
+      "new_len": 80,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "B provides specific and relevant information about the aircraft, while A is mostly garbled and repetitive."
+    },
+    {
+      "page": "228e6e4a-4cf2-4300-9bc7-58c0aaf6c607#10",
+      "ocr_gibberish": 0,
+      "new_gibberish": 0.14,
+      "ocr_len": 445,
+      "new_len": 36,
+      "winner": "A",
+      "b_improvement": 0,
+      "note": "Transcription A contains relevant information from the logbook, while Transcription B does not provide any useful content."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#16",
+      "ocr_gibberish": 0.05,
+      "new_gibberish": 0.06,
+      "ocr_len": 743,
+      "new_len": 1160,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more complete, accurate, and includes specific inspection details and oil type, while A has missing information and inconsistencies."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#9",
+      "ocr_gibberish": 0.18,
+      "new_gibberish": 0.11,
+      "ocr_len": 7378,
+      "new_len": 1552,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is complete, accurate, and free of gibberish, while Transcription A is largely garbled and lacks coherent information."
+    },
+    {
+      "page": "338ec27a-2ac4-40ed-b869-1daf2efa30d8#8",
+      "ocr_gibberish": 0,
+      "new_gibberish": 0,
+      "ocr_len": 545,
+      "new_len": 44,
+      "winner": "A",
+      "b_improvement": 0,
+      "note": "Transcription A contains relevant information from the logbook, while Transcription B incorrectly states that the page is blank."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#7",
+      "ocr_gibberish": 0.05,
+      "new_gibberish": 0.06,
+      "ocr_len": 1204,
+      "new_len": 1110,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more complete and accurate, providing detailed maintenance actions and correct dates, while A contains numerous errors and garbled text."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#20",
+      "ocr_gibberish": 0.06,
+      "new_gibberish": 0.06,
+      "ocr_len": 879,
+      "new_len": 1169,
+      "winner": "B",
+      "b_improvement": 7,
+      "note": "Transcription B is more complete, includes additional details such as SMOH, specific dates, and clearer formatting."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#9",
+      "ocr_gibberish": 0.35,
+      "new_gibberish": 0.2,
+      "ocr_len": 3894,
+      "new_len": 1126,
+      "winner": "B",
+      "b_improvement": 9,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "2822357d-4feb-4fc1-b841-3e3e36c5f768#6",
+      "ocr_gibberish": 0.03,
+      "new_gibberish": 0.03,
+      "ocr_len": 479,
+      "new_len": 2468,
+      "winner": "B",
+      "b_improvement": 5,
+      "note": "B provides a structured table format which enhances readability and organization compared to A's plain text."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#11",
+      "ocr_gibberish": 0.22,
+      "new_gibberish": 0.14,
+      "ocr_len": 7839,
+      "new_len": 1168,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is complete, accurate, and free of gibberish, while Transcription A is largely garbled and incomplete."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#5",
+      "ocr_gibberish": 0.2,
+      "new_gibberish": 0.19,
+      "ocr_len": 7977,
+      "new_len": 2521,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#29",
+      "ocr_gibberish": 0.14,
+      "new_gibberish": 0.22,
+      "ocr_len": 4478,
+      "new_len": 291,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "B is more complete and accurate, providing specific details about the part and its condition, while A is mostly garbled and repetitive."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#19",
+      "ocr_gibberish": 0.03,
+      "new_gibberish": 0.06,
+      "ocr_len": 711,
+      "new_len": 1190,
+      "winner": "B",
+      "b_improvement": 7,
+      "note": "Transcription B is more complete, includes additional details, and has clearer formatting."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#27",
+      "ocr_gibberish": 0,
+      "new_gibberish": 0,
+      "ocr_len": 2672,
+      "new_len": 78,
+      "winner": "B",
+      "b_improvement": 0,
+      "note": "Transcription B correctly identifies the absence of text, while A is filled with garbled gibberish."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#33",
+      "ocr_gibberish": 0.04,
+      "new_gibberish": 0.01,
+      "ocr_len": 3466,
+      "new_len": 1721,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "B is clearer, more complete, and free of errors compared to A."
+    },
+    {
+      "page": "37de7b33-b4b8-4226-9794-ac7395cf31a0#10",
+      "ocr_gibberish": 0.09,
+      "new_gibberish": 0.09,
+      "ocr_len": 356,
+      "new_len": 1650,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more detailed, includes specific repairs and maintenance performed, and has clearer formatting."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#5",
+      "ocr_gibberish": 0.11,
+      "new_gibberish": 0.11,
+      "ocr_len": 3509,
+      "new_len": 1940,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is significantly more accurate and complete, providing detailed information about inspections, repairs, and alterations, while Transcription A is largely garbled and lacks coherent information."
+    },
+    {
+      "page": "244d0548-4697-4dc6-9a68-5c1480cfe43b#3",
+      "ocr_gibberish": 0.45,
+      "new_gibberish": 0.07,
+      "ocr_len": 3776,
+      "new_len": 2584,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#41",
+      "ocr_gibberish": 0.33,
+      "new_gibberish": 0.1,
+      "ocr_len": 706,
+      "new_len": 2510,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is significantly more accurate and complete, providing detailed information without any garbled text."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#6",
+      "ocr_gibberish": 0.29,
+      "new_gibberish": 0.08,
+      "ocr_len": 5901,
+      "new_len": 2346,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "244d0548-4697-4dc6-9a68-5c1480cfe43b#18",
+      "ocr_gibberish": 0.13,
+      "new_gibberish": 0.14,
+      "ocr_len": 2101,
+      "new_len": 36,
+      "winner": "B",
+      "b_improvement": 0,
+      "note": "Transcription B is a complete response indicating inability to assist, while A is garbled and incomplete."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#10",
+      "ocr_gibberish": 0.26,
+      "new_gibberish": 0.09,
+      "ocr_len": 6186,
+      "new_len": 919,
+      "winner": "B",
+      "b_improvement": 10,
+      "note": "Transcription B is complete, accurate, and free of gibberish, providing clear details about the aircraft's maintenance and inspections."
+    },
+    {
+      "page": "3a570bbd-7584-41ed-bf60-ddee6e925bb1#16",
+      "ocr_gibberish": 0.16,
+      "new_gibberish": 0,
+      "ocr_len": 23853,
+      "new_len": 334,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more organized and presents a clear structure, while A contains numerous errors and garbled text."
+    },
+    {
+      "page": "244d0548-4697-4dc6-9a68-5c1480cfe43b#1",
+      "ocr_gibberish": 0.42,
+      "new_gibberish": 0.14,
+      "ocr_len": 202,
+      "new_len": 1931,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly more complete and accurate, providing detailed information about the aircraft, maintenance records, and specific work performed, while Transcription A is mostly repetitive and lacks substantive content."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#18",
+      "ocr_gibberish": 0.39,
+      "new_gibberish": 0.13,
+      "ocr_len": 4989,
+      "new_len": 1239,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "1367b48b-a0ab-40cd-a22c-4387f54d84f5#23",
+      "ocr_gibberish": 0.15,
+      "new_gibberish": 0.19,
+      "ocr_len": 5394,
+      "new_len": 1246,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "3a570bbd-7584-41ed-bf60-ddee6e925bb1#8",
+      "ocr_gibberish": 0.16,
+      "new_gibberish": 0.15,
+      "ocr_len": 9243,
+      "new_len": 312,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more complete and accurate, providing specific details about the part and repair station, while A is repetitive and contains garbled text."
+    },
+    {
+      "page": "0301b791-6de8-4900-84a6-48b265892a14#37",
+      "ocr_gibberish": 0.14,
+      "new_gibberish": 0.03,
+      "ocr_len": 5436,
+      "new_len": 1497,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is more accurate, complete, and free of garbled text compared to A."
+    },
+    {
+      "page": "0bd2524a-1580-4e2f-b386-7c3cd00a9cac#4",
+      "ocr_gibberish": 0.31,
+      "new_gibberish": 0.08,
+      "ocr_len": 3369,
+      "new_len": 2777,
+      "winner": "B",
+      "b_improvement": 8,
+      "note": "Transcription B is significantly clearer, more complete, and free of garbled text compared to A."
+    }
+  ]
+}
