@@ -5,6 +5,7 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import { AIRCRAFT_OPERATION_TYPES } from '@/lib/aircraft/operations'
 import { findOwnerCustomer, syncAircraftOwnerAssignment } from '@/lib/aircraft/ownership'
 import { BillingBlockedError, requireActiveBilling } from '@/lib/billing/gate'
+import { runAircraftOnboarding } from '@/lib/onboarding/onboarding-init'
 import type { OrgRole } from '@/types'
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -499,6 +500,11 @@ export async function POST(req: NextRequest) {
         restored_from_archive: Boolean(existingAircraft?.is_archived),
       },
     })
+
+    // Fire onboarding pre-init DETACHED — best-effort FAA enrichment + BM25
+    // index priming run in the background while the client gets its aircraft
+    // back immediately. Never awaited; runAircraftOnboarding never throws.
+    void runAircraftOnboarding(aircraft.id)
 
     return NextResponse.json(aircraft, { status: existingAircraft?.is_archived ? 200 : 201 })
   } catch (err) {
