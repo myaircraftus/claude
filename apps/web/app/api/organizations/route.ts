@@ -14,6 +14,19 @@ const createOrgSchema = z.object({
   persona: z.enum(['owner', 'mechanic']).default('owner'),
 })
 
+// SOP-DOC-001 Item 4 — owners change their operation_type, which controls
+// dashboard module visibility (never document permissions).
+const updateOrgSchema = z.object({
+  organization_id: z.string().uuid(),
+  operation_type: z.enum([
+    'private',
+    'partnership',
+    'flight_school',
+    'flying_club',
+    'corporate',
+  ]),
+})
+
 export async function POST(req: NextRequest) {
   try {
     // 1. Auth check
@@ -161,6 +174,72 @@ export async function POST(req: NextRequest) {
     )
   } catch (err) {
     console.error('[organizations POST] unexpected error', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * SOP-DOC-001 Item 4 — update an organization's operation_type. Owner/admin
+ * members only. operation_type drives dashboard module visibility; it has no
+ * effect on document upload or view permissions.
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const supabase = createServerSupabase()
+    const service = createServiceSupabase()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
+    const parsed = updateOrgSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: parsed.error.flatten() },
+        { status: 422 }
+      )
+    }
+    const { organization_id, operation_type } = parsed.data
+
+    // Authorize: the caller must be an accepted owner/admin member of the org.
+    const { data: membership } = await service
+      .from('organization_memberships')
+      .select('role')
+      .eq('organization_id', organization_id)
+      .eq('user_id', user.id)
+      .not('accepted_at', 'is', null)
+      .maybeSingle()
+
+    if (!membership || !['owner', 'admin'].includes(membership.role as string)) {
+      return NextResponse.json(
+        { error: 'Only an owner or admin can change the operation type.' },
+        { status: 403 }
+      )
+    }
+
+    const { error: updateError } = await service
+      .from('organizations')
+      .update({ operation_type, updated_at: new Date().toISOString() })
+      .eq('id', organization_id)
+
+    if (updateError) {
+      console.error('[organizations PATCH] update error', updateError)
+      return NextResponse.json({ error: 'Failed to update organization' }, { status: 500 })
+    }
+
+    return NextResponse.json({ ok: true, operation_type })
+  } catch (err) {
+    console.error('[organizations PATCH] unexpected error', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

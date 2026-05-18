@@ -11,6 +11,8 @@ import {
   BookOpen, ArrowRight, Activity, Mailbox,
 } from 'lucide-react'
 import { Topbar } from '@/components/shared/topbar'
+import type { OrganizationOperationType } from '@/types'
+import { OperationModules } from './operation-modules'
 
 export interface OwnerDashboardData {
   firstName: string
@@ -59,9 +61,13 @@ const ACTIVITY_ICON = {
 export function OwnerDashboard({
   profile,
   data,
+  organizationId,
+  operationType,
 }: {
   profile: any
   data: OwnerDashboardData
+  organizationId: string
+  operationType: OrganizationOperationType
 }) {
   const { counts } = data
 
@@ -85,6 +91,9 @@ export function OwnerDashboard({
             <StatCard href="/squawks" icon={<AlertTriangle className="h-4 w-4 text-rose-700" />} bg="bg-rose-50" label="Open Squawks" value={counts.squawks} />
             <StatCard href="/work-orders" icon={<Wrench className="h-4 w-4 text-indigo-700" />} bg="bg-indigo-50" label="Active Work Orders" value={counts.workOrders} />
           </div>
+
+          {/* ROW 1.5 — operation-type-aware dashboard modules (SOP-DOC-001 Item 4) */}
+          <OperationModules organizationId={organizationId} operationType={operationType} />
 
           {/* ROW 2 — My Aircraft */}
           <section>

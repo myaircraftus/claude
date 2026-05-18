@@ -2,6 +2,7 @@ import { Dashboard } from '@/components/redesign/Dashboard'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { OwnerDashboard, type OwnerDashboardData } from './owner-dashboard'
+import type { OrganizationOperationType } from '@/types'
 
 export const metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'
@@ -43,6 +44,7 @@ export default async function DashboardPage() {
     woActivityRes,
     sqActivityRes,
     logbookRes,
+    orgRes,
   ] = await Promise.all([
     supabase
       .from('aircraft')
@@ -103,6 +105,11 @@ export default async function DashboardPage() {
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(200),
+    supabase
+      .from('organizations')
+      .select('operation_type')
+      .eq('id', orgId)
+      .single(),
   ])
 
   const aircraftRows = (aircraftRes.data ?? []) as Array<{
@@ -161,5 +168,17 @@ export default async function DashboardPage() {
     })),
   }
 
-  return <OwnerDashboard profile={profile} data={data} />
+  const operationType =
+    ((orgRes.data as { operation_type?: string } | null)?.operation_type as
+      | OrganizationOperationType
+      | undefined) ?? 'private'
+
+  return (
+    <OwnerDashboard
+      profile={profile}
+      data={data}
+      organizationId={orgId}
+      operationType={operationType}
+    />
+  )
 }
