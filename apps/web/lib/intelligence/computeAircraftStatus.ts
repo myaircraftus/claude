@@ -17,7 +17,7 @@ export async function computeAircraftStatus(
     .from('maintenance_events')
     .select('*')
     .eq('aircraft_id', input.aircraftId)
-    .order('entry_date', { ascending: true })
+    .order('event_date', { ascending: true })
 
   if (!events) return
 
@@ -43,13 +43,13 @@ export async function computeAircraftStatus(
   if (!aircraft) return
 
   // --- AIRFRAME TIME ---
-  // Latest event with aircraft_total_time populated
+  // Latest event with airframe_tt populated
   const latestWithTime = [...events]
     .reverse()
-    .find(e => e.aircraft_total_time != null)
+    .find(e => e.airframe_tt != null)
 
-  const airframeTime = latestWithTime?.aircraft_total_time ?? null
-  const airframeTimeSourceDate = latestWithTime?.entry_date ?? null
+  const airframeTime = latestWithTime?.airframe_tt ?? null
+  const airframeTimeSourceDate = latestWithTime?.event_date ?? null
 
   // --- ENGINE TIME ---
   const engineOverhauls = events.filter(e =>
@@ -57,7 +57,7 @@ export async function computeAircraftStatus(
   )
   const lastOverhaul = engineOverhauls[engineOverhauls.length - 1]
   const engineTimeSinceOverhaul = lastOverhaul && airframeTime
-    ? airframeTime - lastOverhaul.aircraft_total_time
+    ? airframeTime - lastOverhaul.airframe_tt
     : null
 
   // --- PROP TIME ---
@@ -66,15 +66,15 @@ export async function computeAircraftStatus(
   )
   const lastPropOverhaul = propOverhauls[propOverhauls.length - 1]
   const propTimeSinceOverhaul = lastPropOverhaul && airframeTime
-    ? airframeTime - lastPropOverhaul.aircraft_total_time
+    ? airframeTime - lastPropOverhaul.airframe_tt
     : null
 
   // --- INSPECTION CURRENCY ---
   const annuals = events
     .filter(e => e.event_type === 'annual_inspection')
-    .sort((a, b) => new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime())
+    .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime())
   const lastAnnual = annuals[0]
-  const lastAnnualDate = lastAnnual?.entry_date ? new Date(lastAnnual.entry_date) : null
+  const lastAnnualDate = lastAnnual?.event_date ? new Date(lastAnnual.event_date) : null
   const annualNextDue = lastAnnualDate
     ? new Date(lastAnnualDate.getFullYear() + 1, lastAnnualDate.getMonth(), lastAnnualDate.getDate())
     : null
@@ -82,27 +82,27 @@ export async function computeAircraftStatus(
 
   // ELT — last inspection event type 'elt_inspection'
   const lastElt = findLastByType(events, 'elt_inspection')
-  const eltNextDue = addMonths(lastElt?.entry_date, 24)
+  const eltNextDue = addMonths(lastElt?.event_date, 24)
   const eltIsCurrent = eltNextDue ? eltNextDue >= new Date() : false
 
   // Transponder — event type 'transponder_test'
   const lastXpdr = findLastByType(events, 'transponder_test')
-  const xpdrNextDue = addMonths(lastXpdr?.entry_date, 24)
+  const xpdrNextDue = addMonths(lastXpdr?.event_date, 24)
   const xpdrIsCurrent = xpdrNextDue ? xpdrNextDue >= new Date() : false
 
   // Pitot-static — event type 'pitot_static_test'
   const lastPitotStatic = findLastByType(events, 'pitot_static_test')
-  const psNextDue = addMonths(lastPitotStatic?.entry_date, 24)
+  const psNextDue = addMonths(lastPitotStatic?.event_date, 24)
   const psIsCurrent = psNextDue ? psNextDue >= new Date() : false
 
   // Altimeter — event type 'altimeter_calibration'
   const lastAltimeter = findLastByType(events, 'altimeter_calibration')
-  const altNextDue = addMonths(lastAltimeter?.entry_date, 24)
+  const altNextDue = addMonths(lastAltimeter?.event_date, 24)
   const altIsCurrent = altNextDue ? altNextDue >= new Date() : false
 
   // VOR check — event type 'vor_check'
   const lastVor = findLastByType(events, 'vor_check')
-  const vorNextDue = addDays(lastVor?.entry_date, 30)
+  const vorNextDue = addDays(lastVor?.event_date, 30)
   const vorIsCurrent = vorNextDue ? vorNextDue >= new Date() : false
 
   // --- AD SUMMARY ---
@@ -168,34 +168,34 @@ export async function computeAircraftStatus(
       airframe_time_source_date: airframeTimeSourceDate,
 
       engine_time_since_overhaul: engineTimeSinceOverhaul,
-      engine_last_overhaul_date: lastOverhaul?.entry_date ?? null,
+      engine_last_overhaul_date: lastOverhaul?.event_date ?? null,
       engine_last_overhaul_shop: extractOverhaulShop(lastOverhaul),
 
       prop_time_since_overhaul: propTimeSinceOverhaul,
-      prop_last_overhaul_date: lastPropOverhaul?.entry_date ?? null,
+      prop_last_overhaul_date: lastPropOverhaul?.event_date ?? null,
 
-      last_annual_date: lastAnnual?.entry_date ?? null,
-      last_annual_aircraft_time: lastAnnual?.aircraft_total_time ?? null,
+      last_annual_date: lastAnnual?.event_date ?? null,
+      last_annual_aircraft_time: lastAnnual?.airframe_tt ?? null,
       annual_next_due_date: annualNextDue?.toISOString().split('T')[0] ?? null,
       annual_is_current: annualIsCurrent,
 
-      last_elt_inspection_date: lastElt?.entry_date ?? null,
+      last_elt_inspection_date: lastElt?.event_date ?? null,
       elt_next_due_date: eltNextDue?.toISOString().split('T')[0] ?? null,
       elt_is_current: eltIsCurrent,
 
-      last_transponder_test_date: lastXpdr?.entry_date ?? null,
+      last_transponder_test_date: lastXpdr?.event_date ?? null,
       transponder_next_due_date: xpdrNextDue?.toISOString().split('T')[0] ?? null,
       transponder_is_current: xpdrIsCurrent,
 
-      last_pitot_static_date: lastPitotStatic?.entry_date ?? null,
+      last_pitot_static_date: lastPitotStatic?.event_date ?? null,
       pitot_static_next_due_date: psNextDue?.toISOString().split('T')[0] ?? null,
       pitot_static_is_current: psIsCurrent,
 
-      last_altimeter_date: lastAltimeter?.entry_date ?? null,
+      last_altimeter_date: lastAltimeter?.event_date ?? null,
       altimeter_next_due_date: altNextDue?.toISOString().split('T')[0] ?? null,
       altimeter_is_current: altIsCurrent,
 
-      last_vor_check_date: lastVor?.entry_date ?? null,
+      last_vor_check_date: lastVor?.event_date ?? null,
       vor_check_next_due_date: vorNextDue?.toISOString().split('T')[0] ?? null,
       vor_check_is_current: vorIsCurrent,
 
@@ -272,7 +272,7 @@ function hasRequiredRegistrationDocument(documents: Partial<IntelligenceDocument
 function findLastByType(events: any[], type: string) {
   return [...events]
     .filter(e => e.event_type === type)
-    .sort((a, b) => new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime())[0]
+    .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime())[0]
 }
 
 function addMonths(dateStr: string | null | undefined, months: number): Date | null {
@@ -291,7 +291,7 @@ function addDays(dateStr: string | null | undefined, days: number): Date | null 
 
 function extractOverhaulShop(event: any): string | null {
   if (!event) return null
-  const desc = event.work_description ?? ''
+  const desc = event.description ?? ''
   const shopMatch = desc.match(/overhauled by ([^,.]+)/i) ?? desc.match(/at ([^,.]+) shop/i)
   return shopMatch?.[1]?.trim() ?? null
 }

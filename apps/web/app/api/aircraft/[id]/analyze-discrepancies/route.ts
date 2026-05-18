@@ -22,15 +22,15 @@ export async function POST(
   // Pull last 50 maintenance events for AI analysis
   const { data: events } = await supabase
     .from('maintenance_events')
-    .select('entry_date, event_type, aircraft_total_time, work_description, certifying_mechanic_cert')
+    .select('event_date, event_type, airframe_tt, description, mechanic_cert')
     .eq('aircraft_id', params.id)
-    .order('entry_date', { ascending: true })
+    .order('event_date', { ascending: true })
     .limit(50)
 
   if (!events?.length) return NextResponse.json({ discrepancies: [] })
 
   const eventSummary = events.map(e =>
-    `${e.entry_date} | ${e.event_type} | TTAF: ${e.aircraft_total_time ?? 'N/A'} | Cert: ${e.certifying_mechanic_cert ?? 'N/A'} | "${e.work_description?.substring(0, 100)}"`
+    `${e.event_date} | ${e.event_type} | TTAF: ${e.airframe_tt ?? 'N/A'} | Cert: ${e.mechanic_cert ?? 'N/A'} | "${e.description?.substring(0, 100)}"`
   ).join('\n')
 
   const completion = await getOpenAI().chat.completions.create({

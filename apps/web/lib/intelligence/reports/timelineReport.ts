@@ -12,7 +12,7 @@ export async function generateTimelineReport(
     .from('maintenance_events')
     .select('*')
     .eq('aircraft_id', aircraftId)
-    .order('entry_date', { ascending: false })
+    .order('event_date', { ascending: false })
     .limit(50)
 
   return renderReportToPDF({
@@ -29,10 +29,10 @@ export async function generateTimelineReport(
     status: {},
     findings: [],
     recentMaintenance: events?.map(e => ({
-      date: e.entry_date,
+      date: e.event_date,
       type: e.event_type,
-      summary: e.work_summary,
-      mechanic: e.certifying_mechanic_name,
+      summary: e.description,
+      mechanic: e.mechanic_name,
     })) ?? [],
   }, 'maintenance_timeline')
 }

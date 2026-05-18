@@ -498,7 +498,10 @@ async function clearDerivedArtifacts(supabase: ServiceClient, documentId: string
     supabase.from('document_metadata_extractions').delete().eq('document_id', documentId)
   )
   await runDelete('maintenance events', () =>
-    supabase.from('maintenance_events').delete().eq('document_id', documentId)
+    // Only the legacy parser-metadata rows — never the rows promoted from
+    // ocr_extracted_events (source_event_id set); those are re-created by the
+    // promote trigger and re-deleting them here would lose intelligence data.
+    supabase.from('maintenance_events').delete().eq('document_id', documentId).is('source_event_id', null)
   )
   await runDelete('document pages', () =>
     supabase.from('document_pages').delete().eq('document_id', documentId)

@@ -20,7 +20,7 @@ export async function generateAircraftOverviewReport(
   ] = await Promise.all([
     supabase.from('aircraft').select('*').eq('id', aircraftId).single(),
     supabase.from('aircraft_computed_status').select('*').eq('aircraft_id', aircraftId).single(),
-    supabase.from('maintenance_events').select('*').eq('aircraft_id', aircraftId).order('entry_date', { ascending: false }).limit(20),
+    supabase.from('maintenance_events').select('*').eq('aircraft_id', aircraftId).order('event_date', { ascending: false }).limit(20),
     supabase.from('record_findings').select('*').eq('aircraft_id', aircraftId).eq('is_resolved', false).order('severity'),
   ])
 
@@ -32,7 +32,7 @@ Current total time: ${status?.airframe_total_time ?? 'Unknown'}h.
 Annual status: ${status?.annual_is_current ? 'Current' : 'OVERDUE'}, last annual: ${status?.last_annual_date ?? 'Unknown'}.
 Engine time since overhaul: ${status?.engine_time_since_overhaul ?? 'Unknown'}h.
 AD compliance: ${status?.ads_complied ?? 0} complied, ${status?.ads_open ?? 0} open, ${status?.ads_unknown ?? 0} unknown.
-Recent maintenance summary: ${events?.slice(0, 5).map(e => `${e.entry_date}: ${e.event_type}`).join('; ')}.
+Recent maintenance summary: ${events?.slice(0, 5).map(e => `${e.event_date}: ${e.event_type}`).join('; ')}.
 Findings: ${findings?.length ?? 0} open issues (${findings?.filter(f => f.severity === 'critical').length ?? 0} critical).
 
 Write a concise 2-3 paragraph executive summary of this aircraft's maintenance status.
@@ -78,10 +78,10 @@ Write for an aircraft owner or buyer — not a mechanic.
       recommendation: f.recommendation,
     })),
     recentMaintenance: events?.slice(0, 10).map(e => ({
-      date: e.entry_date,
+      date: e.event_date,
       type: e.event_type,
-      summary: e.work_summary,
-      mechanic: e.certifying_mechanic_name,
+      summary: e.description,
+      mechanic: e.mechanic_name,
     })),
   }
 

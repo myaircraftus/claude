@@ -26,8 +26,8 @@ export async function generatePrebuyPacket(
     { data: documents },
   ] = await Promise.all([
     supabase.from('aircraft').select('*').eq('id', aircraftId).single(),
-    supabase.from('aircraft_computed_status').select('*').eq('aircraft_id', aircraftId).single(),
-    supabase.from('maintenance_events').select('*').eq('aircraft_id', aircraftId).order('entry_date', { ascending: true }),
+    supabase.from('aircraft_computed_status').select('*').eq('aircraft_id', aircraftId).maybeSingle(),
+    supabase.from('maintenance_events').select('*').eq('aircraft_id', aircraftId).order('event_date', { ascending: true }),
     supabase.from('record_findings').select('*').eq('aircraft_id', aircraftId).eq('is_resolved', false).order('severity'),
     supabase.from('aircraft_ad_applicability').select('*').eq('aircraft_id', aircraftId),
     supabase
@@ -44,7 +44,7 @@ export async function generatePrebuyPacket(
 
   // Detect damage history indicators (major repairs to primary structure)
   const damageIndicators = majorRepairs.filter(e => {
-    const desc = (e.work_description ?? '').toLowerCase()
+    const desc = (e.description ?? '').toLowerCase()
     return desc.includes('damage') || desc.includes('bent') || desc.includes('fire') ||
            desc.includes('ground loop') || desc.includes('prop strike') || desc.includes('gear collapse')
   })
@@ -135,23 +135,23 @@ Flag the most important issues in the first paragraph.
       annualCount: annuals.length,
       lastAnnual: annuals[annuals.length - 1],
       engineOverhauls: engineOverhauls.map(e => ({
-        date: e.entry_date,
-        aircraftTime: e.aircraft_total_time,
-        summary: e.work_summary,
+        date: e.event_date,
+        aircraftTime: e.airframe_tt,
+        summary: e.description,
       })),
       propOverhauls: propOverhauls.map(e => ({
-        date: e.entry_date,
-        summary: e.work_summary,
+        date: e.event_date,
+        summary: e.description,
       })),
       majorRepairs: majorRepairs.map(e => ({
-        date: e.entry_date,
-        summary: e.work_summary,
-        description: e.work_description,
+        date: e.event_date,
+        summary: e.description,
+        description: e.description,
       })),
       damageIndicators: damageIndicators.map(e => ({
-        date: e.entry_date,
-        summary: e.work_summary,
-        description: e.work_description,
+        date: e.event_date,
+        summary: e.description,
+        description: e.description,
       })),
     },
     findings: findings?.map(f => ({

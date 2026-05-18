@@ -27,7 +27,7 @@ export async function generateAnnualInspectionSummary(
       .select('*')
       .eq('aircraft_id', aircraftId)
       .eq('event_type', 'annual_inspection')
-      .order('entry_date', { ascending: false })
+      .order('event_date', { ascending: false })
       .limit(5),
   ])
 
@@ -46,7 +46,7 @@ export async function generateAnnualInspectionSummary(
     adsUnknown: status?.ads_unknown ?? 0,
     openFindingsCount: findings?.length ?? 0,
     criticalFindingsCount: findings?.filter(f => f.severity === 'critical').length ?? 0,
-    recentMaintenance: annualEvents?.map(e => ({ date: e.entry_date, type: e.event_type, summary: e.work_summary })) ?? [],
+    recentMaintenance: annualEvents?.map(e => ({ date: e.event_date, type: e.event_type, summary: e.description })) ?? [],
   }
 
   const completion = await getOpenAI().chat.completions.create({
@@ -91,10 +91,10 @@ export async function generateAnnualInspectionSummary(
       recommendation: f.recommendation,
     })),
     recentMaintenance: annualEvents?.slice(0, 5).map(e => ({
-      date: e.entry_date,
+      date: e.event_date,
       type: e.event_type,
-      summary: e.work_summary,
-      mechanic: e.certifying_mechanic_name,
+      summary: e.description,
+      mechanic: e.mechanic_name,
     })),
   }
 

@@ -21,14 +21,14 @@ export async function generateComplianceAdReport(
     { data: recentEvents },
   ] = await Promise.all([
     supabase.from('aircraft').select('*').eq('id', aircraftId).single(),
-    supabase.from('aircraft_computed_status').select('*').eq('aircraft_id', aircraftId).single(),
+    supabase.from('aircraft_computed_status').select('*').eq('aircraft_id', aircraftId).maybeSingle(),
     supabase.from('record_findings').select('*').eq('aircraft_id', aircraftId).eq('is_resolved', false).order('severity'),
     supabase.from('aircraft_ad_applicability').select('*').eq('aircraft_id', aircraftId).order('compliance_status'),
     supabase
       .from('maintenance_events')
       .select('*')
       .eq('aircraft_id', aircraftId)
-      .order('entry_date', { ascending: false })
+      .order('event_date', { ascending: false })
       .limit(5),
   ])
 
@@ -47,7 +47,7 @@ export async function generateComplianceAdReport(
     adsUnknown: status?.ads_unknown ?? 0,
     openFindingsCount: findings?.length ?? 0,
     criticalFindingsCount: findings?.filter(f => f.severity === 'critical').length ?? 0,
-    recentMaintenance: recentEvents?.map(e => ({ date: e.entry_date, type: e.event_type, summary: e.work_summary })) ?? [],
+    recentMaintenance: recentEvents?.map(e => ({ date: e.event_date, type: e.event_type, summary: e.description })) ?? [],
   }
 
   const completion = await getOpenAI().chat.completions.create({
@@ -103,10 +103,10 @@ export async function generateComplianceAdReport(
       recommendation: f.recommendation,
     })),
     recentMaintenance: recentEvents?.slice(0, 5).map(e => ({
-      date: e.entry_date,
+      date: e.event_date,
       type: e.event_type,
-      summary: e.work_summary,
-      mechanic: e.certifying_mechanic_name,
+      summary: e.description,
+      mechanic: e.mechanic_name,
     })),
   }
 

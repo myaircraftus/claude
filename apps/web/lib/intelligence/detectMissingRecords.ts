@@ -34,7 +34,7 @@ export async function detectMissingRecords(input: DetectionInput): Promise<strin
       .from('maintenance_events')
       .select('*')
       .eq('aircraft_id', input.aircraftId)
-      .order('entry_date', { ascending: true })
+      .order('event_date', { ascending: true })
 
     const { data: documents } = await supabase
       .from('documents')
@@ -183,7 +183,7 @@ function detectAnnualGaps(events: any[], aircraft: any): FindingRecord[] {
   const findings: FindingRecord[] = []
   const annuals = events
     .filter(e => e.event_type === 'annual_inspection')
-    .sort((a, b) => new Date(a.entry_date).getTime() - new Date(b.entry_date).getTime())
+    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
 
   if (annuals.length === 0) {
     findings.push({
@@ -199,8 +199,8 @@ function detectAnnualGaps(events: any[], aircraft: any): FindingRecord[] {
 
   // Check gaps between annuals
   for (let i = 1; i < annuals.length; i++) {
-    const prev = new Date(annuals[i - 1].entry_date)
-    const curr = new Date(annuals[i].entry_date)
+    const prev = new Date(annuals[i - 1].event_date)
+    const curr = new Date(annuals[i].event_date)
     const monthGap = (curr.getFullYear() - prev.getFullYear()) * 12 + (curr.getMonth() - prev.getMonth())
 
     if (monthGap > 14) { // Allow 2 months grace for calendar month rule
@@ -221,7 +221,7 @@ function detectAnnualGaps(events: any[], aircraft: any): FindingRecord[] {
 
   // Check if current annual is overdue
   const lastAnnual = annuals[annuals.length - 1]
-  const lastAnnualDate = new Date(lastAnnual.entry_date)
+  const lastAnnualDate = new Date(lastAnnual.event_date)
   const nextDue = new Date(lastAnnualDate)
   nextDue.setFullYear(nextDue.getFullYear() + 1)
   if (nextDue < new Date()) {
@@ -277,7 +277,7 @@ function detectInspectionGaps(events: any[]): FindingRecord[] {
   for (const check of inspectionChecks) {
     const inspections = events
       .filter(e => e.event_type === check.eventType)
-      .sort((a, b) => new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime())
+      .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime())
 
     if (inspections.length === 0) {
       findings.push({
@@ -290,7 +290,7 @@ function detectInspectionGaps(events: any[]): FindingRecord[] {
       })
     } else {
       const last = inspections[0]
-      const lastDate = new Date(last.entry_date)
+      const lastDate = new Date(last.event_date)
       const nextDue = new Date(lastDate)
       nextDue.setMonth(nextDue.getMonth() + check.intervalMonths)
       if (nextDue < new Date()) {
@@ -320,16 +320,16 @@ function detectLogbookContinuityGaps(events: any[]): FindingRecord[] {
 
   const engineEvents = events
     .filter(e => ['engine_log', 'engine_oil_change', 'compression_check', 'annual_inspection'].includes(e.event_type))
-    .filter(e => e.aircraft_total_time != null)
-    .sort((a, b) => a.aircraft_total_time - b.aircraft_total_time)
+    .filter(e => e.airframe_tt != null)
+    .sort((a, b) => a.airframe_tt - b.airframe_tt)
 
   for (let i = 1; i < engineEvents.length; i++) {
-    const timeDelta = engineEvents[i].aircraft_total_time - engineEvents[i - 1].aircraft_total_time
+    const timeDelta = engineEvents[i].airframe_tt - engineEvents[i - 1].airframe_tt
     if (timeDelta > 500) {
       findings.push({
         finding_type: 'missing_engine_log_continuity',
         severity: 'warning',
-        title: `Engine Log Gap: ${engineEvents[i - 1].aircraft_total_time}h to ${engineEvents[i].aircraft_total_time}h`,
+        title: `Engine Log Gap: ${engineEvents[i - 1].airframe_tt}h to ${engineEvents[i].airframe_tt}h`,
         description: `There is a gap of ${Math.round(timeDelta)} hours between logged engine entries. This may indicate missing logbook pages or an undigitized maintenance book covering this period.`,
         recommendation: 'Verify that all engine logbooks have been scanned. If a gap exists in the physical records, note it in the aircraft file.',
         affected_component: 'engine',
@@ -485,18 +485,18 @@ function detectTimeDiscrepancies(events: any[]): FindingRecord[] {
   const findings: FindingRecord[] = []
 
   const timedEvents = events
-    .filter(e => e.aircraft_total_time != null)
-    .sort((a, b) => new Date(a.entry_date).getTime() - new Date(b.entry_date).getTime())
+    .filter(e => e.airframe_tt != null)
+    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
 
   for (let i = 1; i < timedEvents.length; i++) {
     const prev = timedEvents[i - 1]
     const curr = timedEvents[i]
-    if (curr.aircraft_total_time < prev.aircraft_total_time) {
+    if (curr.airframe_tt < prev.airframe_tt) {
       findings.push({
         finding_type: 'time_regression',
         severity: 'warning',
-        title: `Time Regression Detected: ${prev.aircraft_total_time}h → ${curr.aircraft_total_time}h`,
-        description: `Entry dated ${formatDate(new Date(curr.entry_date))} shows aircraft total time of ${curr.aircraft_total_time}h, which is less than the prior entry dated ${formatDate(new Date(prev.entry_date))} showing ${prev.aircraft_total_time}h. Aircraft total time should never decrease.`,
+        title: `Time Regression Detected: ${prev.airframe_tt}h → ${curr.airframe_tt}h`,
+        description: `Entry dated ${formatDate(new Date(curr.event_date))} shows aircraft total time of ${curr.airframe_tt}h, which is less than the prior entry dated ${formatDate(new Date(prev.event_date))} showing ${prev.airframe_tt}h. Aircraft total time should never decrease.`,
         recommendation: 'Review the original logbook pages for these entries. One of the times may be a transcription error.',
         affected_component: 'airframe',
         source_event_ids: [prev.id, curr.id],
