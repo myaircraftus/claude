@@ -368,3 +368,102 @@ export function createModalBackfillClient(
     },
   }
 }
+
+// ─── /embed-query client (Wave 1.7) ────────────────────────────────────
+
+/** A text query embedded by the ColQwen2 query encoder. */
+export interface VisionQueryEmbedding {
+  /** 128-dim summary vector — feeds the ANN pre-filter (searchVisionIndex). */
+  summaryVector: number[]
+  /** Per-token vectors (128-dim each) — feed MaxSim late-interaction re-rank. */
+  tokenVectors: number[][]
+}
+
+interface ModalQueryResponse {
+  results?: Array<{
+    summary_vector?: number[] | null
+    token_vectors?: number[][] | null
+    n_tokens?: number
+    success?: boolean
+    error?: string
+  }>
+  error?: string
+}
+
+/**
+ * Resolve the /embed-query endpoint URL. Prefers the explicit
+ * MODAL_QUERY_ENDPOINT_URL; else derives it from MODAL_ENDPOINT_URL by
+ * swapping the `embed` path segment for `embed-query`.
+ */
+function resolveQueryEndpointUrl(): string | null {
+  const explicit = process.env.MODAL_QUERY_ENDPOINT_URL
+  if (explicit && explicit.trim()) return explicit.trim()
+  const embedUrl = process.env.MODAL_ENDPOINT_URL
+  if (!embedUrl) return null
+  const swapped = embedUrl.replace(/embed(?!-query)/, 'embed-query')
+  return swapped === embedUrl ? null : swapped
+}
+
+/**
+ * Embed a text QUERY with the ColQwen2 query encoder via Modal
+ * /embed-query (Wave 1.7).
+ *
+ * STRICTLY best-effort — returns `null` on ANY failure (no key/URL,
+ * network error, timeout, malformed response, GPU error). Never throws.
+ * Callers treat a null result as "skip vision retrieval" so the text
+ * answer path is completely unaffected when the GPU worker is down.
+ */
+export async function embedVisionQuery(
+  query: string,
+  opts: { timeoutMs?: number; fetchFn?: typeof fetch } = {},
+): Promise<VisionQueryEmbedding | null> {
+  const apiKey = process.env.MODAL_API_KEY
+  const url = resolveQueryEndpointUrl()
+  if (!apiKey || !url || !query.trim()) return null
+
+  const fetchFn = opts.fetchFn ?? fetch
+  const timeoutMs =
+    opts.timeoutMs ?? (Number(process.env.MODAL_TIMEOUT_MS) || MODAL_DEFAULT_TIMEOUT_MS)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query }),
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      console.warn(`[vision/embedVisionQuery] modal /embed-query HTTP ${res.status}`)
+      return null
+    }
+    const json = (await res.json()) as ModalQueryResponse
+    const r = json.results?.[0]
+    if (!r || r.success !== true) {
+      console.warn(
+        `[vision/embedVisionQuery] /embed-query failed: ${r?.error ?? json.error ?? 'no result'}`,
+      )
+      return null
+    }
+    const sv = r.summary_vector
+    const tv = r.token_vectors
+    if (!Array.isArray(sv) || sv.length !== MODAL_EMBEDDING_DIM) {
+      console.warn(`[vision/embedVisionQuery] bad summary_vector dim ${sv?.length ?? 'undefined'}`)
+      return null
+    }
+    if (
+      !Array.isArray(tv) ||
+      tv.length === 0 ||
+      !tv.every((t) => Array.isArray(t) && t.length === MODAL_EMBEDDING_DIM)
+    ) {
+      console.warn('[vision/embedVisionQuery] bad token_vectors shape')
+      return null
+    }
+    return { summaryVector: sv, tokenVectors: tv }
+  } catch (err) {
+    console.warn('[vision/embedVisionQuery] error (ignored):', err)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}

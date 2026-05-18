@@ -24,6 +24,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { parseJsonBody } from '@/lib/validation/common'
 import { hybridRetrieve, type HybridMode } from '@/lib/vision/retriever'
+import { embedVisionQuery } from '@/lib/vision/workers/modal'
 import { logRetrieval, calibrateForLogging } from '@/lib/vision/telemetry'
 
 export const dynamic = 'force-dynamic'
@@ -64,12 +65,26 @@ export async function POST(req: NextRequest) {
   // is enforced explicitly via the orgId arg into hybridRetrieve.
   const service = createServiceSupabase()
 
+  const effectiveMode = (mode ?? 'hybrid') as HybridMode
+
+  // Embed the text query with the real ColQwen2 query encoder (Modal
+  // /embed-query) whenever the vision side will run. Best-effort: a null
+  // result means the GPU worker is unreachable or unconfigured, in which
+  // case hybridRetrieve falls back to its deterministic stub query
+  // vectors. The text-retrieval path is unaffected either way.
+  let visionQuery: Awaited<ReturnType<typeof embedVisionQuery>> = null
+  if (effectiveMode !== 'text') {
+    visionQuery = await embedVisionQuery(query)
+  }
+
   const t0 = Date.now()
   let results
   try {
     results = await hybridRetrieve(service, membership.organization_id, query, {
       k,
-      mode: (mode ?? 'hybrid') as HybridMode,
+      mode: effectiveMode,
+      querySummaryVector: visionQuery?.summaryVector,
+      queryVectorTokens: visionQuery?.tokenVectors,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
