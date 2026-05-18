@@ -124,15 +124,15 @@ export function stubVectorsForPage(visionPageId: string): {
 }
 
 /**
- * Top-k retrieval by ANN on summary_vector. Uses pgvector's <=> cosine
- * distance operator via a Supabase rpc (when available) or falls back
- * to a structural query. For Sprint 8.4 we just return the most-recent
- * embeddings for the org (no actual ANN) — Sprint 8.5 wires up the
- * real cosine-distance ORDER BY.
+ * Top-k retrieval by cosine-similarity ANN on summary_vector, via the
+ * `match_vision_embeddings` RPC (HNSW vector_cosine_ops index, org-scoped).
+ * Returns at most `k` results sorted by similarity descending. The dim
+ * guard rejects queries that don't match the stored 128-dim ColQwen2
+ * embedding.
  *
- * Returns at most `k` results. Org-scoped via the explicit filter +
- * RLS. The dim-mismatch guard rejects queries that don't match the
- * stored embedding dim (currently 128).
+ * Wave 1.7 — this replaced the Sprint 8.4 stub that returned the most
+ * RECENT rows rather than the most SIMILAR. `summary_score` from the RPC
+ * is cosine similarity (1 = identical).
  */
 export async function searchVisionIndex(
   supabase: SupabaseClient,
@@ -144,34 +144,29 @@ export async function searchVisionIndex(
 ): Promise<VisionSearchHit[]> {
   const k = args.k ?? 10
 
-  // Dim guard. Real ANN code will also enforce this server-side via
-  // pgvector's vector(N) type; doing it here gives a clean 4xx-style
-  // throw rather than a confusing pg error.
+  // Dim guard — a clean throw rather than a confusing pgvector dim error.
   if (args.query_vector.length !== 128) {
     throw new Error(
       `searchVisionIndex: query_vector length ${args.query_vector.length} ≠ expected 128`,
     )
   }
 
-  // Sprint 8.4 stub: return recent embeddings, sorted by created_at.
-  // Sprint 8.5 will replace this with a pgvector cosine-distance
-  // query: `ORDER BY summary_vector <=> $1::vector LIMIT $2`.
-  const { data, error } = await supabase
-    .from('vision_embeddings')
-    .select('vision_page_id, model_used, embedding_dim')
-    .eq('organization_id', args.organization_id)
-    .order('created_at', { ascending: false })
-    .limit(k)
+  const { data, error } = await supabase.rpc('match_vision_embeddings', {
+    p_organization_id: args.organization_id,
+    p_query_vector: args.query_vector,
+    p_match_count: k,
+  })
   if (error) throw new Error(`searchVisionIndex: ${error.message}`)
 
   return ((data ?? []) as Array<{
     vision_page_id: string
     model_used: string
     embedding_dim: number
-  }>).map((row, idx) => ({
+    summary_score: number
+  }>).map((row) => ({
     vision_page_id: row.vision_page_id,
-    vision_index_id: row.vision_page_id, // 1:1 in stub mode
-    summary_score: 1.0 - idx * 0.01,      // monotonic placeholder score
+    vision_index_id: row.vision_page_id,
+    summary_score: typeof row.summary_score === 'number' ? row.summary_score : 0,
     model_used: row.model_used,
     embedding_dim: row.embedding_dim,
   }))
