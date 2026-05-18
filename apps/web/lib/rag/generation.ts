@@ -137,25 +137,24 @@ export async function generateAnswer(
     ? parsed.cited_chunk_ids
     : [];
 
-  // 6. Build AnswerCitation objects from cited_chunk_ids.
+  // 6. Build AnswerCitation objects.
   //
-  // The system prompt asks the model to (a) use [N] index markers inline AND
-  // (b) return UUIDs in cited_chunk_ids. In practice GPT-4o frequently
-  // returns UUIDs that don't exactly match retrieved chunk IDs, which made
-  // the filter silently drop everything — citations: [] — and the [N]
-  // markers in the rendered answer became dead plain text in the UI.
+  // CRITICAL for citation correctness: the context block presents chunks to
+  // the model numbered [1]..[N] (chunks[i] is labelled [i+1]). The user sees
+  // those same [N] markers inline in the rendered answer, and the UI resolves
+  // marker [N] to citations[N-1]. Therefore the ONLY ordering that keeps a
+  // displayed [N] pointing at the chunk the model actually quoted is the
+  // inline-marker order.
   //
-  // Defense in depth: try UUIDs first; if zero map, fall back to extracting
-  // the [N] markers from the answer text and resolving each one to
-  // chunks[N-1]. We also union the two sources so a partial-UUID return
-  // still gets the positionally referenced markers backfilled.
+  // The model is also asked to return UUIDs in cited_chunk_ids, but it
+  // controls that list's order/contents independently of the inline markers
+  // — so trusting cited_chunk_ids order would silently mis-map [N] to the
+  // wrong page/document. We therefore make the inline [N] markers the source
+  // of truth for citation ordering, and only fall back to UUIDs when the
+  // answer contains no usable markers at all.
   const citationMap = new Map<string, RetrievedChunk>(
     chunks.map((c) => [c.chunk_id, c])
   );
-
-  const uuidCitations = citedChunkIds
-    .filter((id) => citationMap.has(id))
-    .map((id) => citationMap.get(id)!);
 
   const answerText = typeof parsed.answer === 'string' ? parsed.answer : '';
   const positionalIndices = Array.from(
@@ -166,22 +165,52 @@ export async function generateAnswer(
     )
   ).sort((a, b) => a - b);
 
-  // Order results so citations[N-1] aligns with the [N] markers users see
-  // when the positional fallback kicks in.
+  const uuidCitations = citedChunkIds
+    .filter((id) => citationMap.has(id))
+    .map((id) => citationMap.get(id)!);
+
+  // Inline markers win: citations[N-1] must be the chunk labelled [N] in the
+  // context the model was shown. Only when there are zero inline markers do
+  // we fall back to the model's UUID list.
   const orderedChunks: RetrievedChunk[] =
-    uuidCitations.length > 0
-      ? uuidCitations
-      : positionalIndices.map((n) => chunks[n - 1]);
+    positionalIndices.length > 0
+      ? positionalIndices.map((n) => chunks[n - 1])
+      : uuidCitations;
 
   const citations: AnswerCitation[] = orderedChunks.map((chunk) =>
     buildAnswerCitationFromChunk(chunk)
   );
 
-  // 7. Return complete AnswerResult
+  // 7. Confidence honesty guardrails.
+  //
+  // The model self-reports confidence; nothing forces it to be honest. Two
+  // floors we enforce here so a confident-sounding answer can never ship
+  // without supporting evidence:
+  //  (a) confidence_score must be a finite number in [0,1]; anything else
+  //      is treated as 0 (it cannot be trusted).
+  //  (b) if we resolved zero citations, the answer is ungrounded — it cannot
+  //      legitimately be 'high'/'medium'. Cap it at 'low' and pull the score
+  //      down. This only ever lowers confidence, never raises it.
+  const rawScore = parsed.confidence_score;
+  let confidenceScore =
+    typeof rawScore === 'number' && Number.isFinite(rawScore)
+      ? Math.min(1, Math.max(0, rawScore))
+      : 0;
+
+  let confidence: QueryConfidence = parsed.confidence ?? 'low';
+
+  if (citations.length === 0) {
+    if (confidence === 'high' || confidence === 'medium') {
+      confidence = 'low';
+    }
+    confidenceScore = Math.min(confidenceScore, 0.3);
+  }
+
+  // 8. Return complete AnswerResult
   return {
     answer: parsed.answer ?? '',
-    confidence: parsed.confidence ?? 'low',
-    confidenceScore: typeof parsed.confidence_score === 'number' ? parsed.confidence_score : 0,
+    confidence,
+    confidenceScore,
     citations,
     citedChunkIds,
     warningFlags,

@@ -426,8 +426,11 @@ export async function POST(req: NextRequest) {
           answer,
           artifacts: artifacts.length > 0 ? artifacts : undefined,
           tool_calls_made: toolCallsMade.length > 0 ? toolCallsMade : undefined,
-          // Propagate RAG citations + metadata captured from any search_documents calls
-          confidence: ragConfidence ?? (artifacts.length > 0 ? 'high' : undefined),
+          // Propagate RAG citations + metadata captured from any search_documents calls.
+          // Confidence reflects RAG evidence only — never hard-code 'high' just
+          // because a non-RAG tool produced an artifact (audit fix: an artifact
+          // is not evidence of answer accuracy).
+          confidence: ragConfidence,
           citations: collectedCitations,
           warning_flags: [],
           follow_up_questions: collectedFollowUps,
