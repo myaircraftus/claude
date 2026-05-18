@@ -2121,8 +2121,33 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
     // Fire-and-forget; gated by VISION_AUTO_DISPATCH=true env. The
     // helper is idempotent on (org × doc) so re-ingestion won't
     // double-enqueue.
+    //
+    // LIVE vs BATCH routing: typed shop reference documents — service /
+    // maintenance manuals, parts catalogs, service bulletins, ADs — are
+    // clean machine-text PDFs. Document AI alone extracts them well, and
+    // the BM25 + PageIndex tree rebuild below already makes them
+    // searchable within minutes of upload. They gain little from the
+    // ColQwen2 vision embedding, so we skip the GPU queue for them
+    // entirely — no GPU cost, no overnight batch-window wait. Owner
+    // historical uploads (handwritten / scanned logbooks) still go
+    // through the vision queue exactly as before.
+    const GPU_SKIP_DOC_TYPES = new Set([
+      'service_manual',
+      'maintenance_manual',
+      'parts_catalog',
+      'service_bulletin',
+      'airworthiness_directive',
+    ])
     void (async () => {
       try {
+        const refDocType = String((document as { doc_type?: unknown }).doc_type ?? '')
+        if (GPU_SKIP_DOC_TYPES.has(refDocType)) {
+          console.log(
+            `[ingestion] vision-dispatch skipped for doc ${documentId} — typed ` +
+              `reference doc_type='${refDocType}' (Document AI + BM25/tree only, no GPU)`,
+          )
+          return
+        }
         const { enqueueDocumentForVision } = await import('@/lib/vision/auto-dispatch')
         const pageCountForVision = (document as any)?.page_count ?? fallbackPageCount
         const result = await enqueueDocumentForVision(supabase as any, {

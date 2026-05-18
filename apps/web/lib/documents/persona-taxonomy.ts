@@ -79,9 +79,14 @@ export interface DocumentTypeMeta {
  * If you edit this table, also update the migration's CASE statement.
  *
  * mechanicCanUpload was dropped in Phase 18 — the shop persona now owns
- * everything the mechanic role could previously upload (and that was
- * already the case, since shop's RLS rule was "anything except
- * aircraft_logbook + aircraft_registration").
+ * everything the mechanic role could previously upload.
+ *
+ * Lockdown (mig 20260517110000): the shop persona's RLS rule is an explicit
+ * ALLOWLIST of reference + operations document_types — it can no longer insert
+ * ANY aircraft_* historical record (logbook, registration, airworthiness,
+ * insurance, POH, AFM, weight & balance, prebuy, annual, 100hr), STC, or
+ * Form 337. Those are owner-only. The shopCanUpload flags below mirror that
+ * allowlist byte-for-byte.
  */
 export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
   // ─── Aircraft Records ─────────────────────────────────────────────────────
@@ -112,7 +117,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_insurance: {
@@ -122,7 +127,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_poh: {
@@ -132,7 +137,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_afm: {
@@ -142,7 +147,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_weight_balance: {
@@ -152,7 +157,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_prebuy: {
@@ -162,7 +167,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_annual: {
@@ -172,7 +177,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
   aircraft_100hr: {
@@ -182,7 +187,7 @@ export const DOCUMENT_TYPE_META: Record<DocumentType, DocumentTypeMeta> = {
     category: 'Aircraft Records',
     requiresAircraftId: true,
     ownerCanUpload: true,
-    shopCanUpload: true,
+    shopCanUpload: false, // aircraft historical record — owner-only by policy
     adminCanUpload: true,
   },
 
