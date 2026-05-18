@@ -1,8 +1,10 @@
 # aircraft-vision-worker (Modal app)
 
-Modal-hosted ColQwen2 worker. Two POST endpoints — `/embed` and
-`/backfill` — both bearer-authed. The contract on `/embed` is the
-source-of-truth for `apps/web/lib/vision/workers/modal.ts`
+Modal-hosted ColQwen2 worker. Three POST endpoints — `/embed`,
+`/embed-query` and `/backfill` — all bearer-authed. `/embed` embeds
+page IMAGES; `/embed-query` (Wave 1.7) embeds a text QUERY with the
+ColQwen2 query encoder for late-interaction retrieval. The contract on
+`/embed` is the source-of-truth for `apps/web/lib/vision/workers/modal.ts`
 (Sprint 8.9). Do not change shape without updating that client.
 
 ## Files
@@ -30,15 +32,18 @@ The app reads from the Modal Secret `aircraft-vision-secrets`:
 modal deploy modal/vision-worker/main.py
 ```
 
-Output gives the two endpoint URLs:
+Output gives the endpoint URLs (label-based short form, e.g. for
+workspace `info-35149`):
 
 ```
-https://<workspace>--aircraft-vision-worker-visionworker-embed.modal.run
-https://<workspace>--aircraft-vision-worker-visionworker-backfill.modal.run
+https://info-35149--embed.modal.run
+https://info-35149--embed-query.modal.run
+https://info-35149--backfill.modal.run
+https://info-35149--health.modal.run
 ```
 
-Copy the first into `MODAL_ENDPOINT_URL` (Vercel Production +
-`apps/web/.env.local`).
+Copy `--embed` into `MODAL_ENDPOINT_URL` and `--embed-query` into
+`MODAL_QUERY_ENDPOINT_URL` (Vercel Production + `apps/web/.env.local`).
 
 ## Test the deployed endpoint
 

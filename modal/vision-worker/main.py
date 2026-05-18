@@ -1,7 +1,7 @@
 """
 Aircraft.us — Modal vision worker (Phase 9, ColQwen2).
 
-Two endpoints, both bearer-authenticated:
+Endpoints, all bearer-authenticated:
 
   POST /embed
     Body:     { pages: [ { vision_page_id, image_url } ] }
@@ -12,6 +12,17 @@ Two endpoints, both bearer-authenticated:
                 } ] }
     Contract source of truth: apps/web/lib/vision/workers/modal.ts
     (Sprint 8.9). Do NOT change shape without updating that client.
+
+  POST /embed-query   (Wave 1.7 — query-side embedding)
+    Body:     { query: string }  OR  { queries: string[] }
+    Response: { results: [ {
+                  summary_vector[128], token_vectors[N][128],
+                  n_tokens, model_used, success, error?
+                } ] }
+    Embeds a TEXT QUERY with the ColQwen2 query encoder so the Next.js
+    retriever can run late-interaction (MaxSim) search against the
+    page-image embeddings from /embed. `summary_vector` feeds the ANN
+    pre-filter; `token_vectors` feed MaxSim re-ranking.
 
   POST /backfill
     Body:     { source_document_ids: string[], organization_id: string }
@@ -82,6 +93,9 @@ MODEL_LABEL = "colqwen2"
 # Sprint 8.9 contract — DO NOT change without updating modal.ts.
 SUMMARY_DIM = 128
 MAX_PATCHES_PER_PAGE = 64
+# ColQwen2 query-side token cap (Wave 1.7). Queries are short — the
+# augmented query is typically ~16-32 tokens — but cap defensively.
+MAX_QUERY_TOKENS = 64
 
 # Dispatch / batching.
 EMBED_BATCH_SIZE = 8        # pages per /embed call (Vercel-side already caps)
@@ -354,6 +368,122 @@ class VisionWorker:
                 }
             )
 
+        return {"results": results}
+
+    # ── Internal: embed text queries with the ColQwen2 query encoder ──
+
+    def _embed_query_texts(self, queries: List[str]) -> List[Dict[str, Any]]:
+        """
+        Embed text queries with the ColQwen2 query encoder. Returns one dict
+        per query: {summary_vector[128], token_vectors[N][128], n_tokens}.
+
+        Mirrors _embed_pil_images but uses processor.process_queries (the
+        text side). Each query is processed individually — queries are tiny,
+        so there is no VRAM concern and no cross-query padding to mask.
+        ColQwen2 deliberately augments the query with pad tokens (query
+        augmentation, per the ColPali design); those tokens are part of the
+        query representation and are kept.
+        """
+        torch = self.torch
+        all_results: List[Dict[str, Any]] = []
+        for query in queries:
+            with torch.no_grad():
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                processed = self.processor.process_queries([query]).to(self.model.device)
+                # ColQwen2 returns (1, n_tokens, 128) for a single query.
+                query_embeds = self.model(**processed)
+
+            emb = query_embeds[0]  # (n_tokens, 128)
+            summary = emb.mean(dim=0).to(torch.float32).cpu().tolist()
+            if len(summary) != SUMMARY_DIM:
+                raise ValueError(
+                    f"unexpected query summary dim {len(summary)} (expected {SUMMARY_DIM})"
+                )
+
+            n_tokens = emb.shape[0]
+            tokens_tensor = emb[:MAX_QUERY_TOKENS].to(torch.float32).cpu()
+            token_vectors = [row.tolist() for row in tokens_tensor]
+            for row_idx, row in enumerate(token_vectors):
+                if len(row) != SUMMARY_DIM:
+                    raise ValueError(f"query token {row_idx} dim {len(row)} ≠ {SUMMARY_DIM}")
+
+            all_results.append(
+                {
+                    "summary_vector": summary,
+                    "token_vectors": token_vectors,
+                    "n_tokens": n_tokens,
+                }
+            )
+        return all_results
+
+    # ── /embed-query ──────────────────────────────────────────────────
+
+    @modal.fastapi_endpoint(method="POST", label="embed-query")
+    async def embed_query(self, request: Request) -> Dict[str, Any]:
+        """
+        POST /embed-query   (Wave 1.7)
+        Auth:  Authorization: Bearer <MODAL_API_KEY>
+        Body:  { query: string }  OR  { queries: string[] }
+        Resp:  { results: [ {
+                   summary_vector[128], token_vectors[N][128],
+                   n_tokens, model_used, success, error?
+                 } ] }
+
+        Embeds a text query with the ColQwen2 query encoder. The Next.js
+        vision retriever feeds `summary_vector` to the ANN pre-filter and
+        `token_vectors` to the late-interaction MaxSim re-rank.
+        """
+        authorization = (
+            request.headers.get("authorization")
+            or request.headers.get("Authorization")
+            or ""
+        )
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        auth_err = _check_bearer(authorization)
+        if auth_err:
+            return {"results": [], "error": auth_err["error"]}
+
+        # Accept a single `query` or a `queries` list.
+        queries = payload.get("queries")
+        if not isinstance(queries, list):
+            single = payload.get("query")
+            queries = [single] if isinstance(single, str) else []
+        queries = [q for q in queries if isinstance(q, str) and q.strip()][:EMBED_BATCH_SIZE]
+        if not queries:
+            return {"results": []}
+
+        results: List[Dict[str, Any]] = []
+        for q in queries:
+            try:
+                embedded = self._embed_query_texts([q])
+                er = embedded[0]
+                results.append(
+                    {
+                        "summary_vector": er["summary_vector"],
+                        "token_vectors": er["token_vectors"],
+                        "n_tokens": er["n_tokens"],
+                        "model_used": MODEL_LABEL,
+                        "success": True,
+                    }
+                )
+            except Exception as e:
+                tb = traceback.format_exc(limit=5)
+                print(f"[vision-worker] /embed-query gpu failure:\n{tb}")
+                results.append(
+                    {
+                        "summary_vector": None,
+                        "token_vectors": None,
+                        "n_tokens": 0,
+                        "model_used": MODEL_LABEL,
+                        "success": False,
+                        "error": f"query embedding failed: {e}",
+                    }
+                )
         return {"results": results}
 
     # ── /backfill ─────────────────────────────────────────────────────
