@@ -85,7 +85,7 @@ export default async function AdminDocumentsPage() {
 
   const [
     docsRes, progressRes, workersRes, reviewCountRes,
-    processingCountRes, failedCountRes, totalCountRes,
+    processingCountRes, failedCountRes, totalCountRes, autoResolvedCountRes,
   ] = await Promise.all([
     service
       .from('documents')
@@ -110,6 +110,8 @@ export default async function AdminDocumentsPage() {
       .in('parsing_status', ['queued', 'parsing', 'chunking', 'embedding', 'ocr_processing']),
     service.from('documents').select('id', { count: 'exact', head: true }).eq('parsing_status', 'failed'),
     service.from('documents').select('id', { count: 'exact', head: true }),
+    // B4 — review-queue rows auto-resolved by /api/admin/rescore-confidence.
+    service.from('review_queue_items').select('id', { count: 'exact', head: true }).eq('auto_resolved', true),
   ])
 
   const docRows = (docsRes.data ?? []) as any[]
@@ -165,6 +167,7 @@ export default async function AdminDocumentsPage() {
   const activeWorkers = workers.filter((w) => new Date(w.last_seen_at).getTime() >= fiveMinAgo).length
 
   const pendingReviews = reviewCountRes.count ?? 0
+  const autoResolvedReviews = autoResolvedCountRes.count ?? 0
   const processingCount = processingCountRes.count ?? 0
   const failedCount = failedCountRes.count ?? 0
   const totalDocs = totalCountRes.count ?? 0
@@ -186,11 +189,12 @@ export default async function AdminDocumentsPage() {
           </div>
 
           {/* Health strip */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <StatCard icon={<FileText className="h-4 w-4 text-emerald-600" />} label="Total documents" value={totalDocs} tone="bg-emerald-50" />
             <StatCard icon={<Loader2 className="h-4 w-4 text-blue-600" />} label="Processing" value={processingCount} tone="bg-blue-50" />
             <StatCard icon={<AlertTriangle className="h-4 w-4 text-red-600" />} label="Failed" value={failedCount} tone="bg-red-50" />
-            <StatCard icon={<ClipboardCheck className="h-4 w-4 text-amber-600" />} label="Pending reviews" value={pendingReviews} tone="bg-amber-50" />
+            <StatCard icon={<ClipboardCheck className="h-4 w-4 text-amber-600" />} label="Pending reviews — need human" value={pendingReviews} tone="bg-amber-50" />
+            <StatCard icon={<CheckCircle2 className="h-4 w-4 text-teal-600" />} label="Auto-resolved by rescore" value={autoResolvedReviews} tone="bg-teal-50" />
             <StatCard icon={<Cpu className="h-4 w-4 text-violet-600" />} label="Workers active" value={`${activeWorkers} / ${workers.length}`} tone="bg-violet-50" />
           </div>
 

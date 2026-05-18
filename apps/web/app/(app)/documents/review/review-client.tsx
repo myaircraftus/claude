@@ -376,7 +376,11 @@ function QueueItemCard({
   const fieldCandidates: any[] = item.fieldCandidates ?? []
   const fieldConflicts: any[] = item.fieldConflicts ?? []
   const arbStatus: string = job.arbitration_status ?? 'pending'
-  const arbConf: number | null = job.arbitration_confidence ?? job.ocr_confidence ?? null
+  // Prefer the rescored confidence (set by /api/admin/rescore-confidence) — it
+  // folds in segment + extracted-event confidence, not just the page-level
+  // arbitration number. Falls back to arbitration / raw OCR confidence.
+  const arbConf: number | null =
+    item.confidence_score ?? job.arbitration_confidence ?? job.ocr_confidence ?? null
 
   const [expanded, setExpanded] = useState(true)
   const [showRaw, setShowRaw] = useState(false)
@@ -730,6 +734,29 @@ function QueueItemCard({
             <Badge className={cn('shrink-0 border', statusMeta.cls)}>
               {statusMeta.label}
             </Badge>
+            {item.priority_band && (
+              <Badge
+                className={cn(
+                  'shrink-0 border',
+                  item.priority_band === 'critical'
+                    ? 'bg-red-100 text-red-800 border-red-200'
+                    : item.priority_band === 'medium'
+                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                      : item.priority_band === 'auto'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200',
+                )}
+                title="Rescored OCR confidence band — /api/admin/rescore-confidence"
+              >
+                {item.priority_band === 'critical'
+                  ? 'CRITICAL'
+                  : item.priority_band === 'medium'
+                    ? 'MEDIUM'
+                    : item.priority_band === 'auto'
+                      ? 'AUTO-RESOLVABLE'
+                      : 'LOW'}
+              </Badge>
+            )}
             {conflictCount > 0 && (
               <Badge className="shrink-0 bg-orange-100 text-orange-800 border-orange-200">
                 <GitMerge className="w-3 h-3 mr-1" />

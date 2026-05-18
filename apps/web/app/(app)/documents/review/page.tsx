@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/shared/topbar'
 import ReviewQueueClient from './review-client'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { confidenceBand } from '@/lib/ocr/rescore'
 
 export const metadata = { title: 'OCR Review Queue' }
 
@@ -118,6 +119,10 @@ export default async function ReviewQueuePage({
       `)
       .eq('organization_id', orgId)
       .eq('status', 'pending')
+      // B3 — worst-confidence-first. confidence_score is populated by
+      // /api/admin/rescore-confidence; un-rescored rows (NULL) sort last and
+      // keep their original created_at order.
+      .order('confidence_score', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(50)
     queueItems = data ?? []
@@ -187,6 +192,15 @@ export default async function ReviewQueuePage({
     enriched.push({ ...item, fieldCandidates, fieldConflicts })
   }
 
+  // B3 — attach a CRITICAL / MEDIUM / LOW / AUTO priority band from the
+  // rescored confidence so each queue card can show it. A NULL score (row not
+  // yet rescored) yields no band.
+  const enrichedWithBands = enriched.map((it) => ({
+    ...it,
+    priority_band:
+      typeof it.confidence_score === 'number' ? confidenceBand(it.confidence_score) : null,
+  }))
+
   // ── Stats ──────────────────────────────────────────────────────────────────
   let totalNeedsReview = 0
   try {
@@ -208,7 +222,7 @@ export default async function ReviewQueuePage({
         ]}
       />
       <ReviewQueueClient
-        items={enriched}
+        items={enrichedWithBands}
         orgId={orgId}
         totalNeedsReview={totalNeedsReview}
         loadState={reviewLoadState}

@@ -135,6 +135,8 @@ export async function GET(req: NextRequest) {
       `)
       .eq('organization_id', orgContext.organizationId)
       .eq('status', 'pending')
+      // B3 — worst-confidence-first; un-rescored rows (NULL) sort last.
+      .order('confidence_score', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(30)
     items = data ?? []
