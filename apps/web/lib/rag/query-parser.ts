@@ -164,7 +164,7 @@ export function detectAggregationQuery(question: string): {
   const q = question.toLowerCase()
 
   const isCount =
-    /how many times/.test(q) ||
+    /how many/.test(q) ||
     /how often/.test(q) ||
     /number of times/.test(q) ||
     /how frequently/.test(q) ||

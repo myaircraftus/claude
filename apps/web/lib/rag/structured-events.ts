@@ -252,6 +252,13 @@ const COUNT_STOPWORDS = new Set([
   'did', 'done', 'any', 'all', 'every', 'each', 'recorded', 'show', 'tell',
   'give', 'me', 'my', 'what', 'when', 'times', 'time', 'there', 'its', 'their',
   'aircraft', 'plane', 'airplane',
+  // Generic maintenance verbs — too broad as ILIKE keywords ("replaced"
+  // matches every replacement of anything). Drop them so the topic NOUNS
+  // (oil, magneto, transponder, …) drive the match.
+  'replaced', 'replace', 'replacement', 'replacements', 'changed', 'change',
+  'changes', 'serviced', 'service', 'servicing', 'checked', 'check', 'checks',
+  'worked', 'overhauled', 'overhaul', 'overhauls', 'repaired', 'repair',
+  'repairs', 'performed', 'inspected', 'inspection', 'inspections',
 ])
 /** Generic record words — a question left with only these wants the GRAND total. */
 const GRAND_TOTAL_WORDS = new Set([
