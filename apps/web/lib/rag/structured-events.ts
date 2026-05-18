@@ -27,7 +27,6 @@
  * soft pointer — no per-event document_chunks lookup is needed. Best-effort:
  * any failure returns [] and the caller falls back to the retrieved chunks.
  */
-import OpenAI from 'openai'
 import type { AggregationType, ParsedQueryIntent } from '@/lib/rag/query-parser'
 import type { createServiceSupabase } from '@/lib/supabase/server'
 import type { DocType, RetrievedChunk } from '@/types'
@@ -244,55 +243,40 @@ export interface CountTopic {
   keywords: string[]
 }
 
+/** Words carrying no work-type meaning — stripped from a count question. */
+const COUNT_STOPWORDS = new Set([
+  'how', 'many', 'much', 'often', 'frequently', 'number', 'total', 'count',
+  'counted', 'list', 'of', 'the', 'a', 'an', 'is', 'are', 'was', 'were',
+  'have', 'has', 'had', 'been', 'being', 'be', 'on', 'for', 'in', 'to', 'at',
+  'by', 'with', 'and', 'or', 'this', 'that', 'these', 'those', 'does', 'do',
+  'did', 'done', 'any', 'all', 'every', 'each', 'recorded', 'show', 'tell',
+  'give', 'me', 'my', 'what', 'when', 'times', 'time', 'there', 'its', 'their',
+  'aircraft', 'plane', 'airplane',
+])
+/** Generic record words — a question left with only these wants the GRAND total. */
+const GRAND_TOTAL_WORDS = new Set([
+  'maintenance', 'entry', 'entries', 'record', 'records', 'event', 'events',
+  'log', 'logs', 'logbook', 'item', 'items', 'work',
+])
+
 /**
- * Classify a count question: is it asking for the grand total of all
- * maintenance entries, or how many of a specific work type? For the latter,
- * return short keyword fragments to match event descriptions. One small
- * gpt-4o-mini call; falls back to {isGrandTotal:false, keywords:[]} on failure
- * (the caller then keeps the chunk-extraction estimate).
+ * Classify a count question: grand total of all maintenance entries, or a
+ * count of a specific work type? Deterministic — strip stop/tail words; what
+ * remains is the work-type keyword set. If nothing specific remains (only
+ * generic record words), it is a grand-total question. No LLM call: the
+ * earlier gpt-4o-mini version flaked under load and ~⅓ of count questions
+ * fell through to the wrong (chunk-extraction) path.
  */
-export async function deriveCountTopic(question: string): Promise<CountTopic> {
-  try {
-    if (!process.env.OPENAI_API_KEY) return { isGrandTotal: false, keywords: [] }
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 12000,
-      maxRetries: 1,
-    })
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'An aircraft owner asks a "how many / how often" maintenance ' +
-            'question. Reply strict JSON {"is_grand_total":bool,"keywords":[...]}. ' +
-            'is_grand_total is true ONLY when they want the total count of ALL ' +
-            'maintenance entries/records with no specific work type. Otherwise ' +
-            'keywords holds 1-3 short lowercase fragments to match event ' +
-            'descriptions via SQL ILIKE — broad distinctive stems for the work ' +
-            'type, e.g. ["oil"], ["annual"], ["spark plug"], ["magneto","mag"], ' +
-            '["tire"]. Keep fragments short; prefer a stem over a full phrase.',
-        },
-        { role: 'user', content: question },
-      ],
-    })
-    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as {
-      is_grand_total?: unknown
-      keywords?: unknown
-    }
-    const keywords = Array.isArray(parsed.keywords)
-      ? parsed.keywords
-          .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-          .map((k) => k.trim().toLowerCase())
-          .slice(0, 3)
-      : []
-    return { isGrandTotal: parsed.is_grand_total === true, keywords }
-  } catch {
-    return { isGrandTotal: false, keywords: [] }
-  }
+export function deriveCountTopic(question: string): CountTopic {
+  const words = question
+    .toLowerCase()
+    .replace(/\bn[0-9][0-9a-z]{1,5}\b/gi, ' ') // strip tail numbers
+    .replace(/[^a-z0-9 -]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !COUNT_STOPWORDS.has(w))
+  const keywords = words.filter((w) => !GRAND_TOTAL_WORDS.has(w))
+  if (keywords.length === 0) return { isGrandTotal: true, keywords: [] }
+  return { isGrandTotal: false, keywords: keywords.slice(0, 4) }
 }
 
 /**
