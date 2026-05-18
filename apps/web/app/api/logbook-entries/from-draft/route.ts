@@ -168,6 +168,10 @@ export async function POST(req: NextRequest) {
     aircraft_id: draft.aircraft_id,
     work_order_id: workOrderId,
     draft_id: draft.id,
+    // Lineage — a mechanic-authored entry converted from a draft. (Historical
+    // OCR-transcribed entries use source_type='historical_ocr' instead.)
+    source_type: "mechanic_draft",
+    source_id: draft.id,
     entry_type: entryType,
     entry_date,
     hobbs_in: hobbsIn,
