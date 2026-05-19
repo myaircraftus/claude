@@ -13,12 +13,12 @@ Branch: `audit/enterprise-clean`
 - Branch: `audit/enterprise-clean` (NOT pushed — awaiting review per the brief)
 
 ## Coverage of this pass
-Phases **0, 1, 4, 8 — done.** Phases **3, 6, 7 — substantially done** (392
-routes surveyed; headers + webhook fixed; the review-page N+1 fixed). Phases
-**5, 9 — surveyed** (findings catalogued; systemic items documented, not
-mass-fixed per rule 4). Phase **2 (full screen-by-screen UI) — not started.**
-The highest-severity items (admin freeze, critical RLS hole, unsigned webhook,
-missing CSP/HSTS, review-page N+1) were prioritized and fixed.
+Phases **0, 1, 4, 8 — done.** Phases **2, 3, 6, 7 — substantially done**
+(392 API routes + 192 UI routes surveyed; freeze, RLS hole, webhook, headers,
+N+1, broken nav-link all fixed; dead buttons catalogued). Phases **5, 9 —
+surveyed** (findings catalogued; systemic type/log debt documented, not
+mass-fixed per rule 4). A full state-by-state UI audit of every screen and the
+`Persona` tsc-debt cleanup remain for a follow-up.
 
 ## 🚨 CRITICAL FINDINGS (security/data)
 
@@ -84,7 +84,36 @@ genuinely memoized; the effect runs once per item instead of every render.
 the memo returns the same array and the effect does not re-fire. `tsc` clean.
 
 ## Phase 2 — UI Fixes
-_Pending._
+
+192 routes / ~250 live screen+component files surveyed for broken navigation
+and dead buttons (demo/marketing components excluded).
+
+**Broken navigation — FIXED:**
+- `components/documents/gdrive-import-section.tsx:109` — the "Manage" link
+  pointed at `/settings/integrations`, which does not exist (404). The
+  integrations screen is `/integrations`. Corrected.
+
+**Dead buttons — documented for the product owner** (each is a styled action
+control with no `onClick`/handler; wiring them needs the intended behavior, so
+they are catalogued rather than guessed — they should be wired, or `disabled`
+with a "coming soon" affordance, or removed):
+- `components/redesign/SettingsPage.tsx:1238` — "+ Add Customer"
+- `components/redesign/SettingsPage.tsx:1308` — "Edit" (customer detail)
+- `components/redesign/SettingsPage.tsx:1351` — "Manage Plan" (billing card)
+- `app/(app)/work-orders/[id]/work-order-detail-client.tsx:1480-1482` —
+  "Reserve" / "Install" / "Attach 8130" on each part line
+- `app/(app)/work-orders/[id]/work-order-detail-client.tsx:1203` — camera /
+  add-photo icon button in the inspection-items table
+- `app/(app)/aircraft/due-list/due-list-client.tsx:452,461` — two
+  "Attach File" buttons (Part Removed / Part Installed panels)
+- `components/redesign/MarketplacePage.tsx:1140` — `href="#"` "Join waitlist"
+  (a Phase-3 roadmap stub — likely intentional)
+
+Also noted: `components/settings/ApiSettingsPage.tsx` has `href="#"` links but
+is **dead code** — imported by no route.
+
+A full state-by-state audit (loading/error/success on every interactive
+element) of all ~25 screens was not completed this pass.
 
 ## Phase 3 — API Route Findings
 
@@ -96,7 +125,7 @@ authenticated membership). Genuine deviations:
 | Route | Issue | Action | Status |
 |---|---|---|---|
 | `webhooks/[provider]` | **No signature/secret validation.** A forged POST could overwrite `aircraft.total_time_hours` (safety-relevant — drives inspection/AD timing) for any org that has the integration connected. | Added fail-closed shared-secret check (`INTEGRATION_WEBHOOK_SECRET`, constant-time compare) | ✅ Fixed |
-| `aircraft/[id]/tracking/{live,recent,refresh,flights,provider-config}` (5 routes) | No in-code auth or org-membership check — they key off `params.id` and rely solely on RLS via `createServerSupabase`. `provider-config` PATCH has no feature-flag gate either. The tracking tables DO have RLS enabled (1 policy each), so this is missing defense-in-depth rather than a confirmed open leak — but in-code org verification should be added and the RLS policies confirmed org-scoped. | Documented — not fixed this pass | ⚠️ Noted |
+| `aircraft/[id]/tracking/{live,recent,refresh,flights,provider-config}` (5 routes) | No in-code auth or org-membership check — they key off `params.id` and rely solely on RLS via `createServerSupabase`. **Verified:** the 3 tracking tables' RLS policies are correctly org-scoped (`organization_id`/`aircraft_id IN (caller's memberships via auth.uid())`, `cmd=ALL` with `qual` also gating INSERT) — so this is **not an active cross-tenant leak**; RLS protects it. It is, however, a defense-in-depth gap and inconsistent with the rest of the API (every other route checks auth in code). | Verified RLS-safe; in-code org guards recommended as hardening | ⚠️ Noted (downgraded) |
 | `documents/route.ts` GET, `aircraft/[id]/tracking/provider-config`, `parts/library/apply-markup` | No try/catch — an unhandled throw (`reconcileOrganizationStaleDocuments`, `await req.json()`) escapes as a raw 500 | Documented — low severity | ⚠️ Noted |
 
 Webhook/cron/OAuth-callback routes that are unauthenticated by design were
