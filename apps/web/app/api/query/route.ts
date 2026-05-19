@@ -18,6 +18,7 @@ import {
 } from '@/lib/rag/citation-anchors';
 import { searchBm25, searchReferenceBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
+import { routeQueryVerbose, type RouteDecision } from '@/lib/rag/query-router';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
 import { rerankChunks } from '@/lib/rag/rerank';
 import { hybridRetrieve as retrieveVisionPages } from '@/lib/vision/retriever';
@@ -910,6 +911,21 @@ export async function POST(req: NextRequest) {
     const effectiveDocTypeFilter: DocType[] | null =
       explicitDocTypeFilter ?? inferredDocTypeFilter
 
+    // Phase 1 — query-router SHADOW mode. Compute the router's would-be
+    // retrieval strategy WITHOUT acting on it: the four-retriever hybrid pass
+    // below still runs unchanged. Lets the routing be measured on real traffic
+    // before any active routing is enabled. Gated by ROUTER_SHADOW; fired
+    // concurrently so it adds no latency to the answer; failure is swallowed.
+    const routerShadowP: Promise<RouteDecision | null> =
+      process.env.ROUTER_SHADOW === 'true'
+        ? routeQueryVerbose(question, {
+            docTypes: effectiveDocTypeFilter ?? undefined,
+          }).catch((err) => {
+            console.warn('[query] router shadow failed (ignored):', err)
+            return null
+          })
+        : Promise.resolve(null)
+
     // ── 3. Aggregation-query detection — count / list / sum / first / last ──
     const aggregation = detectAggregationQuery(cleanedQuery)
 
@@ -1135,6 +1151,8 @@ export async function POST(req: NextRequest) {
         `tree=${retrieverLatencies.tree} vision=${retrieverLatencies.vision} ` +
         `total=${latencyMs} slow_query=${slowQuery}`,
     )
+    const routerShadow = await routerShadowP
+
     void logQueryResult({
       org_id: organizationId,
       aircraft_id: parsedQuery.aircraftId ?? aircraft_id ?? null,
@@ -1150,6 +1168,7 @@ export async function POST(req: NextRequest) {
         ? effectiveDocTypeFilter.join(',')
         : null,
       doc_type_fallback_triggered: docTypeFallbackTriggered,
+      router_shadow: routerShadow,
     });
 
     // 12. Return response
