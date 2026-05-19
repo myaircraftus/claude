@@ -142,7 +142,7 @@ interface UploadDropzoneProps {
   defaultDocumentDetailId?: string
   defaultDocumentSubtype?: string
   /** Controls which quick-select chip set is shown. Defaults to 'owner'. */
-  persona?: 'owner' | 'mechanic'
+  persona?: 'owner' | 'shop'
 }
 
 type DocumentStatusRow = {

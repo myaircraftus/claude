@@ -14,7 +14,7 @@ function DemoModeBootstrap({ persona }: { persona: "owner" | "mechanic" }) {
   const { launchTour, tourActive, tourComplete } = useOnboarding();
 
   useEffect(() => {
-    setPersona(persona);
+    setPersona(persona === "mechanic" ? "shop" : "owner");
   }, [persona, setPersona]);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ function DemoModeBootstrap({ persona }: { persona: "owner" | "mechanic" }) {
     if (window.sessionStorage.getItem(sessionKey)) return;
     window.sessionStorage.setItem(sessionKey, "1");
     window.localStorage.removeItem(TOUR_STORAGE_KEY);
-    const t = window.setTimeout(() => launchTour(persona), 800);
+    const t = window.setTimeout(() => launchTour(persona === "mechanic" ? "shop" : "owner"), 800);
     return () => window.clearTimeout(t);
   }, [persona, launchTour, tourActive, tourComplete]);
 

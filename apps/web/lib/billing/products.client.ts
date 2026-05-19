@@ -43,3 +43,12 @@ export const PRODUCTS: Record<Sku, ClientProduct> = {
     grants: ["owner", "shop"],
   },
 };
+
+/**
+ * The single-persona Stripe SKU whose entitlement grant covers a given runtime
+ * persona. The shop persona is served by the 'mechanic' SKU — mig 119 kept the
+ * Stripe Product ID as 'mechanic' so live subscriptions weren't disturbed.
+ */
+export function skuForPersona(persona: Persona): Sku {
+  return persona === "shop" ? "mechanic" : "owner";
+}

@@ -51,13 +51,6 @@ const PERSONA_DEFAULTS: Record<Persona, PersonaDefaults> = {
     notificationTone: 'plain',
     voiceIntentPriors: ["What's due?", 'How much will it cost?', 'When is my annual?', 'Show me my receipts'],
   },
-  mechanic: {
-    defaultDateRange: '7d',
-    defaultGroupBy: 'status',
-    defaultSort: { field: 'updated_at', direction: 'desc' },
-    notificationTone: 'technical',
-    voiceIntentPriors: ['Add part', 'Sign off', 'Clock in', 'Open WO', 'Tool checkout'],
-  },
   shop: {
     defaultDateRange: '30d',
     defaultGroupBy: 'status',

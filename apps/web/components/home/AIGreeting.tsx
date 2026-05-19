@@ -88,8 +88,5 @@ function subhead(persona: Persona, status: GreetingStatus): string | null {
     }
     return 'Clock in to start your shift.'
   }
-  if (persona === 'shop') {
-    return 'Operations overview below.'
-  }
   return 'Platform admin view.'
 }

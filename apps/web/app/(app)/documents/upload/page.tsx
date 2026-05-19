@@ -91,8 +91,10 @@ export default async function DocumentUploadPage({
     : legacyClassification.detailId
   const defaultDocumentSubtype = searchParams?.document_subtype?.trim() || undefined
 
-  // ── Resolve persona from membership role ─────────────────────────────────
-  const persona: 'owner' | 'mechanic' = membership.role === 'mechanic' ? 'mechanic' : 'owner'
+  // ── Resolve UI persona from membership role ──────────────────────────────
+  // The org personnel role still has 'mechanic'; the runtime UI persona is
+  // 'shop' (mig 119 collapsed the mechanic persona into shop).
+  const persona: 'owner' | 'shop' = membership.role === 'mechanic' ? 'shop' : 'owner'
 
   // ── Check Google Drive connection ─────────────────────────────────────────
   const { data: gdriveRow } = await supabase

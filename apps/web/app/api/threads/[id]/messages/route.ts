@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const message = await postMessage(service, {
       threadId: thread.id,
       senderUserId: ctx.user.id,
-      senderRole: 'mechanic',
+      senderRole: 'shop',
       body: text,
     })
     return NextResponse.json({ message })
