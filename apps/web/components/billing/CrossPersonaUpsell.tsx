@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Plane, Wrench, Sparkles, X } from "lucide-react";
 import type { Persona } from "@/lib/billing/gate";
-import { PRODUCTS } from "@/lib/billing/products.client";
+import { PRODUCTS, skuForPersona } from "@/lib/billing/products.client";
 import { useBilling } from "./BillingProvider";
 
 interface Props {
@@ -27,7 +27,7 @@ export function CrossPersonaUpsell({ persona, open, onClose, onTrialStarted }: P
 
   if (!open) return null;
 
-  const product = PRODUCTS[persona];
+  const product = PRODUCTS[skuForPersona(persona)];
   const personaLabel = product.displayName;
   const Icon = persona === "shop" ? Wrench : Plane;
   const ownEntitlement = status?.[persona];

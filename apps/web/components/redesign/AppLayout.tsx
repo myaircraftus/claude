@@ -1153,7 +1153,7 @@ function AppLayoutInner({
       <FeedbackWidget />
 
       {/* ── Cross-persona upsell — only owner/mechanic have billing surfaces ── */}
-      {upsellPersona && (upsellPersona === "owner" || upsellPersona === "mechanic") && (
+      {upsellPersona && (upsellPersona === "owner" || upsellPersona === "shop") && (
         <CrossPersonaUpsell
           persona={upsellPersona}
           open

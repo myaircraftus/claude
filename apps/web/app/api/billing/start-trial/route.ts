@@ -4,7 +4,9 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { startPersonaTrial, extractClientIp } from '@/lib/billing/trial'
 
 const schema = z.object({
-  persona: z.enum(['owner', 'mechanic']),
+  // 'mechanic' accepted for backward compatibility with older clients;
+  // normalized to the runtime 'shop' persona before use (mig 119).
+  persona: z.enum(['owner', 'shop', 'mechanic']),
 })
 
 /**
@@ -28,9 +30,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
+  // mig 119 — normalize the legacy 'mechanic' persona to runtime 'shop'.
+  const persona = body.data.persona === 'mechanic' ? 'shop' : body.data.persona
+
   const result = await startPersonaTrial({
     organizationId: ctx.organizationId,
-    persona: body.data.persona,
+    persona,
     userId: ctx.user.id,
     userEmail: ctx.user.email ?? '',
     ipAddress: extractClientIp(req.headers),
@@ -54,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    persona: body.data.persona,
+    persona,
     trialEndsAt: result.trialEndsAt,
   })
 }

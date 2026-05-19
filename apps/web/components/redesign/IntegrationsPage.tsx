@@ -49,7 +49,8 @@ type Category =
   | 'Maintenance & Data'
   | 'Accounting'
 
-type Persona = 'owner' | 'mechanic' | 'both'
+/** Which app persona a provider tile is recommended for. `both` = shown to all. */
+type IntegrationAudience = 'owner' | 'shop' | 'both'
 
 type ConnectMode =
   | { kind: 'oauth'; oauthStartPath: string; statusPath?: string; disconnectPath?: string }
@@ -61,7 +62,7 @@ interface ProviderDef {
   tagline: string
   description: string
   category: Category
-  persona: Persona
+  persona: IntegrationAudience
   syncFields: string[]
   websiteUrl: string
   /** True if this provider is one of the headline integrations we feature on top. */
