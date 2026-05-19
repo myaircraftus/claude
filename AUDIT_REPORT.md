@@ -266,6 +266,59 @@ E: `SELECT *` audit, `React.memo` on list cards, `next/dynamic` for heavy
 tabs. F: icon-button `aria-label`s, focus-ring audit. Both are grep-driven and
 suitable for a follow-up; documented here, not started.
 
+## Block E — Performance (survey)
+
+- **E-1 — `SELECT *`:** ~210 `select('*')` calls in `app/api/`. Cross-checked
+  against actual row counts: the **large** tables (>1k rows) are `document_*`
+  / `canonical_*` / `vision_*` / `ocr_*` (RAG + ingestion — out of scope by
+  rule 1) or `flight_events`. Every other `select('*')` is on a sub-1k-row
+  ops table (`vendors`, `tools`, `costs`, `compliance_items`, …) or a
+  single-row `.eq('id',…).single()` fetch — negligible cost, out of scope by
+  the prompt's own ">1k rows" rule. The one genuine large-table list query is
+  `aircraft/[id]/tracking`-adjacent `aircraft/[id]/flights` (`flight_events`,
+  67k rows, ≤100-row list) — narrowing it safely needs verifying the
+  flight-list UI doesn't consume the `path` track column; left documented
+  rather than guessed. **Net: no safe high-impact fix.**
+- **E-2 — `React.memo`:** the one component the prompt named, `QueueItemCard`
+  in `documents/review`, is the only strong candidate — but the Phase-1
+  freeze fix already eliminated its real render cost (the infinite loop). A
+  bare `React.memo` on top would also need `handleAction` wrapped in
+  `useCallback` to be effective; marginal value, deferred.
+- **E-3 — `next/dynamic`:** the work-order detail's "15 tabs" are **inline JSX
+  in a single client file**, not separate components, and the file imports no
+  >50 kB library (only `sonner` + lucide icons). There is nothing to
+  lazy-load without first extracting the tabs — a refactor out of scope.
+  **Skipped, as the prompt allows.**
+
+## Block F — Accessibility (survey)
+
+The raw grep counts are mostly noise and need per-site judgment:
+- **F-1 — icon-only buttons:** the priority files checked (`documents-table`,
+  `topbar`) have only text-labelled buttons. Genuine icon-only-no-label
+  buttons exist scattered across ~250 component files; a correct fix needs an
+  action-specific label per button — a focused sweep, not a mechanical pass.
+- **F-2 — focus rings:** 184 `outline-none` hits without an obvious
+  `focus-visible:`/`focus:ring`. Many already carry a custom `focus:border-*`
+  style or sit on non-interactive wrappers — the prompt says leave those. The
+  genuinely-broken subset needs per-element inspection.
+- **F-3 — form labels:** 699 raw `<input>`/`<select>`/`<textarea>` hits — but
+  the codebase wraps inputs in `<FieldInput label=…>` / `<FieldSelect>`
+  components that label correctly internally, so the raw count massively
+  overstates the real gap.
+- **F-4 — colour contrast (catalog only, per the prompt):** 288 uses of
+  `text-gray-300/400` / `text-slate-300/400`. Sample locations:
+  `components/logbook/logbook-workflow-board.tsx`,
+  `app/(app)/styleguide/icons/page.tsx`, plus admin tables and muted helper
+  text throughout. Not changed — contrast fixes need design review.
+
+**Honest assessment:** Block E has no clean high-impact fix in scope. Block F
+is real accessibility debt, but at a scale (and with enough grep-noise) that a
+correct pass is a dedicated focused effort — mechanically spraying
+`aria-label`/`focus-visible` onto grep hits would add noise and risk
+regressions the prompt itself warns against. Recommended as a scoped a11y
+sprint with the wrapper components (`FieldInput`, shared `<Button>`) fixed
+once at the source — which resolves the bulk of F-2/F-3 centrally.
+
 ## Recommended Next Steps
 1. Complete Phases 2 (UI), 5 (code quality / tsc reduction), 7 (performance),
    9 (accessibility) in a follow-up session.
