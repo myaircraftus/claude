@@ -1137,7 +1137,7 @@ function SellerPlansView({
           <p className="text-xs text-slate-500 mb-1">
             <span className="font-semibold text-slate-600">Coming soon:</span> Dealer / MRO storefronts, bulk upload, CSV import, team seats
           </p>
-          <p className="text-xs text-slate-400">Phase 3 roadmap · <a href="#" className="text-blue-600 hover:underline">Join waitlist</a></p>
+          <p className="text-xs text-slate-400">Phase 3 roadmap · <a href="mailto:support@myaircraft.us?subject=Marketplace%20waitlist" className="text-blue-600 hover:underline">Join waitlist</a></p>
         </div>
       </div>
     </div>

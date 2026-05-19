@@ -8,6 +8,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
   try {
     const supabase = createServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const limit = parseInt(req.nextUrl.searchParams.get('limit') || '20');
 
     const { data: aircraft } = await supabase

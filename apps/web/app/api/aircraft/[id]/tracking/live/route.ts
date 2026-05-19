@@ -8,6 +8,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
   try {
     const supabase = createServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // The aircraft fetch below runs on the RLS-respecting client — a
+    // non-member's lookup returns nothing → 404. Explicit guard for parity
+    // with the rest of the API (defense in depth).
     const { data: aircraft } = await supabase
       .from('aircraft')
       .select('id, registration')

@@ -8,6 +8,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   try {
     const supabase = createServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { data: aircraft } = await supabase
       .from('aircraft')
       .select('id, registration')

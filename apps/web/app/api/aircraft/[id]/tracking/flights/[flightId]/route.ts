@@ -5,11 +5,21 @@ import { createTrackingAdapter } from '@/lib/tracking/factory';
 export async function GET(_req: NextRequest, { params }: { params: { id: string; flightId: string } }) {
   try {
     const supabase = createServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Org check via the RLS-respecting client — a non-member sees no aircraft.
+    const { data: aircraft } = await supabase
+      .from('aircraft')
+      .select('id')
+      .eq('id', params.id)
+      .single();
+    if (!aircraft) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const { data: cached } = await supabase
       .from('aircraft_recent_flights')
       .select('*')
       .eq('provider_flight_id', params.flightId)
+      .eq('aircraft_id', params.id)
       .single();
 
     if (cached) return NextResponse.json({ flight: cached });

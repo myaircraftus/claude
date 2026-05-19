@@ -5,7 +5,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
+  let body: any
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
   const basePrice = body.base_price != null ? Number(body.base_price) : null
   const markupMode = body.markup_mode ?? 'none'
   const markupPercent = body.markup_percent != null ? Number(body.markup_percent) : 0

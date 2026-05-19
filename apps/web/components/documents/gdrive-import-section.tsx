@@ -106,7 +106,7 @@ export function GdriveImportSection({
           )}
         </div>
         <Link
-          href="/settings/integrations"
+          href="/integrations"
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
         >
           Manage

@@ -1200,7 +1200,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                                 {item.completed ? 'Good condition recorded.' : item.required ? 'Needs mechanic review.' : 'No finding yet.'}
                               </td>
                               <td className="px-3 py-2 align-top text-center">
-                                <button className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted">
+                                <button disabled title="Photo capture — coming soon" aria-label="Add photo (coming soon)" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground opacity-50 cursor-not-allowed">
                                   <Camera className="h-3.5 w-3.5" />
                                 </button>
                               </td>
@@ -1477,9 +1477,9 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1.5">
-                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Reserve</button>
-                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Install</button>
-                          <button className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted">Attach 8130</button>
+                          <button disabled title="Coming soon" className="rounded-md border border-border px-2 py-1 text-[11px] opacity-50 cursor-not-allowed">Reserve</button>
+                          <button disabled title="Coming soon" className="rounded-md border border-border px-2 py-1 text-[11px] opacity-50 cursor-not-allowed">Install</button>
+                          <button disabled title="Coming soon" className="rounded-md border border-border px-2 py-1 text-[11px] opacity-50 cursor-not-allowed">Attach 8130</button>
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold">${(line.line_total ?? 0).toFixed(2)}</td>

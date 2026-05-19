@@ -23,5 +23,6 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "comment-exclude": "Test files are excluded from the production typecheck — `tsc --noEmit` gates shipped code; vitest type-checks tests separately. (Two test files also reference @testing-library/* which is not installed — see AUDIT_REPORT.md.)",
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

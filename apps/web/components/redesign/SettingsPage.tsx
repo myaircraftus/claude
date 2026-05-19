@@ -1235,7 +1235,7 @@ export function SettingsPage() {
                     {customers.length} customers · ${customers.reduce((s, c) => s + c.outstandingBalance, 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} outstanding
                   </p>
                 </div>
-                <button className="bg-primary text-white px-3 py-1.5 rounded-lg text-[13px]" style={{ fontWeight: 500 }}>+ Add Customer</button>
+                <button disabled title="Coming soon" className="bg-primary text-white px-3 py-1.5 rounded-lg text-[13px] opacity-50 cursor-not-allowed" style={{ fontWeight: 500 }}>+ Add Customer</button>
               </div>
               <div className="bg-white rounded-xl border border-border divide-y divide-border">
                 {customers.length === 0 && (
@@ -1305,7 +1305,7 @@ export function SettingsPage() {
                       </div>
                     </div>
                   </div>
-                  <button className="text-[13px] text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/5 transition-colors" style={{ fontWeight: 500 }}>Edit</button>
+                  <button disabled title="Coming soon" className="text-[13px] text-primary border border-primary/20 px-3 py-1.5 rounded-lg transition-colors opacity-50 cursor-not-allowed" style={{ fontWeight: 500 }}>Edit</button>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
                   {[
@@ -1348,7 +1348,23 @@ export function SettingsPage() {
                     <div className="text-[14px] text-foreground" style={{ fontWeight: 600 }}>3 Aircraft &middot; 1 Mechanic</div>
                     <div className="text-[12px] text-muted-foreground">$400/month &middot; Billed monthly</div>
                   </div>
-                  <button className="text-[13px] text-primary" style={{ fontWeight: 500 }}>Manage Plan</button>
+                  <button
+                    className="text-[13px] text-primary hover:underline"
+                    style={{ fontWeight: 500 }}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/billing/portal', { method: 'POST' })
+                        const data = await res.json().catch(() => ({}))
+                        if (res.ok && data?.url) {
+                          window.location.href = data.url
+                        } else {
+                          window.alert(data?.error ?? 'Billing portal is unavailable right now.')
+                        }
+                      } catch {
+                        window.alert('Billing portal is unavailable right now.')
+                      }
+                    }}
+                  >Manage Plan</button>
                 </div>
               </div>
               <div className="bg-white rounded-xl border border-border p-6">
@@ -1768,8 +1784,35 @@ export function SettingsPage() {
 
           {validTab === "Security" && (
             <div className="bg-white rounded-xl border border-border p-6">
-              <h2 className="text-[16px] text-foreground mb-4" style={{ fontWeight: 600 }}>{validTab} Settings</h2>
-              <p className="text-[13px] text-muted-foreground">Configure your {validTab.toLowerCase()} preferences here.</p>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-[16px] text-foreground" style={{ fontWeight: 600 }}>Advanced Security Controls</h2>
+                <span className="rounded-full bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5" style={{ fontWeight: 600 }}>Coming soon</span>
+              </div>
+              <p className="text-[13px] text-muted-foreground mb-4">
+                Multi-factor authentication, session-timeout policies, IP allowlisting,
+                and SSO / SAML configuration are on the roadmap. Until then your account
+                is protected by email-based authentication and per-organization access roles.
+              </p>
+              <ul className="grid sm:grid-cols-2 gap-2 mb-5">
+                {[
+                  "Multi-factor authentication (MFA) enforcement",
+                  "Session timeout policies",
+                  "IP allowlisting",
+                  "SSO / SAML for enterprise orgs",
+                ].map((feature) => (
+                  <li key={feature} className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+                    <Shield className="h-3.5 w-3.5 text-muted-foreground/60" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="mailto:support@myaircraft.us?subject=Advanced%20Security%20Controls%20%E2%80%94%20notify%20me"
+                className="inline-block rounded-lg border border-primary/20 text-primary px-3 py-1.5 text-[13px] hover:bg-primary/5 transition-colors"
+                style={{ fontWeight: 500 }}
+              >
+                Notify me when available
+              </a>
             </div>
           )}
 
