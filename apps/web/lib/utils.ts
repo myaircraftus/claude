@@ -69,6 +69,13 @@ export function truncate(text: string, maxLength: number): string {
   return text.slice(0, maxLength - 3) + '...'
 }
 
+/** True when `str` is a canonical UUID. Used to guard dynamic `[id]` routes
+ *  so a non-UUID path segment (e.g. /aircraft/dashboard) never reaches a
+ *  Supabase `.eq('id', …)` query, which would throw an invalid-input error. */
+export function isUUID(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
 export const DOC_TYPE_LABELS: Record<string, string> = {
   logbook: 'Logbook',
   poh: 'POH',

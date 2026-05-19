@@ -102,22 +102,32 @@ type TabId =
   | 'logbook'
   | 'invoice'
 
-const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'overview', label: 'Overview', icon: FileText },
-  { id: 'tasks', label: 'Tasks', icon: ClipboardCheck },
-  { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
-  { id: 'lineitems', label: 'Line Items', icon: Layers },
-  { id: 'parts', label: 'Parts', icon: Package },
-  { id: 'adsb', label: 'AD/SB', icon: ShieldCheck },
-  { id: 'activity', label: 'Activity', icon: MessageSquare },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'notes', label: 'Notes', icon: StickyNote },
-  { id: 'ownerview', label: 'Owner View', icon: Eye },
-  { id: 'aisummary', label: 'AI Summary', icon: Bot },
-  { id: 'logbook', label: 'Logbook', icon: BookOpen },
-  { id: 'invoice', label: 'Invoice', icon: Receipt },
-  { id: 'tools', label: 'Tools', icon: Wrench },
-  { id: 'media', label: 'Media', icon: Camera },
+type TabGroup = 'Execution' | 'Communication' | 'Financial' | 'Outputs'
+
+const TAB_GROUPS: TabGroup[] = ['Execution', 'Communication', 'Financial', 'Outputs']
+
+// The 15 tabs are grouped into 4 labelled sections in the tab strip to cut
+// the cognitive load of a flat 15-tab row. Array order = display order.
+const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }>; group: TabGroup }[] = [
+  // Execution — the hands-on work on the aircraft.
+  { id: 'overview', label: 'Overview', icon: FileText, group: 'Execution' },
+  { id: 'tasks', label: 'Tasks', icon: ClipboardCheck, group: 'Execution' },
+  { id: 'checklist', label: 'Checklist', icon: ClipboardCheck, group: 'Execution' },
+  { id: 'parts', label: 'Parts', icon: Package, group: 'Execution' },
+  { id: 'adsb', label: 'AD/SB', icon: ShieldCheck, group: 'Execution' },
+  { id: 'media', label: 'Media', icon: Camera, group: 'Execution' },
+  // Communication — coordinating with the owner and the team.
+  { id: 'chat', label: 'Chat', icon: MessageSquare, group: 'Communication' },
+  { id: 'notes', label: 'Notes', icon: StickyNote, group: 'Communication' },
+  { id: 'ownerview', label: 'Owner View', icon: Eye, group: 'Communication' },
+  { id: 'activity', label: 'Activity', icon: MessageSquare, group: 'Communication' },
+  // Financial — money in and out.
+  { id: 'lineitems', label: 'Line Items', icon: Layers, group: 'Financial' },
+  { id: 'invoice', label: 'Invoice', icon: Receipt, group: 'Financial' },
+  // Outputs — generated artifacts.
+  { id: 'aisummary', label: 'AI Summary', icon: Bot, group: 'Outputs' },
+  { id: 'logbook', label: 'Logbook', icon: BookOpen, group: 'Outputs' },
+  { id: 'tools', label: 'Tools', icon: Wrench, group: 'Outputs' },
 ]
 
 // ─── Checklist row type ──────────────────────────────────────────────────────
@@ -871,27 +881,39 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           </div>
         </div>
 
-        {/* Tab strip */}
+        {/* Tab strip — grouped into 4 labelled sections (Execution /
+            Communication / Financial / Outputs) to reduce the cognitive
+            load of a flat 15-tab row. */}
         <div className="flex items-center gap-0.5 px-4 overflow-x-auto">
-          {TABS.map((t) => {
-            const Icon = t.icon
-            const active = tab === t.id
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  'shrink-0 inline-flex items-center gap-1.5 px-3 py-2 -mb-px text-xs font-medium border-b-2 transition-colors',
-                  active
-                    ? 'text-foreground border-primary'
-                    : 'text-muted-foreground border-transparent hover:text-foreground hover:border-border',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{t.label}</span>
-              </button>
-            )
-          })}
+          {TAB_GROUPS.map((group, gi) => (
+            <div key={group} className="flex items-center gap-0.5">
+              {gi > 0 && (
+                <div className="mx-1.5 h-5 w-px shrink-0 bg-border" aria-hidden />
+              )}
+              <span className="shrink-0 select-none px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                {group}
+              </span>
+              {TABS.filter((t) => t.group === group).map((t) => {
+                const Icon = t.icon
+                const active = tab === t.id
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      'shrink-0 inline-flex items-center gap-1.5 px-3 py-2 -mb-px text-xs font-medium border-b-2 transition-colors',
+                      active
+                        ? 'text-foreground border-primary'
+                        : 'text-muted-foreground border-transparent hover:text-foreground hover:border-border',
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
