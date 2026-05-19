@@ -423,3 +423,54 @@ all 22 so `typescript.ignoreBuildErrors` could be removed from
 - **Deferred errors:** none — all 22 resolved with type annotations, casts,
   an import-path fix, and the `@types/react` dedup. No `@ts-ignore` /
   `@ts-expect-error` added.
+
+## UI Bug Pass — 2026-05-19
+
+A six-block UI/UX pass. Blocks A and D were found already shipped by the
+prior enterprise audit — verified, no changes. Blocks B, C, E and a small
+F remnant were genuine and are fixed.
+
+### Block A — Navigation fixes
+Already correct. `AppLayout.tsx`'s `OWNER_NAV` / `SHOP_ADMIN_NAV` /
+`adminNavItems` already use the right hrefs (`/invoices`, `/logbook-entries`,
+`/aircraft/intelligence`, `/squawks`, `/sop-library`) — every target route
+exists. None of the prompt's 8 "broken" hrefs are present in the codebase
+(the line-498 comment records the prior nav cleanup). No changes.
+
+### Block B — /aircraft/[id] UUID guard
+Added an `isUUID()` helper (`lib/utils.ts`) and a guard at the top of
+`aircraft/[id]/page.tsx`: a non-UUID `[id]` (e.g. `/aircraft/dashboard`)
+redirects to `/aircraft` before any Supabase query runs.
+
+### Block C — not-found.tsx
+Added `app/not-found.tsx` — a branded global 404 (no catch-all route
+existed). For a logged-in user a broken link now lands on a proper 404
+instead of the bare Next default. Unauthenticated unmatched routes are
+redirected to `/login` by middleware — unchanged, correct.
+
+### Block D — Document status badges
+Already shipped. `components/documents/documents-table.tsx` already renders
+a coloured `parsing_status` `StatusBadge` on every row (plus a heal-attempt
+chip and a step timeline); the owner `/documents` page renders that table.
+No changes.
+
+### Block E — Work order tab grouping
+The work-order detail's flat 15-tab strip is grouped into 4 labelled
+sections — Execution / Communication / Financial / Outputs. The tab state
+(keyed by id) and all 15 content blocks are unchanged; only the strip
+render is restructured, with non-interactive group labels + dividers.
+
+### Block F — /workforce
+Bare `/workforce` was not a nav href anywhere (the sidebar links the
+sub-pages directly). Added `app/(app)/workforce/page.tsx` redirecting to
+`/workforce/dashboard` so a bare hit no longer 404s.
+
+### Deployment
+`fix/ui-ux-pass` → preview build READY (full typecheck) → merged to `main`
+(`ac0561ad`) → production `dpl_2YrXGqmvFjfWpPmL69ihrzkGAZBW` READY on
+2026-05-19, live on myaircraft.us. tsc 0, no error/fatal runtime logs.
+
+**Verification scope:** the build (full typecheck) passed and production
+serves cleanly. The B/C/E/F changes all sit behind authentication, so a
+logged-in pass is the remaining check — the work-order tab grouping (E) in
+particular is a visual change that should be eyeballed in the app.
