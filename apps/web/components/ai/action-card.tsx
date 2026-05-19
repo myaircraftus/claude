@@ -63,8 +63,12 @@ export function ActionCard({
 
   const Icon = CATEGORY_ICON[card.category] ?? TrendingUp
 
+  // Drop any malformed suggested action (missing toolCall) — it can't post
+  // to a tool, and reading action.toolCall.tool on it crashes the render.
+  const actions = (card.suggested_actions ?? []).filter((a) => a?.toolCall?.tool)
+
   async function handleAction(actionIdx: number) {
-    const action = card.suggested_actions[actionIdx]
+    const action = actions[actionIdx]
     if (!action) return
     setBusyTool(action.toolCall.tool)
     try {
@@ -136,9 +140,9 @@ export function ActionCard({
           </div>
 
           {/* Suggested actions */}
-          {card.suggested_actions.length > 0 && (
+          {actions.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap mt-2.5">
-              {card.suggested_actions.map((action, i) => {
+              {actions.map((action, i) => {
                 const busy = busyTool === action.toolCall.tool
                 return (
                   <button
