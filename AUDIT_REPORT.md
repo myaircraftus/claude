@@ -328,3 +328,49 @@ once at the source — which resolves the bulk of F-2/F-3 centrally.
    org guards to the 5 tracking routes.
 4. Add PRIMARY KEYs to the 12 dormant marketplace tables before launch.
 5. Drive tsc to 0 and remove `ignoreBuildErrors`.
+
+## Deployment — 2026-05-18
+
+The `audit/enterprise-clean` branch was merged to `main` and deployed to
+production (myaircraft.us) autonomously.
+
+- **INTEGRATION_WEBHOOK_SECRET:** generated (256-bit, `openssl rand -hex 32`).
+  Set in Vercel **Production** via `vercel env add`; set in **Preview** via the
+  Vercel REST API (CLI v50.39 has a non-interactive branch-prompt quirk for
+  preview env vars). Value saved to gitignored `.env.audit-keys` for reference.
+  The hardened `/api/webhooks/[provider]` route now fails closed without it.
+- **Branch merged:** `audit/enterprise-clean` → `main` — merge commit
+  `b66b97a2` (`--no-ff`), 26 files, +786/-223, zero conflicts (the audit branch
+  was a clean 10-commit linear descendant of `main`). tsc verified at 64.
+- **Vercel deployment:** `dpl_EWCTtaDR817ChqYcKXNUNNf3b5m7`
+  (myaircraft01-89l13ih7x-horf.vercel.app) — built in ~3 min, status **READY**,
+  aliased to `myaircraft.us` / `www.myaircraft.us`. No error/fatal runtime logs.
+- **Modal vision worker:** app `ap-3yCi3orZTk41fputKU35SE` (aircraft-vision) is
+  `deployed` and healthy (0 stuck tasks) — **no restart needed**. The prompt's
+  `colab-c43d6206` ID is stale; the live worker was not in a stuck state.
+
+### Smoke checks
+
+| Check | Result |
+|---|---|
+| `/` homepage | **PASS** — HTTP 200 |
+| `/documents/review` | **PASS (route)** — 307 → login, route file present |
+| `/settings` → Integrations "Manage" → `/integrations` | **PASS** — `/integrations` route file present and resolves; old `/settings/integrations` confirmed to have no route file (the original 404 the nav fix corrected) |
+| `/admin/health` | **PASS (route)** — resolves, no error |
+| `/parts-inventory/analytics` | **PASS (route)** — resolves, no error |
+| `/settings` → Security tab | **PASS (route)** — `/settings` resolves |
+| Security headers (CSP / HSTS / X-Frame-Options / Referrer-Policy / Permissions-Policy) | **PASS** — all live and well-formed; the homepage rendered 200 *with* the consolidated CSP applied, so it did not break SSR |
+
+**Verification scope:** all six routes return `307 → /login` unauthenticated
+(auth-gating works; none return 404 or 5xx) and each has a confirmed `page.tsx`
+in the deployed source. In-page *content* assertions — the review-page freeze
+fix, the analytics zero-state (vs. the fake $248k figure), and the Security-tab
+"Coming Soon" panel — need an authenticated session to confirm visually; their
+code is merged and deployed, but a logged-in browser pass is the remaining
+check. Full client-side CSP validation (Stripe checkout, PostHog, any iframe
+embeds) likewise needs a logged-in pass.
+
+**Not included in this deploy:** `main` now carries the audit branch but not
+the separate `claude/gallant-mendeleev-8d5357` work (sprint 18.5 document
+preview, Figma handoff, RAG supplemental retrieval, parts AI layer, logbook
+e-sig audit) — those commits remain unmerged and would need their own merge.
