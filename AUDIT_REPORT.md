@@ -474,3 +474,82 @@ sub-pages directly). Added `app/(app)/workforce/page.tsx` redirecting to
 serves cleanly. The B/C/E/F changes all sit behind authentication, so a
 logged-in pass is the remaining check — the work-order tab grouping (E) in
 particular is a visual change that should be eyeballed in the app.
+
+---
+
+## Final Pass — sidebar labels, hydration, perf, a11y (`audit/final-pass`)
+
+Eighth pass. Branched off `main` after the route-allowlist + action-card
+fixes (`9d7ad949`). tsc 0 before and after.
+
+### Fix 1 — sidebar nav labels
+`components/redesign/AppLayout.tsx` had four section-landing nav items
+labelled "Dashboard" instead of the section they open. Renamed: `/aircraft`
+→ "Aircraft" (owner + shop), `/economics` → "Economics", `/parts-inventory`
+→ "Parts & Inventory". Standalone `/dashboard` and `/workforce/dashboard`
+items left as "Dashboard" (correct).
+
+### Fix 2 — /my-aircraft hydration warning
+Root cause was **not** in `my-aircraft/` (the legacy `my-aircraft-client.tsx`
+is dead code — `page.tsx` renders `<SmartHome>`). `AIGreeting`'s time-based
+greeting was already handled with `suppressHydrationWarning` (`dd62f600`).
+The remaining unsuppressed mismatch was `VoiceButton`: its `supported` flag
+was derived from `navigator`/`window` at render time → diverges from SSR.
+Moved capability detection into a mount `useEffect`.
+
+### Fix 3 — SELECT * on large tables
+Checked actual row counts (`pg_stat_user_tables`). The brief's priority
+tables are all small — `documents` 351, `aircraft`/`work_orders` <200 — so
+excluded by the >1,000-row rule. The genuinely large tables are ingestion/
+RAG (`document_chunks`, `document_embeddings`, OCR tables) — excluded by
+the no-ingestion rule. Almost all remaining `select('*')` calls are
+single-row `.eq('id')` fetches where `*` carries no cost. One real list-scan
+endpoint fixed: `app/api/aircraft/[id]/flights/route.ts` now selects 8
+explicit columns instead of `*`, dropping the heavy `path` jsonb track from
+the payload (sole consumer is the Sync tab, which reads only those 8).
+
+### Fix 4 — React.memo
+`AircraftCard` and `ActionCard` wrapped in `memo` — both true `.map()`-
+rendered list items with referentially-stable props (the `useAIInbox`
+callbacks are `useCallback`-wrapped) and no `children`. Other Card/Row/Item
+components are static-layout helpers, not list-rendered — not memoised.
+
+### Fix 5 — next/dynamic for WO tabs — SKIPPED
+WO tabs are inline JSX in `work-order-detail-client.tsx`, not separate
+modules. The imported panels (`AIPlanDrawer`, `WoChatTimeline`,
+`ADSBManagerPanel`, `WoToolsPanel`, e-signature, camera, voice) import no
+>50 kb library — no PDF renderer, chart lib, rich-text editor or AI-stream
+SDK. All tabs lightweight → no dynamic-import change, per the brief.
+
+### Fix 6 — aria-label on icon-only buttons
+Added to 6 confirmed icon-only buttons: WO line-item delete + activity
+"more", action-card dismiss, sync-view cancel/override, collapsed-sidebar
+sign-out.
+
+### Fix 7 — focus-visible rings
+The `outline-none` audit surfaced **108** interactive elements without a
+focus indicator — far broader than a clean per-element pass (much of it
+copy-pasted borderless search inputs with a text-caret fallback, plus
+`components/redesign/` page files). Applied `focus-visible:ring-2` to the 9
+clearest live cases (2 standalone `<select>`s, 7 WO chat-composer inputs).
+The remaining ~99 are better addressed by a single global base-layer
+`:focus-visible` rule — recommended as a follow-up rather than 99 scattered
+class edits.
+
+### Fix 8 — form input labels
+Added `aria-label` to the 8 list-view search inputs (costs, intake, work
+orders, tools, estimates, logbook, manuals, expiring documents).
+
+### Color contrast — audit only, not fixed
+288 instances of `text-gray-300/400` / `text-slate-300/400` across
+`app/(app)/` + `components/`. Not changed — contrast fixes need design
+review.
+
+### Architectural note — unknown routes still resolve to Dashboard
+After the `RESERVED_TOP_LEVEL_SEGMENTS` fix, a genuinely unknown route
+(e.g. `/xyz-broken`) is still classified as an org tenant slug and the
+tenant-existence fallback lands the user on their default dashboard rather
+than a 404. Fixing this properly needs either (a) a DB lookup in middleware
+to verify the org slug exists before rewriting, or (b) a not-found fallback
+inside the tenant layout when no org matches the slug. Deferred — tracked
+here for a follow-up.

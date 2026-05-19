@@ -68,7 +68,7 @@ export function ClockView({ team, currentUserId, isAdmin }: { team: TeamMember[]
           <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <Filter className="w-3.5 h-3.5" />
             <select value={filterEmp} onChange={(e) => setFilterEmp(e.target.value)}
-              className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none">
+              className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
               <option value="all">All employees</option>
               {team.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
             </select>

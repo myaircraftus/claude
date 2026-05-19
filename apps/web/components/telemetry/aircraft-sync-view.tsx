@@ -279,7 +279,7 @@ function FlightTable({
                             {submitting === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                             Save
                           </Button>
-                          <Button size="sm" variant="outline" onClick={cancelEdit}>
+                          <Button size="sm" variant="outline" onClick={cancelEdit} aria-label="Cancel edit">
                             <X className="h-3 w-3" />
                           </Button>
                         </div>
@@ -289,7 +289,7 @@ function FlightTable({
                             {submitting === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                             Confirm
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => startEdit(f)}>
+                          <Button size="sm" variant="outline" onClick={() => startEdit(f)} aria-label="Override flight times">
                             <Edit3 className="h-3 w-3" />
                           </Button>
                         </div>

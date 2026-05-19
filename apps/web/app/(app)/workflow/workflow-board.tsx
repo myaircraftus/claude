@@ -138,7 +138,7 @@ export function WorkflowBoard({ workOrders, mechanicById }: WorkflowBoardProps) 
               <select
                 value={filterMechanic}
                 onChange={(e) => setFilterMechanic(e.target.value)}
-                className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none cursor-pointer"
+                className="bg-white border border-border rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 cursor-pointer"
               >
                 {mechanicOptions.map((m) => (
                   <option key={m.id} value={m.id}>
