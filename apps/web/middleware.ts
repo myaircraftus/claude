@@ -143,6 +143,8 @@ function isAppRoute(pathname: string): boolean {
     '/scheduler',
     '/settings',
     '/sop-library',
+    '/squawks',
+    '/styleguide',
     '/time-clock',
     '/time-off',
     '/tools',
