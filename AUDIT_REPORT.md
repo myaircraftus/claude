@@ -13,12 +13,12 @@ Branch: `audit/enterprise-clean`
 - Branch: `audit/enterprise-clean` (NOT pushed — awaiting review per the brief)
 
 ## Coverage of this pass
-Phases **0, 1, 4, 8 — done.** Phases **3, 6 — substantially done** (392 routes
-surveyed; headers + webhook fixed; a few items noted for follow-up). Phases
-**2, 5, 7, 9 — not yet started** — this audit is scoped by the brief as a
-multi-session effort; the highest-severity items (admin freeze, the critical
-RLS hole, the unsigned webhook, missing security headers) were prioritized and
-fixed first.
+Phases **0, 1, 4, 8 — done.** Phases **3, 6, 7 — substantially done** (392
+routes surveyed; headers + webhook fixed; the review-page N+1 fixed). Phases
+**5, 9 — surveyed** (findings catalogued; systemic items documented, not
+mass-fixed per rule 4). Phase **2 (full screen-by-screen UI) — not started.**
+The highest-severity items (admin freeze, critical RLS hole, unsigned webhook,
+missing CSP/HSTS, review-page N+1) were prioritized and fixed.
 
 ## 🚨 CRITICAL FINDINGS (security/data)
 
@@ -116,8 +116,22 @@ verified to validate a signature/secret (Stripe, Intuit) — except the
 | `text` columns that should be enums | `status` / `type` / `event_type` etc. across many tables | Not converted — enum migration on live data is risky and the `event_type` fuzziness is a known data-cleanliness item; noted for a dedicated normalization pass | ⚠️ Noted |
 
 ## Phase 5 — Code Quality
-_Not started this pass. tsc baseline holds at 76 (no regression). The 76→<30
-reduction, `as any` removal, dead-code sweep, and console-log cleanup remain._
+
+Surveyed; counts captured. Systemic items are documented rather than mass-fixed
+(rule 4 — no speculative refactors):
+
+| Item | Count | Assessment |
+|---|---|---|
+| TypeScript errors | 76 | **Dominant cluster (~24): a half-finished `Persona` type migration.** `Persona` is canonically `'owner' \| 'shop' \| 'admin'` (`types/index.ts`), but `lib/documents/persona-scope.ts` and `lib/billing/gate.ts` each **redefine it more narrowly** (`'owner' \| 'shop'`), a separate `SignInPersona` type exists, and stale `'mechanic'` literals linger (runtime folds `mechanic→shop`). Consolidating to one `Persona` type + fixing call sites is a focused refactor touching billing/login/integrations gating — **not a safe audit mechanical fix**; recommended as a dedicated reviewed task. |
+| `as any` casts | 564 | Systemic type debt — not fixable in an audit pass. Recommend chipping away file-by-file. |
+| `console.*` calls (non-test) | 320 | Many are legitimate error-handler logs; a structured logger is the right long-term fix. |
+| Empty `catch {}` blocks | 12 | Mostly deliberate best-effort patterns; each should be reviewed. |
+| `@ts-ignore` / `@ts-expect-error` | 4 | Small — review individually. |
+| `TODO` / `FIXME` / `HACK` | 57 | Triage in a dedicated pass. |
+| Broken test files | `PersonaSwitcher.test.tsx`, `AdminFooterLink.test.tsx` | Reference `@testing-library/react` / jest-dom which are **not installed** — those tests cannot run. Install the deps or give tests a separate tsconfig. |
+
+The 76→<30 tsc target is **not safely reachable without the `Persona`
+consolidation**, which is deliberately deferred.
 
 ## Phase 6 — Security
 
@@ -141,15 +155,22 @@ reduction, `as any` removal, dead-code sweep, and console-log cleanup remain._
 | `/api/query` P0 aircraft-scope validation | ✅ Pass — a body `aircraft_id` is verified against the caller's org; a tail-resolved `aircraftId` is org-scoped by construction in `parseStructuredQuery`. |
 
 ## Phase 7 — Performance
-_Not started this pass. The Phase 4 FK indexes address the database side. The
-known server-side N+1 in `documents/review/page.tsx` (a per-item query loop,
-up to ~150 sequential queries) is logged here for the frontend/perf pass._
+
+| Finding | Action | Status |
+|---|---|---|
+| **N+1 in `documents/review/page.tsx`** — the OCR review queue ran a per-item `Promise.all` of 2–4 candidate/conflict queries inside a `for` loop over up to 50 items → up to ~200 sequential DB round-trips on every page load. | Rewrote as 4 batched `.in(...)` queries grouped in-memory. `page_id`/`segment_id` are indexed, so the batched lookups stay fast. | ✅ Fixed |
+| Database FK indexes | 14 hot-table indexes added (Phase 4) | ✅ Fixed |
+| Frontend `React.memo`/`useMemo`, `useEffect` deps, `next/dynamic` code-splitting, `SELECT *` audit | Not done this pass | ⚠️ Deferred |
 
 ## Phase 8 — RAG Pipeline Verification
 _Pending._
 
 ## Phase 9 — Accessibility
-_Not started this pass._
+
+| Check | Result |
+|---|---|
+| `<img>` without `alt` | ✅ Pass — the 3 grep hits were false positives (multi-line JSX); all have `alt` (one `alt=""` is correct for a decorative thumbnail). |
+| Icon-only `<button>` aria-labels, color contrast, focus rings, inline form errors | ⚠️ Not audited this pass |
 
 ## Known Remaining Issues (not fixed, reason)
 - **`aircraft/[id]/tracking/*` (5 routes)** — no in-code org/auth check; rely on

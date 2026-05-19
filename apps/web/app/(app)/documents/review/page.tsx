@@ -131,66 +131,81 @@ export default async function ReviewQueuePage({
     reviewLoadError = err instanceof Error ? err.message : 'Failed to load review queue'
   }
 
-  // ── For each item, load field candidates + conflicts ───────────────────────
-  const enriched: any[] = []
-  for (const item of queueItems) {
-    const pageId = item.ocr_page_job?.id
-    const segmentId = item.ocr_entry_segment?.id ?? item.ocr_entry_segment_id ?? null
-    if (!pageId) { enriched.push(item); continue }
+  // ── Load field candidates + conflicts for every item ──────────────────────
+  // Batched: 4 queries total (was a per-item Promise.all loop — up to ~200
+  // sequential round-trips for a 50-item queue). page_id / segment_id are
+  // indexed, so the `.in(...)` lookups stay fast.
+  const pageIds = Array.from(
+    new Set(queueItems.map((it) => it.ocr_page_job?.id).filter((v): v is string => Boolean(v))),
+  )
+  const segmentIds = Array.from(
+    new Set(
+      queueItems
+        .map((it) => it.ocr_entry_segment?.id ?? it.ocr_entry_segment_id)
+        .filter((v): v is string => Boolean(v)),
+    ),
+  )
 
-    let fieldCandidates: any[] = []
-    let fieldConflicts: any[] = []
+  function groupBy(rows: any[], key: string): Map<string, any[]> {
+    const map = new Map<string, any[]>()
+    for (const row of rows) {
+      const k = row?.[key]
+      if (!k) continue
+      const bucket = map.get(k)
+      if (bucket) bucket.push(row)
+      else map.set(k, [row])
+    }
+    return map
+  }
 
-    try {
-      if (segmentId) {
-        const [segmentCandidatesRes, segmentConflictsRes, legacyCandidatesRes, legacyConflictsRes] = await Promise.all([
-          supabase
-            .from('ocr_segment_field_candidates')
-            .select('*')
-            .eq('segment_id', segmentId),
-          supabase
+  let segCandidatesBySeg = new Map<string, any[]>()
+  let segConflictsBySeg = new Map<string, any[]>()
+  let pageCandidatesByPage = new Map<string, any[]>()
+  let pageConflictsByPage = new Map<string, any[]>()
+  try {
+    const empty = Promise.resolve({ data: [] as any[] })
+    const [segCand, segConf, pageCand, pageConf] = await Promise.all([
+      segmentIds.length
+        ? supabase.from('ocr_segment_field_candidates').select('*').in('segment_id', segmentIds)
+        : empty,
+      segmentIds.length
+        ? supabase
             .from('segment_conflicts')
             .select('*')
-            .eq('segment_id', segmentId)
-            .eq('resolution_status', 'pending'),
-          supabase
-            .from('extracted_field_candidates')
-            .select('*')
-            .eq('page_id', pageId),
-          supabase
+            .in('segment_id', segmentIds)
+            .eq('resolution_status', 'pending')
+        : empty,
+      pageIds.length
+        ? supabase.from('extracted_field_candidates').select('*').in('page_id', pageIds)
+        : empty,
+      pageIds.length
+        ? supabase
             .from('field_conflicts')
             .select('*')
-            .eq('page_id', pageId)
-            .eq('resolution_status', 'pending'),
-        ])
+            .in('page_id', pageIds)
+            .eq('resolution_status', 'pending')
+        : empty,
+    ])
+    segCandidatesBySeg = groupBy(segCand.data ?? [], 'segment_id')
+    segConflictsBySeg = groupBy(segConf.data ?? [], 'segment_id')
+    pageCandidatesByPage = groupBy(pageCand.data ?? [], 'page_id')
+    pageConflictsByPage = groupBy(pageConf.data ?? [], 'page_id')
+  } catch {}
 
-        fieldCandidates = [
-          ...(segmentCandidatesRes.data ?? []),
-          ...(legacyCandidatesRes.data ?? []),
-        ]
-        fieldConflicts = [
-          ...(segmentConflictsRes.data ?? []),
-          ...(legacyConflictsRes.data ?? []),
-        ]
-      } else {
-        const [candidatesRes, conflictsRes] = await Promise.all([
-          supabase
-            .from('extracted_field_candidates')
-            .select('*')
-            .eq('page_id', pageId),
-          supabase
-            .from('field_conflicts')
-            .select('*')
-            .eq('page_id', pageId)
-            .eq('resolution_status', 'pending'),
-        ])
-        fieldCandidates = candidatesRes.data ?? []
-        fieldConflicts = conflictsRes.data ?? []
-      }
-    } catch {}
-
-    enriched.push({ ...item, fieldCandidates, fieldConflicts })
-  }
+  const enriched: any[] = queueItems.map((item) => {
+    const pageId = item.ocr_page_job?.id
+    const segmentId = item.ocr_entry_segment?.id ?? item.ocr_entry_segment_id ?? null
+    if (!pageId) return item
+    const fieldCandidates = [
+      ...(segmentId ? (segCandidatesBySeg.get(segmentId) ?? []) : []),
+      ...(pageCandidatesByPage.get(pageId) ?? []),
+    ]
+    const fieldConflicts = [
+      ...(segmentId ? (segConflictsBySeg.get(segmentId) ?? []) : []),
+      ...(pageConflictsByPage.get(pageId) ?? []),
+    ]
+    return { ...item, fieldCandidates, fieldConflicts }
+  })
 
   // B3 — attach a CRITICAL / MEDIUM / LOW / AUTO priority band from the
   // rescored confidence so each queue card can show it. A NULL score (row not
