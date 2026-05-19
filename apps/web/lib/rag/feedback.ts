@@ -31,12 +31,19 @@ export async function logQueryResult(params: {
   doc_type_filter_used?: string | null
   /** Doc-type pre-filter: true when a thin filtered result was retried unfiltered. */
   doc_type_fallback_triggered?: boolean
+  /** Phase-1 shadow mode: the query router's would-be RouteDecision. Observation
+   *  only — retrieval behavior is unchanged. Null when ROUTER_SHADOW is off. */
+  router_shadow?: object | null
 }): Promise<void> {
   try {
     const queryHash = createHash('sha256').update(params.query).digest('hex')
 
     const supabase = createServiceSupabase()
-    await supabase.from('rag_query_log').insert({
+    // `as any` on the insert: the router_shadow jsonb column is newer than the
+    // generated DB types — the column exists in the database (migration
+    // 20260519000000_rag_query_log_router_shadow). The row shape is otherwise
+    // unchanged.
+    await (supabase as any).from('rag_query_log').insert({
       org_id: params.org_id,
       aircraft_id: params.aircraft_id ?? null,
       query_hash: queryHash,
@@ -51,6 +58,7 @@ export async function logQueryResult(params: {
         : null,
       doc_type_filter_used: params.doc_type_filter_used ?? null,
       doc_type_fallback_triggered: params.doc_type_fallback_triggered ?? false,
+      router_shadow: params.router_shadow ?? null,
     })
   } catch (err) {
     // Feedback logging is best-effort — never block or fail a query on it.

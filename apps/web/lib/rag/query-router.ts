@@ -13,6 +13,7 @@
  *   hybrid_vb   → vector + BM25
  *   hybrid_all  → vector + BM25 + tree
  */
+import type { QueryIntent } from './router-classifier'
 
 export type QueryStrategy = 'vector' | 'bm25' | 'tree' | 'hybrid_vb' | 'hybrid_all'
 
@@ -87,21 +88,45 @@ export function routeQuery(query: string, context?: { docTypes?: string[] }): Qu
 }
 
 /**
- * Async router — keyword pre-check, then an embedding-based intent
- * classifier as the fallback.
+ * A full routing decision — the strategy plus how it was reached. Phase-1
+ * shadow logging records this (rag_query_log.router_shadow) so the routing
+ * can be measured on real traffic before any active routing is enabled.
+ */
+export interface RouteDecision {
+  strategy: QueryStrategy
+  /** Which stage decided: the keyword pass, or the embedding classifier. */
+  source: 'keyword' | 'classifier'
+  /** Classifier intent — present only when `source` is 'classifier'. */
+  intent?: QueryIntent
+  /** Classifier cosine confidence — present only when `source` is 'classifier'. */
+  confidence?: number
+  /** True when the classifier's confidence was below the threshold and the
+   *  strategy is the fail-open default, not the intent's own strategy. */
+  failOpen?: boolean
+}
+
+/**
+ * Async router with the full decision breakdown — keyword pre-check, then an
+ * embedding-based intent classifier as the fallback.
  *
  * The keyword pass runs first because it is free and high-precision: a
  * non-null result is returned immediately. Only when NO keyword pattern
- * matches do we pay for an embedding round-trip. A low-confidence
- * classification (below ROUTER_CONFIDENCE_THRESHOLD) degrades to plain
- * 'vector' search rather than guessing a specialised index.
+ * matches do we pay for an embedding round-trip.
+ *
+ * FAIL-OPEN: a low-confidence classification (below ROUTER_CONFIDENCE_THRESHOLD)
+ * routes to `hybrid_all` — run every index. This also covers any classifier
+ * error, since `classifyQueryIntent` returns confidence 0 on failure. The
+ * router must NEVER drop a retriever on uncertainty; vector-only is reserved
+ * for a CONFIDENT `general_semantic` classification.
+ *
+ * Never throws — `classifyQueryIntent` is itself non-throwing.
  */
-export async function routeQueryAsync(
+export async function routeQueryVerbose(
   query: string,
   context?: { docTypes?: string[] },
-): Promise<QueryStrategy> {
+): Promise<RouteDecision> {
   const keyword = keywordRoute(query, context)
-  if (keyword) return keyword
+  if (keyword) return { strategy: keyword, source: 'keyword' }
 
   // Imported lazily so the sync `routeQuery` path stays dependency-free.
   const { classifyQueryIntent, INTENT_STRATEGY, ROUTER_CONFIDENCE_THRESHOLD } = await import(
@@ -109,8 +134,21 @@ export async function routeQueryAsync(
   )
 
   const { intent, confidence } = await classifyQueryIntent(query)
-  if (confidence < ROUTER_CONFIDENCE_THRESHOLD) return 'vector'
-  return INTENT_STRATEGY[intent]
+  if (confidence < ROUTER_CONFIDENCE_THRESHOLD) {
+    return { strategy: 'hybrid_all', source: 'classifier', intent, confidence, failOpen: true }
+  }
+  return { strategy: INTENT_STRATEGY[intent], source: 'classifier', intent, confidence }
+}
+
+/**
+ * Async router — the routing strategy only. Thin wrapper over
+ * `routeQueryVerbose`; see it for the keyword/classifier and fail-open rules.
+ */
+export async function routeQueryAsync(
+  query: string,
+  context?: { docTypes?: string[] },
+): Promise<QueryStrategy> {
+  return (await routeQueryVerbose(query, context)).strategy
 }
 
 /** Expand a strategy into the concrete set of indexes to query. */
