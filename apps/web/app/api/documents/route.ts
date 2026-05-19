@@ -24,7 +24,13 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '100', 10)
   const offset = parseInt(searchParams.get('offset') ?? '0', 10)
 
-  await reconcileOrganizationStaleDocuments(createServiceSupabase(), membership.organization_id)
+  // Best-effort stale-document reconciliation — a failure here must not 500
+  // the whole document list.
+  try {
+    await reconcileOrganizationStaleDocuments(createServiceSupabase(), membership.organization_id)
+  } catch (err) {
+    console.error('[documents GET] stale-doc reconcile failed (non-fatal):', err)
+  }
 
   let query = supabase
     .from('documents')
