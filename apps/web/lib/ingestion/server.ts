@@ -13,6 +13,7 @@ import {
 } from '@/lib/documents/processing-state'
 import { buildOcrEntrySegments } from '@/lib/ocr/segments'
 import { validateOcrField } from '@/lib/ocr/validation'
+import { retranscribeGarbledPages, isRetranscribeEnabled } from '@/lib/ingestion/vision-retranscribe'
 import { recordDocumentDriftSnapshot } from '@/lib/intelligence/quality'
 import { ensureTriggerSecretKey, isTriggerConfigured } from '@/lib/ingestion/trigger-env'
 import {
@@ -1852,6 +1853,38 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       ingestData = {
         ...ingestData,
         pages: enrichedPages,
+      }
+    }
+
+    // Vision-OCR re-transcription (docs/go-live-plan.md §1) — gated by the
+    // VISION_OCR_RETRANSCRIBE env flag. Garbled handwritten logbook pages are
+    // re-transcribed by GPT-4o BEFORE chunking/segmentation, so the clean text
+    // flows into document_pages, the OCR entry segments and the canonical
+    // retrieval layer with no replace-and-rerun. Best-effort — never blocks.
+    if (!ingestData.is_text_native && ingestData.pages.length > 0 && isRetranscribeEnabled()) {
+      try {
+        const pdfResponse = await fetch(fileUrl)
+        if (pdfResponse.ok) {
+          const pdfBytes = new Uint8Array(await pdfResponse.arrayBuffer())
+          const retranscribeResult = await retranscribeGarbledPages({
+            documentId,
+            pdfBytes,
+            pages: ingestData.pages,
+          })
+          if (retranscribeResult.retranscribed > 0) {
+            console.log(
+              `[ingestion] vision-OCR re-transcribed ${retranscribeResult.retranscribed}/` +
+                `${retranscribeResult.candidates} garbled page(s) for ${documentId}: ` +
+                `pages [${retranscribeResult.pageNumbers.join(', ')}]`,
+            )
+          }
+        } else {
+          console.warn(
+            `[ingestion] vision-OCR re-transcription: source PDF fetch returned ${pdfResponse.status}`,
+          )
+        }
+      } catch (err) {
+        console.warn('[ingestion] vision-OCR re-transcription step failed (non-fatal):', err)
       }
     }
 
