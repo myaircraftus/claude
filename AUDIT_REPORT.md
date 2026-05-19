@@ -215,6 +215,57 @@ _Pending._
   project; the RAG count path already compensates with fuzzy matching.
 - **Server-side N+1 in `documents/review/page.tsx`** — per-item query loop.
 
+## Continuation pass — Blocks A–F (PROMPT_Phase2_Fixes_Continuation.md)
+
+**Block A — Quick wins (done):**
+- A-1: The prompt's 6-broken-link table was **stale** — `AppLayout.tsx`'s nav
+  was already correct (`/squawks`, `/logbook-entries`, `/aircraft/intelligence`,
+  `/invoices` all valid). Cross-checked *every* nav href against the route
+  tree: only 2 were genuinely broken — admin `/admin/faraim` and `/admin/tour`.
+  Both removed (no such routes; the features already exist as the FaraimButton
+  and the launchTour() button).
+- A-2: "Manage Plan" wired to `/api/billing/portal`; 8 genuine feature-stub
+  buttons disabled with "Coming soon"; marketplace `href="#"` → mailto.
+- A-3: Parts-inventory Analytics replaced hardcoded demo figures with a
+  real-`inventory_parts`-count-driven honest zero-state.
+- A-4: Settings → Security: proper "Coming soon" panel (MFA/session/IP/SSO).
+
+**Block B — Defense in depth (done):**
+- B-1: auth + RLS-scoped org guard added to all 5 `aircraft/[id]/tracking/*`
+  routes.
+- B-2: try/catch added — `provider-config` (GET+PATCH), `documents` GET
+  (best-effort reconcile wrapped), `apply-markup` (JSON-body guard).
+
+**Block C — Database (done):**
+- C-1: PRIMARY KEY added to 12 dormant tables. The prompt's `ADD COLUMN IF NOT
+  EXISTS id … PRIMARY KEY` would have **no-op'd** — all 12 already have an
+  `id uuid` column; the correct migration is `ADD PRIMARY KEY (id)` on the
+  existing column. Verified 0 NULL ids first. Migration `..150000` applied.
+
+**Block D — TypeScript / code quality:**
+- D-2 (done): test files were in the *production* tsconfig — excluded them
+  (`tsc --noEmit` gates shipped code; vitest handles tests). **tsc 76 → 64.**
+- D-1 (NOT done — deliberately): the prompt frames this as 3 mergeable
+  `Persona` definitions. Reality: **6+ semantically-distinct types** sharing
+  the name — auth role (`owner|shop|admin`), an integration-audience filter in
+  `IntegrationsPage` (`owner|mechanic|both`), `SignInPersona` (`owner|mechanic`),
+  the billing `Sku` (`owner|mechanic|bundle`), plus per-component locals. The
+  `mechanic`↔`shop` vocabulary drift spans auth/billing/signup/integration —
+  different *concepts*, not one type. Blind consolidation risks silently
+  breaking billing and access gating. This needs product disambiguation
+  ("is the shop persona `shop` or `mechanic`? is integration-audience the same
+  axis as auth-persona?") and should be a dedicated, reviewed refactor — not a
+  mechanical audit pass. `ignoreBuildErrors` stays until then.
+- D-3 (reviewed): 12 empty `catch {}` blocks — on review, ~10 are legitimate
+  best-effort (error-body JSON parse, URL parse, optional title fetch). Added
+  a `console.error` to the one that genuinely warranted visibility (the
+  review-page candidate-batch load). The rest are intentional.
+
+**Blocks E (performance) / F (accessibility) — not done this pass.**
+E: `SELECT *` audit, `React.memo` on list cards, `next/dynamic` for heavy
+tabs. F: icon-button `aria-label`s, focus-ring audit. Both are grep-driven and
+suitable for a follow-up; documented here, not started.
+
 ## Recommended Next Steps
 1. Complete Phases 2 (UI), 5 (code quality / tsc reduction), 7 (performance),
    9 (accessibility) in a follow-up session.

@@ -190,7 +190,11 @@ export default async function ReviewQueuePage({
     segConflictsBySeg = groupBy(segConf.data ?? [], 'segment_id')
     pageCandidatesByPage = groupBy(pageCand.data ?? [], 'page_id')
     pageConflictsByPage = groupBy(pageConf.data ?? [], 'page_id')
-  } catch {}
+  } catch (err) {
+    // Best-effort enrichment — cards still render without the comparison
+    // table if this fails — but log it so a real failure is visible.
+    console.error('[documents/review] candidate/conflict batch load failed:', err)
+  }
 
   const enriched: any[] = queueItems.map((item) => {
     const pageId = item.ocr_page_job?.id
