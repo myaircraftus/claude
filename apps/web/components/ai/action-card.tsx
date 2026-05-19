@@ -9,7 +9,7 @@
  * a successful tool call.
  */
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { motion } from 'motion/react'
 import { toast } from 'sonner'
 import {
@@ -49,7 +49,7 @@ const PRIORITY_BAR: Record<ActionCardPriority, string> = {
   low:    'bg-slate-300',
 }
 
-export function ActionCard({
+export const ActionCard = memo(function ActionCard({
   card,
   onDismiss,
   onResolve,
@@ -132,6 +132,7 @@ export function ActionCard({
 
             <button
               onClick={() => onDismiss(card.id)}
+              aria-label="Dismiss card"
               className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted shrink-0"
               title="Dismiss"
             >
@@ -204,4 +205,4 @@ export function ActionCard({
       </div>
     </motion.div>
   )
-}
+})

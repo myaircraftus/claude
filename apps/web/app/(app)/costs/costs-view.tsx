@@ -132,6 +132,7 @@ export function CostsView() {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Description, category, notes…"
+            aria-label="Search costs"
             className="bg-transparent text-[12px] outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>

@@ -665,14 +665,14 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickPart.pn}
                 onChange={(e) => setQuickPart((p) => ({ ...p, pn: e.target.value.toUpperCase() }))}
                 placeholder="P/N"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none font-mono"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 font-mono"
                 autoFocus
               />
               <input
                 value={quickPart.desc}
                 onChange={(e) => setQuickPart((p) => ({ ...p, desc: e.target.value }))}
                 placeholder="Description"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               />
               <input
                 type="number"
@@ -681,7 +681,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickPart.qty}
                 onChange={(e) => setQuickPart((p) => ({ ...p, qty: e.target.value }))}
                 placeholder="Qty"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none tabular-nums"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 tabular-nums"
               />
               <input
                 type="number"
@@ -690,7 +690,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickPart.price}
                 onChange={(e) => setQuickPart((p) => ({ ...p, price: e.target.value }))}
                 placeholder="$"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none tabular-nums"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 tabular-nums"
               />
             </div>
             <Button type="submit" size="sm" disabled={quickSubmitting} className="h-7 px-3 text-[11px] w-full">
@@ -713,7 +713,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickLabor.desc}
                 onChange={(e) => setQuickLabor((p) => ({ ...p, desc: e.target.value }))}
                 placeholder="Task / description"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 autoFocus
               />
               <input
@@ -723,7 +723,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickLabor.hours}
                 onChange={(e) => setQuickLabor((p) => ({ ...p, hours: e.target.value }))}
                 placeholder="Hours"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none tabular-nums"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 tabular-nums"
               />
               <input
                 type="number"
@@ -732,7 +732,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
                 value={quickLabor.rate}
                 onChange={(e) => setQuickLabor((p) => ({ ...p, rate: e.target.value }))}
                 placeholder="$/hr"
-                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none tabular-nums"
+                className="px-2 py-1.5 rounded-md border border-border bg-white text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 tabular-nums"
               />
             </div>
             <Button type="submit" size="sm" disabled={quickSubmitting} className="h-7 px-3 text-[11px] w-full">

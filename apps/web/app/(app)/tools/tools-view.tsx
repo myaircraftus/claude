@@ -110,7 +110,7 @@ export function ToolsView() {
         </div>
         <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-1.5 max-w-md flex-1">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="Name, serial, manufacturer..."
+          <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="Name, serial, manufacturer..." aria-label="Search tools"
             className="bg-transparent text-[12px] outline-none flex-1 placeholder:text-muted-foreground/50" />
         </div>
       </div>

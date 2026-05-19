@@ -70,6 +70,7 @@ export function EstimatesListView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by estimate #, tail, or customer..."
+            aria-label="Search estimates"
             className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>

@@ -185,6 +185,7 @@ export function ManualsView({ manuals: initialManuals, aircraft, effectiveTier =
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Search by manual title, tail number, or aircraft model..."
+            aria-label="Search manuals"
             className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground/50"
           />
           {searchQ && (

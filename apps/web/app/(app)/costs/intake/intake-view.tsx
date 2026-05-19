@@ -249,6 +249,7 @@ export function IntakeView({ orgId }: { orgId: string }) {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Filename, email sender, subject…"
+            aria-label="Search cost intake"
             className="bg-transparent text-[12px] outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>
