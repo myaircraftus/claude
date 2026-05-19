@@ -374,3 +374,52 @@ embeds) likewise needs a logged-in pass.
 the separate `claude/gallant-mendeleev-8d5357` work (sprint 18.5 document
 preview, Figma handoff, RAG supplemental retrieval, parts AI layer, logbook
 e-sig audit) — those commits remain unmerged and would need their own merge.
+
+## Persona type consolidation — 2026-05-19
+
+The 12 persona-named union types were disambiguated and ~42 persona-type
+tsc errors fixed (64 → 22). Merged to `main` (`878af441`), live on
+myaircraft.us. Type-only changes plus fixes for latent bugs where stale
+`'mechanic'` literals left comparisons silently never-matching
+(LoginPage persona buttons, upload-dropzone chips, `CrossPersonaUpsell`).
+`gate.ts` / `persona-scope.ts`'s module-local `Persona` exports were left
+as-is — they do not collide at the compiler level.
+
+## tsc → 0 + ignoreBuildErrors removed — 2026-05-19
+
+The persona consolidation left `main` at 22 tsc errors; this pass cleared
+all 22 so `typescript.ignoreBuildErrors` could be removed from
+`next.config.mjs`. The production build now runs a full typecheck.
+
+- **Starting error count:** 22 (all non-persona).
+- **Clusters fixed:**
+  - `Dashboard.tsx` — Lucide icon prop typed `LucideIcon`, not `ComponentType` (7)
+  - `invoice-workflow-board.tsx` — `previewLines()` given a `PreviewLine[]`
+    return type, fixing 4 implicit-any callback params (4)
+  - `vision-dispatch-sweep` / `telemetry-inference` — typed the Supabase
+    result rows; cast/annotation only, no logic change (4)
+  - `lib/ai/cards/generators.ts` — `ActionCardCategory` / `ActionCardPriority`
+    imported from `@/lib/ai/types`, not `@/types` (2)
+  - `dashboard-layouts` — `VALID_PERSONAS` Set widened to accept legacy `'mechanic'` (1)
+  - `trash` — double-cast through `unknown` for the dynamic Supabase select (1)
+  - `webhooks/stripe` — `api_version ?? undefined` (null→undefined coercion) (1)
+  - `taxonomy/unclassified` — the multi-table `SOURCES` loop runs against an
+    untyped client view; the typed client's `.from().select()` inference
+    explodes into a union too complex to represent — TS2590 (1)
+  - `intelligence-client.tsx` — resolved by deduping `@types/react` via a
+    `pnpm.overrides` pin to `^18.3.0`; the dedup also cleared a now-stale
+    `@ts-expect-error` in `lib/marketing/brand.ts` (1)
+- **Build-only fix:** `app/api/billing/checkout-tier/route.ts` exported a
+  test-only `__testing` object — the App Router's route-type validation
+  rejects non-handler exports, so it would have failed the build once
+  `ignoreBuildErrors` was off. `bracketMinFor` / `readSecret` were moved to a
+  sibling `helpers.ts`; `route.ts` now exports only the POST handler.
+- **Final tsc:** 0. **ignoreBuildErrors:** removed.
+- **Deployment:** `fix/tsc-zero` → preview build READY (full typecheck
+  passed) → merged to `main` (`a920cc02`) → production
+  `dpl_7y3BezChknSRBThVkE5rZCRo4ubW` READY on 2026-05-19, live on
+  myaircraft.us. No error/fatal runtime logs; `/`, `/login`, `/demo/*`
+  smoke-checked 200.
+- **Deferred errors:** none — all 22 resolved with type annotations, casts,
+  an import-path fix, and the `@types/react` dedup. No `@ts-ignore` /
+  `@ts-expect-error` added.
