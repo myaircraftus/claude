@@ -46,7 +46,7 @@ export async function GET(_req: NextRequest) {
     return {
       entity_type: key,
       label: cfg.label,
-      rows: ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      rows: ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({
         id: r.id as string,
         display: (r[cfg.display_field] as string | null) ?? '(unnamed)',
         deleted_at: r.deleted_at as string,

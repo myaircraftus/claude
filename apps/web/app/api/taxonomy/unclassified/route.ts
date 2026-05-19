@@ -92,7 +92,10 @@ export async function GET(req: NextRequest) {
   try {
     const results = await Promise.all(
       SOURCES.map(async (source) => {
-        let query = supabase
+        // SOURCES spans a union of tables; the typed client's
+        // .from().select() inference explodes (TS2590), so this dynamic
+        // multi-table query runs against an untyped client view.
+        let query = (supabase as any)
           .from(source.table)
           .select(source.select)
           .eq('organization_id', ctx.organizationId)

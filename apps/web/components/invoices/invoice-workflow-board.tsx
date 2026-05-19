@@ -590,7 +590,15 @@ function Metric({ label, value, strong }: { label: string; value: string; strong
   )
 }
 
-function previewLines(sourceType: SourceType, workOrder: any, estimate: any, manualLines: any[]) {
+type PreviewLine = {
+  item_type: string
+  description: string
+  quantity: number
+  unit_price: number
+  source_label: string
+}
+
+function previewLines(sourceType: SourceType, workOrder: any, estimate: any, manualLines: any[]): PreviewLine[] {
   if (sourceType === 'custom') return manualLines.map(line => ({ ...line, source_label: 'Manual' }))
   if (sourceType === 'estimate' && estimate?.line_items?.length) {
     return estimate.line_items.slice(0, 5).map((line: any) => ({

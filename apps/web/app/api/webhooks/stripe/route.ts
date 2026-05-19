@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
       id: event.id,
       type: event.type,
       livemode: event.livemode,
-      api_version: event.api_version,
+      api_version: event.api_version ?? undefined,
       payload: event,
     })
   } catch (err) {

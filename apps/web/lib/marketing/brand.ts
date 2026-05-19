@@ -1,5 +1,4 @@
 import 'server-only'
-// @ts-expect-error — React.cache is runtime-stable in 18.3 but the type lives in 'react/canary'
 import { cache } from 'react'
 import { getContent } from './content'
 
