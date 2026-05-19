@@ -449,7 +449,7 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                       <FieldInput label="Serial" value={panelForm.removedSerial} onChange={(v) => setPanelForm((f) => ({ ...f, removedSerial: v }))} />
                     </div>
                     <FieldSelect label="Removal Reason" value={panelForm.removedReason} options={['Scheduled', 'Unscheduled', 'Failure']} onChange={(v) => setPanelForm((f) => ({ ...f, removedReason: v }))} />
-                    <button type="button" className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+                    <button type="button" disabled title="Coming soon" className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary opacity-50 cursor-not-allowed">
                       <Paperclip className="h-3 w-3" /> Attach File
                     </button>
                     <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground mb-1 mt-3" style={{ fontWeight: 600 }}>Part Installed</div>
@@ -458,7 +458,7 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                       <FieldInput label="Serial" value={panelForm.installedSerial} onChange={(v) => setPanelForm((f) => ({ ...f, installedSerial: v }))} />
                     </div>
                     <FieldSelect label="Installed Status" value={panelForm.installedStatus} options={['Overhauled', 'New', 'Serviceable']} onChange={(v) => setPanelForm((f) => ({ ...f, installedStatus: v }))} />
-                    <button type="button" className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+                    <button type="button" disabled title="Coming soon" className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary opacity-50 cursor-not-allowed">
                       <Paperclip className="h-3 w-3" /> Attach File
                     </button>
                   </PanelSection>

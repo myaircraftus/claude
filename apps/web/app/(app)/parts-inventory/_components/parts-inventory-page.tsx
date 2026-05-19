@@ -19,6 +19,12 @@ export async function PartsInventoryPage({ view }: { view: PartsInventoryViewKey
     .order('tail_number', { ascending: true })
     .limit(200)
 
+  // Real inventory count — drives the analytics zero-state instead of the
+  // hardcoded demo figures that were shown regardless of actual data.
+  const { count: inventoryPartCount } = await supabase
+    .from('inventory_parts')
+    .select('id', { count: 'exact', head: true })
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <Topbar
@@ -38,6 +44,7 @@ export async function PartsInventoryPage({ view }: { view: PartsInventoryViewKey
           }))}
           initialView={view}
           userRole={membership.role as OrgRole}
+          inventoryPartCount={inventoryPartCount ?? 0}
         />
       </main>
     </div>

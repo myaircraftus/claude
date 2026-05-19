@@ -124,10 +124,12 @@ export function PartsInventoryWorkspace({
   aircraft,
   initialView,
   userRole,
+  inventoryPartCount,
 }: {
   aircraft: AircraftOption[]
   initialView: PartsInventoryViewKey
   userRole: OrgRole
+  inventoryPartCount: number
 }) {
   const [view, setView] = useState<PartsInventoryViewKey>(initialView)
 
@@ -220,7 +222,7 @@ export function PartsInventoryWorkspace({
         {activeView === 'purchase-orders' && <LivePurchaseOrdersView userRole={userRole} />}
         {activeView === 'rx-receipts' && <ReceivingReturnsView mode="receipts" audit={audit} />}
         {activeView === 'returns' && <ReceivingReturnsView mode="returns" audit={audit} />}
-        {activeView === 'analytics' && <AnalyticsView audit={audit} />}
+        {activeView === 'analytics' && <AnalyticsView audit={audit} inventoryPartCount={inventoryPartCount} />}
       </div>
     </div>
   )
@@ -395,7 +397,34 @@ function ReceivingReturnsView({ mode, audit }: { mode: 'receipts' | 'returns'; a
   )
 }
 
-function AnalyticsView({ audit }: { audit: (action: string, description: string) => void }) {
+function AnalyticsView({
+  audit,
+  inventoryPartCount,
+}: {
+  audit: (action: string, description: string) => void
+  inventoryPartCount: number
+}) {
+  // Honest zero-state. Previously this view showed hardcoded demo figures
+  // ($248,652 inventory value, 3.42x turnover, 94.6% fill rate, …) regardless
+  // of whether any inventory existed. With no parts on file, show an empty
+  // state + CTA instead of fabricated analytics.
+  if (inventoryPartCount === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
+        <h3 className="text-base font-semibold text-slate-900">No inventory analytics yet</h3>
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+          Inventory value, parts turnover, fill rate, and stockout trends appear
+          here once you start tracking parts. Add your first part to get started.
+        </p>
+        <a
+          href="/parts-inventory/inventory"
+          className="mt-4 inline-block rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Add your first part
+        </a>
+      </div>
+    )
+  }
   return (
     <div className="space-y-4">
       <MetricGrid
