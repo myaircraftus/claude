@@ -15,7 +15,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActionCardCategory, ActionCardPriority, Persona } from '@/types'
+import type { Persona } from '@/types'
+import type { ActionCardCategory, ActionCardPriority } from '@/lib/ai/types'
 
 /** Internal upsert payload — mirrors lib/ai/types.ts CreateActionCardInput. */
 interface CardInput {

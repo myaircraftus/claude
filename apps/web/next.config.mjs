@@ -53,9 +53,6 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   async headers() {
     // Full security header set. NOTE: this file (next.config.mjs) is the
     // config Next.js actually loads — .mjs is resolved before .ts. A stale

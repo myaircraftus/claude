@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle,
@@ -53,7 +54,7 @@ interface CreateAction {
   description: string;
   rule: string;
   tone: BadgeTone;
-  icon: ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   href?: string;
 }
 

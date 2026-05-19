@@ -13,7 +13,7 @@ import type { Persona } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_PERSONAS = new Set<Persona>(['owner', 'mechanic', 'shop', 'admin'])
+const VALID_PERSONAS = new Set<Persona | 'mechanic'>(['owner', 'mechanic', 'shop', 'admin'])
 const MAX_WIDGETS_BYTES = 200_000 // ~200KB JSON cap
 
 interface PutBody {

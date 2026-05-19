@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   }
 
   const orgsWithQueuedJobs = Array.from(new Set(
-    (queued ?? []).map((r: { organization_id: string }) => r.organization_id),
+    ((queued ?? []) as Array<{ organization_id: string }>).map((r) => r.organization_id),
   ))
 
   if (orgsWithQueuedJobs.length === 0) {
