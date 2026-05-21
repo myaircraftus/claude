@@ -15,8 +15,11 @@
  * indexed at ~200 lines per chunk, the payload is ~80 KB JSON — fine
  * to ship in one request and search client-side in <50 ms per keystroke.
  */
-import type { SopRecord } from './parser'
-import { slugify } from './parser'
+// IMPORTANT: this file is imported by client components (Cmd+K palette).
+// It MUST only import from `./shared` — never from `./parser` (which is
+// server-only and pulls in node:fs). The build will fail otherwise.
+import type { SopRecord } from './shared'
+import { slugify } from './shared'
 
 export interface SopSearchEntry {
   /** The SOP slug. */

@@ -5,13 +5,29 @@
  * as dependencies. The SOP markdown schema is small and predictable, and
  * adding a parser tree would balloon the bundle for nine files.
  *
- * This module is server-only (uses `node:fs`). Imports must come from
- * Server Components, Route Handlers, or `'use server'` actions — never
- * a client component.
+ * **THIS MODULE IS SERVER-ONLY.** It uses `node:fs` + `node:path`. Importing
+ * it from a client component blows up the Next.js webpack build with
+ * "Reading from 'node:fs' is not handled by plugins." Client components
+ * that need types or pure helpers must import from `./shared` instead.
  */
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+
+// Re-export client-safe types + slugify so existing server-side callers
+// (route handlers, server components) keep their `from '@/lib/sop/parser'`
+// imports working unchanged. The client-safe surface lives in ./shared.
+export {
+  slugify,
+  type SopFrontmatter,
+  type SopRecord,
+  type SopSection,
+} from './shared'
+
+// In-file aliases so the rest of the module can reference the types
+// without rewriting every signature.
+import type { SopFrontmatter, SopRecord, SopSection } from './shared'
+import { slugify } from './shared'
 
 /**
  * The SOP markdown lives at repo-root/docs/sop/, OUTSIDE the apps/web
@@ -44,25 +60,12 @@ async function resolveSopDir(): Promise<string> {
   return candidates[0]
 }
 
-export interface SopFrontmatter {
-  title: string
-  module: string
-  slug: string
-  order: number
-  faa_refs: string[]
-  version: string
-  last_updated: string
-  status: 'active' | 'draft' | 'deprecated'
-}
+// SopFrontmatter + SopRecord are re-exported from './shared' at the top of
+// this file so client components can import the types without dragging in
+// node:fs. The historical inline definitions used to live here.
 
-export interface SopRecord {
-  slug: string
-  frontmatter: SopFrontmatter
-  /** Raw markdown body (no frontmatter). */
-  body: string
-  /** First 200 chars of the body, stripped of markdown syntax — for cards. */
-  excerpt: string
-}
+// (Internal reference) — `import type { SopFrontmatter, SopRecord } from './shared'`
+// works inside this file via the re-export above.
 
 /**
  * Parse a YAML-lite frontmatter block. The SOP schema only uses three
@@ -409,29 +412,8 @@ export function renderMarkdown(md: string): string {
   return out.join('\n')
 }
 
-/**
- * Section — one H2-bounded chunk of an SOP. The reader uses this to show
- * one section at a time instead of the whole document scrolling, per the
- * "click a section, see only that section" UX.
- *
- * The first section is always the "Overview" — content that lives BEFORE
- * the first H2 (page intro, audience block, purpose paragraph).
- */
-export interface SopSection {
-  /** Stable anchor id; matches the H2's slugify. 'overview' for the prelude. */
-  id: string
-  /** Human-readable title. */
-  title: string
-  /** 1-based ordinal — useful for "Section 3 of 12" display. */
-  index: number
-  /** Rendered HTML for just this section. */
-  html: string
-  /** Raw markdown for this section (handy for re-rendering or search). */
-  body: string
-  /** Whether this section contains a mermaid block — used to skip
-   *  MermaidClient mount when not needed. */
-  hasMermaid: boolean
-}
+// SopSection type lives in './shared' and is re-exported at the top of
+// this file. The split keeps client components from pulling node:fs.
 
 /**
  * Split a SOP body into H2-bounded sections. Content before the first
@@ -482,12 +464,8 @@ export function splitIntoSections(body: string): SopSection[] {
   })
 }
 
-export function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-}
+// slugify lives in './shared' and is re-exported at the top of this file
+// so existing parser-side callers keep working.
 
 function escapeHtml(s: string): string {
   return s

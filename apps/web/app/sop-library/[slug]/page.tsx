@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { readSop, listSops, splitIntoSections } from '@/lib/sop/parser'
+import type { SopRecord } from '@/lib/sop/shared'
 import { SopReaderClient } from './sop-reader-client'
 
 export const dynamic = 'force-dynamic'
@@ -32,7 +33,7 @@ export default async function SopDetailPage({ params }: Props) {
   if (!sop) notFound()
 
   const sections = splitIntoSections(sop.body)
-  const siblings = allSops.map((s) => ({
+  const siblings = allSops.map((s: SopRecord) => ({
     slug: s.slug,
     order: s.frontmatter.order,
     title: s.frontmatter.title,

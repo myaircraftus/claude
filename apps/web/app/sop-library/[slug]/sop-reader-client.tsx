@@ -28,7 +28,8 @@ import {
   X,
   ShieldCheck,
 } from 'lucide-react'
-import type { SopSection } from '@/lib/sop/parser'
+// Import from ./shared (client-safe) not ./parser (server-only · node:fs)
+import type { SopSection } from '@/lib/sop/shared'
 import { MermaidClient } from '@/components/sop/MermaidClient'
 
 interface Sibling {
