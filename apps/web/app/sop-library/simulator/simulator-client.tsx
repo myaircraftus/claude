@@ -25,6 +25,8 @@ import {
   CheckCircle2,
   RefreshCcw,
   Printer,
+  History,
+  Play,
 } from 'lucide-react'
 
 interface Scenario {
@@ -42,6 +44,15 @@ interface ChatTurn {
   ts: number
 }
 
+interface RecentSession {
+  id: string
+  scenario_id: string
+  is_complete: boolean
+  completed_criteria: string[]
+  started_at: string
+  last_message_at: string
+}
+
 const PERSONA_TINT: Record<Scenario['persona'], string> = {
   mechanic: 'text-sky-700 bg-sky-50 border-sky-200',
   owner: 'text-rose-700 bg-rose-50 border-rose-200',
@@ -50,8 +61,10 @@ const PERSONA_TINT: Record<Scenario['persona'], string> = {
 
 export function SimulatorClient() {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([])
   const [scenariosLoading, setScenariosLoading] = useState(true)
   const [scenariosError, setScenariosError] = useState<string | null>(null)
+  const [resumeBusy, setResumeBusy] = useState<string | null>(null)
 
   const [active, setActive] = useState<Scenario | null>(null)
   const [messages, setMessages] = useState<ChatTurn[]>([])
@@ -60,10 +73,17 @@ export function SimulatorClient() {
   const [scenarioComplete, setScenarioComplete] = useState(false)
   const [input, setInput] = useState('')
   const [chatError, setChatError] = useState<string | null>(null)
+  /**
+   * Server-side session id (sop_simulator_sessions.id). Created on the
+   * first POST so the conversation can be resumed + audited later.
+   * Persisted by /api/sop/simulator; nullable if persistence failed
+   * (the chat still works in that case).
+   */
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const completedAt = useRef<Date | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch scenario list on mount
+  // Fetch scenario list + the user's prior sessions on mount
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -73,8 +93,14 @@ export function SimulatorClient() {
           const body = await res.json().catch(() => ({}))
           throw new Error(body?.error || `Load failed (${res.status})`)
         }
-        const data = (await res.json()) as { scenarios: Scenario[] }
-        if (!cancelled) setScenarios(data.scenarios || [])
+        const data = (await res.json()) as {
+          scenarios: Scenario[]
+          recentSessions?: RecentSession[]
+        }
+        if (!cancelled) {
+          setScenarios(data.scenarios || [])
+          setRecentSessions(data.recentSessions || [])
+        }
       } catch (err) {
         if (!cancelled) {
           setScenariosError(err instanceof Error ? err.message : 'Failed to load scenarios.')
@@ -100,6 +126,7 @@ export function SimulatorClient() {
     setMessages([{ role: 'assistant', content: s.openingMessage, ts: Date.now() }])
     setCompletedCriteria([])
     setScenarioComplete(false)
+    setSessionId(null) // new session — server will assign an id on first POST
     setInput('')
     setChatError(null)
     completedAt.current = null
@@ -110,6 +137,7 @@ export function SimulatorClient() {
     setMessages([])
     setCompletedCriteria([])
     setScenarioComplete(false)
+    setSessionId(null)
     setInput('')
     setChatError(null)
     completedAt.current = null
@@ -118,6 +146,50 @@ export function SimulatorClient() {
   const restart = () => {
     if (active) startScenario(active)
   }
+
+  /**
+   * Resume an existing session. Pulls the full message history from the
+   * server (so we don't trust client cache) and hydrates the chat state.
+   */
+  const resumeSession = useCallback(
+    async (sess: RecentSession) => {
+      const scenario = scenarios.find((s) => s.id === sess.scenario_id)
+      if (!scenario) return
+      setResumeBusy(sess.id)
+      try {
+        const res = await fetch(`/api/sop/simulator/${sess.id}`, { method: 'GET' })
+        if (!res.ok) throw new Error(`Load failed (${res.status})`)
+        const data = (await res.json()) as {
+          session: {
+            id: string
+            scenario_id: string
+            messages: Array<{ role: 'user' | 'assistant'; content: string; ts?: number }>
+            completed_criteria: string[]
+            is_complete: boolean
+            completed_at: string | null
+          }
+        }
+        const hydrated: ChatTurn[] = (data.session.messages || []).map((m, i) => ({
+          role: m.role,
+          content: m.content,
+          ts: typeof m.ts === 'number' ? m.ts : Date.now() - (1000 * (data.session.messages.length - i)),
+        }))
+        setActive(scenario)
+        setSessionId(data.session.id)
+        setMessages(hydrated)
+        setCompletedCriteria(data.session.completed_criteria || [])
+        setScenarioComplete(!!data.session.is_complete)
+        completedAt.current = data.session.completed_at ? new Date(data.session.completed_at) : null
+        setInput('')
+        setChatError(null)
+      } catch (err) {
+        setChatError(err instanceof Error ? err.message : 'Failed to resume.')
+      } finally {
+        setResumeBusy(null)
+      }
+    },
+    [scenarios],
+  )
 
   const sendTurn = useCallback(async () => {
     const text = input.trim()
@@ -134,6 +206,7 @@ export function SimulatorClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scenarioId: active.id,
+          sessionId, // null on first turn — server assigns; reused for subsequent turns
           messages: nextMessages.map((m) => ({ role: m.role, content: m.content })),
         }),
       })
@@ -142,9 +215,13 @@ export function SimulatorClient() {
         throw new Error(body?.error || `Coach failed (${res.status})`)
       }
       const data = (await res.json()) as {
+        sessionId?: string | null
         assistant: string
         scenarioComplete: boolean
         completedCriteria: string[]
+      }
+      if (data.sessionId && data.sessionId !== sessionId) {
+        setSessionId(data.sessionId)
       }
       setMessages((prev) => [
         ...prev,
@@ -160,7 +237,7 @@ export function SimulatorClient() {
     } finally {
       setBusy(false)
     }
-  }, [active, busy, input, messages, scenarioComplete])
+  }, [active, busy, input, messages, scenarioComplete, sessionId])
 
   // ── Picker view ────────────────────────────────────────────────
   if (!active) {
@@ -200,31 +277,98 @@ export function SimulatorClient() {
             {scenariosError}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {scenarios.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => startScenario(s)}
-                className="group text-left rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-violet-300 hover:shadow-sm transition-all p-5"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <span
-                    className={`text-[10px] uppercase tracking-[0.15em] font-semibold rounded border px-1.5 py-0.5 ${PERSONA_TINT[s.persona]}`}
-                  >
-                    {s.persona}
-                  </span>
-                  <span className="text-[10px] text-slate-500">
-                    {s.successCriteria.length} steps
-                  </span>
+          <>
+            {recentSessions.length > 0 && (
+              <section className="mb-8">
+                <div className="flex items-center gap-2 mb-3">
+                  <History className="w-4 h-4 text-slate-500" />
+                  <h2 className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
+                    Resume a session
+                  </h2>
                 </div>
-                <h2 className="text-base font-semibold text-slate-900 mb-2 leading-snug">
-                  {s.title}
-                </h2>
-                <p className="text-xs text-slate-600 leading-relaxed">{s.description}</p>
-              </button>
-            ))}
-          </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {recentSessions.slice(0, 6).map((sess) => {
+                    const scenario = scenarios.find((s) => s.id === sess.scenario_id)
+                    const total = scenario?.successCriteria.length ?? 0
+                    const done = sess.completed_criteria.length
+                    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+                    const when = new Date(sess.last_message_at)
+                    return (
+                      <button
+                        key={sess.id}
+                        type="button"
+                        onClick={() => resumeSession(sess)}
+                        disabled={!scenario || resumeBusy === sess.id}
+                        className="text-left rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-violet-300 transition-all p-3 disabled:opacity-60"
+                      >
+                        <div className="flex items-start justify-between mb-1.5">
+                          <span className="text-[9px] uppercase tracking-[0.15em] text-slate-500 font-semibold truncate">
+                            {scenario?.title ?? sess.scenario_id}
+                          </span>
+                          {sess.is_complete ? (
+                            <span className="text-[9px] uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 font-semibold flex items-center gap-0.5">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Done
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 py-0.5 font-semibold">
+                              {pct}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-600 mb-2">
+                          {when.toLocaleDateString()} · {done}/{total} steps
+                        </div>
+                        <div className="inline-flex items-center gap-1 text-[11px] text-violet-700 font-medium">
+                          {resumeBusy === sess.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                          {sess.is_complete ? 'Review' : 'Resume'}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            <section>
+              {recentSessions.length > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-violet-600" />
+                  <h2 className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
+                    Start a new scenario
+                  </h2>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {scenarios.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => startScenario(s)}
+                    className="group text-left rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-violet-300 hover:shadow-sm transition-all p-5"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <span
+                        className={`text-[10px] uppercase tracking-[0.15em] font-semibold rounded border px-1.5 py-0.5 ${PERSONA_TINT[s.persona]}`}
+                      >
+                        {s.persona}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {s.successCriteria.length} steps
+                      </span>
+                    </div>
+                    <h2 className="text-base font-semibold text-slate-900 mb-2 leading-snug">
+                      {s.title}
+                    </h2>
+                    <p className="text-xs text-slate-600 leading-relaxed">{s.description}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </>
         )}
       </div>
     )

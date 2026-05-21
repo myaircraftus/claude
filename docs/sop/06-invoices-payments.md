@@ -110,6 +110,35 @@ Statuses:
 - Refunded
 - Written Off
 
+```mermaid
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> ReadyToSend: review + finalize
+  Draft --> Void: cancel before send
+  ReadyToSend --> Sent: email · share link · print
+  Sent --> Viewed: owner opens
+  Viewed --> Due: due date hit
+  Sent --> Due: due date hit
+  Due --> PartiallyPaid: partial payment recorded
+  Due --> Paid: full payment recorded
+  PartiallyPaid --> Paid: balance cleared
+  Due --> Overdue: past due date + N days
+  Overdue --> PartiallyPaid: partial payment
+  Overdue --> Paid: full payment
+  Overdue --> WrittenOff: shop writes off
+  Paid --> Refunded: refund issued
+  Void --> [*]
+  Refunded --> [*]
+  WrittenOff --> [*]
+  Paid --> [*]
+
+  note right of Sent
+    Audit event recorded for every
+    send · view · payment · receipt.
+    All transitions are RBAC-gated.
+  end note
+```
+
 Dashboard widgets:
 - Draft invoices
 - Sent invoices

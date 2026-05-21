@@ -19,8 +19,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { requireAppServerSession } from '@/lib/auth/server-app'
+import { createServerSupabase } from '@/lib/supabase/server'
 import { listSops } from '@/lib/sop/parser'
+import { appendTurn, createSession } from '@/lib/sop/sessions'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -184,6 +185,129 @@ export const SCENARIOS: SimulatorScenario[] = [
       'Logs the change in mechanic_certificate_history',
     ],
   },
+  {
+    id: 'onboard-new-mechanic',
+    title: 'Onboard a New Mechanic',
+    description: 'A lead admin invites a new A&P, verifies certificates, and grants the right scope.',
+    persona: 'admin',
+    openingMessage:
+      "**Scenario: New Mechanic Hire**\n\nYou just hired Maria, a fresh A&P with one year of shop experience. Walk me through how you'd onboard her in myaircraft.us so she can start logging work tomorrow.",
+    successCriteria: [
+      'Opens /admin/users + sends an invite to Maria',
+      'Sets the role to A&P (not IA)',
+      'Maria signs up via the invite link, completes her profile',
+      'Maria uploads her A&P certificate scan to documents',
+      'Lead reviews the certificate + sets rating_ap=true',
+      'Verifies can_sign_minor=true, can_sign_annual=false, can_sign_ia=false',
+      'Records the certificate in mechanic_certificate_history',
+      'Confirms Maria can be assigned to a work order',
+    ],
+  },
+  {
+    id: 'logbook-correction',
+    title: 'Correct a Signed Logbook Entry',
+    description: 'A mistake is found in a signed entry. The mechanic needs to supersede it correctly.',
+    persona: 'mechanic',
+    openingMessage:
+      "**Scenario: Logbook Correction**\n\nYou signed a logbook entry last week for an annual on N9821C. The owner just called — you misspelled the tachometer reading (3,124.5 instead of 3,142.5). You can't just edit a signed entry. Walk me through the correct fix.",
+    successCriteria: [
+      'Recognizes the signed entry is immutable (cannot edit)',
+      'Opens the original entry in /logbook-entries/[id]',
+      'Initiates a supersede flow (NOT a delete)',
+      'Authors a corrective entry referencing the original by id + date',
+      'Records the correct tach reading + a clear correction narrative',
+      'IA / authorized A&P signs the corrective entry',
+      'Original entry status moves to "Superseded" (visible in the audit trail)',
+      'Owner is re-notified of the corrected record',
+    ],
+  },
+  {
+    id: 'multi-aircraft-owner',
+    title: 'Multi-Aircraft Owner Onboarding',
+    description: "An owner with a fleet of 4 aircraft signs up. Walk through how their portal handles all of them.",
+    persona: 'owner',
+    openingMessage:
+      "**Scenario: Fleet Owner Onboarding**\n\nYou own 4 aircraft — a Cessna 172, a King Air, a Cirrus SR22, and a Bonanza. Your shop just invited you to the owner portal. Walk me through what you'd do.",
+    successCriteria: [
+      'Accepts the invite + creates a portal account',
+      'Sees a multi-aircraft picker on the dashboard',
+      'Confirms each aircraft is correctly linked to their owner profile',
+      'Sets per-aircraft notification preferences (e.g., SR22 = SMS, King Air = email-only)',
+      'Reviews documents for each aircraft (read-only)',
+      'Submits a question via /owner/threads for the Cirrus only',
+      'Pays a deposit on one estimate via Stripe',
+      'Verifies the activity feed groups events by aircraft',
+    ],
+  },
+  {
+    id: '100-hour-inspection',
+    title: '100-Hour Inspection',
+    description: 'An A&P (no IA needed) performs a 100-hour inspection on a Part 91 trainer.',
+    persona: 'mechanic',
+    openingMessage:
+      "**Scenario: 100-Hour Inspection**\n\nN201XR is a flight-school trainer due for its 100-hour. You're the A&P — no IA needed for a 100-hour. Walk me through the flow.",
+    successCriteria: [
+      'Opens a work order with service_type=100_hour',
+      'Loads the 100-hour checklist (distinct from the annual checklist)',
+      'Verifies prior 100-hour signoffs in the timeline',
+      'Records findings; resolves any squawks',
+      'Writes a logbook entry referencing 14 CFR 91.409(b) + ATA 05',
+      'Signs the entry as A&P (NOT IA)',
+      'Releases the aircraft + notifies the school operator',
+    ],
+  },
+  {
+    id: 'walkaround-squawk-triage',
+    title: 'Walkaround Squawk Triage',
+    description: 'During a walkaround, the pilot finds three issues. The mechanic triages and prioritizes them.',
+    persona: 'mechanic',
+    openingMessage:
+      "**Scenario: Walkaround Triage**\n\nA flight school instructor just did a walkaround on N3812L before a lesson. They found: (1) a small oil drip under the cowling, (2) a loose nav-light lens, (3) a worn nosewheel tire. The lesson is in 30 minutes. Walk me through how you'd triage.",
+    successCriteria: [
+      'Opens the aircraft workspace + Squawks tab',
+      'Records each finding as a separate squawk with severity',
+      'Classifies each as AOG / Deferable / Cosmetic (or similar)',
+      'Identifies the oil drip as AOG (no-go) — grounds the aircraft',
+      'Identifies the nav-light as deferable (it\'s a day VFR lesson)',
+      'Identifies the tire as scheduled-replacement (book within X hours)',
+      'Notifies the instructor + sets aircraft.is_airworthy=false until the oil drip is investigated',
+      'Opens a work order linked to the AOG squawk',
+    ],
+  },
+  {
+    id: 'marketplace-listing',
+    title: 'List an Aircraft on the Marketplace',
+    description: 'A shop or owner lists an aircraft for sale via the marketplace. Walks through the listing + buyer flow.',
+    persona: 'admin',
+    openingMessage:
+      "**Scenario: Marketplace Listing**\n\nThe owner of N4421H has decided to sell. They want the listing to include the digital logbook so buyers can verify history. Walk me through how you'd create + publish the listing.",
+    successCriteria: [
+      'Opens the aircraft + sets marketplace_visible=true (with owner consent)',
+      'Reviews which documents will be exposed (records access fee policy)',
+      'Composes the listing — make/model/year/hours/asking price',
+      'Generates the AI-summary teaser of the maintenance history',
+      'Reviews the auto-generated summary; edits if needed',
+      'Publishes; verifies the public listing renders correctly at /marketplace/[id]',
+      'Configures buyer-thread routing (who handles inbound questions)',
+    ],
+  },
+  {
+    id: 'gdpr-data-export',
+    title: 'Owner Requests Data Export',
+    description: 'An owner exercises their GDPR Article 20 right to export all their personal + aircraft data.',
+    persona: 'admin',
+    openingMessage:
+      "**Scenario: GDPR Data Export**\n\nAn owner emails you: \"Per GDPR I'm requesting a full export of all personal data and aircraft records you hold on me.\" Walk me through how you'd handle this in myaircraft.us.",
+    successCriteria: [
+      'Verifies the request is from the actual owner (not impersonation)',
+      'Locates /api/owner/export (or the /admin export tool)',
+      'Initiates the export job — packages owner profile + aircraft + estimates + invoices + logbooks',
+      'Excludes other tenants\' data even where the owner is mentioned',
+      'Delivers the package via a time-limited signed URL',
+      'Records the export in the audit_event log (kind=data_export)',
+      'Confirms the owner received the package + closes the request',
+    ],
+  },
 ]
 
 interface ChatTurn {
@@ -194,6 +318,8 @@ interface ChatTurn {
 interface SimulatorBody {
   scenarioId?: string
   messages?: ChatTurn[]
+  /** Optional session id. If absent, a fresh DB row is created (best-effort). */
+  sessionId?: string
 }
 
 interface SimulatorResponse {
@@ -239,9 +365,14 @@ completedCriteria should list which of the numbered success criteria the user ha
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    await requireAppServerSession()
-  } catch {
+  // Auth: any logged-in user can use the simulator (it's training, not
+  // tenant data). We call supabase directly so a redirect doesn't fire
+  // inside an API route.
+  const supabase = createServerSupabase()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -271,6 +402,19 @@ export async function POST(req: NextRequest) {
       { error: 'messages must contain at least the user opening' },
       { status: 400 },
     )
+  }
+
+  // Resolve / create the persistent session row. The first turn (just
+  // the opening assistant message + the user's first reply) creates a
+  // new row; subsequent turns append to the existing one. Persistence
+  // is best-effort — if the DB write fails we still serve the chat.
+  let sessionId = body.sessionId ?? null
+  if (!sessionId) {
+    sessionId = await createSession({
+      userId: user.id,
+      scenarioId,
+      openingMessage: scenario.openingMessage,
+    })
   }
 
   // Load + trim SOP corpus for grounding. Same approach as /api/sop/ask but
@@ -311,16 +455,63 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const assistant =
+    typeof parsed.assistant === 'string' ? parsed.assistant : '(no reply)'
+  const scenarioComplete = !!parsed.scenarioComplete
+  const completedCriteria = Array.isArray(parsed.completedCriteria)
+    ? parsed.completedCriteria
+    : []
+
+  // Append the latest (user, assistant) turn pair to the session row.
+  // The user's latest message is always the last entry in `messages`.
+  const lastUserTurn = messages[messages.length - 1]
+  if (sessionId && lastUserTurn && lastUserTurn.role === 'user') {
+    await appendTurn({
+      sessionId,
+      userId: user.id,
+      userTurn: { role: 'user', content: lastUserTurn.content, ts: Date.now() },
+      assistantTurn: { role: 'assistant', content: assistant, ts: Date.now() },
+      completedCriteria,
+      scenarioComplete,
+    })
+  }
+
   return NextResponse.json({
-    assistant: typeof parsed.assistant === 'string' ? parsed.assistant : '(no reply)',
-    scenarioComplete: !!parsed.scenarioComplete,
-    completedCriteria: Array.isArray(parsed.completedCriteria) ? parsed.completedCriteria : [],
+    sessionId,
+    assistant,
+    scenarioComplete,
+    completedCriteria,
   })
 }
 
 export async function GET() {
   // GET returns the list of scenarios — used by the simulator UI to render
-  // the picker without bundling SCENARIOS into the client.
+  // the picker without bundling SCENARIOS into the client. Also returns
+  // the calling user's prior sessions (best-effort) so the client can
+  // render a "Resume" rail on the picker.
+  const supabase = createServerSupabase()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  let recentSessions: Array<{
+    id: string
+    scenario_id: string
+    is_complete: boolean
+    completed_criteria: string[]
+    started_at: string
+    last_message_at: string
+  }> = []
+  if (user) {
+    const { data } = await supabase
+      .from('sop_simulator_sessions')
+      .select('id, scenario_id, is_complete, completed_criteria, started_at, last_message_at')
+      .eq('user_id', user.id)
+      .order('last_message_at', { ascending: false })
+      .limit(20)
+    if (data) recentSessions = data
+  }
+
   return NextResponse.json({
     scenarios: SCENARIOS.map((s) => ({
       id: s.id,
@@ -330,5 +521,6 @@ export async function GET() {
       openingMessage: s.openingMessage,
       successCriteria: s.successCriteria,
     })),
+    recentSessions,
   })
 }

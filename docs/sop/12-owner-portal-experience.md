@@ -260,6 +260,47 @@ For every field, this matrix declares visibility. The implementation enforces vi
 
 ## 6. Estimate approval workflow
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Shop
+  participant Server as Next.js API
+  participant DB as Supabase
+  participant Owner
+  participant Email
+  participant Stripe
+
+  Shop->>Server: PATCH /api/estimates/[id]<br/>status=awaiting_approval
+  Server->>DB: UPDATE estimate (RLS-checked)
+  Server->>Email: notify owners with can_approve_estimates
+  Email-->>Owner: deep-link /owner/estimates/[id]
+
+  Owner->>Server: GET /owner/estimates/[id]
+  Server->>DB: SELECT estimate · line items · thread
+  DB-->>Server: owner-visible columns only
+  Server-->>Owner: render Approve / Decline / Ask UI
+
+  alt Approves
+    Owner->>Server: POST /api/owner/approvals/estimate/[id]<br/>{action:'approve'}
+    Server->>DB: INSERT approval_event<br/>(actor_ip, device, evidence_snapshot_url)
+    Server->>DB: UPDATE estimate status='approved'
+    opt Deposit requested
+      Server-->>Owner: Stripe Payment Element
+      Owner->>Stripe: pay deposit
+      Stripe-->>Server: webhook → mark deposit captured
+    end
+    Server->>Email: notify shop
+  else Declines
+    Owner->>Server: POST /api/owner/approvals/estimate/[id]<br/>{action:'decline'}
+    Server->>DB: INSERT approval_event decision='declined'
+    Server->>DB: UPDATE estimate status='declined'
+    Server->>Email: notify shop
+  else Asks question
+    Owner->>Server: POST /api/owner/threads (or append)
+    Server->>DB: INSERT thread_message
+  end
+```
+
 ### 6.1 Notification
 
 When a shop sets an estimate to `status=awaiting_approval`, the platform sends:
