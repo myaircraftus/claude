@@ -2,6 +2,22 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Download, ExternalLink, FileText, Loader2, Share2, X } from 'lucide-react'
+
+// iPad/iOS Safari (and iPhone Safari) cannot render application/pdf inside
+// an <iframe> — the iframe stays blank because Safari hands PDFs off to its
+// native QuickLook viewer, which only triggers on top-level navigation. We
+// detect iOS here so we can swap the blank iframe for a tap-to-open CTA.
+function isIosUserAgent(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/iPad|iPhone|iPod/.test(ua)) return true
+  // iPadOS 13+ reports as MacIntel with touch — detect via platform + touch.
+  return (
+    ua.includes('Macintosh') &&
+    typeof document !== 'undefined' &&
+    'ontouchend' in document
+  )
+}
 import { Button } from '@/components/ui/button'
 import type { AnswerCitation } from '@/types'
 
@@ -43,13 +59,18 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
   const downloadUrl = useMemo(() => buildDownloadUrl(documentId), [documentId])
   const [isLoading, setIsLoading] = useState(true)
   const [shareCopied, setShareCopied] = useState(false)
+  const [isIos, setIsIos] = useState(false)
 
-  // iPad/iOS Safari renders PDFs in a native QuickLook layer instead of inside
-  // the iframe DOM, so the iframe's `onLoad` event never fires. Without a
-  // ceiling on the spinner, the user sees "Opening cited page N…" forever even
-  // though the PDF has rendered behind it. 4s is long enough that we don't
-  // hide a real "still loading" state on slow connections, short enough that
-  // the visible UI clears once the page has rendered.
+  // Detect iOS after mount (UA is undefined during SSR).
+  useEffect(() => {
+    setIsIos(isIosUserAgent())
+  }, [])
+
+  // Fail-open ceiling on the spinner: iPad Safari renders PDFs in its native
+  // QuickLook layer instead of inside the iframe, so the iframe's `onLoad`
+  // event never fires. Without this timeout the user sees "Opening cited page
+  // N…" forever even though the PDF rendered behind. The iOS branch below
+  // also skips the iframe entirely.
   useEffect(() => {
     setIsLoading(true)
     const t = setTimeout(() => setIsLoading(false), 4000)
@@ -177,24 +198,64 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
         </div>
       </div>
 
-      {/* PDF iframe */}
+      {/* PDF preview area */}
       <div className="relative flex-1 min-h-0 bg-muted/30">
-        {isLoading ? (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-muted-foreground p-8 bg-background/70 backdrop-blur-[1px] pointer-events-none">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-center">
-              Opening cited page {citation?.pageNumber ?? 1}…
-            </p>
+        {isIos ? (
+          // iPad / iPhone Safari can't render PDFs in iframes — the frame
+          // stays blank because PDFs only open via native QuickLook, which
+          // requires a top-level navigation. Show a tap-to-open CTA in the
+          // iframe's place. Tap = same as the toolbar's "Open in new tab".
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 bg-background">
+            <FileText className="h-14 w-14 text-muted-foreground/30" />
+            <div className="text-center space-y-1 max-w-sm">
+              <p className="text-sm font-medium text-foreground">
+                Inline PDF preview isn&rsquo;t supported on iPad.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Tap below to view page {citation?.pageNumber ?? 1} in Safari&rsquo;s
+                PDF viewer.
+              </p>
+            </div>
+            <a
+              href={iframeSrc ?? previewUrl ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-[13px] font-medium hover:bg-primary/90"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              View page {citation?.pageNumber ?? 1}
+            </a>
+            {downloadUrl ? (
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              >
+                <Download className="h-3 w-3" /> Download full PDF
+              </a>
+            ) : null}
           </div>
-        ) : null}
+        ) : (
+          <>
+            {isLoading ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-muted-foreground p-8 bg-background/70 backdrop-blur-[1px] pointer-events-none">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-center">
+                  Opening cited page {citation?.pageNumber ?? 1}…
+                </p>
+              </div>
+            ) : null}
 
-        <iframe
-          key={iframeSrc}
-          src={iframeSrc}
-          title={citation?.documentTitle ?? 'Document preview'}
-          className="absolute inset-0 w-full h-full bg-white border-0"
-          onLoad={() => setIsLoading(false)}
-        />
+            <iframe
+              key={iframeSrc}
+              src={iframeSrc}
+              title={citation?.documentTitle ?? 'Document preview'}
+              className="absolute inset-0 w-full h-full bg-white border-0"
+              onLoad={() => setIsLoading(false)}
+            />
+          </>
+        )}
       </div>
 
       {/* Cited passage strip */}

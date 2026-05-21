@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   ExternalLink,
+  FileText,
   Plane,
   RefreshCw,
   AlertCircle,
@@ -19,6 +20,20 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+
+// iPad/iOS Safari cannot render PDFs in iframes — Safari's QuickLook only
+// fires on top-level navigation. Detect iOS so we can show a tap-to-open
+// CTA in place of the blank iframe.
+function isIosUserAgent(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/iPad|iPhone|iPod/.test(ua)) return true
+  return (
+    ua.includes('Macintosh') &&
+    typeof document !== 'undefined' &&
+    'ontouchend' in document
+  )
+}
 import { cn, formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
 import {
   coerceDocumentProcessingState,
@@ -257,6 +272,10 @@ export function DocumentDetailSlideover({
   const [currentStatus, setCurrentStatus] = useState<ParsingStatus | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isIos, setIsIos] = useState(false)
+  useEffect(() => {
+    setIsIos(isIosUserAgent())
+  }, [])
 
   const doc = liveDocument?.id === document?.id ? liveDocument : document
   const status = currentStatus ?? doc?.parsing_status
@@ -592,9 +611,12 @@ export function DocumentDetailSlideover({
   // Inline PDF preview. Renders immediately when the slideover opens —
   // no extra "show full preview" click. The /api/documents/[id]/preview
   // endpoint returns the raw PDF with `inline` Content-Disposition and
-  // `X-Frame-Options: SAMEORIGIN`, so embedding via iframe is supported.
+  // `X-Frame-Options: SAMEORIGIN`, so embedding via iframe is supported on
+  // browsers that render PDFs in iframes (Chrome, Firefox, Edge, Android).
+  // iOS Safari leaves the iframe blank — we swap to a tap-to-open CTA below.
   const isPdf =
     !doc.mime_type || doc.mime_type.toLowerCase().includes('pdf')
+  const previewHref = `/api/documents/${doc.id}/preview`
 
   return (
     <aside
@@ -647,15 +669,35 @@ export function DocumentDetailSlideover({
       {/* Inline PDF preview — rendered immediately, no extra click required. */}
       {isPdf && (
         <div className="flex-shrink-0 h-[45%] border-b border-border bg-muted/20">
-          <iframe
-            key={doc.id}
-            src={`/api/documents/${doc.id}/preview`}
-            title={`Preview of ${doc.title}`}
-            className="w-full h-full"
-            // sandbox is intentionally omitted — same-origin PDF served by our
-            // own API, no untrusted scripts. Restricting it would break the
-            // built-in browser PDF viewer.
-          />
+          {isIos ? (
+            // iPad / iPhone Safari leaves PDF iframes blank — show a tap-to-open
+            // CTA in the iframe's place. Tap = top-level navigation = QuickLook.
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+              <FileText className="h-12 w-12 text-muted-foreground/30" />
+              <p className="text-sm text-foreground">
+                Inline PDF preview isn&rsquo;t supported on iPad.
+              </p>
+              <a
+                href={previewHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-[13px] font-medium hover:bg-primary/90"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open PDF
+              </a>
+            </div>
+          ) : (
+            <iframe
+              key={doc.id}
+              src={previewHref}
+              title={`Preview of ${doc.title}`}
+              className="w-full h-full"
+              // sandbox is intentionally omitted — same-origin PDF served by our
+              // own API, no untrusted scripts. Restricting it would break the
+              // built-in browser PDF viewer.
+            />
+          )}
         </div>
       )}
 
