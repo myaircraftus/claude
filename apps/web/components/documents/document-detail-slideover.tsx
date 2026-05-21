@@ -21,17 +21,30 @@ import {
   X,
 } from 'lucide-react'
 
-// iPad/iOS Safari cannot render PDFs in iframes — Safari's QuickLook only
-// fires on top-level navigation. Detect iOS so we can show a tap-to-open
-// CTA in place of the blank iframe.
-function isIosUserAgent(): boolean {
+// Safari (any platform — macOS / iPadOS / iOS) cannot reliably render
+// application/pdf inside an iframe. iPad/iPhone hand PDFs to native
+// QuickLook (top-level nav only), so the iframe stays blank. Mac Safari
+// has gotten stricter and shows the system "broken file" icon for same-
+// origin embedded PDFs. Either way, detect Safari and swap the iframe for
+// a tap-to-open CTA. Chrome / Firefox / Edge / Android render inline fine.
+function isSafariUserAgent(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent || ''
   if (/iPad|iPhone|iPod/.test(ua)) return true
-  return (
+  if (
     ua.includes('Macintosh') &&
     typeof document !== 'undefined' &&
     'ontouchend' in document
+  ) {
+    return true
+  }
+  return (
+    ua.includes('Safari') &&
+    !ua.includes('Chrome') &&
+    !ua.includes('Chromium') &&
+    !ua.includes('Edg/') &&
+    !ua.includes('OPR/') &&
+    !ua.includes('FxiOS')
   )
 }
 import { cn, formatBytes, formatDateTime, DOC_TYPE_LABELS, PARSING_STATUS_LABELS } from '@/lib/utils'
@@ -272,9 +285,9 @@ export function DocumentDetailSlideover({
   const [currentStatus, setCurrentStatus] = useState<ParsingStatus | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [isIos, setIsIos] = useState(false)
+  const [isSafari, setIsSafari] = useState(false)
   useEffect(() => {
-    setIsIos(isIosUserAgent())
+    setIsSafari(isSafariUserAgent())
   }, [])
 
   const doc = liveDocument?.id === document?.id ? liveDocument : document
@@ -669,13 +682,13 @@ export function DocumentDetailSlideover({
       {/* Inline PDF preview — rendered immediately, no extra click required. */}
       {isPdf && (
         <div className="flex-shrink-0 h-[45%] border-b border-border bg-muted/20">
-          {isIos ? (
+          {isSafari ? (
             // iPad / iPhone Safari leaves PDF iframes blank — show a tap-to-open
             // CTA in the iframe's place. Tap = top-level navigation = QuickLook.
             <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
               <FileText className="h-12 w-12 text-muted-foreground/30" />
               <p className="text-sm text-foreground">
-                Inline PDF preview isn&rsquo;t supported on iPad.
+                Safari can&rsquo;t render PDFs inline.
               </p>
               <a
                 href={previewHref}
