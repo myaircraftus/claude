@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Download, ExternalLink, FileText, Loader2, Share2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { AnswerCitation } from '@/types'
@@ -43,6 +43,18 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
   const downloadUrl = useMemo(() => buildDownloadUrl(documentId), [documentId])
   const [isLoading, setIsLoading] = useState(true)
   const [shareCopied, setShareCopied] = useState(false)
+
+  // iPad/iOS Safari renders PDFs in a native QuickLook layer instead of inside
+  // the iframe DOM, so the iframe's `onLoad` event never fires. Without a
+  // ceiling on the spinner, the user sees "Opening cited page N…" forever even
+  // though the PDF has rendered behind it. 4s is long enough that we don't
+  // hide a real "still loading" state on slow connections, short enough that
+  // the visible UI clears once the page has rendered.
+  useEffect(() => {
+    setIsLoading(true)
+    const t = setTimeout(() => setIsLoading(false), 4000)
+    return () => clearTimeout(t)
+  }, [previewUrl, citation?.pageNumber, citation?.chunkId])
 
   const activePage = Math.max(citation?.pageNumber ?? 1, 1)
   const passage = citation?.quotedText ?? citation?.snippet ?? ''
