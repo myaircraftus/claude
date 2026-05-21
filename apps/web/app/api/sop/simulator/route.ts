@@ -118,6 +118,72 @@ export const SCENARIOS: SimulatorScenario[] = [
       'Manages two-party communication carefully (buyer + seller)',
     ],
   },
+  {
+    id: 'parts-low-stock',
+    title: 'Parts Inventory — Low Stock',
+    description: 'A parts specialist responds to a low-stock alert for a critical brake-pad part.',
+    persona: 'admin',
+    openingMessage:
+      "**Scenario: Low-Stock Alert**\n\nThe daily parts cron just flagged that you're down to 1 set of Cessna 172 brake pads (PN 066-08000). Two open WOs may need them this week. Walk me through what you'd do in the Parts module.",
+    successCriteria: [
+      'Reviews the low-stock alert + threshold settings',
+      'Checks open WOs that reference the part',
+      'Opens a Purchase Order with the preferred vendor',
+      'Records the expected receive date',
+      'Notifies affected WO owners of the part-lead-time risk',
+      'Considers a temporary substitute or alternate vendor',
+    ],
+  },
+  {
+    id: 'owner-disputes-invoice',
+    title: 'Owner Disputes an Invoice Line',
+    description: "You're a shop admin. An owner questioned a $480 line item on their invoice via the portal.",
+    persona: 'admin',
+    openingMessage:
+      "**Scenario: Owner Invoice Dispute**\n\nAn owner just posted in their portal: \"What's the $480 line on Invoice 2026-0042? I don't remember authorizing that work.\" Walk me through how you'd resolve it inside myaircraft.us.",
+    successCriteria: [
+      'Opens the invoice in the shop admin view',
+      'Reviews the disputed line item + linked WO + mechanic notes',
+      'Cross-references the estimate the owner approved',
+      'Composes a customer-facing reply (transparent + factual)',
+      'Either: adjusts the invoice (with audit) OR confirms the charge is valid + explains',
+      'Closes the dispute thread; logs the resolution',
+    ],
+  },
+  {
+    id: 'mechanic-finds-ad-during-annual',
+    title: 'Annual Reveals a New AD',
+    description: 'During an annual inspection, the IA discovers an applicable AD that has not yet been complied with.',
+    persona: 'mechanic',
+    openingMessage:
+      "**Scenario: New AD Discovered**\n\nYou're 75% through an annual on N4421H. You notice an AD applicable to the airframe that the prior shop never addressed. The owner is expecting the plane back in 2 days. Walk me through what you'd do.",
+    successCriteria: [
+      'Confirms the AD applicability against the aircraft (make/model/serial/year)',
+      'Opens a squawk capturing the AD non-compliance',
+      'Notifies the owner — clear, factual, no alarm',
+      'Issues a change-order to the estimate for the additional work',
+      'Sources parts + estimates time impact',
+      'Records the AD compliance evidence in the logbook entry when complete',
+      'References 14 CFR 39.7 (AD compliance) in the entry',
+    ],
+  },
+  {
+    id: 'ia-renewal-due',
+    title: 'IA Renewal Window',
+    description: "Your IA renewal expires in 60 days. You're catching it early.",
+    persona: 'mechanic',
+    openingMessage:
+      "**Scenario: IA Renewal**\n\nThe platform just notified you that your IA renewal is due in 60 days. You want to handle it before it lapses. Walk me through what you'd do.",
+    successCriteria: [
+      "Reviews your mechanic profile in /admin/users/[id] (or /settings)",
+      'Confirms the rating_ia_renewal_due date is accurate',
+      'Schedules + completes the FAA renewal requirement (off-platform)',
+      'Returns to the platform; uploads the renewal certificate',
+      "Lead reviews + approves; rating_ia_renewal_due updates",
+      "Verifies can_sign_annual is still true",
+      'Logs the change in mechanic_certificate_history',
+    ],
+  },
 ]
 
 interface ChatTurn {

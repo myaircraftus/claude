@@ -1,4 +1,5 @@
 import { listSops } from '@/lib/sop/parser'
+import { buildSearchIndex } from '@/lib/sop/search'
 import { SopLibraryClient } from './sop-library-client'
 
 export const dynamic = 'force-dynamic'
@@ -23,5 +24,6 @@ export default async function SopLibraryIndex() {
     status: s.frontmatter.status,
     excerpt: s.excerpt,
   }))
-  return <SopLibraryClient sops={list} />
+  const searchIndex = buildSearchIndex(sops)
+  return <SopLibraryClient sops={list} searchIndex={searchIndex} />
 }

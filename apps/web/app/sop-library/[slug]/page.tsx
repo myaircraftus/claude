@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Pencil, ShieldCheck, Sparkles } from 'lucide-react'
 import { readSop, renderMarkdown, extractToc } from '@/lib/sop/parser'
 import { SopPrintButton } from '../print-button'
+import { MermaidClient } from '@/components/sop/MermaidClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -117,9 +118,10 @@ export default async function SopDetailPage({ params }: Props) {
         {/* Article body */}
         <article
           id="sop-article"
-          className="sop-prose prose prose-invert prose-slate max-w-none prose-headings:scroll-mt-24 prose-headings:tracking-tight prose-h1:hidden prose-a:text-sky-400 prose-code:text-amber-300 prose-code:bg-slate-800/60 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-800"
+          className="sop-prose prose prose-invert prose-slate max-w-none prose-headings:scroll-mt-24 prose-headings:tracking-tight prose-h1:hidden prose-a:text-sky-400 prose-code:text-amber-300 prose-code:bg-slate-800/60 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-800 prose-table:text-sm prose-th:border prose-th:border-slate-800 prose-th:bg-slate-900/60 prose-th:px-2 prose-th:py-1.5 prose-td:border prose-td:border-slate-800/60 prose-td:px-2 prose-td:py-1.5 prose-blockquote:border-l-4 prose-blockquote:border-violet-500/40 prose-blockquote:pl-4 prose-blockquote:text-slate-300 prose-blockquote:not-italic"
           dangerouslySetInnerHTML={{ __html: html }}
         />
+        <MermaidClient articleId="sop-article" />
       </div>
     </div>
   )
