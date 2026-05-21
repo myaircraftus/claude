@@ -250,7 +250,62 @@ export function renderMarkdown(md: string): string {
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
   }
 
-  for (const raw of lines) {
+  /** Parse a GFM-style table block starting at `lines[i]`. Returns the
+   *  number of lines consumed (0 if not a table). Pushes a `<table>…</table>`
+   *  block onto `out` on success. Tables look like:
+   *      | col1 | col2 |
+   *      |------|------|
+   *      |  a   |  b   |
+   */
+  const tryTable = (i: number): number => {
+    const headerLine = lines[i]
+    const sepLine = lines[i + 1] ?? ''
+    if (!headerLine.includes('|') || !sepLine.includes('|')) return 0
+    // Separator row must be all dashes, colons, pipes, and whitespace.
+    if (!/^[\s|:\-]+$/.test(sepLine) || !/-{2,}/.test(sepLine)) return 0
+    const splitRow = (row: string) =>
+      row
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((c) => c.trim())
+    const headers = splitRow(headerLine)
+    if (headers.length === 0) return 0
+    // Column alignment from the separator row.
+    const aligns = splitRow(sepLine).map((s) => {
+      const left = s.startsWith(':')
+      const right = s.endsWith(':')
+      if (left && right) return 'center'
+      if (right) return 'right'
+      return 'left'
+    })
+    const rows: string[][] = []
+    let j = i + 2
+    while (j < lines.length && lines[j].includes('|') && lines[j].trim() !== '') {
+      rows.push(splitRow(lines[j]))
+      j++
+    }
+    out.push('<table><thead><tr>')
+    headers.forEach((h, idx) => {
+      const a = aligns[idx] ?? 'left'
+      out.push(`<th${a !== 'left' ? ` style="text-align:${a}"` : ''}>${inline(h)}</th>`)
+    })
+    out.push('</tr></thead><tbody>')
+    rows.forEach((cells) => {
+      out.push('<tr>')
+      cells.forEach((c, idx) => {
+        const a = aligns[idx] ?? 'left'
+        out.push(`<td${a !== 'left' ? ` style="text-align:${a}"` : ''}>${inline(c)}</td>`)
+      })
+      out.push('</tr>')
+    })
+    out.push('</tbody></table>')
+    return j - i
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+
     if (raw.startsWith('```')) {
       if (!inCode) {
         flushList()
@@ -258,9 +313,19 @@ export function renderMarkdown(md: string): string {
         codeLang = raw.slice(3).trim()
         codeBuf = []
       } else {
-        out.push(
-          `<pre><code class="language-${escapeHtml(codeLang || 'text')}">${escapeHtml(codeBuf.join('\n'))}</code></pre>`,
-        )
+        const lang = (codeLang || 'text').toLowerCase()
+        if (lang === 'mermaid') {
+          // Distinct shell so a client component can hydrate to SVG. The
+          // raw source is preserved as text content; nothing is sanitized
+          // beyond escapeHtml (mermaid does its own parsing client-side).
+          out.push(
+            `<div class="sop-mermaid" data-mermaid="1"><pre class="sop-mermaid-source">${escapeHtml(codeBuf.join('\n'))}</pre></div>`,
+          )
+        } else {
+          out.push(
+            `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(codeBuf.join('\n'))}</code></pre>`,
+          )
+        }
         inCode = false
         codeLang = ''
         codeBuf = []
@@ -276,6 +341,15 @@ export function renderMarkdown(md: string): string {
     if (line.trim() === '') {
       flushList()
       continue
+    }
+    // Tables — peek for header + separator + rows
+    if (line.includes('|') && /^[\s|:\-]+$/.test(lines[i + 1] ?? '')) {
+      flushList()
+      const consumed = tryTable(i)
+      if (consumed > 0) {
+        i += consumed - 1
+        continue
+      }
     }
     if (line.startsWith('#### ')) {
       flushList()
@@ -295,6 +369,11 @@ export function renderMarkdown(md: string): string {
     if (line.startsWith('# ')) {
       flushList()
       out.push(`<h1 id="${slugify(line.slice(2))}">${inline(line.slice(2))}</h1>`)
+      continue
+    }
+    if (line.startsWith('> ')) {
+      flushList()
+      out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`)
       continue
     }
     if (line.startsWith('---')) {

@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Search, BookOpen, ArrowRight, Sparkles } from 'lucide-react'
+import { Search, BookOpen, ArrowRight, Sparkles, ShieldCheck } from 'lucide-react'
 import { SOPAIQueryBar } from '@/components/sop/SOPAIQueryBar'
+import { SOPCommandPalette } from '@/components/sop/SOPCommandPalette'
+import type { SopSearchIndex } from '@/lib/sop/search'
 
 export interface SopCardData {
   slug: string
@@ -19,6 +21,7 @@ export interface SopCardData {
 
 interface Props {
   sops: SopCardData[]
+  searchIndex: SopSearchIndex
 }
 
 /**
@@ -53,7 +56,7 @@ function categoryFor(module: string) {
  * ~13 SOPs we don't need debouncing, Fuse.js, or virtualization — a
  * naive substring scan runs in microseconds.
  */
-export function SopLibraryClient({ sops }: Props) {
+export function SopLibraryClient({ sops, searchIndex }: Props) {
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
@@ -65,22 +68,10 @@ export function SopLibraryClient({ sops }: Props) {
     })
   }, [query, sops])
 
-  // Cmd/Ctrl + K to focus the search box from anywhere on this page.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        const el = document.getElementById('sop-search') as HTMLInputElement | null
-        el?.focus()
-        el?.select()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   return (
     <div className="px-8 py-8 max-w-7xl mx-auto">
+      <SOPCommandPalette index={searchIndex} />
+
       <header className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-semibold text-white tracking-tight">SOP Library</h1>
@@ -88,14 +79,23 @@ export function SopLibraryClient({ sops }: Props) {
             Source of law for every workflow in the app.
           </p>
         </div>
-        <Link
-          href="/sop-library/simulator"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-500 rounded-md px-3 py-2 transition-colors"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Open AI Simulator
-          <ArrowRight className="w-3 h-3" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/sop-library/compliance"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-200 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md px-3 py-2 transition-colors"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            SOC2 Matrix
+          </Link>
+          <Link
+            href="/sop-library/simulator"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-500 rounded-md px-3 py-2 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Open AI Simulator
+            <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
       </header>
 
       {/* AI Query Bar — natural-language Q&A across the whole library */}
