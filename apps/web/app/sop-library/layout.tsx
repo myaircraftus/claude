@@ -88,17 +88,16 @@ export default async function SopAdminLayout({ children }: { children: ReactNode
             <BookOpen className="w-4 h-4" />
             <span>AI Simulator</span>
           </Link>
-          <div
-            aria-disabled
-            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-400 cursor-not-allowed"
-            title="Coming soon"
+          <Link
+            href="/investor-room"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <TrendingUp className="w-4 h-4" />
             <span>Investor Room</span>
-            <span className="ml-auto text-[9px] uppercase tracking-wider bg-slate-100 text-slate-500 rounded px-1.5 py-0.5">
-              Soon
+            <span className="ml-auto text-[9px] uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">
+              Live
             </span>
-          </div>
+          </Link>
         </nav>
 
         <div className="px-3 py-4 border-t border-slate-200">
