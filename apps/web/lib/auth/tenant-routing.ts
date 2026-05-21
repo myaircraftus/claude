@@ -27,6 +27,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'features',
   'favicon.ico',
   'forgot-password',
+  'guided-tour',
   'history',
   'inbox',
   'inspections',
