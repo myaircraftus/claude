@@ -159,11 +159,21 @@ function coerceFrontmatter(raw: Record<string, unknown>, slug: string): SopFront
   const num = (k: string, fallback = 0) => (typeof get(k) === 'number' ? (get(k) as number) : fallback)
   const arr = (k: string) => (Array.isArray(get(k)) ? (get(k) as string[]) : [])
   const status = str('status', 'active')
+
+  // Derive order from the slug prefix (e.g. "07-logbook-entries" → 7) when
+  // frontmatter doesn't supply one. None of the current SOP files specify
+  // `order` explicitly — they all rely on the numeric slug prefix.
+  let order = num('order', NaN)
+  if (!Number.isFinite(order)) {
+    const m = slug.match(/^(\d+)/)
+    order = m ? parseInt(m[1], 10) : 0
+  }
+
   return {
     title: str('title', slug),
     module: str('module', ''),
     slug: str('slug', slug),
-    order: num('order', 0),
+    order,
     faa_refs: arr('faa_refs'),
     version: str('version', '1.0.0'),
     last_updated: str('last_updated', ''),
@@ -250,7 +260,62 @@ export function renderMarkdown(md: string): string {
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
   }
 
-  for (const raw of lines) {
+  /** Parse a GFM-style table block starting at `lines[i]`. Returns the
+   *  number of lines consumed (0 if not a table). Pushes a `<table>…</table>`
+   *  block onto `out` on success. Tables look like:
+   *      | col1 | col2 |
+   *      |------|------|
+   *      |  a   |  b   |
+   */
+  const tryTable = (i: number): number => {
+    const headerLine = lines[i]
+    const sepLine = lines[i + 1] ?? ''
+    if (!headerLine.includes('|') || !sepLine.includes('|')) return 0
+    // Separator row must be all dashes, colons, pipes, and whitespace.
+    if (!/^[\s|:\-]+$/.test(sepLine) || !/-{2,}/.test(sepLine)) return 0
+    const splitRow = (row: string) =>
+      row
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((c) => c.trim())
+    const headers = splitRow(headerLine)
+    if (headers.length === 0) return 0
+    // Column alignment from the separator row.
+    const aligns = splitRow(sepLine).map((s) => {
+      const left = s.startsWith(':')
+      const right = s.endsWith(':')
+      if (left && right) return 'center'
+      if (right) return 'right'
+      return 'left'
+    })
+    const rows: string[][] = []
+    let j = i + 2
+    while (j < lines.length && lines[j].includes('|') && lines[j].trim() !== '') {
+      rows.push(splitRow(lines[j]))
+      j++
+    }
+    out.push('<table><thead><tr>')
+    headers.forEach((h, idx) => {
+      const a = aligns[idx] ?? 'left'
+      out.push(`<th${a !== 'left' ? ` style="text-align:${a}"` : ''}>${inline(h)}</th>`)
+    })
+    out.push('</tr></thead><tbody>')
+    rows.forEach((cells) => {
+      out.push('<tr>')
+      cells.forEach((c, idx) => {
+        const a = aligns[idx] ?? 'left'
+        out.push(`<td${a !== 'left' ? ` style="text-align:${a}"` : ''}>${inline(c)}</td>`)
+      })
+      out.push('</tr>')
+    })
+    out.push('</tbody></table>')
+    return j - i
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+
     if (raw.startsWith('```')) {
       if (!inCode) {
         flushList()
@@ -258,9 +323,19 @@ export function renderMarkdown(md: string): string {
         codeLang = raw.slice(3).trim()
         codeBuf = []
       } else {
-        out.push(
-          `<pre><code class="language-${escapeHtml(codeLang || 'text')}">${escapeHtml(codeBuf.join('\n'))}</code></pre>`,
-        )
+        const lang = (codeLang || 'text').toLowerCase()
+        if (lang === 'mermaid') {
+          // Distinct shell so a client component can hydrate to SVG. The
+          // raw source is preserved as text content; nothing is sanitized
+          // beyond escapeHtml (mermaid does its own parsing client-side).
+          out.push(
+            `<div class="sop-mermaid" data-mermaid="1"><pre class="sop-mermaid-source">${escapeHtml(codeBuf.join('\n'))}</pre></div>`,
+          )
+        } else {
+          out.push(
+            `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(codeBuf.join('\n'))}</code></pre>`,
+          )
+        }
         inCode = false
         codeLang = ''
         codeBuf = []
@@ -276,6 +351,15 @@ export function renderMarkdown(md: string): string {
     if (line.trim() === '') {
       flushList()
       continue
+    }
+    // Tables — peek for header + separator + rows
+    if (line.includes('|') && /^[\s|:\-]+$/.test(lines[i + 1] ?? '')) {
+      flushList()
+      const consumed = tryTable(i)
+      if (consumed > 0) {
+        i += consumed - 1
+        continue
+      }
     }
     if (line.startsWith('#### ')) {
       flushList()
@@ -295,6 +379,11 @@ export function renderMarkdown(md: string): string {
     if (line.startsWith('# ')) {
       flushList()
       out.push(`<h1 id="${slugify(line.slice(2))}">${inline(line.slice(2))}</h1>`)
+      continue
+    }
+    if (line.startsWith('> ')) {
+      flushList()
+      out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`)
       continue
     }
     if (line.startsWith('---')) {
@@ -318,6 +407,79 @@ export function renderMarkdown(md: string): string {
     out.push(`<pre><code>${escapeHtml(codeBuf.join('\n'))}</code></pre>`)
   }
   return out.join('\n')
+}
+
+/**
+ * Section — one H2-bounded chunk of an SOP. The reader uses this to show
+ * one section at a time instead of the whole document scrolling, per the
+ * "click a section, see only that section" UX.
+ *
+ * The first section is always the "Overview" — content that lives BEFORE
+ * the first H2 (page intro, audience block, purpose paragraph).
+ */
+export interface SopSection {
+  /** Stable anchor id; matches the H2's slugify. 'overview' for the prelude. */
+  id: string
+  /** Human-readable title. */
+  title: string
+  /** 1-based ordinal — useful for "Section 3 of 12" display. */
+  index: number
+  /** Rendered HTML for just this section. */
+  html: string
+  /** Raw markdown for this section (handy for re-rendering or search). */
+  body: string
+  /** Whether this section contains a mermaid block — used to skip
+   *  MermaidClient mount when not needed. */
+  hasMermaid: boolean
+}
+
+/**
+ * Split a SOP body into H2-bounded sections. Content before the first
+ * H2 becomes an "Overview" section. Each section is rendered to HTML
+ * independently so the reader can show one at a time.
+ */
+export function splitIntoSections(body: string): SopSection[] {
+  const lines = body.split('\n')
+  const sections: Array<{ title: string; id: string; lines: string[] }> = []
+  let current: { title: string; id: string; lines: string[] } = {
+    title: 'Overview',
+    id: 'overview',
+    lines: [],
+  }
+  let inCode = false
+  for (const line of lines) {
+    // Track fenced-code state so an H2-like line inside a code block
+    // doesn't accidentally start a new section.
+    if (line.startsWith('```')) {
+      inCode = !inCode
+      current.lines.push(line)
+      continue
+    }
+    if (!inCode && line.startsWith('## ')) {
+      // Push the prior section if it has any meaningful content
+      if (current.lines.some((l) => l.trim() !== '')) {
+        sections.push(current)
+      }
+      const title = line.slice(3).trim()
+      current = { title, id: slugify(title), lines: [] }
+      continue
+    }
+    current.lines.push(line)
+  }
+  if (current.lines.some((l) => l.trim() !== '')) {
+    sections.push(current)
+  }
+  return sections.map((s, i) => {
+    const body = s.lines.join('\n')
+    return {
+      id: s.id,
+      title: s.title,
+      index: i + 1,
+      html: renderMarkdown(body),
+      body,
+      hasMermaid: /^```mermaid\b/m.test(body),
+    }
+  })
 }
 
 export function slugify(s: string): string {
