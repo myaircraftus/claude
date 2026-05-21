@@ -677,10 +677,18 @@ export function AskExperience() {
       setMessages(prev => [...prev, assistantMsg])
 
       // Auto-open the first citation in the side preview so the user gets
-      // the cited PDF page immediately — they don't have to click a pill to
-      // see where the answer came from. If they want a different citation
-      // they can click any of the pills to swap the preview.
-      const firstCitation = (data.citations ?? []).find((c: AnswerCitation) => Boolean(c.documentId))
+      // the cited evidence immediately — they don't have to click a pill to
+      // see where the answer came from. Prefer a citation with a real
+      // documentId (so we get the PDF page), but fall back to ANY citation
+      // — the DocumentViewer now renders a text-only "snippet card" when
+      // no documentId is available, which is far better than the panel
+      // silently staying in Query-History mode (the bug the user hit when
+      // citations came back without a docId on historical-data answers).
+      const citationList = data.citations ?? []
+      const firstCitation =
+        citationList.find((c: AnswerCitation) => Boolean(c.documentId)) ??
+        citationList[0] ??
+        null
       if (firstCitation) {
         setActiveCitation(firstCitation)
       }
