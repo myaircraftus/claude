@@ -494,7 +494,24 @@ Both sides see the same thread. Internal-only messages stay on a separate "inter
 
 ## 10. Owner AI Query
 
-**v1 status:** not yet live in the owner portal. The current `/api/ask` and the Ask Logbook AI surface are gated to shop personas. SOP-13 §8 covers the engine; SOP-12 covers the owner-portal contract.
+**v1 status:** Live as of 2026-05-21. Route: `POST /api/owner/ask`.
+Component: `apps/web/components/owner/OwnerAIQueryBar.tsx` — drops onto
+`/owner/dashboard` and (with the `aircraftId` prop) onto any
+`/owner/aircraft/[id]` surface.
+
+```mermaid
+flowchart LR
+  q[Owner question]
+  auth[supabase.auth.getUser]
+  cust[customers row<br/>portal_user_id + portal_access]
+  ac[aircraft owned/assigned]
+  ctx[Build context:<br/>aircraft · signed logbook ·<br/>approved/sent records ·<br/>owner_visible WOs]
+  llm[GPT-4o · temp=0<br/>strict system prompt]
+  cite[Citation validator<br/>drop any id not in context]
+  ans[Answer + clickable citations]
+
+  q --> auth --> cust --> ac --> ctx --> llm --> cite --> ans
+```
 
 **Design intent for v1.1:**
 
