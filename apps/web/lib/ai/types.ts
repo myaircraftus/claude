@@ -72,16 +72,19 @@ export type ActionCardCategory =
 export type ActionCardSource = 'rule' | 'llm' | 'ml'
 
 /**
- * SuggestedAction — a tap-to-do button rendered on a card. The `toolCall`
- * resolves through the Tools registry so the same action can be triggered
- * by the user (clicking the button) or by the LLM (function-calling).
+ * SuggestedAction — a tap-to-do button rendered on a card.
+ *
+ * Either `toolCall` (fires POST /api/ai/tools/[tool]) or `href` (client-side
+ * nav) must be set. Some rule-generators emit `href`-only actions; the LLM
+ * function-calling path emits `toolCall` actions.
  */
 export interface SuggestedAction {
   label: string
-  toolCall: {
+  toolCall?: {
     tool: string
-    args: Record<string, unknown>
+    args?: Record<string, unknown>
   }
+  href?: string
   destructive?: boolean
 }
 

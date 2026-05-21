@@ -116,6 +116,7 @@ function isAppRoute(pathname: string): boolean {
     '/economics',
     '/estimates',
     '/expirations',
+    '/guided-tour',
     '/history',
     '/inbox',
     '/inspections',
