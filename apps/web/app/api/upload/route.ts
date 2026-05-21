@@ -158,10 +158,24 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4. Parse multipart FormData ────────────────────────────────────────────
+  // This route only accepts multipart/form-data. For large PDFs, use the
+  // presign flow at POST /api/upload/init — that uploads directly to Supabase
+  // storage and bypasses Vercel's 4.5 MB function body limit.
   let formData: FormData
   try {
     formData = await req.formData()
-  } catch {
+  } catch (err) {
+    console.error('[api/upload] formData parse failed:', err)
+    const contentType = req.headers.get('content-type') ?? ''
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      return NextResponse.json(
+        {
+          error:
+            'This endpoint expects multipart/form-data. For large files, POST JSON to /api/upload/init and upload to the returned signed URL.',
+        },
+        { status: 415 },
+      )
+    }
     return NextResponse.json({ error: 'Failed to parse form data' }, { status: 400 })
   }
 
