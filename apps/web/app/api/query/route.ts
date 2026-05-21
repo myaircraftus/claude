@@ -973,9 +973,16 @@ export async function POST(req: NextRequest) {
 
     // ── 5. Hybrid retrieval — vector + BM25 + tree CONCURRENTLY, merged,
     //    weighted-ranked. Aggregation queries pull a wider set (25) so the
-    //    extraction pass can enumerate exhaustively; otherwise top 8.
+    //    extraction pass can enumerate exhaustively; otherwise top 16.
+    //    Bumped from 8 → 16 to fix a recurring miss on handwritten
+    //    historical logbooks: the relevant chunk (the actual handwritten
+    //    entry) was often crowded out of the top 8 by adjacent chunks
+    //    whose embeddings were dominated by the printed-form boilerplate
+    //    header that appears on every page. 16 gives the answer-gen pass
+    //    enough surrounding context to find the specific entry without
+    //    a full re-chunk of every legacy doc.
     //    Falls back to vector-only if hybrid throws. ──
-    const retrievalLimit = aggregation.isAggregation ? 25 : 8
+    const retrievalLimit = aggregation.isAggregation ? 25 : 16
     let retrievedChunks: RetrievedChunk[]
     let strategiesUsed: string[] = ['vector']
     let retrieverLatencies: HybridRetrieval['latencies'] = { vector: 0, bm25: 0, tree: 0, vision: 0 }
