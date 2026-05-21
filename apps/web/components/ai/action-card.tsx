@@ -63,13 +63,22 @@ export const ActionCard = memo(function ActionCard({
 
   const Icon = CATEGORY_ICON[card.category] ?? TrendingUp
 
-  // Drop any malformed suggested action (missing toolCall) — it can't post
-  // to a tool, and reading action.toolCall.tool on it crashes the render.
-  const actions = (card.suggested_actions ?? []).filter((a) => a?.toolCall?.tool)
+  // Keep any action that has either a `toolCall` (fires POST /api/ai/tools/
+  // [tool]) or an `href` (client-side nav). Actions with neither are dropped
+  // — they can't do anything and used to crash the render when toolCall was
+  // assumed required.
+  const actions = (card.suggested_actions ?? []).filter(
+    (a) => a && (a.toolCall?.tool || a.href),
+  )
 
   async function handleAction(actionIdx: number) {
     const action = actions[actionIdx]
     if (!action) return
+    if (!action.toolCall) {
+      // href-only actions are pure navigation — no tool call.
+      if (action.href) window.location.assign(action.href)
+      return
+    }
     setBusyTool(action.toolCall.tool)
     try {
       const res = await fetch(`/api/ai/tools/${encodeURIComponent(action.toolCall.tool)}`, {
@@ -144,7 +153,7 @@ export const ActionCard = memo(function ActionCard({
           {actions.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap mt-2.5">
               {actions.map((action, i) => {
-                const busy = busyTool === action.toolCall.tool
+                const busy = !!action.toolCall && busyTool === action.toolCall.tool
                 return (
                   <button
                     key={i}
