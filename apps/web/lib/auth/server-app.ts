@@ -1,5 +1,5 @@
 import { cookies, headers } from 'next/headers'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { withTenantPrefix } from '@/lib/auth/tenant-routing'
 import type { UserProfile } from '@/types'
@@ -85,14 +85,30 @@ export async function requireAppServerSession() {
 
   const memberships = (membershipsRes.data ?? []) as MembershipRecord[]
 
-  const membership =
+  const explicitMatch =
     memberships.find((entry) => requestedOrgId && entry.organization_id === requestedOrgId) ??
     memberships.find((entry) => {
       if (!requestedOrgSlug) return false
       return normalizeOrganizationRecord(entry.organizations)?.slug === requestedOrgSlug
     }) ??
-    memberships[0] ??
     null
+
+  // If the user navigated to a URL prefixed with a tenant slug (/foo/...)
+  // that doesn't match any of their memberships, 404. Without this, every
+  // unknown /{slug}/dashboard URL silently rendered the user's default
+  // dashboard. We only trip this on URL-driven slugs (not stale cookies):
+  // the requestedPathname must actually start with the slug.
+  const slugInUrl = (() => {
+    if (!requestedOrgSlug || !requestedPathname) return false
+    const path = requestedPathname.toLowerCase()
+    const slug = requestedOrgSlug.toLowerCase()
+    return path === `/${slug}` || path.startsWith(`/${slug}/`)
+  })()
+  if (!explicitMatch && slugInUrl) {
+    notFound()
+  }
+
+  const membership = explicitMatch ?? memberships[0] ?? null
 
   if (!membership) redirect(tenantOnboardingHref)
 
