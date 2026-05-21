@@ -1796,6 +1796,78 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         </div>
       </section>
 
+      {/* ══════════════ TRUST & SOC2 POSTURE ══════════════ */}
+      <section className="py-24 bg-white border-t border-gray-100">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-4">
+              <MaShield className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-emerald-800 text-[11px]" style={{ fontWeight: 700, letterSpacing: "0.06em" }}>
+                SOC2 TYPE II IN PROGRESS
+              </span>
+            </div>
+            <h2 className="text-[36px] text-gray-900 tracking-tight mb-3" style={{ fontWeight: 800, lineHeight: 1.1 }}>
+              Built on a SOC2-ready foundation.
+            </h2>
+            <p className="text-gray-600 text-[15px] leading-relaxed max-w-2xl mx-auto">
+              Your aircraft records are protected by the same security controls a Fortune 500 vendor would
+              expect: Postgres row-level security, encrypted-at-rest storage, immutable audit logs on every
+              signed entry, and a fully-documented 15-SOP operating manual.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {[
+              { value: "27", label: "Trust controls mapped", sub: "Across 5 SOC2 categories" },
+              { value: "15", label: "Written SOPs", sub: "Source-of-truth manual" },
+              { value: "RLS", label: "DB-layer isolation", sub: "Postgres, not app code" },
+              { value: "$100K", label: "Records insurance", sub: "On-site scanning" },
+            ].map((m) => (
+              <div key={m.label} className="bg-gradient-to-br from-emerald-50/40 to-white border border-emerald-100 rounded-xl p-4">
+                <div className="text-3xl text-emerald-700" style={{ fontWeight: 800 }}>{m.value}</div>
+                <div className="text-[12px] text-gray-800 mt-1" style={{ fontWeight: 600 }}>{m.label}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">{m.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            {[
+              {
+                title: "Row-level security",
+                body: "Multi-tenancy enforced at the database, not at the application layer. Cross-tenant queries are impossible by Postgres policy — defense in depth.",
+              },
+              {
+                title: "Immutable audit log",
+                body: "Every signed logbook entry, approval, payment, and document touch is recorded with actor, IP, device, and a cryptographic hash of the content at the time of signing.",
+              },
+              {
+                title: "FAA-aligned recordkeeping",
+                body: "14 CFR §43, §65, and §91.417 anchors are wired into the data model. Logbook entries are designed for an FAA audit, not bolted on after.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="bg-white border border-gray-200 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <MaCheck className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-gray-900 text-[14px]" style={{ fontWeight: 700 }}>{item.title}</h3>
+                </div>
+                <p className="text-gray-600 text-[13px] leading-relaxed">{item.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-10">
+            <Link
+              href="/security"
+              className="inline-flex items-center gap-2 text-[13px] text-emerald-700 hover:text-emerald-900 transition-colors"
+              style={{ fontWeight: 600 }}
+            >
+              See the security & compliance details <MaArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ══════════════ FINAL CTA ══════════════ */}
       <section className="py-32 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1d4ed8 0%, #2563EB 40%, #1E3A5F 100%)" }}>
         {/* Decorative dots */}
