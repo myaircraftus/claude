@@ -9,7 +9,7 @@
  * a successful tool call.
  */
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { motion } from 'motion/react'
 import { toast } from 'sonner'
 import {
@@ -49,7 +49,7 @@ const PRIORITY_BAR: Record<ActionCardPriority, string> = {
   low:    'bg-slate-300',
 }
 
-export function ActionCard({
+export const ActionCard = memo(function ActionCard({
   card,
   onDismiss,
   onResolve,
@@ -63,9 +63,22 @@ export function ActionCard({
 
   const Icon = CATEGORY_ICON[card.category] ?? TrendingUp
 
+  // Keep any action that has either a `toolCall` (fires POST /api/ai/tools/
+  // [tool]) or an `href` (client-side nav). Actions with neither are dropped
+  // — they can't do anything and used to crash the render when toolCall was
+  // assumed required.
+  const actions = (card.suggested_actions ?? []).filter(
+    (a) => a && (a.toolCall?.tool || a.href),
+  )
+
   async function handleAction(actionIdx: number) {
-    const action = card.suggested_actions[actionIdx]
+    const action = actions[actionIdx]
     if (!action) return
+    if (!action.toolCall) {
+      // href-only actions are pure navigation — no tool call.
+      if (action.href) window.location.assign(action.href)
+      return
+    }
     setBusyTool(action.toolCall.tool)
     try {
       const res = await fetch(`/api/ai/tools/${encodeURIComponent(action.toolCall.tool)}`, {
@@ -128,6 +141,7 @@ export function ActionCard({
 
             <button
               onClick={() => onDismiss(card.id)}
+              aria-label="Dismiss card"
               className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted shrink-0"
               title="Dismiss"
             >
@@ -136,10 +150,10 @@ export function ActionCard({
           </div>
 
           {/* Suggested actions */}
-          {card.suggested_actions.length > 0 && (
+          {actions.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap mt-2.5">
-              {card.suggested_actions.map((action, i) => {
-                const busy = busyTool === action.toolCall.tool
+              {actions.map((action, i) => {
+                const busy = !!action.toolCall && busyTool === action.toolCall.tool
                 return (
                   <button
                     key={i}
@@ -200,4 +214,4 @@ export function ActionCard({
       </div>
     </motion.div>
   )
-}
+})

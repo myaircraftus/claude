@@ -46,13 +46,22 @@ export function VoiceButton({ onResult, classifyIntent = true, context, maxSecon
   const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [secondsLeft, setSecondsLeft] = useState(maxSeconds)
   const [error, setError] = useState<string | null>(null)
+  const [supported, setSupported] = useState(false)
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const tickRef = useRef<number | null>(null)
-  const supported = typeof navigator !== 'undefined'
-    && !!navigator.mediaDevices?.getUserMedia
-    && typeof window !== 'undefined'
-    && typeof window.MediaRecorder !== 'undefined'
+
+  // Capability detection runs after mount: navigator/window/MediaRecorder are
+  // absent during SSR, so deriving `supported` at render time diverges from the
+  // server HTML and trips a hydration mismatch on the button's disabled/title.
+  useEffect(() => {
+    setSupported(
+      typeof navigator !== 'undefined'
+      && !!navigator.mediaDevices?.getUserMedia
+      && typeof window !== 'undefined'
+      && typeof window.MediaRecorder !== 'undefined',
+    )
+  }, [])
 
   const stop = useCallback(() => {
     if (tickRef.current) { window.clearInterval(tickRef.current); tickRef.current = null }

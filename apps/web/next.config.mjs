@@ -18,6 +18,9 @@ const nextConfig = {
     outputFileTracingIncludes: {
       '/sop-library/**': ['../../docs/sop/**'],
       '/api/admin/sop/**': ['../../docs/sop/**'],
+      // SOP AI Query + Simulator endpoints both call listSops() at request
+      // time, so they need the markdown bundled with the function too.
+      '/api/sop/**': ['../../docs/sop/**'],
     },
   },
   webpack: (config, { isServer }) => {
@@ -74,8 +77,12 @@ const nextConfig = {
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https://*.supabase.co https://api.anthropic.com https://api.openai.com https://*.vercel-insights.com https://*.posthog.com https://*.sentry.io https://*.ingest.sentry.io https://api.stripe.com",
-      "frame-src https://js.stripe.com https://hooks.stripe.com",
-      "frame-ancestors 'none'",
+      // 'self' on frame-src + frame-ancestors lets the Ask AI Source Preview
+      // embed the same-origin /api/documents/:id/preview PDF iframe. Third-
+      // party clickjacking is still blocked because no other origins are
+      // allowed to frame us.
+      "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+      "frame-ancestors 'self'",
       "form-action 'self'",
       "base-uri 'self'",
       "object-src 'none'",
@@ -85,24 +92,19 @@ const nextConfig = {
       { key: 'Content-Security-Policy', value: csp },
       { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
       { key: 'X-Content-Type-Options', value: 'nosniff' },
-      { key: 'X-Frame-Options', value: 'DENY' },
+      // SAMEORIGIN (not DENY) matches the frame-ancestors 'self' CSP above and
+      // lets in-app iframes (Source Preview, document viewer) load. We can't
+      // override this per-route via next.config: Next.js merges headers from
+      // all matching rules with last-rule-wins, so a more-specific override
+      // listed earlier loses to /:path* listed after it. Setting SAMEORIGIN
+      // globally is simpler and equally safe — only our own pages can frame
+      // our pages.
+      { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(self), payment=()' },
     ]
 
     return [
-      // The in-app PDF preview is embedded in same-origin <iframe>s, so this
-      // path overrides X-Frame-Options DENY → SAMEORIGIN. Listed first so Next
-      // matches it before the global rule.
-      {
-        source: '/api/documents/:id/preview',
-        headers: [
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-        ],
-      },
-      // Every other route gets the full security header set.
       {
         source: '/:path*',
         headers: baseSecurityHeaders,

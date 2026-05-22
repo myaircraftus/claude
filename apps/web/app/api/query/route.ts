@@ -18,6 +18,7 @@ import {
 } from '@/lib/rag/citation-anchors';
 import { searchBm25, searchReferenceBm25 } from '@/lib/rag/bm25-index';
 import { logQueryResult } from '@/lib/rag/feedback';
+import { routeQueryVerbose, type RouteDecision } from '@/lib/rag/query-router';
 import { generateHypotheticalDocument } from '@/lib/rag/hyde';
 import { rerankChunks } from '@/lib/rag/rerank';
 import { hybridRetrieve as retrieveVisionPages } from '@/lib/vision/retriever';
@@ -32,6 +33,8 @@ import {
   countAircraftMaintenanceEvents,
   countEventsMatching,
   deriveCountTopic,
+  firstLastMaintenanceEvent,
+  type MaintenanceEventRow,
 } from '@/lib/rag/structured-events';
 import type { DocType, RetrievedChunk } from '@/types';
 
@@ -571,6 +574,51 @@ function buildCountAnswer(args: {
   }
 }
 
+/**
+ * Build a first/last answer deterministically from one maintenance_events
+ * row — an exact ORDER BY event_date result, no LLM extraction. The matching
+ * synthetic chunk from fetchStructuredEventChunks carries the real
+ * document_id + page, so the [1] citation opens the correct PDF page. If that
+ * chunk is not in the structured set, returns null so the caller falls through
+ * to the LLM-extraction path — an answer's citations must always resolve.
+ */
+function buildFirstLastAnswer(args: {
+  event: MaintenanceEventRow
+  aggregationType: 'first' | 'last'
+  structuredChunks: RetrievedChunk[]
+}): { answerResult: Awaited<ReturnType<typeof generateAnswer>>; answerChunks: RetrievedChunk[] } | null {
+  const { event, aggregationType, structuredChunks } = args
+  const chunk = structuredChunks.find(
+    (c) =>
+      (c.metadata_json as { maintenance_event_id?: string } | null | undefined)
+        ?.maintenance_event_id === event.id,
+  )
+  if (!chunk) return null
+  const detail = (event.description ?? event.event_type ?? 'a maintenance record')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 280)
+  const ordinal = aggregationType === 'first' ? 'earliest' : 'most recent'
+  const dated = event.event_date ? `dated ${event.event_date}` : 'with no recorded date'
+  const answer =
+    `The ${ordinal} maintenance record on file for this aircraft is ${dated}: ` +
+    `${detail} [1].${BASIS_SENTENCE}`
+  return {
+    answerResult: {
+      answer,
+      confidence: 'high',
+      confidenceScore: 0.9,
+      citations: [buildAnswerCitationFromChunk(chunk)],
+      citedChunkIds: [chunk.chunk_id],
+      warningFlags: [],
+      followUpQuestions: [],
+      tokensPrompt: 0,
+      tokensCompletion: 0,
+    },
+    answerChunks: [chunk],
+  }
+}
+
 async function runAggregationAnswer(args: {
   question: string
   cleanedQuery: string
@@ -650,6 +698,26 @@ async function runAggregationAnswer(args: {
           keywords: countTopic.keywords,
           structuredChunks,
         })
+      }
+    }
+  }
+
+  // first / last: a grand-total first/last ("most recent maintenance record",
+  // "first logbook entry") is answered by an exact ORDER BY event_date query
+  // against maintenance_events, skipping the LLM extraction pass. A work-type
+  // first/last ("last annual") has no reliable SQL form — event_type and
+  // description are free text — so it falls through to the extraction path.
+  if ((aggregationType === 'first' || aggregationType === 'last') && aircraftId) {
+    if (deriveCountTopic(question).isGrandTotal) {
+      const flEvent = await firstLastMaintenanceEvent(
+        supabase,
+        organizationId,
+        aircraftId,
+        aggregationType,
+      )
+      if (flEvent) {
+        const built = buildFirstLastAnswer({ event: flEvent, aggregationType, structuredChunks })
+        if (built) return built
       }
     }
   }
@@ -843,8 +911,36 @@ export async function POST(req: NextRequest) {
     const effectiveDocTypeFilter: DocType[] | null =
       explicitDocTypeFilter ?? inferredDocTypeFilter
 
+    // Phase 1 — query-router SHADOW mode. Compute the router's would-be
+    // retrieval strategy WITHOUT acting on it: the four-retriever hybrid pass
+    // below still runs unchanged. Lets the routing be measured on real traffic
+    // before any active routing is enabled. Gated by ROUTER_SHADOW; fired
+    // concurrently so it adds no latency to the answer; failure is swallowed.
+    const routerShadowP: Promise<RouteDecision | null> =
+      process.env.ROUTER_SHADOW === 'true'
+        ? routeQueryVerbose(question, {
+            docTypes: effectiveDocTypeFilter ?? undefined,
+          }).catch((err) => {
+            console.warn('[query] router shadow failed (ignored):', err)
+            return null
+          })
+        : Promise.resolve(null)
+
     // ── 3. Aggregation-query detection — count / list / sum / first / last ──
     const aggregation = detectAggregationQuery(cleanedQuery)
+
+    // A count question scoped to one aircraft with a resolvable topic is
+    // answered by an exact SQL count(*) in runAggregationAnswer — it never
+    // reads the retrieved chunks. Detect that here so the (otherwise
+    // discarded) hybrid retrieval can be skipped for it.
+    const sqlDirectCount =
+      aggregation.isAggregation &&
+      aggregation.aggregationType === 'count' &&
+      Boolean(parsedQuery.aircraftId ?? aircraft_id) &&
+      (() => {
+        const topic = deriveCountTopic(question)
+        return topic.isGrandTotal || topic.keywords.length > 0
+      })()
 
     // ── 4. Dual embed (HyDE). In parallel: generate the hypothetical
     //    logbook entry AND embed the real query. Then embed the hypothetical.
@@ -877,9 +973,16 @@ export async function POST(req: NextRequest) {
 
     // ── 5. Hybrid retrieval — vector + BM25 + tree CONCURRENTLY, merged,
     //    weighted-ranked. Aggregation queries pull a wider set (25) so the
-    //    extraction pass can enumerate exhaustively; otherwise top 8.
+    //    extraction pass can enumerate exhaustively; otherwise top 16.
+    //    Bumped from 8 → 16 to fix a recurring miss on handwritten
+    //    historical logbooks: the relevant chunk (the actual handwritten
+    //    entry) was often crowded out of the top 8 by adjacent chunks
+    //    whose embeddings were dominated by the printed-form boilerplate
+    //    header that appears on every page. 16 gives the answer-gen pass
+    //    enough surrounding context to find the specific entry without
+    //    a full re-chunk of every legacy doc.
     //    Falls back to vector-only if hybrid throws. ──
-    const retrievalLimit = aggregation.isAggregation ? 25 : 8
+    const retrievalLimit = aggregation.isAggregation ? 25 : 16
     let retrievedChunks: RetrievedChunk[]
     let strategiesUsed: string[] = ['vector']
     let retrieverLatencies: HybridRetrieval['latencies'] = { vector: 0, bm25: 0, tree: 0, vision: 0 }
@@ -899,7 +1002,11 @@ export async function POST(req: NextRequest) {
         limit: retrievalLimit,
       })
 
-    try {
+    if (sqlDirectCount) {
+      // Exact SQL count path — runAggregationAnswer answers from count(*) and
+      // never reads these chunks. Skip the otherwise-discarded retrieval.
+      retrievedChunks = []
+    } else try {
       let hybrid = await runHybrid(effectiveDocTypeFilter)
 
       // Doc-type fallback: a filtered retrieval that yields <3 chunks is
@@ -1051,6 +1158,8 @@ export async function POST(req: NextRequest) {
         `tree=${retrieverLatencies.tree} vision=${retrieverLatencies.vision} ` +
         `total=${latencyMs} slow_query=${slowQuery}`,
     )
+    const routerShadow = await routerShadowP
+
     void logQueryResult({
       org_id: organizationId,
       aircraft_id: parsedQuery.aircraftId ?? aircraft_id ?? null,
@@ -1066,6 +1175,7 @@ export async function POST(req: NextRequest) {
         ? effectiveDocTypeFilter.join(',')
         : null,
       doc_type_fallback_triggered: docTypeFallbackTriggered,
+      router_shadow: routerShadow,
     });
 
     // 12. Return response

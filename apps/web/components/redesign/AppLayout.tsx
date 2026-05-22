@@ -90,7 +90,7 @@ const OWNER_NAV: NavItem[] = [
     icon: Plane,
     label: "AIRCRAFT",
     children: [
-      { icon: LayoutDashboard, label: "Dashboard",     href: "/aircraft" },
+      { icon: LayoutDashboard, label: "Aircraft",      href: "/aircraft" },
       { icon: ClipboardList,   label: "Due List",      href: "/aircraft/due-list" },
       { icon: AlertTriangle,   label: "Squawks",       href: "/squawks" },
       { icon: Calculator,      label: "Estimates",     href: "/estimates" },
@@ -113,7 +113,7 @@ const OWNER_NAV: NavItem[] = [
     icon: TrendingUp,
     label: "ECONOMICS",
     children: [
-      { icon: LayoutDashboard, label: "Dashboard",               href: "/economics" },
+      { icon: LayoutDashboard, label: "Economics",               href: "/economics" },
       { icon: Upload,          label: "Upload Cost",              href: "/economics/upload-cost" },
       { icon: DollarSign,      label: "Aircraft Operating Cost",  href: "/economics/operating-cost" },
     ],
@@ -154,7 +154,7 @@ const SHOP_ADMIN_NAV: NavItem[] = [
     icon: Plane,
     label: "AIRCRAFT",
     children: [
-      { icon: LayoutDashboard, label: "Dashboard",       href: "/aircraft",             tab: "aircraft-dashboard" },
+      { icon: LayoutDashboard, label: "Aircraft",        href: "/aircraft",             tab: "aircraft-dashboard" },
       { icon: ClipboardList,   label: "Due List",        href: "/aircraft/due-list",    tab: "aircraft-due-list" },
       { icon: AlertTriangle,   label: "Squawks",         href: "/squawks",              tab: "aircraft-squawks" },
       { icon: Calculator,      label: "Estimates",       href: "/estimates",            tab: "aircraft-estimates" },
@@ -170,7 +170,7 @@ const SHOP_ADMIN_NAV: NavItem[] = [
     icon: Package,
     label: "PARTS & INVENTORY",
     children: [
-      { icon: LayoutDashboard, label: "Dashboard",       href: "/parts-inventory",                   tab: "parts-dashboard" },
+      { icon: LayoutDashboard, label: "Parts & Inventory", href: "/parts-inventory",                 tab: "parts-dashboard" },
       // NOTE: brief wrote /parts-inventory/ai-search; the real page route
       // is /parts-inventory/ai-parts-search — using the real one so the
       // working AI Parts Search page is linked, not a 404 / placeholder.
@@ -999,6 +999,7 @@ function AppLayoutInner({
               <button
                 onClick={handleSignOut}
                 title="Sign out"
+                aria-label="Sign out"
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
@@ -1153,7 +1154,7 @@ function AppLayoutInner({
       <FeedbackWidget />
 
       {/* ── Cross-persona upsell — only owner/mechanic have billing surfaces ── */}
-      {upsellPersona && (upsellPersona === "owner" || upsellPersona === "mechanic") && (
+      {upsellPersona && (upsellPersona === "owner" || upsellPersona === "shop") && (
         <CrossPersonaUpsell
           persona={upsellPersona}
           open

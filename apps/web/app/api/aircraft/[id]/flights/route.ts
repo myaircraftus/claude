@@ -26,9 +26,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '30', 10)))
   const includeConfirmed = searchParams.get('include_confirmed') === '1'
 
+  // Explicit column list — the Sync tab UI (aircraft-sync-view.tsx, the sole
+  // consumer) reads only these 8 fields. Avoids shipping the heavy `path`
+  // jsonb flight track and ~11 other unused columns over the wire.
   let q = supabase
     .from('flight_events')
-    .select('*')
+    .select('id, start_time, airborne_hours, inferred_hobbs_delta, inferred_tach_delta, confidence, source, confirmed_at')
     .eq('aircraft_id', params.id)
     .eq('organization_id', membership.organization_id)
     .is('superseded_by', null)

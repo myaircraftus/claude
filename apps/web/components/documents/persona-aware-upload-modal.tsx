@@ -13,13 +13,14 @@
  * enforced Iron Wall; these category groups only control what the modal
  * displays per persona.
  *
- * Server contract (unchanged):
- *   - POST /api/upload          → pre-signed URL + documentId
- *   - PUT  <uploadUrl>          → file bytes to Supabase storage
+ * Server contract:
+ *   - POST /api/upload/init     → pre-signed upload token + documentId
+ *   - storage.uploadToSignedUrl → file bytes to Supabase storage
  *   - POST /api/upload/complete → documents row; validates persona × type
  */
 import { useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { createBrowserSupabase } from '@/lib/supabase/browser'
 import type { Persona } from '@/types'
 import {
   DOCUMENT_TYPE_META,
@@ -142,15 +143,17 @@ export function PersonaAwareUploadModal({
           : null
 
     try {
-      // Step 1: get a pre-signed upload URL + documentId.
-      const initRes = await fetch('/api/upload', {
+      // Step 1: get a pre-signed upload token + documentId.
+      // (POSTing to /api/upload sends multipart through the gateway and tripped
+      // the 4.5 MB Vercel function body limit on large logbook PDFs.)
+      const initRes = await fetch('/api/upload/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type || 'application/pdf',
-          organizationId,
+          aircraftId: aircraftId ?? null,
         }),
       })
       if (!initRes.ok) {
@@ -159,18 +162,22 @@ export function PersonaAwareUploadModal({
       }
       const initBody = (await initRes.json()) as {
         documentId: string
-        uploadUrl: string
         storagePath: string
+        signedPath?: string
+        uploadToken: string
       }
 
-      // Step 2: PUT the file to Supabase storage.
-      const putRes = await fetch(initBody.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/pdf' },
-        body: file,
-      })
-      if (!putRes.ok) {
-        throw new Error(`Storage upload failed (${putRes.status})`)
+      // Step 2: upload the file to Supabase storage using the signed token.
+      // This goes browser → Supabase directly, bypassing Vercel's body limit.
+      const supabase = createBrowserSupabase()
+      const uploadPath = initBody.signedPath ?? initBody.storagePath
+      const { error: storageError } = await supabase.storage
+        .from('documents')
+        .uploadToSignedUrl(uploadPath, initBody.uploadToken, file, {
+          contentType: file.type || 'application/pdf',
+        })
+      if (storageError) {
+        throw new Error(`Storage upload failed: ${storageError.message}`)
       }
 
       // Step 3: complete the upload — DB row + audit.

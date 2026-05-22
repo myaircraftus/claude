@@ -105,12 +105,16 @@ export async function generateAnswer(
     content: `${contextBlock}\n\nQUESTION: ${question}`,
   });
 
-  // 4. Call GPT-4o with json_object response_format, temperature 0.1
+  // 4. Call GPT-4o with json_object response_format, temperature 0 for
+  //    deterministic answers. Was 0.1 — small but enough to flip token
+  //    choice across runs, so the same chunks could produce visibly
+  //    different phrasing / citation indices on each refresh. With temp 0
+  //    a stable retrieval set produces a stable answer.
   const completion = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
     messages,
     response_format: { type: 'json_object' },
-    temperature: 0.1,
+    temperature: 0,
     max_tokens: 2048,
   });
 

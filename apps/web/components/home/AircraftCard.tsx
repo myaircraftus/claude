@@ -16,6 +16,7 @@
  * "fleet" filter later.
  */
 
+import { memo } from 'react'
 import Link from '@/components/shared/tenant-link'
 import { Plane, AlertTriangle, ShieldCheck, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -36,7 +37,7 @@ export interface AircraftCardSummary {
   next_expiring_label?: string | null
 }
 
-export function AircraftCard({ summary }: { summary: AircraftCardSummary }) {
+export const AircraftCard = memo(function AircraftCard({ summary }: { summary: AircraftCardSummary }) {
   const { id, tail_number, make, model, hobbs, tach, open_squawks, today_airborne_hours,
           days_until_next_expiration, next_expiring_label } = summary
 
@@ -107,7 +108,7 @@ export function AircraftCard({ summary }: { summary: AircraftCardSummary }) {
       )}
     </Link>
   )
-}
+})
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warning' }) {
   return (

@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       .order('start_time', { ascending: true })
       .limit(100)
 
-    const candidates: InferenceCandidate[] = (events ?? []).map((r) => {
+    const candidates: InferenceCandidate[] = (events ?? []).map((r: { source: string; start_time: string; airborne_hours: number; inferred_hobbs_delta: number | null; inferred_tach_delta: number | null; confidence: number; id: string }) => {
       const e = r as { source: string; start_time: string; airborne_hours: number; inferred_hobbs_delta: number | null; inferred_tach_delta: number | null; confidence: number; id: string }
       return {
         source: e.source as InferenceCandidate['source'],

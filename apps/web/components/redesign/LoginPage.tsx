@@ -27,7 +27,7 @@ type SignInPersona = "owner" | "mechanic";
 const PERSONA_STORAGE_KEY = "mau_login_persona";
 
 function landingPathFor(persona: SignInPersona): string {
-  return persona === "shop" ? "/mechanic" : "/dashboard";
+  return persona === "mechanic" ? "/mechanic" : "/dashboard";
 }
 
 export function LoginPage() {
@@ -52,8 +52,10 @@ export function LoginPage() {
     setSignupSuccess(params.get("signup") === "success");
 
     const paramPersona = params.get("as");
-    if (paramPersona === "shop" || paramPersona === "owner") {
-      setPersona(paramPersona);
+    if (paramPersona === "shop" || paramPersona === "mechanic") {
+      setPersona("mechanic");
+    } else if (paramPersona === "owner") {
+      setPersona("owner");
     } else {
       const stored = window.localStorage.getItem(PERSONA_STORAGE_KEY);
       if (stored === "mechanic" || stored === "owner") {
@@ -265,19 +267,19 @@ export function LoginPage() {
                 type="button"
                 onClick={() => choosePersona("mechanic")}
                 className={`flex items-center justify-center gap-2 h-10 rounded-lg text-[13px] transition-all ${
-                  persona === "shop"
+                  persona === "mechanic"
                     ? "bg-white shadow-sm text-[#0A1628]"
                     : "text-[#64748b] hover:text-[#0A1628]"
                 }`}
-                style={{ fontWeight: persona === "shop" ? 700 : 500 }}
+                style={{ fontWeight: persona === "mechanic" ? 700 : 500 }}
               >
-                <Wrench className={`w-4 h-4 ${persona === "shop" ? "text-[#1E3A5F]" : ""}`} />
+                <Wrench className={`w-4 h-4 ${persona === "mechanic" ? "text-[#1E3A5F]" : ""}`} />
                 A&amp;P Mechanic
               </button>
             </div>
             {!explicitRedirect && (
               <p className="text-[11px] text-[#94a3b8] mt-1.5">
-                {persona === "shop"
+                {persona === "mechanic"
                   ? "We'll take you straight to the Mechanic Portal."
                   : "We'll take you straight to your Fleet Dashboard."}
               </p>

@@ -24,7 +24,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { MessageCircle, X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock, ExternalLink } from 'lucide-react'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 
-type Persona = 'owner' | 'mechanic'
+type Persona = 'owner' | 'shop'
 
 interface AircraftRef {
   id: string

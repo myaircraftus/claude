@@ -40,7 +40,7 @@ const DEFAULT_LIMIT = 80
 /** count / list pull a wider set for the exemplar list; the count itself is SQL. */
 const COMPLETENESS_LIMIT = 100
 
-interface MaintenanceEventRow {
+export interface MaintenanceEventRow {
   id: string
   document_id: string | null
   source_page: number | null
@@ -316,6 +316,44 @@ export async function countEventsMatching(
       .or(orFilter)
     if (error) return null
     return count ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The chronologically first or last maintenance record for an aircraft — an
+ * exact `ORDER BY event_date` query. Used for grand-total first/last questions
+ * ("most recent maintenance record", "first logbook entry"). It takes NO
+ * keyword filter on purpose: a work-type first/last ("last annual") still goes
+ * through the LLM extraction path, because event_type/description are free
+ * text and an ILIKE could pick a record that merely mentions the term as THE
+ * first/last. Returns the row, or null on no data / failure.
+ */
+export async function firstLastMaintenanceEvent(
+  supabase: ServiceClient,
+  organizationId: string,
+  aircraftId: string,
+  direction: 'first' | 'last',
+): Promise<MaintenanceEventRow | null> {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data, error } = await supabase
+      .from('maintenance_events')
+      .select(
+        'id, document_id, source_page, event_date, event_type, description, ' +
+          'mechanic_name, tach_time, airframe_tt, ad_reference, sb_reference, ' +
+          'ata_chapter, part_numbers',
+      )
+      .eq('organization_id', organizationId)
+      .eq('aircraft_id', aircraftId)
+      .gte('event_date', PLAUSIBLE_MIN_DATE)
+      .lte('event_date', today)
+      .not('event_date', 'is', null)
+      .order('event_date', { ascending: direction === 'first' })
+      .limit(1)
+    if (error || !data || data.length === 0) return null
+    return data[0] as unknown as MaintenanceEventRow
   } catch {
     return null
   }

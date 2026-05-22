@@ -142,6 +142,7 @@ export function ExpiringDocsView({ aircraftId }: { aircraftId?: string | null } 
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Title, category, issuer…"
+            aria-label="Search expiring documents"
             className="bg-transparent text-[12px] outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>

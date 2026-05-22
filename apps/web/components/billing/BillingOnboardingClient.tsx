@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plane, Wrench, ShieldCheck, CheckCircle2, Loader2 } from "lucide-react";
 import type { Persona } from "@/lib/billing/gate";
-import { PRODUCTS } from "@/lib/billing/products.client";
+import { PRODUCTS, skuForPersona } from "@/lib/billing/products.client";
 import { AddPaymentMethodButton } from "./AddPaymentMethodButton";
 
 interface Props {
@@ -23,7 +23,7 @@ type FlowState = "intro" | "starting_trial" | "trial_started" | "error";
  */
 export function BillingOnboardingClient({ persona, setupResult }: Props) {
   const router = useRouter();
-  const product = PRODUCTS[persona];
+  const product = PRODUCTS[skuForPersona(persona)];
   const Icon = persona === "shop" ? Wrench : Plane;
 
   const [state, setState] = useState<FlowState>("intro");

@@ -328,3 +328,228 @@ once at the source — which resolves the bulk of F-2/F-3 centrally.
    org guards to the 5 tracking routes.
 4. Add PRIMARY KEYs to the 12 dormant marketplace tables before launch.
 5. Drive tsc to 0 and remove `ignoreBuildErrors`.
+
+## Deployment — 2026-05-18
+
+The `audit/enterprise-clean` branch was merged to `main` and deployed to
+production (myaircraft.us) autonomously.
+
+- **INTEGRATION_WEBHOOK_SECRET:** generated (256-bit, `openssl rand -hex 32`).
+  Set in Vercel **Production** via `vercel env add`; set in **Preview** via the
+  Vercel REST API (CLI v50.39 has a non-interactive branch-prompt quirk for
+  preview env vars). Value saved to gitignored `.env.audit-keys` for reference.
+  The hardened `/api/webhooks/[provider]` route now fails closed without it.
+- **Branch merged:** `audit/enterprise-clean` → `main` — merge commit
+  `b66b97a2` (`--no-ff`), 26 files, +786/-223, zero conflicts (the audit branch
+  was a clean 10-commit linear descendant of `main`). tsc verified at 64.
+- **Vercel deployment:** `dpl_EWCTtaDR817ChqYcKXNUNNf3b5m7`
+  (myaircraft01-89l13ih7x-horf.vercel.app) — built in ~3 min, status **READY**,
+  aliased to `myaircraft.us` / `www.myaircraft.us`. No error/fatal runtime logs.
+- **Modal vision worker:** app `ap-3yCi3orZTk41fputKU35SE` (aircraft-vision) is
+  `deployed` and healthy (0 stuck tasks) — **no restart needed**. The prompt's
+  `colab-c43d6206` ID is stale; the live worker was not in a stuck state.
+
+### Smoke checks
+
+| Check | Result |
+|---|---|
+| `/` homepage | **PASS** — HTTP 200 |
+| `/documents/review` | **PASS (route)** — 307 → login, route file present |
+| `/settings` → Integrations "Manage" → `/integrations` | **PASS** — `/integrations` route file present and resolves; old `/settings/integrations` confirmed to have no route file (the original 404 the nav fix corrected) |
+| `/admin/health` | **PASS (route)** — resolves, no error |
+| `/parts-inventory/analytics` | **PASS (route)** — resolves, no error |
+| `/settings` → Security tab | **PASS (route)** — `/settings` resolves |
+| Security headers (CSP / HSTS / X-Frame-Options / Referrer-Policy / Permissions-Policy) | **PASS** — all live and well-formed; the homepage rendered 200 *with* the consolidated CSP applied, so it did not break SSR |
+
+**Verification scope:** all six routes return `307 → /login` unauthenticated
+(auth-gating works; none return 404 or 5xx) and each has a confirmed `page.tsx`
+in the deployed source. In-page *content* assertions — the review-page freeze
+fix, the analytics zero-state (vs. the fake $248k figure), and the Security-tab
+"Coming Soon" panel — need an authenticated session to confirm visually; their
+code is merged and deployed, but a logged-in browser pass is the remaining
+check. Full client-side CSP validation (Stripe checkout, PostHog, any iframe
+embeds) likewise needs a logged-in pass.
+
+**Not included in this deploy:** `main` now carries the audit branch but not
+the separate `claude/gallant-mendeleev-8d5357` work (sprint 18.5 document
+preview, Figma handoff, RAG supplemental retrieval, parts AI layer, logbook
+e-sig audit) — those commits remain unmerged and would need their own merge.
+
+## Persona type consolidation — 2026-05-19
+
+The 12 persona-named union types were disambiguated and ~42 persona-type
+tsc errors fixed (64 → 22). Merged to `main` (`878af441`), live on
+myaircraft.us. Type-only changes plus fixes for latent bugs where stale
+`'mechanic'` literals left comparisons silently never-matching
+(LoginPage persona buttons, upload-dropzone chips, `CrossPersonaUpsell`).
+`gate.ts` / `persona-scope.ts`'s module-local `Persona` exports were left
+as-is — they do not collide at the compiler level.
+
+## tsc → 0 + ignoreBuildErrors removed — 2026-05-19
+
+The persona consolidation left `main` at 22 tsc errors; this pass cleared
+all 22 so `typescript.ignoreBuildErrors` could be removed from
+`next.config.mjs`. The production build now runs a full typecheck.
+
+- **Starting error count:** 22 (all non-persona).
+- **Clusters fixed:**
+  - `Dashboard.tsx` — Lucide icon prop typed `LucideIcon`, not `ComponentType` (7)
+  - `invoice-workflow-board.tsx` — `previewLines()` given a `PreviewLine[]`
+    return type, fixing 4 implicit-any callback params (4)
+  - `vision-dispatch-sweep` / `telemetry-inference` — typed the Supabase
+    result rows; cast/annotation only, no logic change (4)
+  - `lib/ai/cards/generators.ts` — `ActionCardCategory` / `ActionCardPriority`
+    imported from `@/lib/ai/types`, not `@/types` (2)
+  - `dashboard-layouts` — `VALID_PERSONAS` Set widened to accept legacy `'mechanic'` (1)
+  - `trash` — double-cast through `unknown` for the dynamic Supabase select (1)
+  - `webhooks/stripe` — `api_version ?? undefined` (null→undefined coercion) (1)
+  - `taxonomy/unclassified` — the multi-table `SOURCES` loop runs against an
+    untyped client view; the typed client's `.from().select()` inference
+    explodes into a union too complex to represent — TS2590 (1)
+  - `intelligence-client.tsx` — resolved by deduping `@types/react` via a
+    `pnpm.overrides` pin to `^18.3.0`; the dedup also cleared a now-stale
+    `@ts-expect-error` in `lib/marketing/brand.ts` (1)
+- **Build-only fix:** `app/api/billing/checkout-tier/route.ts` exported a
+  test-only `__testing` object — the App Router's route-type validation
+  rejects non-handler exports, so it would have failed the build once
+  `ignoreBuildErrors` was off. `bracketMinFor` / `readSecret` were moved to a
+  sibling `helpers.ts`; `route.ts` now exports only the POST handler.
+- **Final tsc:** 0. **ignoreBuildErrors:** removed.
+- **Deployment:** `fix/tsc-zero` → preview build READY (full typecheck
+  passed) → merged to `main` (`a920cc02`) → production
+  `dpl_7y3BezChknSRBThVkE5rZCRo4ubW` READY on 2026-05-19, live on
+  myaircraft.us. No error/fatal runtime logs; `/`, `/login`, `/demo/*`
+  smoke-checked 200.
+- **Deferred errors:** none — all 22 resolved with type annotations, casts,
+  an import-path fix, and the `@types/react` dedup. No `@ts-ignore` /
+  `@ts-expect-error` added.
+
+## UI Bug Pass — 2026-05-19
+
+A six-block UI/UX pass. Blocks A and D were found already shipped by the
+prior enterprise audit — verified, no changes. Blocks B, C, E and a small
+F remnant were genuine and are fixed.
+
+### Block A — Navigation fixes
+Already correct. `AppLayout.tsx`'s `OWNER_NAV` / `SHOP_ADMIN_NAV` /
+`adminNavItems` already use the right hrefs (`/invoices`, `/logbook-entries`,
+`/aircraft/intelligence`, `/squawks`, `/sop-library`) — every target route
+exists. None of the prompt's 8 "broken" hrefs are present in the codebase
+(the line-498 comment records the prior nav cleanup). No changes.
+
+### Block B — /aircraft/[id] UUID guard
+Added an `isUUID()` helper (`lib/utils.ts`) and a guard at the top of
+`aircraft/[id]/page.tsx`: a non-UUID `[id]` (e.g. `/aircraft/dashboard`)
+redirects to `/aircraft` before any Supabase query runs.
+
+### Block C — not-found.tsx
+Added `app/not-found.tsx` — a branded global 404 (no catch-all route
+existed). For a logged-in user a broken link now lands on a proper 404
+instead of the bare Next default. Unauthenticated unmatched routes are
+redirected to `/login` by middleware — unchanged, correct.
+
+### Block D — Document status badges
+Already shipped. `components/documents/documents-table.tsx` already renders
+a coloured `parsing_status` `StatusBadge` on every row (plus a heal-attempt
+chip and a step timeline); the owner `/documents` page renders that table.
+No changes.
+
+### Block E — Work order tab grouping
+The work-order detail's flat 15-tab strip is grouped into 4 labelled
+sections — Execution / Communication / Financial / Outputs. The tab state
+(keyed by id) and all 15 content blocks are unchanged; only the strip
+render is restructured, with non-interactive group labels + dividers.
+
+### Block F — /workforce
+Bare `/workforce` was not a nav href anywhere (the sidebar links the
+sub-pages directly). Added `app/(app)/workforce/page.tsx` redirecting to
+`/workforce/dashboard` so a bare hit no longer 404s.
+
+### Deployment
+`fix/ui-ux-pass` → preview build READY (full typecheck) → merged to `main`
+(`ac0561ad`) → production `dpl_2YrXGqmvFjfWpPmL69ihrzkGAZBW` READY on
+2026-05-19, live on myaircraft.us. tsc 0, no error/fatal runtime logs.
+
+**Verification scope:** the build (full typecheck) passed and production
+serves cleanly. The B/C/E/F changes all sit behind authentication, so a
+logged-in pass is the remaining check — the work-order tab grouping (E) in
+particular is a visual change that should be eyeballed in the app.
+
+---
+
+## Final Pass — sidebar labels, hydration, perf, a11y (`audit/final-pass`)
+
+Eighth pass. Branched off `main` after the route-allowlist + action-card
+fixes (`9d7ad949`). tsc 0 before and after.
+
+### Fix 1 — sidebar nav labels
+`components/redesign/AppLayout.tsx` had four section-landing nav items
+labelled "Dashboard" instead of the section they open. Renamed: `/aircraft`
+→ "Aircraft" (owner + shop), `/economics` → "Economics", `/parts-inventory`
+→ "Parts & Inventory". Standalone `/dashboard` and `/workforce/dashboard`
+items left as "Dashboard" (correct).
+
+### Fix 2 — /my-aircraft hydration warning
+Root cause was **not** in `my-aircraft/` (the legacy `my-aircraft-client.tsx`
+is dead code — `page.tsx` renders `<SmartHome>`). `AIGreeting`'s time-based
+greeting was already handled with `suppressHydrationWarning` (`dd62f600`).
+The remaining unsuppressed mismatch was `VoiceButton`: its `supported` flag
+was derived from `navigator`/`window` at render time → diverges from SSR.
+Moved capability detection into a mount `useEffect`.
+
+### Fix 3 — SELECT * on large tables
+Checked actual row counts (`pg_stat_user_tables`). The brief's priority
+tables are all small — `documents` 351, `aircraft`/`work_orders` <200 — so
+excluded by the >1,000-row rule. The genuinely large tables are ingestion/
+RAG (`document_chunks`, `document_embeddings`, OCR tables) — excluded by
+the no-ingestion rule. Almost all remaining `select('*')` calls are
+single-row `.eq('id')` fetches where `*` carries no cost. One real list-scan
+endpoint fixed: `app/api/aircraft/[id]/flights/route.ts` now selects 8
+explicit columns instead of `*`, dropping the heavy `path` jsonb track from
+the payload (sole consumer is the Sync tab, which reads only those 8).
+
+### Fix 4 — React.memo
+`AircraftCard` and `ActionCard` wrapped in `memo` — both true `.map()`-
+rendered list items with referentially-stable props (the `useAIInbox`
+callbacks are `useCallback`-wrapped) and no `children`. Other Card/Row/Item
+components are static-layout helpers, not list-rendered — not memoised.
+
+### Fix 5 — next/dynamic for WO tabs — SKIPPED
+WO tabs are inline JSX in `work-order-detail-client.tsx`, not separate
+modules. The imported panels (`AIPlanDrawer`, `WoChatTimeline`,
+`ADSBManagerPanel`, `WoToolsPanel`, e-signature, camera, voice) import no
+>50 kb library — no PDF renderer, chart lib, rich-text editor or AI-stream
+SDK. All tabs lightweight → no dynamic-import change, per the brief.
+
+### Fix 6 — aria-label on icon-only buttons
+Added to 6 confirmed icon-only buttons: WO line-item delete + activity
+"more", action-card dismiss, sync-view cancel/override, collapsed-sidebar
+sign-out.
+
+### Fix 7 — focus-visible rings
+The `outline-none` audit surfaced **108** interactive elements without a
+focus indicator — far broader than a clean per-element pass (much of it
+copy-pasted borderless search inputs with a text-caret fallback, plus
+`components/redesign/` page files). Applied `focus-visible:ring-2` to the 9
+clearest live cases (2 standalone `<select>`s, 7 WO chat-composer inputs).
+The remaining ~99 are better addressed by a single global base-layer
+`:focus-visible` rule — recommended as a follow-up rather than 99 scattered
+class edits.
+
+### Fix 8 — form input labels
+Added `aria-label` to the 8 list-view search inputs (costs, intake, work
+orders, tools, estimates, logbook, manuals, expiring documents).
+
+### Color contrast — audit only, not fixed
+288 instances of `text-gray-300/400` / `text-slate-300/400` across
+`app/(app)/` + `components/`. Not changed — contrast fixes need design
+review.
+
+### Architectural note — unknown routes still resolve to Dashboard
+After the `RESERVED_TOP_LEVEL_SEGMENTS` fix, a genuinely unknown route
+(e.g. `/xyz-broken`) is still classified as an org tenant slug and the
+tenant-existence fallback lands the user on their default dashboard rather
+than a 404. Fixing this properly needs either (a) a DB lookup in middleware
+to verify the org slug exists before rewriting, or (b) a not-found fallback
+inside the tenant layout when no org matches the slug. Deferred — tracked
+here for a follow-up.

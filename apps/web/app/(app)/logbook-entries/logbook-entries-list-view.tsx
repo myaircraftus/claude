@@ -158,6 +158,7 @@ export function LogbookEntriesListView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by tail, entry type, or description..."
+            aria-label="Search logbook entries"
             className="bg-transparent text-sm outline-none flex-1 placeholder:text-muted-foreground/50"
           />
         </div>

@@ -18,7 +18,7 @@ interface PersonaEntitlementClient {
 export interface BillingClientStatus {
   organizationId: string;
   owner: PersonaEntitlementClient;
-  mechanic: PersonaEntitlementClient;
+  shop: PersonaEntitlementClient;
   hasAnyAccess: boolean;
   hasBundleEquivalent: boolean;
 }

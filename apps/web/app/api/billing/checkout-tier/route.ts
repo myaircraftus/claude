@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import type { TierSlug } from '@/lib/billing/pricing-config'
+import { bracketMinFor, readSecret } from './helpers'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,12 +32,6 @@ const schema = z.object({
   tier: z.enum(['standard', 'pro']),
   aircraft_count: z.number().int().min(1).max(1000),
 })
-
-function bracketMinFor(count: number): number {
-  if (count >= 16) return 16
-  if (count >= 6) return 6
-  return 1
-}
 
 interface StripeCheckoutSession { id: string; url: string | null }
 
@@ -54,12 +49,6 @@ async function stripeFetch<T>(secret: string, path: string, form: Record<string,
     throw new Error(`Stripe ${resp.status}: ${text.slice(0, 300)}`)
   }
   return (await resp.json()) as T
-}
-
-function readSecret(): string | null {
-  const raw = process.env.STRIPE_SECRET_KEY?.trim()
-  if (!raw || raw.startsWith('sk_placeholder')) return null
-  return raw
 }
 
 export async function POST(req: NextRequest) {
@@ -140,6 +129,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ url: session.url, id: session.id })
 }
-
-// Test exports.
-export const __testing = { bracketMinFor, readSecret }

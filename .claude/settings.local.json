@@ -160,7 +160,8 @@
       "Bash(\"/Users/andy/Library/Mobile Documents/com~apple~CloudDocs/claude imac/claude code/myaircraft/.env.deploy\")",
       "Bash(ls -la \"/Users/andy/Library/Mobile Documents/com~apple~CloudDocs/claude imac/claude code/myaircraft/apps/web/app/\\(app\\)/\")",
       "Bash(find '/Users/andy/Library/Mobile Documents/com~apple~CloudDocs/claude imac/claude code/myaircraft' -type f -name *.sql)",
-      "Bash(find '/Users/andy/Library/Mobile Documents/com~apple~CloudDocs/claude imac/claude code/myaircraft' -type f \\\\\\(-name *.sql -o -name schema.sql \\\\\\))"
+      "Bash(find '/Users/andy/Library/Mobile Documents/com~apple~CloudDocs/claude imac/claude code/myaircraft' -type f \\\\\\(-name *.sql -o -name schema.sql \\\\\\))",
+      "mcp__code-review-graph__semantic_search_nodes_tool"
     ]
   }
 }
