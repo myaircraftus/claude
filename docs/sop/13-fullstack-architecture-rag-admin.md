@@ -88,68 +88,65 @@ Three properties matter for FAA recordkeeping under 14 CFR Part 43:
 
 ## 3. System Architecture Diagram
 
+```mermaid
+flowchart TB
+  user[User Browser<br/>web · iPad Safari · mobile]
+  edge[Vercel Edge Network<br/>CDN + Routing Middleware]
+  app[Next.js App Server<br/>App Router · region iad1<br/>Fluid Compute]
+  mw[middleware.ts<br/>tenant resolution · auth gate · carve-outs]
+  page[app/route/page.tsx<br/>requireAppServerSession → role check]
+  api[app/api/route.ts<br/>auth → ratelimit → validate → handler]
+  sb[(Supabase Postgres 17<br/>RLS · pgvector · tsvector<br/>page_tree_nodes · Storage · Auth)]
+  ai[External AI<br/>OpenAI · Cohere<br/>Anthropic-ready]
+  ext[External Services<br/>Stripe · Google DocAI<br/>PostHog · Sentry]
+  rag[RAG Query Engine<br/>lib/rag/*]
+
+  user --> edge --> app
+  app --> mw
+  mw --> page
+  mw --> api
+  page --> sb
+  api --> sb
+  api --> ai
+  api --> ext
+  api --> rag
+  rag --> ai
+  rag --> sb
+
+  classDef edge fill:#ede9fe,stroke:#8b5cf6,color:#1e293b;
+  classDef store fill:#dcfce7,stroke:#16a34a,color:#0f172a;
+  classDef extsvc fill:#fee2e2,stroke:#dc2626,color:#0f172a;
+  class edge,app edge;
+  class sb store;
+  class ai,ext extsvc;
 ```
-                 User Browser (web, iPad Safari, mobile)
-                        │
-                        ▼
-                ┌───────────────────────────┐
-                │ Vercel Edge Network        │
-                │ (CDN + middleware)         │
-                └───────────────┬───────────┘
-                                │
-                                ▼
-        ┌─────────────────────────────────────────────────┐
-        │ Next.js App Server (App Router, region iad1)      │
-        │                                                   │
-        │  middleware.ts                                    │
-        │  ├── tenant slug resolution (extractTenantPath)   │
-        │  ├── supabase.auth.getUser()                      │
-        │  ├── public-handle path carve-outs                │
-        │  └── auth-gate redirects                          │
-        │                                                   │
-        │  app/(app)/<route>/page.tsx                        │
-        │  ├── requireAppServerSession()                    │
-        │  │   └── (owner/shop/admin role check)            │
-        │  └── Server Component renders + hydrates client    │
-        │                                                   │
-        │  app/api/<route>/route.ts                          │
-        │  ├── auth gate                                     │
-        │  ├── rate limit                                    │
-        │  ├── input validation                              │
-        │  └── handler                                       │
-        └────────────────────────────┬─────────────────────┘
-                                     │
-              ┌──────────────────────┼─────────────────────┐
-              │                      │                     │
-              ▼                      ▼                     ▼
-  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-  │ Supabase         │    │ External AI       │    │ External services │
-  │ PostgreSQL 17    │    │   OpenAI           │    │   Stripe          │
-  │ + Auth + Storage │    │   Cohere           │    │   Google DocAI    │
-  │                  │    │   (Anthropic-ready)│    │   PostHog         │
-  │   tables / RLS   │    │                    │    │   Sentry          │
-  │   pgvector       │    │                    │    └──────────────────┘
-  │   tsvector       │    │                    │
-  │   page_tree_nodes│    │                    │
-  └──────────────────┘    └──────────────────┘
-              │                      │
-              └──────────┬───────────┘
-                         │
-                         ▼
-        ┌─────────────────────────────────────────────┐
-        │ RAG Query Engine (lib/rag/*)                  │
-        │   parseStructuredQuery                        │
-        │   classifyQueryIntent (shadow)                │
-        │   inferRelevantDocTypes                       │
-        │   detectAggregationQuery                      │
-        │   hybridRetrieve                              │
-        │     ├── vector (HyDE-embedded)                │
-        │     ├── bm25  (real query terms)              │
-        │     ├── tree  (page_tree_nodes)               │
-        │     └── vision (ColQwen2)                     │
-        │   rerankChunks (Cohere v3.5, cached)          │
-        │   generateAnswer (GPT-4o, temperature=0)      │
-        └─────────────────────────────────────────────┘
+
+### 3.1 RAG query engine
+
+```mermaid
+flowchart LR
+  q[User question]
+  pre[parseStructuredQuery<br/>+ classifyQueryIntent shadow]
+  doc[inferRelevantDocTypes<br/>+ detectAggregation]
+  hybrid[hybridRetrieve]
+  v[vector<br/>HyDE-embedded]
+  b[bm25<br/>real query terms]
+  t[tree<br/>page_tree_nodes]
+  vn[vision<br/>ColQwen2]
+  re[rerankChunks<br/>Cohere v3.5 · cached]
+  gen[generateAnswer<br/>GPT-4o · temp=0]
+  ans[Answer + citations]
+
+  q --> pre --> doc --> hybrid
+  hybrid --> v
+  hybrid --> b
+  hybrid --> t
+  hybrid --> vn
+  v --> re
+  b --> re
+  t --> re
+  vn --> re
+  re --> gen --> ans
 ```
 
 ---
@@ -384,6 +381,32 @@ All FK columns have indexes. Free-text columns used in search (e.g., `documents.
 ## 7. Document Ingestion Pipeline
 
 When a user uploads a document, seven stages run in sequence. Each stage's status is recorded in `documents.processing_state` JSON.
+
+```mermaid
+flowchart TB
+  s1[Stage 1: uploaded<br/>signed-URL PUT → Supabase Storage]
+  s2[Stage 2: native_text_probe<br/>pdfjs-dist]
+  s3[Stage 3: document_ai_ocr<br/>Google Document AI]
+  s4{native?}
+  s4b[Stage 4: ocr_fallback<br/>OpenAI Vision · flag-gated]
+  s5[Stage 5: field_extraction<br/>structured fields]
+  s6[Stage 6: chunking<br/>~400-800 token chunks]
+  s7[Stage 7: embedding<br/>text-embedding-3-small]
+  s8[Stage 8: tree build<br/>page_tree_nodes]
+  s9[Stage 9: completed<br/>aircraft timeline event]
+
+  s1 --> s2 --> s4
+  s4 -- yes --> s5
+  s4 -- no --> s3 --> s5
+  s5 --> s4b
+  s4b --> s6
+  s6 --> s7 --> s8 --> s9
+
+  classDef done fill:#dcfce7,stroke:#16a34a;
+  class s9 done;
+```
+
+Verbose stage description:
 
 ```
 Stage 1: uploaded

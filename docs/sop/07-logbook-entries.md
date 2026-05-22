@@ -136,6 +136,30 @@ Do not promise MAC address capture in a browser app. Use IP, device/browser meta
 
 ## 5. Status Model
 
+```mermaid
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> ReadyForReview: author submits
+  ReadyForReview --> Draft: reviewer kicks back
+  ReadyForReview --> ReadyToSign: review passed
+  ReadyToSign --> Signed: A&P / IA e-signs
+  Signed --> PublishedToOwner: lead releases
+  Signed --> Superseded: corrective entry replaces
+  Signed --> VoidedWithReason: signing error
+  Draft --> PrintedUnsigned: paper-fallback print
+  PrintedUnsigned --> Signed: wet ink + scanned back
+  PublishedToOwner --> Superseded: corrective entry
+  PublishedToOwner --> [*]
+  Superseded --> [*]
+  VoidedWithReason --> [*]
+
+  note right of Signed
+    e_signature_audit immutable row
+    captures who · when · IP · cert id ·
+    SHA-256 over entry body
+  end note
+```
+
 - Draft
 - Ready for Review
 - Ready to Sign

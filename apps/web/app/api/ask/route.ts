@@ -24,6 +24,7 @@ import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { classifyAskQuestion } from '@/lib/ask/question-classifier'
+import { tryFleetAggregation } from '@/lib/ask/fleet-aggregation'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -593,6 +594,32 @@ export async function POST(req: NextRequest) {
     }
 
     // ── "All Aircraft" path: aircraft_id is undefined ──────────────────────────
+
+    // 0. Structured fleet aggregation. RAG is bad at "oldest/newest entry
+    //    across the fleet" and "how many aircraft have records before YEAR"
+    //    — the vector search doesn't naturally retrieve the actual extremum,
+    //    so the model synthesizes a confident-sounding wrong answer. Catch
+    //    those queries BEFORE the LLM, run a real SQL aggregation on
+    //    page_tree_nodes (with OCR-date sanitization), and short-circuit.
+    //    Returns null for any query that doesn't match a structured pattern.
+    //
+    //    Motivated by the 40-question stress test on 2026-05-21 which found
+    //    two high-confidence hallucinations on extremum queries.
+    const structured = await tryFleetAggregation(question, {
+      organizationId: orgContext.organizationId,
+      supabase,
+    })
+    if (structured) {
+      return NextResponse.json({
+        answer: structured.answer,
+        confidence: structured.confidence,
+        citations: structured.citations,
+        warning_flags: [],
+        follow_up_questions: structured.follow_up_questions ?? [],
+        aggregation: 'structured', // surfaces in logs; client can ignore
+      })
+    }
+
     // Classify the question: org_wide → one pass; per_aircraft → fan out.
     const kind = await classifyAskQuestion(question)
 

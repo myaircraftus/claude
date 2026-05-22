@@ -13,11 +13,7 @@
  *     about how myaircraft.us works, who can sign what, where to find what.
  *   - Different system prompt, different corpus, different audience.
  *
- * UI:
- *   - Prominent input with a Sparkles icon — visible at top of library home
- *   - On submit: shows "Searching SOPs…" then streams markdown response below
- *   - Citations rendered as clickable badges that deep-link to the SOP
- *   - Clear button resets state
+ * UI: white theme — matches the rest of the SOP reader surfaces.
  */
 import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
@@ -74,15 +70,15 @@ export function SOPAIQueryBar() {
   }
 
   return (
-    <div className="mb-6 rounded-lg border border-slate-800 bg-gradient-to-br from-slate-900/60 to-[#0f172a] p-4">
+    <div className="mb-6 rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50/60 to-white p-4">
       <label
         htmlFor="sop-ai-query"
-        className="block text-[11px] uppercase tracking-[0.15em] text-slate-500 font-semibold mb-2"
+        className="block text-[11px] uppercase tracking-[0.15em] text-violet-700 font-semibold mb-2"
       >
         Ask anything about myaircraft.us procedures
       </label>
       <div className="flex items-center gap-2">
-        <Sparkles className="w-4 h-4 text-violet-400 shrink-0" />
+        <Sparkles className="w-4 h-4 text-violet-600 shrink-0" />
         <input
           ref={inputRef}
           id="sop-ai-query"
@@ -97,13 +93,13 @@ export function SOPAIQueryBar() {
           }}
           placeholder="e.g. Who can sign a logbook entry for an annual inspection?"
           disabled={busy}
-          className="flex-1 bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none disabled:opacity-60"
+          className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none disabled:opacity-60"
         />
         {(answer || error) && !busy && (
           <button
             type="button"
             onClick={reset}
-            className="text-slate-500 hover:text-slate-300 transition-colors p-1"
+            className="text-slate-400 hover:text-slate-700 transition-colors p-1"
             aria-label="Clear"
           >
             <X className="w-3.5 h-3.5" />
@@ -113,7 +109,7 @@ export function SOPAIQueryBar() {
           type="button"
           onClick={submit}
           disabled={!query.trim() || busy}
-          className="text-xs font-medium text-white bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-md px-3 py-1.5 transition-colors"
+          className="text-xs font-medium text-white bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 rounded-md px-3 py-1.5 transition-colors"
         >
           {busy ? (
             <>
@@ -127,19 +123,19 @@ export function SOPAIQueryBar() {
       </div>
 
       {error && (
-        <div className="mt-3 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded px-3 py-2">
+        <div className="mt-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-3 py-2">
           {error}
         </div>
       )}
 
       {answer && (
-        <div className="mt-4 rounded-md bg-slate-950/60 border border-slate-800 p-4">
+        <div className="mt-4 rounded-md bg-white border border-slate-200 p-4">
           <div
-            className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-strong:text-white prose-code:text-amber-300 prose-code:bg-slate-800/60 prose-code:px-1 prose-code:rounded"
+            className="prose prose-slate prose-sm max-w-none prose-p:my-2 prose-strong:text-slate-900 prose-code:text-orange-700 prose-code:bg-orange-50 prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(answer.answer) }}
           />
           {answer.citations.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-slate-800">
+            <div className="mt-4 pt-3 border-t border-slate-200">
               <div className="text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold mb-2">
                 Sources
               </div>
@@ -148,7 +144,7 @@ export function SOPAIQueryBar() {
                   <Link
                     key={`${c.sopSlug}-${i}`}
                     href={`/sop-library/${c.sopSlug}${c.section ? `#${c.section}` : ''}`}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-200 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 rounded px-2 py-1 transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded px-2 py-1 transition-colors"
                   >
                     {c.sopTitle}
                     <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />

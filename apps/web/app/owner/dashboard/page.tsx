@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { ApprovalButtons } from '@/components/owner/approval-buttons'
+import { OwnerAIQueryBar } from '@/components/owner/OwnerAIQueryBar'
 import { ThreadPanel } from '@/components/portal/thread-panel'
 
 export const dynamic = 'force-dynamic'
@@ -195,6 +196,13 @@ export default async function OwnerDashboardPage() {
             review work orders, pay invoices, and see what your mechanic is uploading — all in one place.
           </p>
         </header>
+
+        {/* Owner AI Query — natural-language Q&A across the user's
+            owner-visible records (SOP-12 §10). Server-side scoped via
+            customers.portal_user_id; UI lives in OwnerAIQueryBar. */}
+        <section className="mb-6">
+          <OwnerAIQueryBar />
+        </section>
 
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <div className="rounded-2xl border border-border bg-card p-5">

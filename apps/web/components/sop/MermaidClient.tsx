@@ -59,17 +59,28 @@ export function MermaidClient({ articleId }: Props) {
       if (cancelled) return
 
       if (!window.__sopMermaid?.initialized) {
+        // Light theme to match the white-background SOP reader. Picks soft
+        // violet for primary nodes (matches the reader accent), slate text,
+        // and a neutral background that prints well on paper.
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'dark',
+          theme: 'default',
           themeVariables: {
-            background: '#0a1020',
-            primaryColor: '#1e293b',
-            primaryTextColor: '#e2e8f0',
-            primaryBorderColor: '#475569',
-            lineColor: '#94a3b8',
-            secondaryColor: '#312e81',
-            tertiaryColor: '#0f172a',
+            background: '#ffffff',
+            primaryColor: '#ede9fe',
+            primaryTextColor: '#1e293b',
+            primaryBorderColor: '#8b5cf6',
+            lineColor: '#64748b',
+            secondaryColor: '#f1f5f9',
+            tertiaryColor: '#f8fafc',
+            textColor: '#0f172a',
+            nodeBorder: '#8b5cf6',
+            clusterBkg: '#f8fafc',
+            clusterBorder: '#cbd5e1',
+            edgeLabelBackground: '#ffffff',
+            actorBkg: '#ede9fe',
+            actorBorder: '#8b5cf6',
+            actorTextColor: '#1e293b',
             fontFamily: 'ui-sans-serif, system-ui, -apple-system',
             fontSize: '13px',
           },

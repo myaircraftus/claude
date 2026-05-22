@@ -32,6 +32,8 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'inbox',
   'inspections',
   'integrations',
+  'investor-pitch-present',
+  'investor-room',
   'invoices',
   'library',
   'locations',

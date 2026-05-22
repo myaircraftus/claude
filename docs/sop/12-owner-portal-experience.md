@@ -260,6 +260,47 @@ For every field, this matrix declares visibility. The implementation enforces vi
 
 ## 6. Estimate approval workflow
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Shop
+  participant Server as Next.js API
+  participant DB as Supabase
+  participant Owner
+  participant Email
+  participant Stripe
+
+  Shop->>Server: PATCH /api/estimates/[id]<br/>status=awaiting_approval
+  Server->>DB: UPDATE estimate (RLS-checked)
+  Server->>Email: notify owners with can_approve_estimates
+  Email-->>Owner: deep-link /owner/estimates/[id]
+
+  Owner->>Server: GET /owner/estimates/[id]
+  Server->>DB: SELECT estimate · line items · thread
+  DB-->>Server: owner-visible columns only
+  Server-->>Owner: render Approve / Decline / Ask UI
+
+  alt Approves
+    Owner->>Server: POST /api/owner/approvals/estimate/[id]<br/>{action:'approve'}
+    Server->>DB: INSERT approval_event<br/>(actor_ip, device, evidence_snapshot_url)
+    Server->>DB: UPDATE estimate status='approved'
+    opt Deposit requested
+      Server-->>Owner: Stripe Payment Element
+      Owner->>Stripe: pay deposit
+      Stripe-->>Server: webhook → mark deposit captured
+    end
+    Server->>Email: notify shop
+  else Declines
+    Owner->>Server: POST /api/owner/approvals/estimate/[id]<br/>{action:'decline'}
+    Server->>DB: INSERT approval_event decision='declined'
+    Server->>DB: UPDATE estimate status='declined'
+    Server->>Email: notify shop
+  else Asks question
+    Owner->>Server: POST /api/owner/threads (or append)
+    Server->>DB: INSERT thread_message
+  end
+```
+
 ### 6.1 Notification
 
 When a shop sets an estimate to `status=awaiting_approval`, the platform sends:
@@ -453,7 +494,24 @@ Both sides see the same thread. Internal-only messages stay on a separate "inter
 
 ## 10. Owner AI Query
 
-**v1 status:** not yet live in the owner portal. The current `/api/ask` and the Ask Logbook AI surface are gated to shop personas. SOP-13 §8 covers the engine; SOP-12 covers the owner-portal contract.
+**v1 status:** Live as of 2026-05-21. Route: `POST /api/owner/ask`.
+Component: `apps/web/components/owner/OwnerAIQueryBar.tsx` — drops onto
+`/owner/dashboard` and (with the `aircraftId` prop) onto any
+`/owner/aircraft/[id]` surface.
+
+```mermaid
+flowchart LR
+  q[Owner question]
+  auth[supabase.auth.getUser]
+  cust[customers row<br/>portal_user_id + portal_access]
+  ac[aircraft owned/assigned]
+  ctx[Build context:<br/>aircraft · signed logbook ·<br/>approved/sent records ·<br/>owner_visible WOs]
+  llm[GPT-4o · temp=0<br/>strict system prompt]
+  cite[Citation validator<br/>drop any id not in context]
+  ans[Answer + clickable citations]
+
+  q --> auth --> cust --> ac --> ctx --> llm --> cite --> ans
+```
 
 **Design intent for v1.1:**
 

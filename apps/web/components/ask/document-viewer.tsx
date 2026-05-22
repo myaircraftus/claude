@@ -149,11 +149,90 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
     )
   }
 
+  // No PDF available (citation lacks documentId — e.g., historical data,
+  // synthesized chunks, structured-event citations). Render a text-only
+  // "snippet card" so the source view still shows SOMETHING useful
+  // instead of a dead "Missing document preview source" wall.
   if (!iframeSrc) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground p-8">
-        <FileText className="h-12 w-12 text-muted-foreground/30" />
-        <p className="text-sm text-center">Missing document preview source</p>
+      <div className="h-full flex flex-col">
+        <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0 gap-3">
+          <div className="min-w-0 flex-1">
+            {citation ? (
+              <>
+                <p className="text-sm font-medium truncate">
+                  {citation.documentTitle ?? 'Source'}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {citation.pageNumber ? `Page ${citation.pageNumber}` : 'Text-only source'}
+                  {citation.sectionTitle ? ` · ${citation.sectionTitle}` : ''}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-medium truncate">Source</p>
+            )}
+          </div>
+          {onClose ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 space-y-4 bg-muted/10">
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-[12px] text-amber-800">
+            <FileText className="inline-block h-3.5 w-3.5 mr-1.5 -mt-0.5" />
+            This source doesn&apos;t have a linkable PDF — the cited passage is shown below.
+          </div>
+          {(citation?.quotedText || citation?.snippet) && (
+            <blockquote className="rounded-lg border-l-4 border-primary/60 bg-white px-4 py-3 text-sm text-foreground leading-relaxed shadow-sm">
+              <p className="italic">
+                &ldquo;{citation?.quotedText ?? citation?.snippet}&rdquo;
+              </p>
+            </blockquote>
+          )}
+          {citation && (
+            <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+              {citation.documentTitle && (
+                <>
+                  <dt className="col-span-1 font-medium text-foreground">Document</dt>
+                  <dd className="col-span-2 truncate">{citation.documentTitle}</dd>
+                </>
+              )}
+              {citation.pageNumber && (
+                <>
+                  <dt className="col-span-1 font-medium text-foreground">Page</dt>
+                  <dd className="col-span-2">
+                    {citation.pageNumber}
+                    {citation.pageNumberEnd && citation.pageNumberEnd !== citation.pageNumber
+                      ? `–${citation.pageNumberEnd}`
+                      : ''}
+                  </dd>
+                </>
+              )}
+              {citation.sectionTitle && (
+                <>
+                  <dt className="col-span-1 font-medium text-foreground">Section</dt>
+                  <dd className="col-span-2 truncate">{citation.sectionTitle}</dd>
+                </>
+              )}
+              {citation.chunkId && (
+                <>
+                  <dt className="col-span-1 font-medium text-foreground">Chunk id</dt>
+                  <dd className="col-span-2 font-mono text-[11px] truncate">
+                    {citation.chunkId.slice(0, 8)}…
+                  </dd>
+                </>
+              )}
+            </dl>
+          )}
+        </div>
       </div>
     )
   }

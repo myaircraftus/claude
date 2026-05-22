@@ -9,7 +9,7 @@ export const metadata = {
 }
 
 /**
- * SOC2 Compliance Aggregator
+ * SOC2 Compliance Aggregator — white theme.
  *
  * One-page view of every SOC2 Trust Service Criterion that's mapped
  * to a control in the SOP corpus. Static data because the mappings
@@ -68,9 +68,9 @@ const CONTROLS: Record<string, ControlRow[]> = {
 }
 
 const STATUS_STYLES: Record<ControlRow['status'], { tint: string; label: string }> = {
-  implemented: { tint: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', label: 'Implemented' },
-  partial: { tint: 'bg-amber-500/15 text-amber-300 border-amber-500/30', label: 'Partial' },
-  gap: { tint: 'bg-rose-500/15 text-rose-300 border-rose-500/30', label: 'Gap' },
+  implemented: { tint: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Implemented' },
+  partial: { tint: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Partial' },
+  gap: { tint: 'bg-rose-50 text-rose-700 border-rose-200', label: 'Gap' },
 }
 
 export default async function CompliancePage() {
@@ -82,39 +82,41 @@ export default async function CompliancePage() {
   const gaps = Object.values(CONTROLS).flat().filter((c) => c.status === 'gap').length
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
+    <div className="max-w-7xl mx-auto px-6 py-6 bg-white min-h-screen">
       <Link
         href="/sop-library"
-        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors mb-6"
+        className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 transition-colors mb-6"
       >
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Library
       </Link>
 
-      <header className="mb-6 pb-5 border-b border-slate-800">
-        <div className="flex items-center gap-2 text-emerald-300 mb-2">
+      <header className="mb-6 pb-5 border-b border-slate-200">
+        <div className="flex items-center gap-2 text-emerald-700 mb-2">
           <ShieldCheck className="w-4 h-4" />
-          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold">SOC2 Type II Posture</span>
+          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold">
+            SOC2 Type II Posture
+          </span>
         </div>
-        <h1 className="text-3xl font-semibold text-white tracking-tight mb-2">
+        <h1 className="text-3xl font-semibold text-slate-900 tracking-tight mb-2">
           Compliance Control Matrix
         </h1>
-        <p className="text-sm text-slate-400 max-w-3xl">
+        <p className="text-sm text-slate-600 max-w-3xl">
           Every SOC2 Trust Service Criterion that touches myaircraft.us, mapped to the
           control that satisfies it and the SOP section that documents the evidence.
           This page is the auditor-facing deliverable referenced by SOP-13 §15.
         </p>
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
           <span>{sops.length} SOPs</span>
-          <span className="text-slate-700">·</span>
+          <span className="text-slate-300">·</span>
           <span>{totalControls} controls mapped</span>
-          <span className="text-slate-700">·</span>
-          <span className="text-emerald-300">{implemented} implemented</span>
-          <span className="text-slate-700">·</span>
-          <span className="text-amber-300">{partial} partial</span>
+          <span className="text-slate-300">·</span>
+          <span className="text-emerald-700 font-medium">{implemented} implemented</span>
+          <span className="text-slate-300">·</span>
+          <span className="text-amber-700 font-medium">{partial} partial</span>
           {gaps > 0 && (
             <>
-              <span className="text-slate-700">·</span>
-              <span className="text-rose-300">{gaps} gaps</span>
+              <span className="text-slate-300">·</span>
+              <span className="text-rose-700 font-medium">{gaps} gaps</span>
             </>
           )}
         </div>
@@ -123,35 +125,52 @@ export default async function CompliancePage() {
       <div className="space-y-8">
         {Object.entries(CONTROLS).map(([category, rows]) => (
           <section key={category}>
-            <h2 className="text-base font-semibold text-white mb-3">{category}</h2>
-            <div className="overflow-x-auto rounded-lg border border-slate-800 bg-[#0f172a]">
+            <h2 className="text-base font-semibold text-slate-900 mb-3">{category}</h2>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full text-xs">
-                <thead className="bg-slate-900/60 text-slate-400 uppercase tracking-[0.1em]">
+                <thead className="bg-slate-50 text-slate-600 uppercase tracking-[0.1em]">
                   <tr>
-                    <th className="text-left px-3 py-2 border-b border-slate-800">Criterion</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-800">Description</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-800">Control</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-800">Evidence</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-800">Status</th>
+                    <th className="text-left px-3 py-2 border-b border-slate-200 font-semibold">
+                      Criterion
+                    </th>
+                    <th className="text-left px-3 py-2 border-b border-slate-200 font-semibold">
+                      Description
+                    </th>
+                    <th className="text-left px-3 py-2 border-b border-slate-200 font-semibold">
+                      Control
+                    </th>
+                    <th className="text-left px-3 py-2 border-b border-slate-200 font-semibold">
+                      Evidence
+                    </th>
+                    <th className="text-left px-3 py-2 border-b border-slate-200 font-semibold">
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row, i) => (
-                    <tr key={`${row.criterion}-${i}`} className={i > 0 ? 'border-t border-slate-800/60' : ''}>
-                      <td className="px-3 py-2.5 font-mono text-slate-300 align-top">{row.criterion}</td>
-                      <td className="px-3 py-2.5 text-slate-200 align-top">{row.description}</td>
-                      <td className="px-3 py-2.5 text-slate-400 align-top">{row.control}</td>
+                    <tr
+                      key={`${row.criterion}-${i}`}
+                      className={i > 0 ? 'border-t border-slate-100' : ''}
+                    >
+                      <td className="px-3 py-2.5 font-mono text-slate-700 align-top">
+                        {row.criterion}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-900 align-top">{row.description}</td>
+                      <td className="px-3 py-2.5 text-slate-600 align-top">{row.control}</td>
                       <td className="px-3 py-2.5 align-top">
                         <Link
                           href={`/sop-library/${row.sopSlug}${row.sopSection ? `#${row.sopSection}` : ''}`}
-                          className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 transition-colors"
+                          className="inline-flex items-center gap-1 text-violet-700 hover:text-violet-900 transition-colors"
                         >
                           {row.evidence}
                           <ExternalLink className="w-2.5 h-2.5 opacity-60" />
                         </Link>
                       </td>
                       <td className="px-3 py-2.5 align-top">
-                        <span className={`inline-block text-[10px] uppercase tracking-wider font-semibold rounded border px-1.5 py-0.5 ${STATUS_STYLES[row.status].tint}`}>
+                        <span
+                          className={`inline-block text-[10px] uppercase tracking-wider font-semibold rounded border px-1.5 py-0.5 ${STATUS_STYLES[row.status].tint}`}
+                        >
                           {STATUS_STYLES[row.status].label}
                         </span>
                       </td>
@@ -164,42 +183,57 @@ export default async function CompliancePage() {
         ))}
       </div>
 
-      <section className="mt-10 pt-6 border-t border-slate-800">
-        <h2 className="text-base font-semibold text-white mb-3">Operational runbooks</h2>
+      <section className="mt-10 pt-6 border-t border-slate-200">
+        <h2 className="text-base font-semibold text-slate-900 mb-3">Operational runbooks</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Link
             href="https://github.com/myaircraftus/claude/blob/main/docs/incident-response-runbook.md"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-md border border-slate-800 bg-[#0f172a] hover:border-slate-700 hover:bg-[#131c2e] p-4 transition-colors"
+            className="rounded-md border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 p-4 transition-colors"
           >
-            <div className="text-xs font-semibold text-white mb-1">Incident Response Runbook</div>
-            <div className="text-[11px] text-slate-400">P0 / P1 / P2 / P3 severity classification, security incident playbook, post-mortem template.</div>
+            <div className="text-xs font-semibold text-slate-900 mb-1">
+              Incident Response Runbook
+            </div>
+            <div className="text-[11px] text-slate-600">
+              P0 / P1 / P2 / P3 severity classification, security incident playbook, post-mortem template.
+            </div>
           </Link>
           <Link
             href="https://github.com/myaircraftus/claude/blob/main/docs/disaster-recovery-runbook.md"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-md border border-slate-800 bg-[#0f172a] hover:border-slate-700 hover:bg-[#131c2e] p-4 transition-colors"
+            className="rounded-md border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 p-4 transition-colors"
           >
-            <div className="text-xs font-semibold text-white mb-1">Disaster Recovery Runbook</div>
-            <div className="text-[11px] text-slate-400">RTO 4h · RPO 5min · Supabase PITR · Vercel rollback · per-scenario recovery decision trees.</div>
+            <div className="text-xs font-semibold text-slate-900 mb-1">
+              Disaster Recovery Runbook
+            </div>
+            <div className="text-[11px] text-slate-600">
+              RTO 4h · RPO 5min · Supabase PITR · Vercel rollback · per-scenario recovery decision trees.
+            </div>
           </Link>
         </div>
       </section>
 
-      <section className="mt-8 pt-6 border-t border-slate-800">
-        <h2 className="text-base font-semibold text-white mb-3">Audit gaps to close before SOC2 Type II</h2>
-        <ul className="space-y-2 text-sm text-slate-300">
+      <section className="mt-8 pt-6 border-t border-slate-200">
+        <h2 className="text-base font-semibold text-slate-900 mb-3">
+          Audit gaps to close before SOC2 Type II
+        </h2>
+        <ul className="space-y-2 text-sm text-slate-700">
           <li>• Penetration testing — not yet performed (planned engagement)</li>
           <li>• Cross-region database replication — single region (us-east-2) only</li>
           <li>• Customer data export (GDPR Article 20) — API exists, UI pending</li>
           <li>• Formal vendor due-diligence packets — collected but not yet centralized</li>
-          <li>• Synthetic uptime monitor — planned <code className="text-amber-300 bg-slate-800/60 px-1 rounded">status.myaircraft.us</code></li>
+          <li>
+            • Synthetic uptime monitor — planned{' '}
+            <code className="text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded">
+              status.myaircraft.us
+            </code>
+          </li>
         </ul>
       </section>
 
-      <footer className="mt-10 pt-6 border-t border-slate-800 text-[10px] text-slate-500">
+      <footer className="mt-10 pt-6 border-t border-slate-200 text-[10px] text-slate-500">
         This matrix is generated from SOP-12, SOP-13, SOP-14 and the operational runbooks.
         Each row links to the SOP section that documents the evidence in detail.
         Last reviewed: 2026-05-21.

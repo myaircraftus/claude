@@ -5,13 +5,29 @@
  * as dependencies. The SOP markdown schema is small and predictable, and
  * adding a parser tree would balloon the bundle for nine files.
  *
- * This module is server-only (uses `node:fs`). Imports must come from
- * Server Components, Route Handlers, or `'use server'` actions — never
- * a client component.
+ * **THIS MODULE IS SERVER-ONLY.** It uses `node:fs` + `node:path`. Importing
+ * it from a client component blows up the Next.js webpack build with
+ * "Reading from 'node:fs' is not handled by plugins." Client components
+ * that need types or pure helpers must import from `./shared` instead.
  */
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+
+// Re-export client-safe types + slugify so existing server-side callers
+// (route handlers, server components) keep their `from '@/lib/sop/parser'`
+// imports working unchanged. The client-safe surface lives in ./shared.
+export {
+  slugify,
+  type SopFrontmatter,
+  type SopRecord,
+  type SopSection,
+} from './shared'
+
+// In-file aliases so the rest of the module can reference the types
+// without rewriting every signature.
+import type { SopFrontmatter, SopRecord, SopSection } from './shared'
+import { slugify } from './shared'
 
 /**
  * The SOP markdown lives at repo-root/docs/sop/, OUTSIDE the apps/web
@@ -44,25 +60,12 @@ async function resolveSopDir(): Promise<string> {
   return candidates[0]
 }
 
-export interface SopFrontmatter {
-  title: string
-  module: string
-  slug: string
-  order: number
-  faa_refs: string[]
-  version: string
-  last_updated: string
-  status: 'active' | 'draft' | 'deprecated'
-}
+// SopFrontmatter + SopRecord are re-exported from './shared' at the top of
+// this file so client components can import the types without dragging in
+// node:fs. The historical inline definitions used to live here.
 
-export interface SopRecord {
-  slug: string
-  frontmatter: SopFrontmatter
-  /** Raw markdown body (no frontmatter). */
-  body: string
-  /** First 200 chars of the body, stripped of markdown syntax — for cards. */
-  excerpt: string
-}
+// (Internal reference) — `import type { SopFrontmatter, SopRecord } from './shared'`
+// works inside this file via the re-export above.
 
 /**
  * Parse a YAML-lite frontmatter block. The SOP schema only uses three
@@ -159,11 +162,21 @@ function coerceFrontmatter(raw: Record<string, unknown>, slug: string): SopFront
   const num = (k: string, fallback = 0) => (typeof get(k) === 'number' ? (get(k) as number) : fallback)
   const arr = (k: string) => (Array.isArray(get(k)) ? (get(k) as string[]) : [])
   const status = str('status', 'active')
+
+  // Derive order from the slug prefix (e.g. "07-logbook-entries" → 7) when
+  // frontmatter doesn't supply one. None of the current SOP files specify
+  // `order` explicitly — they all rely on the numeric slug prefix.
+  let order = num('order', NaN)
+  if (!Number.isFinite(order)) {
+    const m = slug.match(/^(\d+)/)
+    order = m ? parseInt(m[1], 10) : 0
+  }
+
   return {
     title: str('title', slug),
     module: str('module', ''),
     slug: str('slug', slug),
-    order: num('order', 0),
+    order,
     faa_refs: arr('faa_refs'),
     version: str('version', '1.0.0'),
     last_updated: str('last_updated', ''),
@@ -399,12 +412,60 @@ export function renderMarkdown(md: string): string {
   return out.join('\n')
 }
 
-export function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+// SopSection type lives in './shared' and is re-exported at the top of
+// this file. The split keeps client components from pulling node:fs.
+
+/**
+ * Split a SOP body into H2-bounded sections. Content before the first
+ * H2 becomes an "Overview" section. Each section is rendered to HTML
+ * independently so the reader can show one at a time.
+ */
+export function splitIntoSections(body: string): SopSection[] {
+  const lines = body.split('\n')
+  const sections: Array<{ title: string; id: string; lines: string[] }> = []
+  let current: { title: string; id: string; lines: string[] } = {
+    title: 'Overview',
+    id: 'overview',
+    lines: [],
+  }
+  let inCode = false
+  for (const line of lines) {
+    // Track fenced-code state so an H2-like line inside a code block
+    // doesn't accidentally start a new section.
+    if (line.startsWith('```')) {
+      inCode = !inCode
+      current.lines.push(line)
+      continue
+    }
+    if (!inCode && line.startsWith('## ')) {
+      // Push the prior section if it has any meaningful content
+      if (current.lines.some((l) => l.trim() !== '')) {
+        sections.push(current)
+      }
+      const title = line.slice(3).trim()
+      current = { title, id: slugify(title), lines: [] }
+      continue
+    }
+    current.lines.push(line)
+  }
+  if (current.lines.some((l) => l.trim() !== '')) {
+    sections.push(current)
+  }
+  return sections.map((s, i) => {
+    const body = s.lines.join('\n')
+    return {
+      id: s.id,
+      title: s.title,
+      index: i + 1,
+      html: renderMarkdown(body),
+      body,
+      hasMermaid: /^```mermaid\b/m.test(body),
+    }
+  })
 }
+
+// slugify lives in './shared' and is re-exported at the top of this file
+// so existing parser-side callers keep working.
 
 function escapeHtml(s: string): string {
   return s

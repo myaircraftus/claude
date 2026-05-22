@@ -10,6 +10,8 @@
  * The search index is built server-side and handed to the client as a
  * single JSON blob (see lib/sop/search.ts). With ~15 SOPs the payload
  * is ~80 KB and search latency on each keystroke is <50 ms.
+ *
+ * White theme — matches the rest of the SOP surfaces.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -78,15 +80,15 @@ export function SOPCommandPalette({ index }: Props) {
       role="dialog"
       aria-modal="true"
       aria-label="SOP search"
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 bg-slate-900/40 backdrop-blur-sm"
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-full max-w-2xl rounded-xl border border-slate-700 bg-[#0f172a] shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
-          <Search className="w-4 h-4 text-slate-500" />
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200">
+          <Search className="w-4 h-4 text-slate-400" />
           <input
             ref={inputRef}
             type="text"
@@ -109,12 +111,12 @@ export function SOPCommandPalette({ index }: Props) {
               }
             }}
             placeholder="Search SOPs — titles, sections, body text…"
-            className="flex-1 bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
           />
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="text-slate-500 hover:text-slate-200 p-1"
+            className="text-slate-400 hover:text-slate-700 p-1"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -124,12 +126,14 @@ export function SOPCommandPalette({ index }: Props) {
         {/* Empty state — pre-search */}
         {!query.trim() && (
           <div className="px-4 py-10 text-center">
-            <Sparkles className="w-6 h-6 text-violet-400 mx-auto mb-2" />
-            <p className="text-xs text-slate-400 mb-3">Search across every SOP, every section, every paragraph.</p>
+            <Sparkles className="w-6 h-6 text-violet-600 mx-auto mb-2" />
+            <p className="text-xs text-slate-600 mb-3">
+              Search across every SOP, every section, every paragraph.
+            </p>
             <p className="text-[11px] text-slate-500">
-              Try: <span className="text-slate-300">annual inspection</span> ·{' '}
-              <span className="text-slate-300">RLS</span> ·{' '}
-              <span className="text-slate-300">owner approval</span>
+              Try: <span className="text-slate-700 font-medium">annual inspection</span> ·{' '}
+              <span className="text-slate-700 font-medium">RLS</span> ·{' '}
+              <span className="text-slate-700 font-medium">owner approval</span>
             </p>
           </div>
         )}
@@ -153,26 +157,26 @@ export function SOPCommandPalette({ index }: Props) {
                     onClick={() => navigate(entry)}
                     onMouseEnter={() => setHighlight(i)}
                     className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors ${
-                      isHi ? 'bg-violet-500/15' : 'hover:bg-slate-800/40'
-                    } ${i > 0 ? 'border-t border-slate-800/60' : ''}`}
+                      isHi ? 'bg-violet-50' : 'hover:bg-slate-50'
+                    } ${i > 0 ? 'border-t border-slate-100' : ''}`}
                   >
-                    <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-violet-300 mt-0.5 shrink-0">
+                    <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-violet-700 mt-0.5 shrink-0">
                       {entry.sopSlug.split('-')[0]}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-white truncate">
+                      <div className="text-sm font-medium text-slate-900 truncate">
                         {entry.sectionTitle}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5">
                         {entry.sopTitle}
                       </div>
                       {entry.excerpt && (
-                        <div className="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                        <div className="text-[11px] text-slate-600 mt-1 line-clamp-2">
                           {entry.excerpt}
                         </div>
                       )}
                     </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-slate-500 mt-1 shrink-0" />
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 mt-1 shrink-0" />
                   </button>
                 </li>
               )
@@ -180,17 +184,17 @@ export function SOPCommandPalette({ index }: Props) {
           </ul>
         )}
 
-        <div className="px-4 py-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-[10px] text-slate-500">
           <span>
-            <kbd className="border border-slate-700 bg-slate-800 rounded px-1 py-0.5 mr-1">↑↓</kbd>
+            <kbd className="border border-slate-300 bg-white rounded px-1 py-0.5 mr-1 text-slate-700">↑↓</kbd>
             navigate
           </span>
           <span>
-            <kbd className="border border-slate-700 bg-slate-800 rounded px-1 py-0.5 mr-1">↵</kbd>
+            <kbd className="border border-slate-300 bg-white rounded px-1 py-0.5 mr-1 text-slate-700">↵</kbd>
             open
           </span>
           <span>
-            <kbd className="border border-slate-700 bg-slate-800 rounded px-1 py-0.5 mr-1">esc</kbd>
+            <kbd className="border border-slate-300 bg-white rounded px-1 py-0.5 mr-1 text-slate-700">esc</kbd>
             close
           </span>
         </div>

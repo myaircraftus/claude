@@ -60,6 +60,36 @@ Each type carries default behaviors — chunking strategy, retention policy, RAG
 
 ## 4. The Iron Wall matrix
 
+```mermaid
+flowchart TD
+  upload[Upload attempt<br/>file + persona + doc_type]
+  rule1{Persona<br/>allowed to upload<br/>this type?}
+  reject1[Reject 403<br/>"Not in your scope"]
+  store[Store in Supabase Storage<br/>+ documents row]
+  rule2{doc_type<br/>owner-visible<br/>by default?}
+  ovT[owner_visible = true]
+  ovF[owner_visible = false]
+  shop[Shop override<br/>can flip either way<br/>before publish]
+  rls[RLS at query time:<br/>owner sees only<br/>owner_visible = true]
+  rag[RAG retrieval<br/>filters by persona]
+  done[Document accessible<br/>per Iron Wall rules]
+
+  upload --> rule1
+  rule1 -- no --> reject1
+  rule1 -- yes --> store
+  store --> rule2
+  rule2 -- yes --> ovT
+  rule2 -- no --> ovF
+  ovT --> shop
+  ovF --> shop
+  shop --> rls --> rag --> done
+
+  classDef reject fill:#fee2e2,stroke:#dc2626;
+  classDef allow fill:#dcfce7,stroke:#16a34a;
+  class reject1 reject;
+  class done allow;
+```
+
 The full persona × type × visibility matrix:
 
 | Doc type | Owner upload allowed | Shop upload allowed | Mechanic upload allowed | Owner-visible by default | Marketplace-listable |

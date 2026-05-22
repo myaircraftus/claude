@@ -677,6 +677,35 @@ Every attachment supports:
 
 ## 15. Status and Gate Model
 
+```mermaid
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> Open: submit
+  Open --> AwaitingEstimateApproval: send estimate
+  AwaitingEstimateApproval --> InProgress: owner approves
+  AwaitingEstimateApproval --> Open: owner rejects
+  Open --> AwaitingParts: parts ordered
+  AwaitingParts --> InProgress: parts received
+  InProgress --> WaitingOnCustomer: blocked on owner
+  WaitingOnCustomer --> InProgress: owner replies
+  InProgress --> ReadyForIAReview: tasks complete · IA required
+  InProgress --> ReadyForLogbook: tasks complete · no IA
+  ReadyForIAReview --> ReadyForLogbook: IA signs
+  ReadyForLogbook --> ReadyToInvoice: logbook created OR skipped
+  ReadyToInvoice --> Invoiced: invoice generated
+  Invoiced --> Paid: payment recorded
+  Paid --> Closed: closure gates met
+  Closed --> Archived: archive policy
+  Archived --> [*]
+
+  note right of ReadyForLogbook
+    Closure gates (must all be true):
+    tasks · checklist · AD/SB review · parts ·
+    labor · owner approvals · AI summary ·
+    logbook decision · invoice decision · signatures
+  end note
+```
+
 Work-order statuses:
 
 - Draft.

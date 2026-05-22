@@ -161,6 +161,43 @@ By default, a mechanic CAN work on any aircraft in the shop. This table is an ex
 
 ## 4. Onboarding a mechanic
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Lead
+  participant System
+  participant Email
+  participant Mechanic
+  participant OCR as Google DocAI
+
+  Lead->>System: /admin/users → Invite mechanic
+  System->>System: INSERT user_invite + mechanics stub
+  System->>Email: magic-link invitation
+  Email-->>Mechanic: deep-link /onboarding/mechanic
+
+  Mechanic->>System: open onboarding · set password
+  Mechanic->>System: upload FAA airman certificate
+  System->>OCR: extract ratings + cert number
+  OCR-->>System: structured fields
+  System-->>Mechanic: pre-filled ratings form (pending)
+  Mechanic->>System: confirm ratings
+
+  note over System,Mechanic: Role is apprentice<br/>until lead approves
+
+  Lead->>System: /admin/users/[id]/verify<br/>review cert + ratings
+  alt Approves
+    Lead->>System: approve
+    System->>System: INSERT mechanic_certificate_history<br/>flip rating_* live
+    System-->>Mechanic: notification — fully onboarded
+  else Requests correction
+    Lead->>System: request correction
+    System-->>Mechanic: notification — fix + resubmit
+  else Rejects
+    Lead->>System: reject
+    System->>System: invite closed · role stays apprentice
+  end
+```
+
 ### 4.1 Invitation flow
 
 Lead / admin opens `/admin/users` → "Invite mechanic" button → fills a form:
