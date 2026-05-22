@@ -28,7 +28,9 @@ import { BookOpen, TrendingUp, ShieldCheck, ArrowLeft } from 'lucide-react'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export const metadata = {
-  title: 'SOP Library | myaircraft.us',
+  // Root layout already applies the '%s | myaircraft.us' template, so child
+  // titles must NOT include the site suffix or it doubles up.
+  title: 'SOP Library',
 }
 
 export default async function SopAdminLayout({ children }: { children: ReactNode }) {

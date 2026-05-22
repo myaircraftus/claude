@@ -37,7 +37,9 @@ import {
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export const metadata = {
-  title: 'Investor Room | myaircraft.us',
+  // Root layout already applies the '%s | myaircraft.us' template, so child
+  // titles must NOT include the site suffix or it doubles up.
+  title: 'Investor Room',
 }
 
 export default async function InvestorRoomLayout({ children }: { children: ReactNode }) {

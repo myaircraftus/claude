@@ -10,7 +10,8 @@ import { redirect } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
 
 export const metadata = {
-  title: 'Pitch · Present | myaircraft.us',
+  // Root layout adds the ' | myaircraft.us' suffix via metadata template.
+  title: 'Pitch · Present',
 }
 
 export default async function PresentLayout({ children }: { children: ReactNode }) {

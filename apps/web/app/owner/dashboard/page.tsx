@@ -339,6 +339,45 @@ export default async function OwnerDashboardPage() {
             </section>
           )
         })}
+
+        {/* Privacy & data rights — GDPR Article 20 + CCPA. Owner can
+            download a JSON dump of every record we hold on them via
+            /api/owner/export. The shim component anchors the link so
+            the browser fires the Content-Disposition download. */}
+        <section className="mt-12 pt-6 border-t border-border">
+          <h2 className="text-lg font-semibold text-foreground mb-1">
+            Your privacy &amp; your data
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4 max-w-2xl">
+            We believe your aircraft records are yours. You can download
+            everything we hold on you at any time — every aircraft, every
+            estimate, every invoice, every signed logbook entry, every
+            message thread. Per-tenant data and internal mechanic notes
+            are excluded by design (they were never available to you and
+            remain off-limits). Per SOP-12 §11.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="/api/owner/export"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors rounded-lg px-4 py-2"
+            >
+              <svg aria-hidden viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Download my data
+            </a>
+            <a
+              href="/security"
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+            >
+              How we protect your data
+            </a>
+            <a
+              href="mailto:trust@myaircraft.us?subject=Delete%20my%20account"
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+            >
+              Request account deletion
+            </a>
+          </div>
+        </section>
       </div>
     </main>
   )

@@ -66,6 +66,22 @@ const HOW_MANY_AIRCRAFT_BEFORE_YEAR =
 const FLEET_HINT_PATTERN =
   /\b(?:across\s+(?:my|our|the)\s+(?:fleet|aircraft)|all\s+(?:of\s+)?(?:my|our)\s+aircraft|my\s+fleet|fleet[-\s]wide)\b/i
 
+/** "which aircraft has the most logbook entries / records" */
+const MOST_ENTRIES_PATTERN =
+  /\b(?:which\s+(?:aircraft|airplane|plane|tail)|what\s+(?:aircraft|airplane|plane|tail))\s+(?:has\s+)?(?:the\s+)?most\s+(?:logbook\s+)?(?:entries|records)/i
+
+/** "which aircraft has the fewest / least logbook entries" */
+const FEWEST_ENTRIES_PATTERN =
+  /\b(?:which\s+(?:aircraft|airplane|plane|tail)|what\s+(?:aircraft|airplane|plane|tail))\s+(?:has\s+)?(?:the\s+)?(?:fewest|least)\s+(?:logbook\s+)?(?:entries|records)/i
+
+/** "total airframe hours across the fleet" / "total time across all aircraft" */
+const TOTAL_HOURS_PATTERN =
+  /\b(?:total|sum)\s+(?:airframe\s+)?(?:hours?|time|flight\s+time)\s+(?:across|over|on|in)\s+(?:my\s+|our\s+|the\s+)?(?:fleet|aircraft)/i
+
+/** "how many aircraft (do I have / in my fleet)" */
+const HOW_MANY_AIRCRAFT_PATTERN =
+  /\bhow\s+many\s+(?:aircraft|airplanes|planes|tails)\s+(?:do\s+(?:i|we)\s+have|are\s+in\s+(?:my|our|the)\s+fleet|in\s+(?:my|our|the)\s+fleet|are\s+there)/i
+
 // ── Public dispatcher ─────────────────────────────────────────────────────
 
 /**
@@ -119,6 +135,24 @@ export async function tryFleetAggregation(
     // 5. "newest entry" / "most recent entry"
     if (NEWEST_PATTERN.test(q) && FLEET_HINT_PATTERN.test(q)) {
       return await answerNewestEntry(ctx)
+    }
+
+    // 6. "which aircraft has the most logbook entries"
+    if (MOST_ENTRIES_PATTERN.test(q)) {
+      return await answerMostEntries(ctx, 'most')
+    }
+    if (FEWEST_ENTRIES_PATTERN.test(q)) {
+      return await answerMostEntries(ctx, 'fewest')
+    }
+
+    // 7. "total airframe hours across the fleet"
+    if (TOTAL_HOURS_PATTERN.test(q)) {
+      return await answerTotalAirframeHours(ctx)
+    }
+
+    // 8. "how many aircraft do I have"
+    if (HOW_MANY_AIRCRAFT_PATTERN.test(q)) {
+      return await answerHowManyAircraft(ctx)
     }
 
     return null
@@ -480,4 +514,113 @@ function formatOldestNewestRow(
     : []
 
   return { answer, citations, confidence: 'high' }
+}
+
+// ── Count + sum handlers ─────────────────────────────────────────────────
+//
+// These were added 2026-05-22 after the 40-question stress test caught the
+// model dropping "I can't aggregate across the fleet" on three queries that
+// are trivially aggregatable in SQL.
+
+/**
+ * "Which aircraft has the most (or fewest) logbook entries?"
+ * Aggregates page_tree_nodes counts per aircraft.
+ */
+async function answerMostEntries(
+  ctx: AggregationContext,
+  direction: 'most' | 'fewest',
+): Promise<StructuredAggregationResult | null> {
+  const { data: rows, error } = await ctx.supabase
+    .from('page_tree_nodes')
+    .select('aircraft_id, aircraft:aircraft_id(tail_number, year, make, model, is_archived)')
+    .eq('org_id', ctx.organizationId)
+    .eq('level', 'entry')
+    .not('date', 'is', null)
+    .limit(100000)
+  if (error || !rows) return null
+
+  const counts = new Map<string, { tail: string; n: number; built: number | null; make: string | null; model: string | null }>()
+  for (const r of rows as any[]) {
+    if (!r.aircraft || r.aircraft.is_archived) continue
+    const key = r.aircraft.tail_number as string
+    const c = counts.get(key) ?? { tail: key, n: 0, built: r.aircraft.year ?? null, make: r.aircraft.make ?? null, model: r.aircraft.model ?? null }
+    c.n++
+    counts.set(key, c)
+  }
+  if (counts.size === 0) {
+    return { answer: 'No logbook entries are indexed for your fleet yet.', citations: [], confidence: 'medium' }
+  }
+  const ordered = Array.from(counts.values()).sort((a, b) =>
+    direction === 'most' ? b.n - a.n : a.n - b.n,
+  )
+  const top = ordered[0]
+  const tail = top.tail
+  const desc = top.built && top.make ? `${top.built} ${top.make}${top.model ? ' ' + top.model : ''}` : (top.make ?? '')
+  const word = direction === 'most' ? 'most' : 'fewest'
+  const others = ordered.slice(1, 6).map((o) => `${o.tail}: ${o.n.toLocaleString()}`).join(' · ')
+  return {
+    answer:
+      `**${tail}**${desc ? ` (${desc})` : ''} has the ${word} indexed logbook entries — **${top.n.toLocaleString()}** entries.\n\n` +
+      `Top by entry count:\n` +
+      ordered.slice(0, 6).map((o, i) => `${i + 1}. **${o.tail}** — ${o.n.toLocaleString()} entries`).join('\n'),
+    citations: [],
+    confidence: 'high',
+  }
+}
+
+/**
+ * "Total airframe hours across the fleet."
+ * Sums aircraft.total_time_hours for all non-archived aircraft.
+ */
+async function answerTotalAirframeHours(
+  ctx: AggregationContext,
+): Promise<StructuredAggregationResult | null> {
+  const { data: rows, error } = await ctx.supabase
+    .from('aircraft')
+    .select('tail_number, total_time_hours, year, make, model')
+    .eq('organization_id', ctx.organizationId)
+    .eq('is_archived', false)
+  if (error || !rows) return null
+
+  const items = (rows as any[]).filter((a) => typeof a.total_time_hours === 'number')
+  if (items.length === 0) {
+    return {
+      answer: 'Your aircraft master records don\'t have total_time_hours filled in yet. Add it on each aircraft\'s detail page to get a fleet total.',
+      citations: [],
+      confidence: 'medium',
+    }
+  }
+  const total = items.reduce((s, a) => s + (a.total_time_hours ?? 0), 0)
+  const lines = items
+    .sort((a, b) => (b.total_time_hours ?? 0) - (a.total_time_hours ?? 0))
+    .slice(0, 8)
+    .map((a) => `- **${a.tail_number}** — ${(a.total_time_hours ?? 0).toLocaleString()} hrs`)
+  return {
+    answer:
+      `Total airframe hours across your fleet: **${total.toLocaleString(undefined, { maximumFractionDigits: 1 })}** hours across ${items.length} aircraft.\n\n` +
+      `Top by hours:\n${lines.join('\n')}` +
+      (items.length > 8 ? `\n\n…and ${items.length - 8} more.` : ''),
+    citations: [],
+    confidence: 'high',
+  }
+}
+
+/**
+ * "How many aircraft do I have."
+ * Counts non-archived aircraft in the org.
+ */
+async function answerHowManyAircraft(
+  ctx: AggregationContext,
+): Promise<StructuredAggregationResult | null> {
+  const { count, error } = await ctx.supabase
+    .from('aircraft')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', ctx.organizationId)
+    .eq('is_archived', false)
+  if (error || count === null) return null
+  return {
+    answer: `You have **${count.toLocaleString()}** active aircraft in your fleet.`,
+    citations: [],
+    confidence: 'high',
+  }
 }
