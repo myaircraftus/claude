@@ -338,28 +338,33 @@ async function answerHowManyAircraftBeforeYear(
   year: number,
   ctx: AggregationContext,
 ): Promise<StructuredAggregationResult | null> {
-  const { data: rows, error } = await ctx.supabase
-    .from('page_tree_nodes')
-    .select(
-      'date, aircraft_id, aircraft:aircraft_id(tail_number, year, is_archived)',
-    )
-    .eq('org_id', ctx.organizationId)
-    .eq('level', 'entry')
-    .not('date', 'is', null)
-    .gte('date', '1956-01-01')
-    .lt('date', `${year}-01-01`)
-    .limit(50000)
+  // Per-aircraft head count to bypass PostgREST's 1000-row cap. We only
+  // need a boolean "has any entry before YEAR" per aircraft, so a HEAD
+  // count with limit-1 is the cheapest possible query.
+  const { data: aircraft, error: acErr } = await ctx.supabase
+    .from('aircraft')
+    .select('id, tail_number, year')
+    .eq('organization_id', ctx.organizationId)
+    .eq('is_archived', false)
+  if (acErr || !aircraft) return null
 
-  if (error || !rows) return null
-
-  const tailsWithPriorRecords = new Set<string>()
-  for (const r of rows as any[]) {
-    if (!r.aircraft || r.aircraft.is_archived) continue
-    if (r.aircraft.year && new Date(r.date).getUTCFullYear() < r.aircraft.year - 1) continue
-    if (r.aircraft.tail_number) tailsWithPriorRecords.add(r.aircraft.tail_number)
-  }
-  const count = tailsWithPriorRecords.size
-  const sample = Array.from(tailsWithPriorRecords).slice(0, 8).sort()
+  const tailsWithPriorRecords: string[] = []
+  await Promise.all(
+    (aircraft as any[]).map(async (a) => {
+      const lowerBound = a.year ? `${Math.max(a.year - 1, 1956)}-01-01` : '1956-01-01'
+      const { count } = await ctx.supabase
+        .from('page_tree_nodes')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', ctx.organizationId)
+        .eq('aircraft_id', a.id)
+        .eq('level', 'entry')
+        .gte('date', lowerBound)
+        .lt('date', `${year}-01-01`)
+      if (count && count > 0) tailsWithPriorRecords.push(a.tail_number)
+    }),
+  )
+  const count = tailsWithPriorRecords.length
+  const sample = tailsWithPriorRecords.slice(0, 8).sort()
 
   return {
     answer:
@@ -530,23 +535,37 @@ async function answerMostEntries(
   ctx: AggregationContext,
   direction: 'most' | 'fewest',
 ): Promise<StructuredAggregationResult | null> {
-  const { data: rows, error } = await ctx.supabase
-    .from('page_tree_nodes')
-    .select('aircraft_id, aircraft:aircraft_id(tail_number, year, make, model, is_archived)')
-    .eq('org_id', ctx.organizationId)
-    .eq('level', 'entry')
-    .not('date', 'is', null)
-    .limit(100000)
-  if (error || !rows) return null
+  // First grab every aircraft so we can issue a per-aircraft head-count
+  // query that bypasses PostgREST's row cap. (We can't pull 30K rows and
+  // count in JS — PostgREST silently caps at 1000.)
+  const { data: aircraft, error: acErr } = await ctx.supabase
+    .from('aircraft')
+    .select('id, tail_number, year, make, model')
+    .eq('organization_id', ctx.organizationId)
+    .eq('is_archived', false)
+  if (acErr || !aircraft || aircraft.length === 0) return null
 
   const counts = new Map<string, { tail: string; n: number; built: number | null; make: string | null; model: string | null }>()
-  for (const r of rows as any[]) {
-    if (!r.aircraft || r.aircraft.is_archived) continue
-    const key = r.aircraft.tail_number as string
-    const c = counts.get(key) ?? { tail: key, n: 0, built: r.aircraft.year ?? null, make: r.aircraft.make ?? null, model: r.aircraft.model ?? null }
-    c.n++
-    counts.set(key, c)
-  }
+  // Fan out: one HEAD count per aircraft. With ~20 aircraft this is ~20
+  // parallel Postgres COUNTs (~100 ms each) — fast and accurate.
+  await Promise.all(
+    (aircraft as any[]).map(async (a) => {
+      const { count } = await ctx.supabase
+        .from('page_tree_nodes')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', ctx.organizationId)
+        .eq('aircraft_id', a.id)
+        .eq('level', 'entry')
+        .not('date', 'is', null)
+      counts.set(a.tail_number, {
+        tail: a.tail_number,
+        n: count ?? 0,
+        built: a.year ?? null,
+        make: a.make ?? null,
+        model: a.model ?? null,
+      })
+    }),
+  )
   if (counts.size === 0) {
     return { answer: 'No logbook entries are indexed for your fleet yet.', citations: [], confidence: 'medium' }
   }
