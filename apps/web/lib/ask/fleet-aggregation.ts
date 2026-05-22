@@ -217,13 +217,20 @@ async function answerOldestEntryViaBuilder(
   if (error || !rows) return null
 
   // Walk in date-ascending order and return the first row that passes the
-  // per-aircraft sanity filter (date >= aircraft.year - 1). The 500-row
-  // window is far more than enough — once we find a real, sane oldest
-  // entry there's no need to scan further.
+  // per-aircraft sanity filter. For aircraft WITH a known manufacture
+  // year, date must be >= aircraft.year - 1. For aircraft with NULL year
+  // (a real gap in our master data), we SKIP them entirely on the
+  // oldest-entry path — without a year anchor we can't tell legitimate
+  // pre-1960 entries from OCR garbage like "1956-08-17 on a Cessna 152"
+  // (Cessna 152 production started 1977). Skipping is conservative —
+  // the answer is "the oldest provably-real entry across your verifiably-
+  // dated aircraft", not "the smallest date string we found anywhere".
   let oldest: any = null
   for (const r of rows as any[]) {
     if (!r.aircraft || r.aircraft.is_archived) continue
-    if (r.aircraft.year && new Date(r.date).getUTCFullYear() < r.aircraft.year - 1) continue
+    if (!r.aircraft.year) continue // require known year for the floor check
+    const y = new Date(r.date).getUTCFullYear()
+    if (y < r.aircraft.year - 1) continue
     oldest = r
     break
   }
