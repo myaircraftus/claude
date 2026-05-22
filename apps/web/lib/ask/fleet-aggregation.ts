@@ -196,6 +196,11 @@ async function answerOldestEntry(
 async function answerOldestEntryViaBuilder(
   ctx: AggregationContext,
 ): Promise<StructuredAggregationResult | null> {
+  // Ascending order at the DB layer so PostgREST's row-cap (default 1000)
+  // still hands us the earliest rows. Without the explicit .order() the
+  // 1000-row slice is in insertion order and the actually-earliest entries
+  // can be entirely missed — root cause of the 2026-05-21 mis-answer that
+  // said "oldest is 1980-10-06 N69207" when N8202L has 1967 entries.
   const { data: rows, error } = await ctx.supabase
     .from('page_tree_nodes')
     .select(
@@ -206,22 +211,23 @@ async function answerOldestEntryViaBuilder(
     .not('date', 'is', null)
     .gte('date', '1956-01-01')
     .lte('date', new Date().toISOString().slice(0, 10))
-    .limit(50000)
+    .order('date', { ascending: true })
+    .limit(500)
 
   if (error || !rows) return null
 
-  const filtered = rows
-    .filter((r: any) => {
-      if (!r.aircraft || r.aircraft.is_archived) return false
-      if (!r.aircraft.year) return true
-      const y = new Date(r.date).getUTCFullYear()
-      return y >= r.aircraft.year - 1
-    })
-    .sort((a: any, b: any) => (a.date as string).localeCompare(b.date as string))
-
-  if (filtered.length === 0) return null
-
-  const oldest = filtered[0] as any
+  // Walk in date-ascending order and return the first row that passes the
+  // per-aircraft sanity filter (date >= aircraft.year - 1). The 500-row
+  // window is far more than enough — once we find a real, sane oldest
+  // entry there's no need to scan further.
+  let oldest: any = null
+  for (const r of rows as any[]) {
+    if (!r.aircraft || r.aircraft.is_archived) continue
+    if (r.aircraft.year && new Date(r.date).getUTCFullYear() < r.aircraft.year - 1) continue
+    oldest = r
+    break
+  }
+  if (!oldest) return null
   return formatOldestNewestRow(
     {
       tail: oldest.aircraft?.tail_number,
@@ -253,19 +259,23 @@ async function answerNewestEntry(
     .gte('date', '1956-01-01')
     .lte('date', new Date().toISOString().slice(0, 10))
     .order('date', { ascending: false })
-    .limit(50)
+    .limit(500)
 
   if (error || !rows) return null
 
-  const filtered = (rows as any[]).filter((r) => {
-    if (!r.aircraft || r.aircraft.is_archived) return false
-    if (!r.aircraft.year) return true
+  // Walk in date-descending order and return the first row whose date is
+  // not in the future relative to the aircraft's manufacture year. (Future
+  // dates would be OCR misreads like "2237-06-15" — sanity-filter them.)
+  let newest: any = null
+  for (const r of rows as any[]) {
+    if (!r.aircraft || r.aircraft.is_archived) continue
     const y = new Date(r.date).getUTCFullYear()
-    return y >= r.aircraft.year - 1
-  })
-  if (filtered.length === 0) return null
-
-  const newest = filtered[0]
+    if (r.aircraft.year && y < r.aircraft.year - 1) continue
+    if (y > new Date().getUTCFullYear() + 1) continue // future date = bad OCR
+    newest = r
+    break
+  }
+  if (!newest) return null
   return formatOldestNewestRow(
     {
       tail: newest.aircraft?.tail_number,
