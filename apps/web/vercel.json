@@ -73,6 +73,14 @@
     {
       "path": "/api/invoices/reminders/send",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/support-kb-curator",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/ocr-date-sanitiser",
+      "schedule": "0 3 * * *"
     }
   ],
   "headers": [

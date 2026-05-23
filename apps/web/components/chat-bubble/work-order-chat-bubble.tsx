@@ -388,8 +388,11 @@ export function WorkOrderChatBubble({
             }
             setOpen(true)
           }}
-          className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center group"
+          // Stacked above the UnifiedLauncher pill (which sits at bottom-4 right-4
+          // and is ~40px tall). bottom-20 gives an 8-12px visual gap above it.
+          className="fixed bottom-20 right-5 z-40 w-12 h-12 rounded-full bg-primary text-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center group"
           aria-label="Open work order chat"
+          title="Per-work-order chat"
         >
           <MessageCircle className="w-6 h-6 group-hover:scale-110 transition-transform" />
           {hasUnread && (

@@ -41,7 +41,7 @@ import { TourOverlay } from "./onboarding/TourOverlay";
 import { PersonaSwitcher } from "@/components/persona/PersonaSwitcher";
 import { AdminFooterLink } from "@/components/admin/AdminFooterLink";
 import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
-import { HelpWidget } from "@/components/support/HelpWidget";
+import { UnifiedLauncher } from "@/components/launcher/UnifiedLauncher";
 import { ClientErrorBoundary } from "@/components/observability/ClientErrorBoundary";
 import { FeedbackWidget } from "@/components/feedback/FeedbackWidget";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
@@ -482,6 +482,7 @@ function AppLayoutInner({
     { icon: AlertTriangle,  label: "Errors",              href: "/admin/observability/errors" },
     { icon: AlertTriangle,  label: "Health",              href: "/admin/health" },
     { icon: Sparkles,       label: "Ops Assistant",       href: "/admin/ops-assistant" },
+    { icon: Bot,            label: "Agent Fleet",         href: "/admin/agents" },
     { icon: AlertTriangle,  label: "Customer Signals",    href: "/admin/customer-signals" },
     { icon: AlertTriangle,  label: "Ingestion Health",    href: "/admin/ingestion-health" },
     { icon: AlertTriangle,  label: "Ingestion Progress",  href: "/admin/ingestion/progress" },
@@ -1136,16 +1137,20 @@ function AppLayoutInner({
 
       <Toaster position="top-right" richColors closeButton />
 
+      {/* ── Unified launcher (one button, three modes: Help · Ask · Messages) ──
+          Replaces the old HelpWidget. WorkOrderChatBubble still mounts below
+          for per-WO chat — its trigger button is now stacked above the
+          UnifiedLauncher so the bottom-right corner stays uncluttered. */}
+      <UnifiedLauncher persona={persona === "shop" ? "shop" : persona === "owner" ? "owner" : "owner"} />
+
       {/* ── Floating work-order chat bubble ──
           Visible on owner + mechanic personas. Admin doesn't need it.
-          Tap → drawer with aircraft picker → active work orders → timeline + chat thread. */}
+          Tap → drawer with aircraft picker → active work orders → timeline + chat thread.
+          Stacks above the UnifiedLauncher pill (see component-level positioning). */}
       {(persona === "owner" || persona === "shop") && <WorkOrderChatBubble persona={persona} />}
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
-
-      {/* ── In-app help widget (Phase 16 Sprint 16.2) — every persona ── */}
-      <HelpWidget />
 
       {/* ── Client error capture (Phase 16 Sprint 16.5) ── */}
       <ClientErrorBoundary persona={persona} />

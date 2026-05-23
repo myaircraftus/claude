@@ -1,0 +1,171 @@
+/**
+ * POST /api/support/chat — AI-driven help chat from the unified launcher.
+ *
+ * Distinct from /api/support (which is the formal ticket-creation /
+ * admin-inbox surface). This route is the conversational AI front-end:
+ * a user types a question in the launcher, the support first-responder
+ * agent answers, the Q + A get appended to a support_ticket row
+ * (created on first turn) so the conversation is persistent + the admin
+ * can audit it later.
+ *
+ * Body: { ticket_id?: string, message: string, persona?: string }
+ * Response: { ticket_id, answer, confidence, cited_kb_ids, category,
+ *             needs_human, follow_ups, agent_run_id }
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
+import { answerSupportQuestion } from '@/lib/agents/impl/support-first-responder'
+import { triageTicket } from '@/lib/agents/impl/support-triage'
+
+export const runtime = 'nodejs'
+export const maxDuration = 60
+
+export async function POST(req: NextRequest) {
+  const supabase = createServerSupabase()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let body: { ticket_id?: string; message?: string; persona?: string }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  const question = (body.message ?? '').trim()
+  if (!question || question.length > 4000) {
+    return NextResponse.json({ error: 'message is required (max 4000 chars)' }, { status: 400 })
+  }
+  const persona = ((['owner', 'shop', 'mechanic', 'admin'].includes(body.persona ?? '')
+    ? body.persona
+    : 'owner') as 'owner' | 'shop' | 'mechanic' | 'admin')
+
+  const service = createServiceSupabase()
+
+  // Fetch or create the ticket. We use submitter_user_id (the existing
+  // schema's column name) for ownership.
+  let ticketId = body.ticket_id ?? null
+  let priorMessages: Array<{ role: 'user' | 'assistant'; content: string; ts?: number }> = []
+
+  if (ticketId) {
+    const { data: existing } = await service
+      .from('support_tickets')
+      .select('id, messages, submitter_user_id')
+      .eq('id', ticketId)
+      .maybeSingle()
+    if (!existing || existing.submitter_user_id !== user.id) {
+      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
+    }
+    priorMessages = (existing.messages as typeof priorMessages) ?? []
+  } else {
+    // Aligns with the canonical ticket taxonomy in lib/support/tickets.ts:
+    // status ∈ { new | ai_triaging | awaiting_customer | awaiting_admin |
+    //           resolved | closed }. We start at 'ai_triaging' because the
+    // first-responder agent is about to run; we'll flip it to either
+    // awaiting_customer (AI handled it) or awaiting_admin (needs_human=true)
+    // immediately below.
+    const subject = question.length > 80 ? question.slice(0, 77) + '…' : question
+    const { data: created, error: insertErr } = await service
+      .from('support_tickets')
+      .insert({
+        submitter_user_id: user.id,
+        submitter_email: user.email ?? null,
+        persona,
+        status: 'ai_triaging',
+        subject,
+        body: question,
+        source: 'unified-launcher',
+        messages: [],
+        category: 'other',
+        severity: 'P3',
+      })
+      .select('id')
+      .single()
+    if (insertErr || !created) {
+      return NextResponse.json(
+        { error: 'Could not create ticket', detail: insertErr?.message },
+        { status: 500 },
+      )
+    }
+    ticketId = (created as { id: string }).id
+  }
+
+  // Run the support first-responder agent
+  const agentResult = await answerSupportQuestion({
+    supabase: service,
+    triggeredBy: user.id,
+    ticketId: ticketId!,
+    question,
+    persona,
+    priorTurns: priorMessages,
+  })
+
+  let answer = 'A human will follow up shortly.'
+  let confidence: string = 'refused'
+  let citedKbIds: string[] = []
+  let category: string = 'other'
+  let needsHuman = true
+  let followUps: string[] = []
+
+  if (agentResult.ok && agentResult.output) {
+    const out = agentResult.output
+    answer = out.answer
+    confidence = out.confidence
+    citedKbIds = out.cited_kb_ids
+    category = out.category
+    needsHuman = !!out.needs_human || out.confidence === 'refused' || out.confidence === 'low'
+    followUps = out.follow_ups ?? []
+  }
+
+  // Chained: triage (category + severity). Fire-and-forget on the first
+  // turn only — repeated triage on every reply would waste tokens for no
+  // benefit. We don't await this; the answer is already ready to return.
+  if (priorMessages.length === 0) {
+    // Run on the next tick; we don't want to block the response. The agent
+    // runner persists category + severity directly into support_tickets.
+    void triageTicket({
+      supabase: service,
+      triggeredBy: user.id,
+      ticketId: ticketId!,
+      question,
+      aiAnswer: answer,
+    }).catch(() => undefined)
+  }
+
+  // Append both turns + update ticket
+  const now = Date.now()
+  const messages = [
+    ...priorMessages,
+    { role: 'user' as const, content: question, ts: now },
+    { role: 'assistant' as const, content: answer, ts: Date.now() },
+  ]
+  // Map agent outcome onto the canonical TicketStatus union
+  // (see lib/support/tickets.ts). needs_human → admin inbox queue;
+  // otherwise the AI handled it and we wait on the customer.
+  const nextStatus = needsHuman ? 'awaiting_admin' : 'awaiting_customer'
+  await service
+    .from('support_tickets')
+    .update({
+      messages,
+      ai_confidence: confidence,
+      category,
+      cited_kb_ids: citedKbIds,
+      status: nextStatus,
+      ai_first_response_at:
+        priorMessages.length === 0 ? new Date().toISOString() : undefined,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ticketId!)
+
+  return NextResponse.json({
+    ticket_id: ticketId,
+    answer,
+    confidence,
+    cited_kb_ids: citedKbIds,
+    category,
+    needs_human: needsHuman,
+    follow_ups: followUps,
+    agent_run_id: agentResult.runId,
+  })
+}
