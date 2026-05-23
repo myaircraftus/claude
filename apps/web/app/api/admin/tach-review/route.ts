@@ -79,7 +79,61 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Validate that the aircraft_id / tail_number actually came from the
+  // latest scraper recommendation. Without this an admin could quietly
+  // overwrite total_time_hours for any aircraft by crafting an arbitrary
+  // body. The recommendation IS the source of truth — clients can only
+  // act on what the scraper proposed.
+  async function loadLatestRec(): Promise<{
+    deltas: Array<{ aircraft_id: string; scraped_hours: number; tail_number: string; system: string }>
+    proposals: Array<{
+      tail_number: string
+      make: string | null
+      model: string | null
+      year: number | null
+      scraped_hours: number | null
+      system: string
+    }>
+  }> {
+    const { data: rows } = await service
+      .from('agent_runs')
+      .select('recommendation')
+      .eq('agent_id', 'data-sync.tach-time-scraper')
+      .eq('status', 'succeeded')
+      .not('recommendation', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+    const row = (rows ?? [])[0]
+    const rec = (row?.recommendation ?? {}) as {
+      deltas?: Array<{ aircraft_id: string; scraped_hours: number; tail_number: string; system: string }>
+      proposed_new_aircraft?: Array<{
+        tail_number: string
+        make: string | null
+        model: string | null
+        year: number | null
+        scraped_hours: number | null
+        system: string
+      }>
+    }
+    return {
+      deltas: rec.deltas ?? [],
+      proposals: rec.proposed_new_aircraft ?? [],
+    }
+  }
+
   if (body.apply_delta?.aircraft_id) {
+    const { deltas } = await loadLatestRec()
+    const allowed = deltas.find(
+      (d) =>
+        d.aircraft_id === body.apply_delta!.aircraft_id &&
+        Math.abs(d.scraped_hours - body.apply_delta!.scraped_hours) < 0.0001,
+    )
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Delta not present in the latest tach_time_review recommendation.' },
+        { status: 400 },
+      )
+    }
     const { error } = await service
       .from('aircraft')
       .update({ total_time_hours: body.apply_delta.scraped_hours })
@@ -88,6 +142,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, kind: 'delta_applied' })
   }
   if (body.apply_proposal?.tail_number && body.apply_proposal?.organization_id) {
+    const { proposals } = await loadLatestRec()
+    const allowed = proposals.find(
+      (p) => p.tail_number.toUpperCase() === body.apply_proposal!.tail_number.toUpperCase(),
+    )
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Proposal not present in the latest tach_time_review recommendation.' },
+        { status: 400 },
+      )
+    }
     const { data: row, error } = await service
       .from('aircraft')
       .insert({
