@@ -4,9 +4,10 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import OpenAI from 'openai'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
-function inferKind(mimeType: string): 'image' | 'audio' | 'file' {
+function inferKind(mimeType: string): 'image' | 'audio' | 'video' | 'file' {
   if (mimeType.startsWith('image/')) return 'image'
   if (mimeType.startsWith('audio/')) return 'audio'
+  if (mimeType.startsWith('video/')) return 'video'
   return 'file'
 }
 

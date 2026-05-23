@@ -6,7 +6,7 @@ import { cn, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
   Camera, Mic, Paperclip, Send, Loader2, Package, Wrench,
-  Play, Pause, Download, X, Image as ImageIcon,
+  Play, Pause, Download, X, Image as ImageIcon, Video,
   ClipboardCheck, ChevronDown, ChevronUp, CheckCircle2, Circle,
   Clock, Square, Timer,
 } from 'lucide-react'
@@ -15,7 +15,7 @@ interface Attachment {
   path: string
   name: string
   size: number
-  kind: 'image' | 'audio' | 'file'
+  kind: 'image' | 'audio' | 'video' | 'file'
   transcript?: string
 }
 
@@ -88,6 +88,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
@@ -588,6 +589,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
             <div key={idx} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
               {att.kind === 'image' && <ImageIcon className="h-3 w-3 text-muted-foreground" />}
               {att.kind === 'audio' && <Mic className="h-3 w-3 text-muted-foreground" />}
+              {att.kind === 'video' && <Video className="h-3 w-3 text-muted-foreground" />}
               {att.kind === 'file' && <Paperclip className="h-3 w-3 text-muted-foreground" />}
               <span className="truncate max-w-[120px]">{att.name}</span>
               <button onClick={() => removeAttachment(idx)} className="ml-1 text-muted-foreground hover:text-foreground">
@@ -755,6 +757,15 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
             </button>
 
             <button
+              onClick={() => videoInputRef.current?.click()}
+              disabled={uploading}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Attach video (camera or library)"
+            >
+              <Video className="h-4 w-4" />
+            </button>
+
+            <button
               onClick={recording ? stopRecording : startRecording}
               disabled={uploading}
               className={cn(
@@ -783,6 +794,20 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
             ref={imageInputRef}
             type="file"
             accept="image/*"
+            className="hidden"
+            onChange={handleFileSelect}
+            multiple
+          />
+          {/* iPhone Safari opens the camcorder when `capture` is set and a
+              video MIME is the accept type; desktop falls back to the file
+              picker. `capture="environment"` prefers the rear camera. */}
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            // iPhone Safari opens the rear camcorder when `capture` is set;
+            // desktop browsers ignore `capture` and use the file picker.
+            capture="environment"
             className="hidden"
             onChange={handleFileSelect}
             multiple
@@ -903,6 +928,23 @@ function AttachmentPreview({
             &ldquo;{attachment.transcript}&rdquo;
           </span>
         )}
+      </div>
+    )
+  }
+
+  if (attachment.kind === 'video') {
+    return (
+      <div className="rounded-md overflow-hidden border border-border bg-black/5 max-w-[260px]">
+        <video
+          src={url}
+          controls
+          preload="metadata"
+          className="block w-full max-h-[200px] bg-black"
+        />
+        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
+          <Video className="h-3 w-3" />
+          <span className="truncate flex-1">{attachment.name}</span>
+        </div>
       </div>
     )
   }
