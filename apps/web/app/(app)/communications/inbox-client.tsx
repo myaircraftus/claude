@@ -219,14 +219,7 @@ export function InboxClient({
             <Loader2 className="w-4 h-4 mx-auto animate-spin" />
           </div>
         ) : threads.length === 0 ? (
-          <div className="p-8 text-center text-xs text-muted-foreground space-y-2">
-            <Inbox className="w-6 h-6 mx-auto opacity-50" />
-            <div>Nothing here yet.</div>
-            <div className="text-[11px]">
-              Send a test email to <span className="font-mono">{inboxEmail}</span> to see
-              it land here.
-            </div>
-          </div>
+          <EmptyInbox inboxEmail={inboxEmail} />
         ) : (
           <ul className="divide-y divide-border">
             {threads.map((t) => {
@@ -433,6 +426,73 @@ export function InboxClient({
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * EmptyInbox — Phase 2 coach. Calls the empty-state-coach agent to
+ * surface tailored next actions ("Copy your inbox email", "Wire up
+ * Flight Schedule Pro", etc.) instead of the boring "nothing here yet"
+ * copy. Falls back gracefully when the agent returns nothing.
+ */
+function EmptyInbox({ inboxEmail }: { inboxEmail: string | null }) {
+  const [suggestions, setSuggestions] = useState<
+    Array<{ label: string; href: string; reason: string }>
+  >([])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const res = await fetch('/api/ux/empty-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pathname: '/communications',
+          persona: 'owner',
+          resource: 'inbox',
+        }),
+      })
+      if (!res.ok || cancelled) return
+      const j = (await res.json()) as {
+        suggestions?: Array<{ label: string; href: string; reason: string }>
+      }
+      if (!cancelled) setSuggestions(j.suggestions ?? [])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <div className="p-8 text-center text-xs text-muted-foreground space-y-3">
+      <Inbox className="w-6 h-6 mx-auto opacity-50" />
+      <div className="font-semibold text-foreground">Nothing here yet.</div>
+      {inboxEmail && (
+        <div className="text-[11px]">
+          Send a test email to <span className="font-mono">{inboxEmail}</span> to see it
+          land here.
+        </div>
+      )}
+      {suggestions.length > 0 && (
+        <div className="pt-3 border-t border-border text-left max-w-xs mx-auto space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Suggested next steps
+          </div>
+          {suggestions.map((s, i) => (
+            <a
+              key={i}
+              href={s.href}
+              className="block rounded-md border border-border bg-white px-3 py-2 hover:bg-violet-50 hover:border-violet-200 transition-colors"
+            >
+              <div className="text-[12px] font-semibold text-foreground">{s.label}</div>
+              {s.reason && (
+                <div className="mt-0.5 text-[11px] text-muted-foreground">{s.reason}</div>
+              )}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
