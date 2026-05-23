@@ -16,6 +16,9 @@ import {
   ArrowRight,
   Sparkles,
   ShieldCheck,
+  TrendingUp,
+  Wallet,
+  ClipboardCheck,
 } from 'lucide-react'
 import { DECK } from '@/lib/investor/deck'
 
@@ -132,6 +135,47 @@ export default function InvestorOverviewPage() {
             Open <ArrowRight className="w-3 h-3" />
           </span>
         </Link>
+      </section>
+
+      {/* Financial diligence — surfaced as a second section so a partner */}
+      {/* doing diligence after the deck can find the model/cap/use-of-funds */}
+      {/* immediately. */}
+      <section className="mb-10">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-slate-900">Financial diligence</h2>
+          <Link
+            href="/investor-room/readiness"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900"
+          >
+            Readiness checklist <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link href="/investor-room/financial-model" className="group rounded-lg border border-slate-200 bg-white p-4 hover:bg-slate-50 hover:border-slate-300 transition-all">
+            <TrendingUp className="w-6 h-6 text-rose-600 mb-2" />
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Financial model</h3>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">3-year bottoms-up P&L with CSV download. Adjust assumptions to run sensitivities.</p>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 group-hover:text-rose-900">Open <ArrowRight className="w-3 h-3" /></span>
+          </Link>
+          <Link href="/investor-room/cap-table" className="group rounded-lg border border-slate-200 bg-white p-4 hover:bg-slate-50 hover:border-slate-300 transition-all">
+            <Users className="w-6 h-6 text-violet-600 mb-2" />
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Cap table</h3>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">Pre/post-money on $2.5M @ $15M post. Founder 80% → 68.6%.</p>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 group-hover:text-violet-900">Open <ArrowRight className="w-3 h-3" /></span>
+          </Link>
+          <Link href="/investor-room/use-of-funds" className="group rounded-lg border border-slate-200 bg-white p-4 hover:bg-slate-50 hover:border-slate-300 transition-all">
+            <Wallet className="w-6 h-6 text-amber-600 mb-2" />
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Use of funds</h3>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">Where the $2.5M goes. 55/25/10/10 with milestone unlocks.</p>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 group-hover:text-amber-900">Open <ArrowRight className="w-3 h-3" /></span>
+          </Link>
+          <Link href="/investor-room/readiness" className="group rounded-lg border border-slate-200 bg-white p-4 hover:bg-slate-50 hover:border-slate-300 transition-all">
+            <ClipboardCheck className="w-6 h-6 text-emerald-600 mb-2" />
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Readiness</h3>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">45-item pre-flight checklist. Ready / In progress / Gap.</p>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 group-hover:text-emerald-900">Open <ArrowRight className="w-3 h-3" /></span>
+          </Link>
+        </div>
       </section>
 
       {/* The Ask card */}
