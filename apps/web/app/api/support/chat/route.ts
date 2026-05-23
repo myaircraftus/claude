@@ -144,19 +144,23 @@ export async function POST(req: NextRequest) {
     }
   })()
 
-  // Chained: triage (category + severity). Fire-and-forget on the first
-  // turn only — repeated triage on every reply would waste tokens for no
-  // benefit. We don't await this; the answer is already ready to return.
+  // Chained: triage (category + severity). First turn only — repeated
+  // triage on every reply would waste tokens. We await with a 2.5s race
+  // budget so the response stays fast on the happy path but the agent's
+  // audit row still completes (Vercel kills fire-and-forget promises
+  // when the function returns, leaving rows stuck in 'running').
   if (priorMessages.length === 0) {
-    // Run on the next tick; we don't want to block the response. The agent
-    // runner persists category + severity directly into support_tickets.
-    void triageTicket({
+    const triagePromise = triageTicket({
       supabase: service,
       triggeredBy: user.id,
       ticketId: ticketId!,
       question,
       aiAnswer: answer,
     }).catch(() => undefined)
+    await Promise.race([
+      triagePromise,
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ])
   }
 
   // Append both turns + update ticket
