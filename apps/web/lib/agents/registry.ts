@@ -459,13 +459,14 @@ export const AGENTS: AgentDefinition[] = [
     id: 'safety.cross-tenant-leak-watchdog',
     label: 'Cross-tenant leak watchdog',
     purpose:
-      'Random samples 1% of every RAG retrieval. Verifies every retrieved chunk\'s organization_id matches the requester. Files an immediate CRITICAL agent_run if mismatch.',
+      "Sampled audit of /api/ask retrievals: looks up the organization_id of every retrieved chunk and compares against the calling org. ANY mismatch is a critical agent_run with needsHuman=true (the worst possible bug class in multi-tenant RAG). Admin can also POST to /api/admin/safety/cross-tenant-audit to replay a suspicious answer.",
     category: 'safety',
     trigger: 'chained',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/safety-cross-tenant-leak-watchdog.ts',
   },
   {
     id: 'security.failed-login-anomaly',
