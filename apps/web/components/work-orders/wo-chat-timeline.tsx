@@ -434,8 +434,40 @@ export function WoChatTimeline({
     setAttachments(prev => prev.filter((_, i) => i !== idx))
   }
 
+  // The work-order-chat storage bucket is PRIVATE. The earlier
+  // `${supabaseUrl}/storage/v1/object/public/work-order-chat/${path}`
+  // returned 400s for everyone — images/audio/video never rendered.
+  // Mint a 30-min signed URL via the persona-aware sign-url route
+  // instead. Cached in a Map so we don't re-sign on every render.
+  const signedUrlCacheRef = useRef<Map<string, string>>(new Map())
+  const [, forceRender] = useState(0)
   function getStorageUrl(path: string): string {
-    return `${supabaseUrl}/storage/v1/object/public/work-order-chat/${path}`
+    const cache = signedUrlCacheRef.current
+    if (cache.has(path)) return cache.get(path) as string
+    // Mark with empty string so we don't fire duplicate requests for the
+    // same path while the first is in flight.
+    cache.set(path, '')
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${woSignUrlUrl(persona, workOrderId)}?path=${encodeURIComponent(path)}`,
+        )
+        if (!res.ok) {
+          cache.delete(path)
+          return
+        }
+        const { url } = (await res.json()) as { url?: string }
+        if (url) {
+          cache.set(path, url)
+          forceRender((n) => n + 1)
+        } else {
+          cache.delete(path)
+        }
+      } catch {
+        cache.delete(path)
+      }
+    })()
+    return ''
   }
 
   function getInitials(sender: Message['sender']): string {
