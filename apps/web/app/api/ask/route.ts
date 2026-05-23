@@ -26,6 +26,7 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { classifyAskQuestion } from '@/lib/ask/question-classifier'
 import { tryFleetAggregation } from '@/lib/ask/fleet-aggregation'
 import { gradeAnswer } from '@/lib/agents/impl/rag-answer-grader'
+import { auditRagRetrieval } from '@/lib/agents/impl/safety-cross-tenant-leak-watchdog'
 
 /**
  * Fire-and-forget answer grader. 1% sample of single-aircraft responses
@@ -61,6 +62,49 @@ function maybeGradeAsync(args: {
       })
     } catch (err) {
       console.warn('[ask.grader] background grade failed:', (err as Error).message)
+    }
+  })()
+}
+
+/**
+ * Fire-and-forget cross-tenant retrieval audit. 1% sample.
+ *
+ * Looks up the actual organization_id of every retrieved chunk and
+ * compares it against the calling org. Any mismatch → CRITICAL
+ * agent_run with needsHuman=true (worst possible bug class in
+ * multi-tenant RAG).
+ *
+ * Designed to be cheap + safe to call on every answer because the
+ * agent itself only fires the 1% guard:
+ */
+function maybeAuditTenantsAsync(args: {
+  callingOrgId: string
+  triggeredBy?: string | null
+  question: string
+  citations: any[]
+}): void {
+  if (Math.random() > 0.01) return
+  void (async () => {
+    try {
+      const service = createServiceSupabase()
+      const chunkIds: string[] = []
+      for (const c of args.citations ?? []) {
+        const id = (c as any)?.chunk_id ?? (c as any)?.id
+        if (typeof id === 'string' && id.length > 0) chunkIds.push(id)
+      }
+      if (chunkIds.length === 0) return
+      await auditRagRetrieval({
+        supabase: service,
+        triggeredBy: args.triggeredBy ?? null,
+        callingOrgId: args.callingOrgId,
+        question: args.question,
+        chunkIds,
+      })
+    } catch (err) {
+      console.warn(
+        '[ask.cross-tenant-audit] background audit failed:',
+        (err as Error).message,
+      )
     }
   })()
 }
@@ -624,6 +668,12 @@ export async function POST(req: NextRequest) {
       maybeGradeAsync({
         question,
         answer: result.answer,
+        citations: result.citations,
+      })
+      maybeAuditTenantsAsync({
+        callingOrgId: orgContext.organizationId,
+        triggeredBy: orgContext.user.id,
+        question,
         citations: result.citations,
       })
       return NextResponse.json({
