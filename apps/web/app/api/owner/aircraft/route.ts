@@ -17,9 +17,25 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const ctx = await resolveOwnerContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (ctx.customerIds.length === 0) return NextResponse.json({ aircraft: [] })
 
   const service = createServiceSupabase()
+
+  // Admin preview: broaden to every aircraft in the admin's orgs (most
+  // shop data doesn't populate aircraft.owner_customer_id yet, so the
+  // strict portal scope returns []).
+  if (ctx.isAdminPreview && ctx.adminOrgIds.length > 0) {
+    const { data: aircraft, error } = await service
+      .from('aircraft')
+      .select('id, tail_number, make, model, year, organization_id, owner_customer_id')
+      .in('organization_id', ctx.adminOrgIds)
+      .eq('is_archived', false)
+      .order('tail_number', { ascending: true })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ aircraft: aircraft ?? [] })
+  }
+
+  if (ctx.customerIds.length === 0) return NextResponse.json({ aircraft: [] })
+
   const { data: aircraft, error } = await service
     .from('aircraft')
     .select('id, tail_number, make, model, year, organization_id, owner_customer_id')

@@ -33,6 +33,14 @@ export interface OwnerContext {
    * isAdminPreview if they care; reads behave the same.
    */
   isAdminPreview: boolean
+  /**
+   * Orgs the admin belongs to. Only populated when isAdminPreview.
+   * Used by list endpoints to broaden the scope to "every aircraft in
+   * the admin's orgs" rather than only aircraft linked to a customer
+   * via owner_customer_id (most prod data doesn't have that linkage
+   * yet, so the strict portal scope returns []).
+   */
+  adminOrgIds: string[]
 }
 
 /**
@@ -68,6 +76,7 @@ export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerConte
       customers: customers as OwnerCustomer[],
       customerIds: (customers as OwnerCustomer[]).map((c) => c.id),
       isAdminPreview: false,
+      adminOrgIds: [],
     }
   }
 
@@ -88,14 +97,12 @@ export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerConte
     .not('accepted_at', 'is', null)
   const orgIds = (memberships ?? []).map((m: { organization_id: string }) => m.organization_id)
   if (orgIds.length === 0) {
-    // No portal customer AND no org membership — admin has nothing to
-    // preview yet. Return an empty admin context so list endpoints just
-    // return [] cleanly instead of 401-ing.
     return {
       userId: user.id,
       customers: [],
       customerIds: [],
       isAdminPreview: true,
+      adminOrgIds: [],
     }
   }
 
@@ -110,6 +117,7 @@ export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerConte
     customers: list,
     customerIds: list.map((c) => c.id),
     isAdminPreview: true,
+    adminOrgIds: orgIds,
   }
 }
 
@@ -120,8 +128,19 @@ export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerConte
  * portal access is reading specific rows the user doesn't own.
  */
 export async function getOwnerAircraftIds(ctx: OwnerContext): Promise<string[]> {
-  if (ctx.customerIds.length === 0) return []
   const service = createServiceSupabase()
+  // Admin preview: every aircraft in the admin's orgs is in scope, even
+  // when no customers row has owner_customer_id wired up. Real portal
+  // customers stay strict (only their owned aircraft).
+  if (ctx.isAdminPreview && ctx.adminOrgIds.length > 0) {
+    const { data: aircraft } = await service
+      .from('aircraft')
+      .select('id')
+      .in('organization_id', ctx.adminOrgIds)
+      .eq('is_archived', false)
+    return (aircraft ?? []).map((a: { id: string }) => a.id)
+  }
+  if (ctx.customerIds.length === 0) return []
   const { data: aircraft } = await service
     .from('aircraft')
     .select('id')
@@ -155,7 +174,19 @@ export async function getOwnerScopedWorkOrder(
     .maybeSingle()
   if (!wo || !wo.aircraft_id) return null
 
-  // Confirm the aircraft is owned by one of this user's customers
+  // Admin preview: the WO must just belong to one of the admin's orgs.
+  if (ctx.isAdminPreview) {
+    if (!ctx.adminOrgIds.includes(wo.organization_id)) return null
+    return wo as {
+      id: string
+      organization_id: string
+      aircraft_id: string | null
+      thread_id: string | null
+    }
+  }
+
+  // Strict portal-customer path: confirm the aircraft is owned by one
+  // of the calling user's customer rows.
   const { data: aircraft } = await service
     .from('aircraft')
     .select('id, owner_customer_id')

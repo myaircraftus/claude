@@ -32,14 +32,19 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const service = createServiceSupabase()
 
-  // Confirm the aircraft is owned by one of the calling user's customers.
+  // Confirm the aircraft is owned by one of the calling user's customers,
+  // OR (admin preview) belongs to one of the admin's orgs.
   const { data: aircraft } = await service
     .from('aircraft')
     .select('id, tail_number, make, model, year, owner_customer_id, organization_id')
     .eq('id', params.id)
     .maybeSingle()
   if (!aircraft) return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
-  if (!aircraft.owner_customer_id || !ctx.customerIds.includes(aircraft.owner_customer_id)) {
+  const allowedByCustomer =
+    aircraft.owner_customer_id && ctx.customerIds.includes(aircraft.owner_customer_id)
+  const allowedByAdmin =
+    ctx.isAdminPreview && ctx.adminOrgIds.includes(aircraft.organization_id)
+  if (!allowedByCustomer && !allowedByAdmin) {
     return NextResponse.json({ error: 'Aircraft not found' }, { status: 404 })
   }
 
