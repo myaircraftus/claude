@@ -97,7 +97,11 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-8 w-8 rounded-full p-0">
+            <Button
+              variant="ghost"
+              className="relative h-8 w-8 rounded-full p-0"
+              aria-label={`User menu for ${profile.full_name ?? profile.email ?? 'account'}`}
+            >
               <Avatar className="h-8 w-8">
                 <AvatarImage src={profile.avatar_url ?? undefined} alt={profile.full_name ?? ''} />
                 <AvatarFallback className="bg-brand-100 text-brand-700 text-xs">
