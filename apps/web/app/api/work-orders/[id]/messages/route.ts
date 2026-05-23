@@ -72,6 +72,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Create thread if none exists
   if (!threadId) {
+    // conversation_threads only has {organization_id, title, thread_type,
+    // aircraft_id, customer_id, metadata, created_by, ...} on this DB —
+    // an earlier version of this insert tried to write
+    // active_artifact_id/type which don't exist as columns and silently
+    // 500'd every "first message on an empty WO chat" with a PostgREST
+    // schema-cache error. The artifact reference lives on the per-message
+    // thread_messages row (artifact_type + artifact_id) which DOES exist.
     const { data: thread, error: threadErr } = await supabase
       .from('conversation_threads')
       .insert({
@@ -80,8 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         thread_type: 'maintenance',
         aircraft_id: wo.aircraft_id,
         customer_id: wo.customer_id,
-        active_artifact_type: 'work_order',
-        active_artifact_id: wo.id,
+        metadata: { work_order_id: wo.id },
         created_by: ctx.user.id,
       })
       .select('id')

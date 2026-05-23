@@ -72,6 +72,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Lazy-create the thread on the owner's first message. The shop side
   // uses the same pattern; either side creating it works.
   if (!threadId) {
+    // Same column set as the shop route: conversation_threads has no
+    // active_artifact_* columns on this DB. The WO linkage lives in
+    // work_orders.thread_id (we patch that below) plus
+    // thread_messages.artifact_id on each message.
     const { data: thread, error: threadErr } = await service
       .from('conversation_threads')
       .insert({
@@ -79,8 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         title: `Work Order ${params.id}`,
         thread_type: 'maintenance',
         aircraft_id: wo.aircraft_id,
-        active_artifact_type: 'work_order',
-        active_artifact_id: wo.id,
+        metadata: { work_order_id: wo.id, opened_by: 'owner' },
         created_by: ctx.userId,
       })
       .select('id')
