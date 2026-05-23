@@ -327,14 +327,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'ops.cron-health',
     label: 'Cron health monitor',
     purpose:
-      'Verify every cron in this manifest ran successfully in the last 24h. If a cron is missing or failed, page the founder.',
+      'Verify every active cron agent has at least one succeeded run in the last ~24h. Emits a cron_missed recommendation for any agent that fell behind so /admin/agents surfaces it.',
     category: 'ops',
     trigger: 'cron',
     cron_schedule: '*/30 * * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/ops-cron-health.ts',
   },
   {
     id: 'ops.error-rate-sentinel',
