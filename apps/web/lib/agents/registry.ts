@@ -355,6 +355,20 @@ export const AGENTS: AgentDefinition[] = [
     writes: false,
     reference: 'lib/agents/impl/ops-error-rate-sentinel.ts',
   },
+  {
+    id: 'ops.daily-digest',
+    label: 'Daily founder digest',
+    purpose:
+      'Daily 07:00 UTC: aggregates the last 24h of needs_human + unacknowledged recommendations across every agent. Groups by category, prioritises critical (safety.* / security.* / audit-event-watchdog), assembles a 5-8 line founder-facing summary. Read once → all categories triaged.',
+    category: 'ops',
+    trigger: 'cron',
+    cron_schedule: '0 7 * * *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/ops-daily-digest.ts',
+  },
 
   // ── SALES (planned)
   {

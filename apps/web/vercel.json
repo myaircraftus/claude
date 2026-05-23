@@ -177,6 +177,10 @@
     {
       "path": "/api/cron/iso-evidence",
       "schedule": "30 0 1 */3 *"
+    },
+    {
+      "path": "/api/cron/daily-digest",
+      "schedule": "0 7 * * *"
     }
   ],
   "headers": [
