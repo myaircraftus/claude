@@ -837,44 +837,20 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         const aircraftById = new Map(aircraftList.map((a: ApiAircraft) => [a.id, a]));
 
         const workOrdersApi = (workOrdersPayload?.work_orders ?? []) as ApiWorkOrder[];
-        const workOrderDetails = await Promise.all(
-          workOrdersApi.map(async (workOrder) => {
-            try {
-              const res = await fetch(`/api/work-orders/${workOrder.id}`, { cache: "no-store" });
-              if (!res.ok) return null;
-              return await res.json();
-            } catch (error) {
-              console.error("Failed to load work order detail", error);
-              return null;
-            }
-          })
-        );
-        const workOrderMessages = await Promise.all(
-          workOrdersApi.map(async (workOrder) => {
-            try {
-              const res = await fetch(`/api/work-orders/${workOrder.id}/messages?limit=200`, {
-                cache: "no-store",
-              });
-              if (!res.ok) return null;
-              const payload = await res.json().catch(() => null);
-              return {
-                id: workOrder.id,
-                messages: Array.isArray(payload?.messages) ? (payload.messages as ApiThreadMessage[]) : [],
-              };
-            } catch (error) {
-              console.error("Failed to load work order messages", error);
-              return null;
-            }
-          })
-        );
-        const workOrderDetailById = new Map(
-          workOrderDetails.filter((detail): detail is { id: string; lines?: any[] } => Boolean(detail?.id)).map((detail) => [detail.id, detail])
-        );
-        const workOrderMessagesById = new Map(
-          workOrderMessages
-            .filter((entry): entry is { id: string; messages: ApiThreadMessage[] } => Boolean(entry?.id))
-            .map((entry) => [entry.id, entry.messages])
-        );
+        // Perf — historically we fanned out one GET /api/work-orders/{id}
+        // and one GET /api/work-orders/{id}/messages?limit=200 per WO on
+        // every app-route navigation. For a 200-WO tenant that's 400+
+        // serial HTTP requests just to render the sidebar; the network
+        // sweep on prod showed the aircraft-detail page stalling for
+        // many seconds in "Loading aircraft" state. WO line-items and
+        // message activity are now lazy-loaded by the components that
+        // actually display them (WO detail page, WO chat panel), so the
+        // initial hydrate only does the 6 list-endpoint round trips.
+        const workOrderDetailById = new Map<
+          string,
+          { id: string; lines?: any[] }
+        >();
+        const workOrderMessagesById = new Map<string, ApiThreadMessage[]>();
         const mappedWos = workOrdersApi.map((wo) => {
           const ac = wo.aircraft ?? (wo.aircraft_id ? aircraftById.get(wo.aircraft_id) : undefined);
           const owner = ac?.owner_customer_id ? customerById.get(ac.owner_customer_id) : undefined;
@@ -925,21 +901,14 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         setWorkOrders(mappedWos);
 
         const invoicesApi = (invoicesPayload?.invoices ?? []) as ApiInvoice[];
-        const invoiceDetails = await Promise.all(
-          invoicesApi.map(async (invoice) => {
-            try {
-              const res = await fetch(`/api/invoices/${invoice.id}`, { cache: "no-store" });
-              if (!res.ok) return null;
-              return await res.json();
-            } catch (error) {
-              console.error("Failed to load invoice detail", error);
-              return null;
-            }
-          })
-        );
-        const invoiceDetailById = new Map(
-          invoiceDetails.filter((detail): detail is { id: string; line_items?: any[]; customer?: { name?: string | null } | null } => Boolean(detail?.id)).map((detail) => [detail.id, detail])
-        );
+        // Same perf treatment as the WO loops above — invoice line-items
+        // are only needed on the invoice detail page, not on the sidebar
+        // hydrate. Lazy-load there instead of N+1-ing the API on every
+        // app-route nav.
+        const invoiceDetailById = new Map<
+          string,
+          { id: string; line_items?: any[]; customer?: { name?: string | null } | null }
+        >();
         const mappedInvoices = invoicesApi.map((inv) => {
           const detail = invoiceDetailById.get(inv.id);
           const { laborLines, partsLines, outsideServices } = mapInvoiceLineItems(detail?.line_items);

@@ -127,11 +127,26 @@ export async function triageTicket(args: {
         rationale: (parsed.rationale ?? '').toString().slice(0, 280),
       }
 
+      // Map onto the support_ticket_category DB enum
+      // {billing, technical, feature_request, bug, account, other}. The
+      // agent's vocab is broader; outage/security collapse to bug,
+      // how-to to technical, feature-request to feature_request.
+      const dbCategory: 'billing' | 'technical' | 'feature_request' | 'bug' | 'account' | 'other' =
+        out.category === 'billing'
+          ? 'billing'
+          : out.category === 'bug' || out.category === 'outage' || out.category === 'security'
+          ? 'bug'
+          : out.category === 'feature-request'
+          ? 'feature_request'
+          : out.category === 'how-to'
+          ? 'technical'
+          : 'other'
+
       // Persist directly to support_tickets — best-effort. If the row was
       // deleted between insert and now (shouldn't happen) we just no-op.
       await args.supabase
         .from('support_tickets')
-        .update({ category: out.category, severity: out.severity })
+        .update({ category: dbCategory, severity: out.severity })
         .eq('id', args.ticketId)
 
       return { output: out }
