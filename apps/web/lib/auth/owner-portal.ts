@@ -25,13 +25,28 @@ export interface OwnerContext {
   /** Every customer row the user is bound to (most owners have 1). */
   customers: OwnerCustomer[]
   customerIds: string[]
+  /**
+   * True when this context was synthesised for a platform_admin who
+   * doesn't have a real customers.portal_user_id row. Lets admins
+   * preview the owner experience without needing a fake portal link.
+   * Routes can still gate the heaviest write operations on
+   * isAdminPreview if they care; reads behave the same.
+   */
+  isAdminPreview: boolean
 }
 
 /**
  * Resolve the calling user as an owner-portal user, returning the customer
  * row(s) they're bound to. Returns null when:
  *   - no auth user (signed out)
- *   - the user has no customers row with portal_access = true
+ *   - the user has no customers row with portal_access = true AND
+ *     is not a platform_admin
+ *
+ * Platform-admin fallback: when a platform_admin has no portal customer
+ * link (the normal Andy/in-dev case), we synthesise an OwnerContext that
+ * grants access to every customer row in every org the admin belongs to.
+ * This is intentionally a backdoor for previewing/QA; real owners always
+ * go through the customers.portal_user_id path.
  */
 export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerContext | null> {
   const supabase = createServerSupabase()
@@ -47,12 +62,54 @@ export async function resolveOwnerContext(_req: NextRequest): Promise<OwnerConte
     .eq('portal_user_id', user.id)
     .eq('portal_access', true)
 
-  if (!customers || customers.length === 0) return null
+  if (customers && customers.length > 0) {
+    return {
+      userId: user.id,
+      customers: customers as OwnerCustomer[],
+      customerIds: (customers as OwnerCustomer[]).map((c) => c.id),
+      isAdminPreview: false,
+    }
+  }
 
+  // No portal-customer link. Check the platform_admin backdoor — admins
+  // get a synthesised context spanning every customers row in the orgs
+  // they belong to, so they can preview the owner experience.
+  const { data: profile } = await service
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (!profile?.is_platform_admin) return null
+
+  const { data: memberships } = await service
+    .from('organization_memberships')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .not('accepted_at', 'is', null)
+  const orgIds = (memberships ?? []).map((m: { organization_id: string }) => m.organization_id)
+  if (orgIds.length === 0) {
+    // No portal customer AND no org membership — admin has nothing to
+    // preview yet. Return an empty admin context so list endpoints just
+    // return [] cleanly instead of 401-ing.
+    return {
+      userId: user.id,
+      customers: [],
+      customerIds: [],
+      isAdminPreview: true,
+    }
+  }
+
+  const { data: orgCustomers } = await service
+    .from('customers')
+    .select('id, organization_id')
+    .in('organization_id', orgIds)
+
+  const list = (orgCustomers ?? []) as OwnerCustomer[]
   return {
     userId: user.id,
-    customers: customers as OwnerCustomer[],
-    customerIds: customers.map((c: { id: string }) => c.id),
+    customers: list,
+    customerIds: list.map((c) => c.id),
+    isAdminPreview: true,
   }
 }
 
