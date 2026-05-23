@@ -74,6 +74,31 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
   const [sending, setSending] = useState(false)
   const [approving, setApproving] = useState<null | 'approve' | 'reject'>(null)
   const [loading, setLoading] = useState(true)
+  const [converting, setConverting] = useState(false)
+
+  const handleConvertToInvoice = async () => {
+    if (converting) return
+    if (!confirm('Convert this estimate to a draft invoice? Line items will be copied. You can edit the invoice before sending.')) return
+    setConverting(true)
+    try {
+      const res = await fetch(`/api/estimates/${estimateId}/convert-to-invoice`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (data?.invoice_id) {
+          toast.error(`Already converted — opening invoice ${data.invoice_number ?? ''}`)
+          router.push(`/invoices/${data.invoice_id}`)
+          return
+        }
+        throw new Error(data?.error ?? `Convert failed (HTTP ${res.status})`)
+      }
+      toast.success(`Invoice ${data.invoice_number ?? ''} created — ${data.line_count ?? 0} lines copied`)
+      router.push(`/invoices/${data.invoice_id}`)
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Convert failed')
+    } finally {
+      setConverting(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -320,6 +345,21 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
           {estimate.linked_work_order_id && (
             <Button size="sm" variant="outline" onClick={() => router.push(`/work-orders/${estimate.linked_work_order_id}`)}>
               Open Work Order
+            </Button>
+          )}
+          {['approved', 'deposit_paid', 'sent', 'viewed'].includes(estimate.status) && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleConvertToInvoice}
+              disabled={converting}
+              title="Create a draft invoice and copy these line items"
+            >
+              {converting ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Converting...</>
+              ) : (
+                'Convert to Invoice'
+              )}
             </Button>
           )}
         </div>

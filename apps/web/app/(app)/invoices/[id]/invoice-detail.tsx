@@ -263,19 +263,24 @@ export function InvoiceDetail({ initialInvoice }: Props) {
 
   async function handleMarkPaid() {
     if (!confirm('Mark this invoice as fully paid?')) return
-    const res = await fetch(`/api/invoices/${invoice.id}/payments`, {
+    // Uses the convenience wrapper at /api/invoices/[id]/mark-paid:
+    // inserts a verified payment for balance_due, lets the DB trigger
+    // recompute totals, writes audit + timeline, flips status.
+    const res = await fetch(`/api/invoices/${invoice.id}/mark-paid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        amount: Math.max(0, Number(invoice.balance_due ?? 0)),
-        payment_method: 'manual',
-        manual_reference: 'Marked paid by staff',
+        payment_method: 'check',
+        reference_number: 'Marked paid by staff',
         notes: 'Marked paid from invoice closeout.',
       }),
     })
     if (res.ok) {
       refreshInvoice()
       router.refresh()
+    } else {
+      const j = await res.json().catch(() => null)
+      toast.error(j?.error ?? 'Could not mark paid')
     }
   }
 
