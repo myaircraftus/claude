@@ -472,14 +472,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'security.failed-login-anomaly',
     label: 'Failed-login anomaly detector',
     purpose:
-      'Reads auth.events. If a user account sees ≥10 failed logins in 15 minutes from ≥3 IPs, suspends the account and pages the founder + emails the user.',
+      "Every 10 minutes: reads auth.audit_log_entries for the last 15 min. Per-account bucket of failed-login events; flag a 'failed_login_burst' (critical, needsHuman=true) when count >=10 from >=3 distinct IPs. /admin/agents surfaces it; manual unlock from /admin/users.",
     category: 'safety',
     trigger: 'cron',
     cron_schedule: '*/10 * * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
-    writes: true,
+    writes: false,
+    reference: 'lib/agents/impl/security-failed-login-anomaly.ts',
   },
 
   // ── OPS (proposed)

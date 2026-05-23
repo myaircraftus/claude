@@ -97,6 +97,10 @@
     {
       "path": "/api/cron/churn-risk",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/failed-login-anomaly",
+      "schedule": "*/10 * * * *"
     }
   ],
   "headers": [
