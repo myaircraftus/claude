@@ -104,6 +104,17 @@ export const DECK: Slide[] = [
       'Adjacent: marketplace transactions (aircraft sales / pre-buy inspections) — $4B+ annually.',
       'White-space target = SMB shops (5-30 staff) — too small for the big MRO software vendors, too big for spreadsheets.',
     ],
+    mermaid: `flowchart LR
+  TAM["TAM<br/>$20B US GA<br/>maintenance / yr"]
+  SAM["SAM<br/>$270M annual SaaS<br/>(7.5K shops × $36K)"]
+  SOM["3-yr SOM<br/>$22M ARR<br/>(500 shops, 8% capture)"]
+  Y1["Year 1<br/>$1.8M ARR<br/>(50 shops)"]
+  TAM --> SAM --> SOM --> Y1
+  classDef tam fill:#ede9fe,stroke:#8b5cf6;
+  classDef sam fill:#dcfce7,stroke:#16a34a;
+  classDef som fill:#fef3c7,stroke:#f59e0b;
+  classDef y1 fill:#dbeafe,stroke:#2563eb;
+  class TAM tam; class SAM sam; class SOM som; class Y1 y1;`,
     footnote: 'Bottoms-up: 7,500 shops × $36K avg ACV = $270M SAM at full SMB capture',
     theme: 'light',
   },
@@ -121,8 +132,8 @@ export const DECK: Slide[] = [
       'Owner portal: estimate approval, invoice payment (Stripe), signed-logbook access, AI Q&A scoped to their own records.',
     ],
     metrics: [
-      { value: '15', label: 'Live SOPs', sub: 'Source-of-truth manual' },
-      { value: '67', label: 'Production docs', sub: '+25K embeddings indexed' },
+      { value: '20', label: 'Live SOPs', sub: 'Source-of-truth manual' },
+      { value: '352', label: 'Production docs', sub: '+247K embeddings indexed' },
       { value: '99.9%', label: 'Tenant-isolation tests', sub: 'RLS enforced + audited' },
     ],
     theme: 'light',
@@ -148,16 +159,17 @@ export const DECK: Slide[] = [
     eyebrow: '06 · Traction',
     title: 'Where we are.',
     metrics: [
-      { value: '67', label: 'Production docs', sub: 'On Horizon Flights tenant' },
-      { value: '25K', label: 'Embeddings indexed', sub: 'Across logbooks + manuals' },
-      { value: '106K', label: 'Tree nodes', sub: 'Hierarchical PageIndex' },
-      { value: '16', label: 'AI training scenarios', sub: 'In the SOP Simulator' },
+      { value: '352', label: 'Production docs', sub: 'Indexed + queryable' },
+      { value: '247K', label: 'Embeddings indexed', sub: 'Across logbooks + manuals' },
+      { value: '106K', label: 'PageIndex tree nodes', sub: 'Hierarchical retrieval' },
+      { value: '19', label: 'Aircraft under management', sub: '14 with pre-1980 records' },
     ],
     bullets: [
-      'Founding tenant (Horizon Flights) onboarded with 67 documents + full historical logbook backfill.',
-      'AI Query Engine in production — same-question determinism after rerank-cache deployment.',
-      'Owner Portal live (approvals, invoices, AI Q&A scoped to owner-visible records).',
-      'SOC2 control matrix mapped against 27 trust criteria — pen-test scheduled.',
+      'Founding tenant (Horizon Flights) onboarded with full historical logbook backfill — 19 aircraft, oldest entry 1967-06-28.',
+      'AI Query Engine in production — same-question determinism after rerank-cache + structured-aggregation deployment (2026-05-22).',
+      'Owner Portal live (approvals, invoices, AI Q&A scoped to owner-visible records, GDPR Article 20 data export).',
+      'SOC2 control matrix mapped against 27 trust criteria — pen-test scheduled, audit firm engaging.',
+      '2,336 logbook entries indexed · 30K+ tree-node entries · OCR pipeline running daily.',
     ],
     theme: 'light',
   },
@@ -173,6 +185,20 @@ export const DECK: Slide[] = [
       'Phase 3: marketplace — listings include shareable maintenance history. Buyers pay records-access fee, owners get warm leads.',
       'Phase 4: white-label for type-club partners (Cirrus Owners, COPA, ABS), franchise-style MRO networks.',
     ],
+    mermaid: `flowchart LR
+  L[Shop lead<br/>AOPA event /<br/>tenant referral]
+  D[Demo<br/>founder-led<br/>~45 min]
+  P[Pilot<br/>30 days · 5 aircraft<br/>free trial]
+  C[Convert<br/>$299-$1,999/mo<br/>per-aircraft tier]
+  O[Owner portal<br/>spawns from shop's<br/>customer base]
+  R[Owner referral<br/>→ second shop<br/>warm lead]
+  L --> D --> P --> C
+  C --> O --> R
+  R -.-> D
+  classDef hot fill:#fee2e2,stroke:#dc2626;
+  classDef warm fill:#fef3c7,stroke:#f59e0b;
+  classDef won fill:#dcfce7,stroke:#16a34a;
+  class L hot; class D,P warm; class C,O,R won;`,
     theme: 'light',
   },
   {

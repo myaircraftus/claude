@@ -33,6 +33,9 @@ import {
   HelpCircle,
   ArrowLeft,
   Sparkles,
+  TrendingUp,
+  Wallet,
+  ClipboardCheck,
 } from 'lucide-react'
 import { createServerSupabase } from '@/lib/supabase/server'
 
@@ -109,6 +112,34 @@ export default async function InvestorRoomLayout({ children }: { children: React
           >
             <BarChart3 className="w-4 h-4 text-rose-600" />
             <span>Metrics</span>
+          </Link>
+          <Link
+            href="/investor-room/financial-model"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <TrendingUp className="w-4 h-4 text-rose-600" />
+            <span>Financial model</span>
+          </Link>
+          <Link
+            href="/investor-room/cap-table"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <Users className="w-4 h-4 text-violet-600" />
+            <span>Cap table</span>
+          </Link>
+          <Link
+            href="/investor-room/use-of-funds"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <Wallet className="w-4 h-4 text-amber-600" />
+            <span>Use of funds</span>
+          </Link>
+          <Link
+            href="/investor-room/readiness"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+            <span>Readiness</span>
           </Link>
           <Link
             href="/investor-room/team"
