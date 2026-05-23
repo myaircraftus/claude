@@ -285,6 +285,9 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                 <p className="text-white/25 text-[12px]">
                   © {new Date().getFullYear()} myaircraft.us — All rights reserved.
                 </p>
+                <p className="text-white/25 text-[11px]">
+                  Built by Andy Patel with Claude (Anthropic).
+                </p>
                 <div className="flex items-center gap-4">
                   <Link href="/signup" className="text-[#2563EB] hover:text-[#60a5fa] text-[12px] transition-colors" style={{ fontWeight: 500 }}>
                     Start free trial →

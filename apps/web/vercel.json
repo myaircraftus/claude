@@ -101,6 +101,14 @@
     {
       "path": "/api/cron/failed-login-anomaly",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/cost-anomaly",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/duplicate-docs",
+      "schedule": "30 4 * * *"
     }
   ],
   "headers": [
