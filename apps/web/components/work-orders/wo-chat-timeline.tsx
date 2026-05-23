@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn, formatDateTime } from '@/lib/utils'
 import { toast } from 'sonner'
+import { woMessagesUrl, woUploadUrl, woSignUrlUrl, type ChatPersona } from '@/lib/chat/api-paths'
 import {
   Camera, Mic, Paperclip, Send, Loader2, Package, Wrench,
   Play, Pause, Download, X, Image as ImageIcon, Video,
@@ -37,6 +38,10 @@ interface Message {
 
 interface Props {
   workOrderId: string
+  /** Defaults to 'shop'. Owner persona swaps every fetch onto /api/owner/* —
+   *  the payload contracts are identical so the rest of the component
+   *  behaves the same. */
+  persona?: ChatPersona
   className?: string
   /** Optional callbacks — kept for backwards-compatibility with the current
    *  "switch to Line Items tab" navigation. The composer now also has an
@@ -55,7 +60,13 @@ interface ChecklistRow {
   completed: boolean
 }
 
-export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }: Props) {
+export function WoChatTimeline({
+  workOrderId,
+  persona = 'shop',
+  className,
+  onAddPart,
+  onAddLabor,
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -96,7 +107,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
 
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/work-orders/${workOrderId}/messages`)
+      const res = await fetch(woMessagesUrl(persona, workOrderId))
       const data = await res.json()
       if (data.messages) setMessages(data.messages)
     } finally {
@@ -193,7 +204,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
   // ─── Quick-create line + post system message in chat ──────────────
   async function postSystemMessage(content: string) {
     try {
-      await fetch(`/api/work-orders/${workOrderId}/messages`, {
+      await fetch(woMessagesUrl(persona, workOrderId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, intent: 'system_event' }),
@@ -334,7 +345,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
     try {
       const form = new FormData()
       form.append('file', file)
-      const res = await fetch(`/api/work-orders/${workOrderId}/messages/upload`, {
+      const res = await fetch(woUploadUrl(persona, workOrderId), {
         method: 'POST',
         body: form,
       })
@@ -349,7 +360,7 @@ export function WoChatTimeline({ workOrderId, className, onAddPart, onAddLabor }
     if ((!text.trim() && attachments.length === 0) || sending) return
     setSending(true)
     try {
-      const res = await fetch(`/api/work-orders/${workOrderId}/messages`, {
+      const res = await fetch(woMessagesUrl(persona, workOrderId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

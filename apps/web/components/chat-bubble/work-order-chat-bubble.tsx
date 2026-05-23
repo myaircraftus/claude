@@ -23,6 +23,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock, ExternalLink } from 'lucide-react'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
+import {
+  aircraftListUrl,
+  aircraftChatSummaryUrl,
+  unreadRollupUrl,
+} from '@/lib/chat/api-paths'
 
 type Persona = 'owner' | 'shop'
 
@@ -148,7 +153,7 @@ export function WorkOrderChatBubble({
     let cancelled = false
     async function checkUnread() {
       try {
-        const res = await fetch('/api/work-orders/messages-unread')
+        const res = await fetch(unreadRollupUrl(persona))
         if (!res.ok) return
         const json = await res.json()
         if (cancelled) return
@@ -206,7 +211,7 @@ export function WorkOrderChatBubble({
     let cancelled = false
     void (async () => {
       try {
-        const res = await fetch('/api/aircraft')
+        const res = await fetch(aircraftListUrl(persona))
         if (!res.ok) return
         const json = await res.json()
         if (cancelled) return
@@ -253,7 +258,7 @@ export function WorkOrderChatBubble({
         const probes = await Promise.all(
           probeTargets.map(async (a) => {
             try {
-              const r = await fetch(`/api/aircraft/${a.id}/chat-summary`)
+              const r = await fetch(aircraftChatSummaryUrl(persona, a.id))
               if (!r.ok) return null
               const s = (await r.json()) as ChatSummary
               const latest =
@@ -323,7 +328,7 @@ export function WorkOrderChatBubble({
     setLoading(true)
     void (async () => {
       try {
-        const res = await fetch(`/api/aircraft/${selectedAircraftId}/chat-summary`)
+        const res = await fetch(aircraftChatSummaryUrl(persona, selectedAircraftId))
         if (!res.ok) return
         const json = (await res.json()) as ChatSummary
         if (cancelled) return
@@ -635,6 +640,7 @@ export function WorkOrderChatBubble({
                     <div className="flex-1 min-h-0 overflow-hidden">
                       <WoChatTimeline
                         workOrderId={selectedWo.id}
+                        persona={persona}
                         className="h-full"
                         onAddPart={() => {
                           // Add Part / Add Labor open the full WO page where
