@@ -312,14 +312,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'workforce.cert-expiry-alerter',
     label: 'Cert-expiry alerter',
     purpose:
-      'Watch mechanic_certificate_history. 60/30/7-day warning emails when an IA renewal, A&P cert, or medical is due to expire.',
+      "Daily sweep over mechanic_certificates. For any row expiring in 60/30/7 days (and renewal_reminder=true), emit a cert_expiry_soon recommendation tiered by severity. /admin/agents surfaces it.",
     category: 'workforce',
     trigger: 'cron',
     cron_schedule: '0 8 * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
-    writes: true,
+    writes: false,
+    reference: 'lib/agents/impl/workforce-cert-expiry-alerter.ts',
   },
 
   // ── OPS
@@ -564,13 +565,14 @@ export const AGENTS: AgentDefinition[] = [
     id: 'ux-help.empty-state-coach',
     label: 'Empty-state coach',
     purpose:
-      'When a user lands on a page that\'s empty for them (no aircraft, no work orders, no documents), proposes the 2-3 things they can do next, tailored to their persona.',
+      "On-demand: given a page path + persona, returns 2-3 specific next-action suggestions for users staring at an empty page (no aircraft, no work orders, etc.). Falls back to a heuristic table when OPENAI_API_KEY isn't set so EmptyState always shows something useful.",
     category: 'ux-help',
-    trigger: 'chained',
-    status: 'proposed',
+    trigger: 'human_button',
+    status: 'active',
     recommended_provider: 'openai',
     recommended_model: 'gpt-4o-mini',
     writes: false,
+    reference: 'lib/agents/impl/ux-empty-state-coach.ts',
   },
   {
     id: 'ux-help.error-explainer',
