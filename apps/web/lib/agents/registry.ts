@@ -387,6 +387,20 @@ export const AGENTS: AgentDefinition[] = [
 
   // ── INGESTION + KNOWLEDGE (proposed)
   {
+    id: 'data-quality.orphaned-records-detector',
+    label: 'Orphaned-records detector',
+    purpose:
+      'Nightly 04:00 UTC. Hunts for FK references pointing at deleted/missing rows across work_orders.aircraft_id, logbook_entries.aircraft_id, logbook_entries.document_id, inbox_messages.user_id. Emits orphaned_records recommendation per cluster — agent never auto-deletes; founder decides repair/soft-delete/ignore.',
+    category: 'data-quality',
+    trigger: 'cron',
+    cron_schedule: '0 4 * * *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/data-quality-orphaned-records-detector.ts',
+  },
+  {
     id: 'data-quality.ad-reference-extractor',
     label: 'AD reference extractor',
     purpose:
@@ -470,6 +484,20 @@ export const AGENTS: AgentDefinition[] = [
     recommended_model: 'regex-only',
     writes: false,
     reference: 'lib/agents/impl/safety-pii-leak-scanner.ts',
+  },
+  {
+    id: 'safety.faa-bulletin-watcher',
+    label: 'FAA bulletin watcher',
+    purpose:
+      'Weekly Sun 06:00 UTC. For every active aircraft, fetches the FAA Civil Aviation Registry record and groups by manufacturer+model. Emits a watch list so the founder can manually cross-check the FAA AD database for model-level airworthiness directives. Bounded to 30 FAA lookups per run (12h cache).',
+    category: 'safety',
+    trigger: 'cron',
+    cron_schedule: '0 6 * * 0',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'http-only',
+    writes: false,
+    reference: 'lib/agents/impl/safety-faa-bulletin-watcher.ts',
   },
   {
     id: 'safety.prompt-injection-guard',
@@ -627,6 +655,20 @@ export const AGENTS: AgentDefinition[] = [
   },
 
   // ── WORKFORCE (proposed)
+  {
+    id: 'workforce.workload-balancer',
+    label: 'Workload balancer',
+    purpose:
+      'Daily 08:00 UTC. Scores open-work-order distribution per shop. Flags imbalance where one mechanic has >2× the team median; suggests a redistribute count. Skips single-mechanic shops. Pure SQL — never auto-reassigns.',
+    category: 'workforce',
+    trigger: 'cron',
+    cron_schedule: '0 8 * * *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/workforce-workload-balancer.ts',
+  },
   {
     id: 'workforce.shift-summary-drafter',
     label: 'Shift summary drafter',
