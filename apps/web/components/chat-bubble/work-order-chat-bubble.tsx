@@ -421,17 +421,27 @@ export function WorkOrderChatBubble({
       {open && (
         <div className="fixed inset-0 z-50 flex pointer-events-none">
           {/*
-            Visual dim — pointer-events: none on purpose. We DON'T listen
-            for clicks here because iPad Safari's native <select> opens a
-            full-screen wheel picker, and dismiss-taps land on whatever's
-            behind it. The previous version had an onClick handler here
-            that closed the drawer the moment the user picked an aircraft.
+            Visual dim — the page recedes so the chat shines. Bumped to
+            bg-black/55 + backdrop-blur because the previous bg-black/30
+            was so subtle it looked like the overlay wasn't there.
+            Backdrop-blur uses GPU compositing on supported browsers; falls
+            back to a stronger flat dim where unsupported.
+
+            pointer-events: none on purpose — we DON'T close on outside-tap.
+            iPad Safari's native <select> opens a full-screen wheel picker,
+            and dismiss-taps land on whatever's behind it. The previous
+            version had an onClick handler that closed the drawer the
+            moment the user picked an aircraft. Close happens via the X.
           */}
-          <div className="absolute inset-0 bg-black/30 pointer-events-none" />
-          {/* Drawer panel */}
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm pointer-events-none transition-opacity duration-150"
+            aria-hidden="true"
+          />
+          {/* Drawer panel — extra ring + brightness so it visibly "shines"
+              against the dimmed page. */}
           <div
             ref={drawerRef}
-            className="ml-auto h-full w-full max-w-[480px] bg-white shadow-2xl flex flex-col pointer-events-auto"
+            className="ml-auto h-full w-full max-w-[480px] bg-white shadow-[0_0_60px_-10px_rgba(0,0,0,0.6)] ring-1 ring-white/40 flex flex-col pointer-events-auto"
           >
             {/* Header */}
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-shrink-0">
