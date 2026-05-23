@@ -161,6 +161,22 @@
     {
       "path": "/api/cron/dpa-anniversary",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/rerank-cache-warmer",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/error-rate-sentinel",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/soc2-evidence",
+      "schedule": "0 0 1 */3 *"
+    },
+    {
+      "path": "/api/cron/iso-evidence",
+      "schedule": "30 0 1 */3 *"
     }
   ],
   "headers": [

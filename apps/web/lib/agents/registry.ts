@@ -216,14 +216,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'rag.rerank-cache-warmer',
     label: 'Rerank cache warmer',
     purpose:
-      'Periodically re-runs the top-100 questions across all tenants to keep the Cohere rerank LRU cache warm (sub-second answers on common questions).',
+      'Every 6h: pulls the top-100 most-frequent normalised questions from ask_logs (last 14d), pings Cohere rerank with 3 sample docs each. Keeps the LRU cache warm. No-ops cleanly when COHERE_API_KEY is unset.',
     category: 'rag',
     trigger: 'cron',
     cron_schedule: '0 */6 * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'cohere',
     recommended_model: 'rerank-v3.5',
     writes: false,
+    reference: 'lib/agents/impl/rag-rerank-cache-warmer.ts',
   },
   {
     id: 'rag.citation-validator',
@@ -257,15 +258,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'compliance.soc2-evidence-collector',
     label: 'SOC2 evidence collector',
     purpose:
-      'Quarterly job that gathers the SOC2 quarterly evidence packet (access review, change log, backup verification, vuln scan, incident summary, vendor attestations).',
+      'Quarterly (first of every quarter 00:00 UTC): assembles SOC2 packet — access review, deploy count, safety run count, incident summary (P0/P1 alerts), sub-processor list. Pure SQL. Founder reviews + assembles the final auditor-facing doc; agent never sends.',
     category: 'compliance',
     trigger: 'cron',
-    cron_schedule: '0 0 1 */3 *', // first of every quarter
-    status: 'proposed',
-    recommended_provider: 'openai',
-    recommended_model: 'gpt-4o-mini',
-    writes: true,
-    reference: 'SOP-19 §5',
+    cron_schedule: '0 0 1 */3 *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/compliance-soc2-evidence-collector.ts',
   },
 
   // ── UX HELP
@@ -344,14 +345,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'ops.error-rate-sentinel',
     label: 'Error-rate sentinel',
     purpose:
-      'Read Sentry error events hourly. If the 5xx rate exceeds 1% of requests OR a new error fingerprint appears in production, page the founder.',
+      'Hourly: tails agent_runs.status=failed + open P0/P1 alert_events. Spike = ≥5 failures in last hour AND ≥3× the trailing-7d hourly baseline. Sentry API integration is a follow-on once SENTRY_AUTH_TOKEN is provisioned.',
     category: 'ops',
     trigger: 'cron',
     cron_schedule: '0 * * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
-    recommended_model: 'http-only',
+    recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/ops-error-rate-sentinel.ts',
   },
 
   // ── SALES (planned)
@@ -571,14 +573,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'compliance.iso-evidence-collector',
     label: 'ISO 27001 evidence collector',
     purpose:
-      'Parallel to the SOC2 packet — collects the annex-A control evidence on a quarterly cadence. Same packaging pipeline.',
+      'Quarterly (first of quarter 00:30 UTC): wraps SOC2 evidence + maps to ISO 27001 Annex-A controls (A.5 / A.6 / A.8 / A.9 / A.12 / A.16 / A.18). Pure SQL. Founder packages the auditor doc.',
     category: 'compliance',
     trigger: 'cron',
-    cron_schedule: '0 0 1 */3 *',
-    status: 'proposed',
-    recommended_provider: 'openai',
-    recommended_model: 'gpt-4o-mini',
-    writes: true,
+    cron_schedule: '30 0 1 */3 *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/compliance-iso-evidence-collector.ts',
   },
 
   // ── UX HELP (proposed)
