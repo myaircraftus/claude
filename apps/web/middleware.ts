@@ -107,6 +107,7 @@ function isAppRoute(pathname: string): boolean {
     '/ask',
     '/ask-logbook-ai',
     '/clock',
+    '/communications',
     '/compliance',
     '/continued',
     '/costs',

@@ -1,8 +1,13 @@
 /** @type {import('next').NextConfig} */
-// BUILD_BUSTER 2026-05-02T15:33Z — Vercel was serving a pre-Phase-1.1 build that
+// BUILD_BUSTER 2026-05-23T21:00Z — /communications was 404ing in prod
+// even though the (app)/communications/page.tsx file existed. The build
+// cache from a pre-failed-deploy-streak deploy was being reused; this
+// timestamp bump forces a clean rebuild including the /communications
+// route.
+//
+// PRIOR BUSTER 2026-05-02T15:33Z — Vercel was serving a pre-Phase-1.1 build that
 // rewrote /scheduler /time-off /clock /compliance /tools /inspections /vendors
-// /meters /inbox to /dashboard. This comment exists to invalidate the build
-// cache and force a clean rebuild from origin/main HEAD.
+// /meters /inbox to /dashboard.
 const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: [
