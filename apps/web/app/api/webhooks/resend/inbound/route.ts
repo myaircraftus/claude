@@ -17,6 +17,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { parseResendInbound, type ResendInboundPayload } from '@/lib/inbox/parse-resend'
+import { classifyInboxMessage } from '@/lib/agents/impl/inbox-classifier'
+import { extractExpenseFromInbox } from '@/lib/agents/impl/inbox-expense-extractor'
+import { parseEstimateFromInbox } from '@/lib/agents/impl/inbox-estimate-parser'
+import { importInvoiceFromInbox } from '@/lib/agents/impl/inbox-invoice-importer'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -128,9 +132,75 @@ export async function POST(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+  if (!inserted?.id) {
+    return NextResponse.json({ ok: true, matched: true, message_id: null })
+  }
 
-  // TODO Phase 2: fire inbox.classifier agent here. For now we just
-  // persist and let a downstream cron sweep classify-on-demand.
+  // Phase 2: classifier → extractor chain. Both awaited inside a single
+  // Promise.race(8s) budget so the webhook responds promptly while still
+  // letting the audit rows land via the agent_runs runner. Vercel
+  // function timeout is 60s so we have headroom; the 8s budget protects
+  // us against a slow OpenAI tail.
+  const messageId = inserted.id
+  const ctx = {
+    supabase: service,
+    triggeredBy: profile.id,
+    messageId,
+    from: parsed.from,
+    subject: parsed.subject,
+    body: parsed.bodyText,
+    attachmentNames: parsed.attachments.map((a) => a.filename),
+  } as const
 
-  return NextResponse.json({ ok: true, matched: true, message_id: inserted?.id })
+  const chain = (async () => {
+    const classifyResult = await classifyInboxMessage(ctx)
+    const category = classifyResult.output?.category
+    const confidence = classifyResult.output?.confidence
+    if (
+      !category ||
+      !confidence ||
+      confidence === 'low' ||
+      confidence === 'refused' ||
+      !['receipt', 'estimate', 'invoice'].includes(category)
+    ) {
+      return { classified: category ?? 'unknown', extractor: 'skipped' }
+    }
+    const extractorArgs = {
+      supabase: service,
+      triggeredBy: profile.id,
+      messageId,
+      orgId: membership?.organization_id ?? null,
+      userId: profile.id,
+      subject: parsed.subject,
+      body: parsed.bodyText,
+      from: parsed.from,
+    }
+    if (category === 'receipt') {
+      await extractExpenseFromInbox(extractorArgs)
+      return { classified: 'receipt', extractor: 'inbox.expense-extractor' }
+    }
+    if (category === 'estimate') {
+      await parseEstimateFromInbox(extractorArgs)
+      return { classified: 'estimate', extractor: 'inbox.estimate-parser' }
+    }
+    if (category === 'invoice') {
+      await importInvoiceFromInbox(extractorArgs)
+      return { classified: 'invoice', extractor: 'inbox.invoice-importer' }
+    }
+    return { classified: category, extractor: 'none' }
+  })().catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
+
+  const chainResult = await Promise.race([
+    chain,
+    new Promise<{ timeout: true }>((resolve) =>
+      setTimeout(() => resolve({ timeout: true }), 8000),
+    ),
+  ])
+
+  return NextResponse.json({
+    ok: true,
+    matched: true,
+    message_id: messageId,
+    chain: chainResult,
+  })
 }

@@ -64,6 +64,56 @@ export interface AgentDefinition {
 }
 
 export const AGENTS: AgentDefinition[] = [
+  // ── INBOX (Phase 2 of the unified-inbox feature)
+  {
+    id: 'inbox.classifier',
+    label: 'Inbox classifier',
+    purpose:
+      'Classify every inbound email/SMS into receipt / estimate / invoice / reminder / adhoc / spam / other. Chained off the Resend inbound webhook.',
+    category: 'support',
+    trigger: 'chained',
+    status: 'active',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: true, // writes classified_as + classify_confidence on inbox_messages
+  },
+  {
+    id: 'inbox.expense-extractor',
+    label: 'Inbox expense extractor',
+    purpose:
+      'Read a classified-as-receipt inbox message + attachment, extract vendor / amount / date / category, and draft a cost_entries row (approved=false). Human reviews in the inbox UI.',
+    category: 'data-quality',
+    trigger: 'chained',
+    status: 'active',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: true,
+  },
+  {
+    id: 'inbox.estimate-parser',
+    label: 'Inbox estimate parser',
+    purpose:
+      'Read a classified-as-estimate inbox message, extract vendor / total / line items / valid-until, and draft an estimates row (status=draft). Human approves in the inbox UI.',
+    category: 'data-quality',
+    trigger: 'chained',
+    status: 'active',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: true,
+  },
+  {
+    id: 'inbox.invoice-importer',
+    label: 'Inbox invoice importer',
+    purpose:
+      'Read a classified-as-invoice inbox message, extract invoice number / total / dates, and draft an invoices row (status=draft). Human approves before paying.',
+    category: 'data-quality',
+    trigger: 'chained',
+    status: 'active',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: true,
+  },
+
   // ── SUPPORT
   {
     id: 'support.first-responder',
