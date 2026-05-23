@@ -229,6 +229,57 @@ export function computeModel(a: Assumptions = ASSUMPTIONS): {
   return { quarters, years }
 }
 
+/**
+ * Three scenario variants of the model — bear / base / bull.
+ *
+ * Base = ASSUMPTIONS as authored.
+ * Bear = ~60% of base shop acquisition, +5pp churn, marketplace half.
+ * Bull = +30% shop acquisition, -3pp churn, marketplace 1.5x.
+ *
+ * Investors expect this. The asymmetric upside in bull AND the
+ * defensibility in bear are both important to show.
+ */
+export type Scenario = 'bear' | 'base' | 'bull'
+
+export function getScenarioAssumptions(s: Scenario): Assumptions {
+  if (s === 'base') return ASSUMPTIONS
+  if (s === 'bear') {
+    return {
+      ...ASSUMPTIONS,
+      new_shops_per_q: ASSUMPTIONS.new_shops_per_q.map((row) =>
+        row.map((n) => Math.round(n * 0.6)),
+      ) as [number[], number[], number[]],
+      annual_churn: [
+        ASSUMPTIONS.annual_churn[0] + 0.05,
+        ASSUMPTIONS.annual_churn[1] + 0.05,
+        ASSUMPTIONS.annual_churn[2] + 0.05,
+      ] as [number, number, number],
+      marketplace_gmv_per_q: ASSUMPTIONS.marketplace_gmv_per_q.map((row) =>
+        row.map((n) => Math.round(n * 0.5)),
+      ) as [number[], number[], number[]],
+    }
+  }
+  // bull
+  return {
+    ...ASSUMPTIONS,
+    new_shops_per_q: ASSUMPTIONS.new_shops_per_q.map((row) =>
+      row.map((n) => Math.round(n * 1.3)),
+    ) as [number[], number[], number[]],
+    annual_churn: [
+      Math.max(0, ASSUMPTIONS.annual_churn[0] - 0.03),
+      Math.max(0, ASSUMPTIONS.annual_churn[1] - 0.03),
+      Math.max(0, ASSUMPTIONS.annual_churn[2] - 0.03),
+    ] as [number, number, number],
+    marketplace_gmv_per_q: ASSUMPTIONS.marketplace_gmv_per_q.map((row) =>
+      row.map((n) => Math.round(n * 1.5)),
+    ) as [number[], number[], number[]],
+  }
+}
+
+export function computeScenario(s: Scenario) {
+  return computeModel(getScenarioAssumptions(s))
+}
+
 /** Render the model as CSV — used by the /api/investor/model.csv route. */
 export function modelToCsv(): string {
   const { quarters } = computeModel()

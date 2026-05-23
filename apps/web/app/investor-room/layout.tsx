@@ -36,6 +36,9 @@ import {
   TrendingUp,
   Wallet,
   ClipboardCheck,
+  FileText,
+  Building2,
+  ShieldCheck,
 } from 'lucide-react'
 import { createServerSupabase } from '@/lib/supabase/server'
 
@@ -140,6 +143,27 @@ export default async function InvestorRoomLayout({ children }: { children: React
           >
             <ClipboardCheck className="w-4 h-4 text-emerald-600" />
             <span>Readiness</span>
+          </Link>
+          <Link
+            href="/investor-room/sub-processors"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Sub-processors</span>
+          </Link>
+          <Link
+            href="/investor-room/customers/horizon-flights"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <Building2 className="w-4 h-4 text-sky-600" />
+            <span>Customer ref</span>
+          </Link>
+          <Link
+            href="/investor-room/one-pager"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <FileText className="w-4 h-4 text-slate-700" />
+            <span>One-pager</span>
           </Link>
           <Link
             href="/investor-room/team"

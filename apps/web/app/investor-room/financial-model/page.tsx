@@ -9,7 +9,7 @@
  */
 import Link from 'next/link'
 import { ArrowLeft, Download, TrendingUp } from 'lucide-react'
-import { computeModel, ASSUMPTIONS } from '@/lib/investor/financial-model'
+import { computeModel, computeScenario, ASSUMPTIONS } from '@/lib/investor/financial-model'
 import { PrintButton } from '@/components/investor/PrintButton'
 
 export const dynamic = 'force-dynamic'
@@ -196,6 +196,71 @@ export default function FinancialModelPage() {
             ]}
           />
         </div>
+      </section>
+
+      {/* Scenarios — bear / base / bull */}
+      <section className="mb-10">
+        <h2 className="text-base font-semibold text-slate-900 mb-3">
+          Sensitivity — bear / base / bull
+        </h2>
+        <p className="text-sm text-slate-600 max-w-3xl mb-4">
+          Three variants of the same model. Bear cuts shop acquisition to 60%
+          of base + adds 5pp annual churn + halves marketplace ramp. Bull does
+          the opposite (+30% acquisition, −3pp churn, 1.5× marketplace). Same
+          cost structure on all three — the upside is from acceleration, not
+          from squeezing opex.
+        </p>
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 uppercase tracking-[0.1em] text-[11px]">
+              <tr>
+                <th className="text-left px-3 py-2.5 border-b border-slate-200 font-semibold">Year</th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Bear · ending ARR
+                </th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Base · ending ARR
+                </th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Bull · ending ARR
+                </th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Bear · EBITDA
+                </th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Base · EBITDA
+                </th>
+                <th className="text-right px-3 py-2.5 border-b border-slate-200 font-semibold">
+                  Bull · EBITDA
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[1, 2, 3].map((y) => {
+                const bear = computeScenario('bear').years.find((yy) => yy.year === y)!
+                const base = computeScenario('base').years.find((yy) => yy.year === y)!
+                const bull = computeScenario('bull').years.find((yy) => yy.year === y)!
+                return (
+                  <tr key={y} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-semibold text-slate-900">Year {y}</td>
+                    <td className="px-3 py-2 text-right text-rose-700">{usd(bear.ending_arr)}</td>
+                    <td className="px-3 py-2 text-right text-violet-700 font-semibold">
+                      {usd(base.ending_arr)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-emerald-700">{usd(bull.ending_arr)}</td>
+                    <td className={`px-3 py-2 text-right ${bear.ebitda >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{usd(bear.ebitda)}</td>
+                    <td className={`px-3 py-2 text-right font-semibold ${base.ebitda >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{usd(base.ebitda)}</td>
+                    <td className={`px-3 py-2 text-right ${bull.ebitda >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{usd(bull.ebitda)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-3">
+          All three scenarios use the same headcount + GTM + other-opex inputs. Bear shows the burn we accept
+          while we figure out distribution; bull shows the upside if the owner-portal flywheel kicks in early.
+        </p>
       </section>
 
       {/* Honest commentary */}

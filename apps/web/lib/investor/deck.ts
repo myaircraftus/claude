@@ -39,6 +39,17 @@ export interface Slide {
   footnote?: string
   /** Color theme: 'dark' = dark slide with white text; 'light' = white slide. */
   theme?: 'light' | 'dark' | 'accent'
+  /**
+   * Comparison / matrix table. Used on the Competition slide. Cell can
+   * be a string for plain text, or { v, tone } to colour-tint pros /
+   * cons against each row.
+   */
+  table?: {
+    headers: string[]
+    rows: Array<Array<string | { v: string; tone?: 'good' | 'bad' | 'meh' | 'win' }>>
+    /** Optional row of subtitles under each column header. */
+    subheaders?: string[]
+  }
 }
 
 export const DECK: Slide[] = [
@@ -227,11 +238,66 @@ export const DECK: Slide[] = [
     label: 'Competition',
     eyebrow: '09 · Competition',
     title: 'Where we sit.',
+    table: {
+      headers: ['', 'CAMP / Flightdocs', 'ShopMonkey', 'Excel + paper', 'myaircraft.us'],
+      subheaders: ['', 'Enterprise MRO', 'Auto-shop SaaS', 'The incumbent', 'Us'],
+      rows: [
+        [
+          'Built for SMB GA shops',
+          { v: 'No — enterprise', tone: 'bad' },
+          { v: 'No — auto', tone: 'bad' },
+          { v: 'By default', tone: 'meh' },
+          { v: 'Yes — core focus', tone: 'win' },
+        ],
+        [
+          'FAA logbook + IA e-sign',
+          { v: 'Yes', tone: 'good' },
+          { v: 'No', tone: 'bad' },
+          { v: 'Paper only', tone: 'meh' },
+          { v: 'Yes — wired to 14 CFR §43/§65', tone: 'win' },
+        ],
+        [
+          'Owner portal',
+          { v: 'No', tone: 'bad' },
+          { v: 'Limited', tone: 'meh' },
+          { v: 'No', tone: 'bad' },
+          { v: 'First-class, AI-scoped', tone: 'win' },
+        ],
+        [
+          'AI grounded on records',
+          { v: 'No', tone: 'bad' },
+          { v: 'No', tone: 'bad' },
+          { v: 'No', tone: 'bad' },
+          { v: 'Yes — hybrid RAG + Cohere rerank', tone: 'win' },
+        ],
+        [
+          'Marketplace for aircraft sales',
+          { v: 'No', tone: 'bad' },
+          { v: 'No', tone: 'bad' },
+          { v: 'No', tone: 'bad' },
+          { v: 'In beta', tone: 'good' },
+        ],
+        [
+          'SOC2 control matrix',
+          { v: 'Yes', tone: 'good' },
+          { v: 'Yes', tone: 'good' },
+          { v: 'N/A', tone: 'bad' },
+          { v: 'Yes — 27 criteria mapped', tone: 'good' },
+        ],
+        [
+          'Price (10-aircraft shop)',
+          { v: '$25K-$100K / yr', tone: 'bad' },
+          { v: '$3K / yr', tone: 'good' },
+          { v: '"Free"', tone: 'meh' },
+          { v: '$3.6K-$11K / yr', tone: 'win' },
+        ],
+      ],
+    },
     bullets: [
-      'CAMP, Flightdocs, EBis — legacy MRO software, enterprise/corporate jets. Powerful but priced for 25M+ ACV; doesn\'t fit a 10-aircraft shop.',
-      'ShopMonkey / Tekmetric — auto-shop SaaS. Wrong regulatory model; no FAA logbook concept.',
-      'Excel + QuickBooks + paper — the actual incumbent for 90% of SMB GA shops. The job to be done is to replace this stack, not the enterprise vendors.',
-      'Where we win: built for SMB GA from day one. Owner portal + AI baked in. FAA-grade logbook signatures, not an afterthought.',
+      'CAMP / Flightdocs / EBis — built for corporate jets. Priced for $25K-$100K ACV. Doesn\'t fit a 10-aircraft SMB shop.',
+      'ShopMonkey / Tekmetric — wrong regulatory model. Auto isn\'t aviation. No FAA logbook concept.',
+      'Excel + QuickBooks + paper — what 90% of SMB GA shops actually use. THE incumbent. Our real competitor.',
+      'Where we win: SMB-native from day one + owner portal + AI grounding + FAA-grade signatures + SMB-priced.',
     ],
     theme: 'light',
   },

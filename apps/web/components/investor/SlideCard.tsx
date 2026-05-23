@@ -151,6 +151,106 @@ export function SlideCard({ slide, fullscreen, articleId }: Props) {
         </div>
       )}
 
+      {slide.table && (
+        <div className="mt-8 overflow-x-auto">
+          <table
+            className={`w-full text-sm border-collapse ${
+              fullscreen ? 'text-base' : 'text-xs'
+            }`}
+          >
+            <thead>
+              <tr>
+                {slide.table.headers.map((h, i) => (
+                  <th
+                    key={i}
+                    className={`text-left px-3 py-2 ${
+                      i === 0 ? '' : 'text-center'
+                    } ${
+                      isDark
+                        ? 'border-b border-white/20 text-white font-semibold'
+                        : i === slide.table!.headers.length - 1
+                          ? 'border-b-2 border-violet-400 text-violet-700 font-semibold bg-violet-50/40'
+                          : 'border-b border-slate-300 text-slate-700 font-semibold'
+                    }`}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+              {slide.table.subheaders && (
+                <tr>
+                  {slide.table.subheaders.map((s, i) => (
+                    <th
+                      key={i}
+                      className={`text-left px-3 py-1 text-[10px] uppercase tracking-wider font-normal ${
+                        i === 0 ? '' : 'text-center'
+                      } ${
+                        isDark ? 'text-white/50 border-b border-white/10' : 'text-slate-500 border-b border-slate-200'
+                      }`}
+                    >
+                      {s}
+                    </th>
+                  ))}
+                </tr>
+              )}
+            </thead>
+            <tbody>
+              {slide.table.rows.map((row, ri) => (
+                <tr
+                  key={ri}
+                  className={
+                    isDark
+                      ? 'border-t border-white/10'
+                      : 'border-t border-slate-100'
+                  }
+                >
+                  {row.map((cell, ci) => {
+                    const isLabel = ci === 0
+                    const isUs = ci === row.length - 1
+                    const v = typeof cell === 'string' ? cell : cell.v
+                    const tone = typeof cell === 'string' ? undefined : cell.tone
+                    const cellTint =
+                      tone === 'good'
+                        ? isDark
+                          ? 'text-emerald-300'
+                          : 'text-emerald-700'
+                        : tone === 'bad'
+                          ? isDark
+                            ? 'text-rose-300'
+                            : 'text-rose-700'
+                          : tone === 'meh'
+                            ? isDark
+                              ? 'text-amber-300'
+                              : 'text-amber-700'
+                            : tone === 'win'
+                              ? isDark
+                                ? 'text-violet-200 font-semibold'
+                                : 'text-violet-800 font-semibold'
+                              : isDark
+                                ? 'text-white/85'
+                                : 'text-slate-700'
+                    return (
+                      <td
+                        key={ci}
+                        className={`px-3 py-2 align-top ${
+                          isLabel
+                            ? isDark
+                              ? 'text-white/80 font-medium'
+                              : 'text-slate-800 font-medium'
+                            : `text-center ${cellTint}`
+                        } ${isUs && !isLabel ? (isDark ? 'bg-violet-500/10' : 'bg-violet-50/40') : ''}`}
+                      >
+                        {v}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {slide.quote && (
         <blockquote
           className={`mt-8 rounded-lg ${

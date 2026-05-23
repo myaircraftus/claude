@@ -27,8 +27,9 @@ const ROWS: Row[] = [
   { status: 'ready', category: 'Pitch', item: 'Architecture diagram in deck (slide 11)', link: '/investor-room/pitch#slide-architecture' },
   { status: 'ready', category: 'Pitch', item: 'Market funnel diagram (slide 4)' },
   { status: 'ready', category: 'Pitch', item: 'GTM funnel diagram (slide 8)' },
-  { status: 'in_progress', category: 'Pitch', item: 'Competitor matrix slide (currently text-only)', note: 'Add comparison table for CAMP / Flightdocs / Excel' },
-  { status: 'in_progress', category: 'Pitch', item: 'Live demo recording (60 sec)' },
+  { status: 'ready', category: 'Pitch', item: 'Competitor matrix slide (slide 10)', link: '/investor-room/pitch#slide-competition' },
+  { status: 'ready', category: 'Pitch', item: 'One-page investor summary', link: '/investor-room/one-pager' },
+  { status: 'in_progress', category: 'Pitch', item: 'Live demo recording (60 sec)', note: 'Record via Loom or similar — 20 min task' },
 
   // Financials
   { status: 'ready', category: 'Financials', item: '3-year bottoms-up model on screen', link: '/investor-room/financial-model' },
@@ -37,7 +38,7 @@ const ROWS: Row[] = [
   { status: 'ready', category: 'Financials', item: 'Use-of-funds breakdown', link: '/investor-room/use-of-funds' },
   { status: 'in_progress', category: 'Financials', item: 'Trailing-12-month P&L', note: 'Pre-revenue today; share when first invoice posts' },
   { status: 'gap', category: 'Financials', item: '409A valuation', note: 'Not needed until first option grant to a non-founder' },
-  { status: 'in_progress', category: 'Financials', item: 'Sensitivity model (alternate assumptions)', note: 'Tooling supports — author 3 variants before first investor call' },
+  { status: 'ready', category: 'Financials', item: 'Sensitivity model (bear / base / bull)', link: '/investor-room/financial-model' },
 
   // Product evidence
   { status: 'ready', category: 'Product', item: 'Live production tenant (Horizon Flights)', link: '/dashboard' },
@@ -76,8 +77,9 @@ const ROWS: Row[] = [
   // Data room
   { status: 'ready', category: 'Data Room', item: 'SOC2 + security packet (matrix + runbooks)' },
   { status: 'ready', category: 'Data Room', item: 'Product evidence (live SOPs + simulator)' },
-  { status: 'in_progress', category: 'Data Room', item: 'Customer references', note: 'Founding tenant available; second customer pending' },
-  { status: 'in_progress', category: 'Data Room', item: 'Sub-processor inventory (DPA-ready)', note: 'Drafting; uses Stripe/Supabase/OpenAI/Cohere/Vercel SOC2-attested vendors' },
+  { status: 'ready', category: 'Data Room', item: 'Customer reference — Horizon Flights case study', link: '/investor-room/customers/horizon-flights' },
+  { status: 'in_progress', category: 'Data Room', item: 'Customer reference — second paying tenant', note: 'Pipeline being built; expected before seed close' },
+  { status: 'ready', category: 'Data Room', item: 'Sub-processor inventory (DPA-ready)', link: '/investor-room/sub-processors' },
   { status: 'gap', category: 'Data Room', item: 'Insurance certificates (E&O + cyber)', note: 'Quotes pending — bind at seed close' },
 ]
 
