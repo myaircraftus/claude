@@ -27,6 +27,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { VoiceButton } from '@/components/voice/VoiceButton'
+import { unreadRollupUrl } from '@/lib/chat/api-paths'
 
 type Tab = 'help' | 'ask' | 'messages'
 
@@ -49,6 +50,49 @@ export function UnifiedLauncher({
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('help')
+  const [hasUnread, setHasUnread] = useState(false)
+
+  // Poll the WO unread roll-up so the pill can show a red dot when the
+  // counterpart posts. 12s cadence matches WorkOrderChatBubble — both
+  // surfaces share the same /api/(owner/)work-orders/messages-unread
+  // endpoint and the same lastSeen localStorage key, so opening the
+  // chat naturally clears the dot on the next tick.
+  useEffect(() => {
+    let cancelled = false
+    async function check() {
+      try {
+        const res = await fetch(unreadRollupUrl(persona === 'owner' ? 'owner' : 'shop'))
+        if (!res.ok) return
+        const json = await res.json()
+        const latestIso = json?.latest?.created_at as string | undefined
+        if (!latestIso) {
+          if (!cancelled) setHasUnread(false)
+          return
+        }
+        const lastSeen =
+          typeof window === 'undefined'
+            ? ''
+            : window.localStorage.getItem('mac.launcher.lastSeenMessageAt') ?? ''
+        if (!cancelled) setHasUnread(latestIso > lastSeen)
+      } catch {
+        /* ignore — transient errors are fine */
+      }
+    }
+    void check()
+    const t = setInterval(check, 12000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [persona])
+
+  // Mark the latest message as seen the moment the user opens the
+  // launcher — clears the red dot without waiting for the polling tick.
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return
+    window.localStorage.setItem('mac.launcher.lastSeenMessageAt', new Date().toISOString())
+    setHasUnread(false)
+  }, [open])
 
   // Help chat state
   const [ticketId, setTicketId] = useState<string | null>(null)
@@ -142,10 +186,16 @@ export function UnifiedLauncher({
           type="button"
           onClick={() => setOpen(true)}
           className="fixed bottom-4 right-4 z-40 group inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white rounded-full pl-3 pr-4 py-2.5 shadow-lg transition-all"
-          aria-label="Open help, AI, and messages"
+          aria-label={hasUnread ? 'Open help, AI, and messages — new message' : 'Open help, AI, and messages'}
         >
           <Sparkles className="w-4 h-4" />
           <span className="text-sm font-semibold">Ask · Help · Messages</span>
+          {hasUnread && (
+            <span
+              className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 ring-2 ring-white animate-pulse"
+              aria-hidden="true"
+            />
+          )}
         </button>
       )}
 
