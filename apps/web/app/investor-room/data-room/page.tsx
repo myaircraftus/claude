@@ -115,16 +115,32 @@ const SECTIONS: Array<{ title: string; icon: typeof FileText; rows: Row[] }> = [
     icon: DollarSign,
     rows: [
       {
-        label: 'Cap table',
+        label: 'Cap table (pre/post-money)',
         description:
-          'Pre- and post-money cap table with the proposed seed round, dilution waterfalls.',
-        status: 'on-request',
+          '$2.5M @ $15M post-money with founder + 20% ESOP. Dilution waterfall + per-share price + NVCA-style terms.',
+        status: 'live',
+        href: '/investor-room/cap-table',
       },
       {
-        label: '3-year financial model (.xlsx)',
+        label: '3-year financial model (CSV)',
         description:
-          'Bottoms-up unit-economics model. Per-aircraft ARR, churn, CAC payback, sensitivity tabs.',
-        status: 'on-request',
+          'Bottoms-up by quarter. SaaS ARR + marketplace take + records-access. Editable assumptions, downloadable CSV.',
+        status: 'live',
+        href: '/investor-room/financial-model',
+      },
+      {
+        label: 'Use of funds breakdown',
+        description:
+          'Where the $2.5M goes — 55% eng, 25% GTM, 10% SOC2, 10% reserve. Each bucket tied to a milestone.',
+        status: 'live',
+        href: '/investor-room/use-of-funds',
+      },
+      {
+        label: 'Investor readiness checklist',
+        description:
+          '45-item pre-flight covering pitch, financials, product, security, legal, team, data room.',
+        status: 'live',
+        href: '/investor-room/readiness',
       },
       {
         label: 'Trailing-12-month P&L',
