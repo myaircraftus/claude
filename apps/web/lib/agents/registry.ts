@@ -605,14 +605,14 @@ export const AGENTS: AgentDefinition[] = [
     id: 'workforce.return-to-service-checker',
     label: 'Return-to-service checker',
     purpose:
-      'Before a mechanic signs RTS on a work order, validates the chain: every open squawk has a resolution, every AD compliance entry has the AD reference, every part change has the part number. Refuses or warns.',
+      'Synchronous pre-RTS sanity check called by the WO detail UI before the mechanic signs. Validates open squawks have a corrective action, required checklist items are complete, AD-compliance lines reference an AD number, and parts lines have a part_number. Blockers prevent sign; warnings let the mechanic override (audit-logged).',
     category: 'workforce',
     trigger: 'human_button',
-    status: 'proposed',
-    recommended_provider: 'openai',
-    recommended_model: 'gpt-4o',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
     writes: false,
-    reference: 'SOP-MNT-002 §3',
+    reference: 'lib/agents/impl/workforce-return-to-service-checker.ts',
   },
 
   // ── SALES + GROWTH (proposed)
