@@ -10,6 +10,13 @@ const nextConfig = {
       'puppeteer-core',
       '@sparticuz/chromium',
       'pdfjs-dist',
+      // Tach-time browser-automation deps — Next 14 SWC can't parse
+      // the private-class-fields in undici@7 that @vercel/sandbox
+      // transitively pulls. Externalizing keeps them out of webpack
+      // and they're loaded at runtime via require() instead.
+      '@vercel/sandbox',
+      'playwright-core',
+      'undici',
     ],
     // SOP Library reads docs/sop/*.md at runtime via apps/web/lib/sop/parser.ts.
     // These files live OUTSIDE the apps/web build root, so Vercel's default
@@ -32,11 +39,16 @@ const nextConfig = {
     }
 
     if (isServer) {
-      // Keep optional PDF-render deps external — installed on demand only.
+      // Keep optional heavy deps external — loaded via require() at
+      // runtime only. Belt-and-braces alongside the experimental
+      // serverComponentsExternalPackages list above.
       config.externals = [
         ...(Array.isArray(config.externals) ? config.externals : []),
         'puppeteer-core',
         '@sparticuz/chromium',
+        '@vercel/sandbox',
+        'playwright-core',
+        'undici',
       ]
     }
     return config

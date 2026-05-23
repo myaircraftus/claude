@@ -24,9 +24,25 @@ export const runtime = 'nodejs'
 
 const CONVERTIBLE_STATUSES = new Set(['approved', 'deposit_paid', 'sent', 'viewed'])
 
+// Match the mark-paid billing roles — only personas with real billing
+// authority can spin up an invoice from an estimate.
+const BILLING_ROLES = new Set([
+  'owner',
+  'admin',
+  'org_admin',
+  'manager',
+  'shop_manager',
+  'service_writer',
+  'bookkeeper',
+  'mechanic',
+])
+
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await resolveRequestOrgContext(_req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!BILLING_ROLES.has(String((ctx.membership as { role?: string } | null)?.role ?? ''))) {
+    return NextResponse.json({ error: 'Forbidden — billing role required' }, { status: 403 })
+  }
   const supabase = createServerSupabase()
   const orgId = ctx.organizationId
 
@@ -105,6 +121,29 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     .select('id, invoice_number')
     .single()
   if (invErr || !newInvoice) {
+    // Race-condition handling: a UNIQUE INDEX on
+    // invoices.estimate_id WHERE estimate_id IS NOT NULL turns a
+    // concurrent double-convert into a 23505 here. We surface the
+    // already-existing invoice instead of leaving the second caller
+    // confused.
+    if (invErr && /23505|duplicate key|unique/i.test(invErr.message)) {
+      const { data: existing } = await supabase
+        .from('invoices')
+        .select('id, invoice_number')
+        .eq('organization_id', orgId)
+        .eq('estimate_id', params.id)
+        .maybeSingle()
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: 'This estimate was just converted by another request',
+            invoice_id: (existing as { id: string }).id,
+            invoice_number: (existing as { invoice_number: string }).invoice_number,
+          },
+          { status: 409 },
+        )
+      }
+    }
     return NextResponse.json({ error: invErr?.message ?? 'Invoice create failed' }, { status: 500 })
   }
 

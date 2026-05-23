@@ -20,9 +20,28 @@ import {
 
 export const runtime = 'nodejs'
 
+// Roles that can record payments on an invoice. Excludes 'viewer' /
+// 'pilot' / 'customer' — they can see invoices but never mutate their
+// payment state. The mark-paid surface in particular must NOT be
+// callable by low-trust personas because it writes to payments + flips
+// status.
+const BILLING_ROLES = new Set([
+  'owner',
+  'admin',
+  'org_admin',
+  'manager',
+  'shop_manager',
+  'service_writer',
+  'bookkeeper',
+  'mechanic',
+])
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await resolveRequestOrgContext(req)
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!BILLING_ROLES.has(String((ctx.membership as { role?: string } | null)?.role ?? ''))) {
+    return NextResponse.json({ error: 'Forbidden — billing role required' }, { status: 403 })
+  }
   const supabase = createServerSupabase()
   const orgId = ctx.organizationId
 
@@ -57,7 +76,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     notes?: string
   }
   const remaining = Number((invoice as { balance_due: number | null }).balance_due ?? 0)
-  const amount = typeof body.amount === 'number' && body.amount > 0 ? body.amount : remaining
+  // Hard-cap the amount at the remaining balance to prevent forged
+  // overpayments. A caller asking for more than balance_due is clamped;
+  // a caller passing nothing defaults to exactly balance_due.
+  // Tiny ε (0.01) tolerance to absorb cent-rounding from upstream PDFs.
+  const requested =
+    typeof body.amount === 'number' && body.amount > 0 ? body.amount : remaining
+  const amount = Math.min(requested, remaining + 0.01)
   if (!(amount > 0)) {
     return NextResponse.json(
       { error: 'No remaining balance to mark as paid' },
