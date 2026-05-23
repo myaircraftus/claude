@@ -429,11 +429,13 @@ export function WorkOrderChatBubble({
             className="absolute inset-0 bg-black/55 backdrop-blur-sm pointer-events-none transition-opacity duration-150"
             aria-hidden="true"
           />
-          {/* Drawer panel — extra ring + brightness so it visibly "shines"
-              against the dimmed page. */}
+          {/* Drawer panel — `relative z-10` lifts it above the absolute
+              overlay so its bg-white actually reads as white (not a darker
+              composite of the dim layer). ring + shadow halo make it
+              "shine" against the dimmed page. */}
           <div
             ref={drawerRef}
-            className="ml-auto h-full w-full max-w-[480px] bg-white shadow-[0_0_60px_-10px_rgba(0,0,0,0.6)] ring-1 ring-white/40 flex flex-col pointer-events-auto"
+            className="relative z-10 ml-auto h-full w-full max-w-[480px] bg-white shadow-[0_0_60px_-10px_rgba(0,0,0,0.6)] ring-1 ring-white/40 flex flex-col pointer-events-auto"
           >
             {/* Header */}
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-shrink-0">
