@@ -118,7 +118,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       intent: body.intent ?? null,
       artifact_type: 'work_order',
       artifact_id: wo.id,
-      metadata: body.metadata ?? {},
+      // Tag every shop-side insert so the UI can render owner vs shop
+      // bubbles distinctly (and the cross-persona test reads the tag).
+      metadata: { ...(body.metadata ?? {}), sender_persona: 'shop' },
       // thread_messages.attachments is NOT NULL with default '[]'::jsonb.
       attachments: body.attachments ?? [],
       created_by: ctx.user.id,
