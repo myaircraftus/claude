@@ -26,6 +26,7 @@ import {
   Bot,
   ExternalLink,
 } from 'lucide-react'
+import { VoiceButton } from '@/components/voice/VoiceButton'
 
 type Tab = 'help' | 'ask' | 'messages'
 
@@ -226,7 +227,18 @@ export function UnifiedLauncher({
                   )}
                 </div>
                 <div className="border-t border-slate-200 p-2 bg-white">
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-stretch">
+                    {/* Voice: dictate the question instead of typing. The
+                        existing VoiceButton handles MediaRecorder + a POST
+                        to /api/voice/transcribe; we just stuff the
+                        transcript into the input and let the user hit send. */}
+                    <VoiceButton
+                      classifyIntent={false}
+                      onResult={({ transcript }) => {
+                        if (transcript) setHelpInput((cur) => (cur ? `${cur} ${transcript}` : transcript))
+                      }}
+                      className="shrink-0"
+                    />
                     <input
                       value={helpInput}
                       onChange={(e) => setHelpInput(e.target.value)}
