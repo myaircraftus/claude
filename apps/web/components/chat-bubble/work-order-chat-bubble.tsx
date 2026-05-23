@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { MessageCircle, X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock, ExternalLink } from 'lucide-react'
+import { X, Plane, ChevronRight, Wrench, AlertTriangle, Receipt, ChevronLeft, Clock, ExternalLink } from 'lucide-react'
 import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 
 type Persona = 'owner' | 'shop'
@@ -391,31 +391,18 @@ export function WorkOrderChatBubble({
 
   return (
     <>
-      {/* Floating bubble button — bottom right, always visible */}
-      {!open && (
-        <button
-          type="button"
-          onClick={() => {
-            // If there's an unread roll-up pointing at a specific WO, deeplink
-            // straight into it so the user lands on the latest activity.
-            if (unreadPreview?.aircraft_id && unreadPreview.work_order_id) {
-              setSelectedAircraftId(unreadPreview.aircraft_id)
-              setSelectedWoId(unreadPreview.work_order_id)
-            }
-            setOpen(true)
-          }}
-          // Stacked above the UnifiedLauncher pill (which sits at bottom-4 right-4
-          // and is ~40px tall). bottom-20 gives an 8-12px visual gap above it.
-          className="fixed bottom-20 right-5 z-40 w-12 h-12 rounded-full bg-primary text-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center group"
-          aria-label="Open work order chat"
-          title="Per-work-order chat"
-        >
-          <MessageCircle className="w-6 h-6 group-hover:scale-110 transition-transform" />
-          {hasUnread && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse" aria-label="New messages" />
-          )}
-        </button>
-      )}
+      {/*
+        The standalone floating bubble button has been removed. The
+        bottom-right is owned exclusively by the UnifiedLauncher pill —
+        the launcher's Messages tab dispatches `mac:open-wo-chat` to
+        open this drawer (see useEffect listener at the top of this
+        component). The drawer + unread polling + chat machinery all
+        remain; this component is now button-less, drawer-only.
+
+        If we need a visual unread indicator on the launcher pill in
+        the future, expose `hasUnread` via a context or a small store —
+        the polling logic above is untouched.
+      */}
 
       {/* Drawer */}
       {open && (
