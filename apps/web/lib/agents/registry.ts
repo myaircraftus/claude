@@ -369,6 +369,20 @@ export const AGENTS: AgentDefinition[] = [
     writes: false,
     reference: 'lib/agents/impl/ops-daily-digest.ts',
   },
+  {
+    id: 'finance.billing-lifecycle',
+    label: 'Billing lifecycle janitor',
+    purpose:
+      'Daily 03:00 UTC. Three janitorial passes: expire estimates past valid_until, mark overdue invoices, auto-pay invoices with balance_due ≤ 0.01. Pure SQL. Trigger-backed totals recompute keeps the numbers honest; this agent keeps status honest.',
+    category: 'ops',
+    trigger: 'cron',
+    cron_schedule: '0 3 * * *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: true,
+    reference: 'lib/agents/impl/finance-billing-lifecycle.ts',
+  },
 
   // ── SALES (planned)
   {
