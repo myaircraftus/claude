@@ -85,6 +85,9 @@ const OWNER_NAV: NavItem[] = [
   // Standalone — owner logbook AI assistant.
   { icon: BrainCircuit,    label: "Ask Logbook AI", href: "/ask-logbook-ai" },
 
+  // Standalone — unified inbox (email + SMS, AI-categorised).
+  { icon: Inbox,           label: "Inbox",          href: "/communications" },
+
   // AIRCRAFT section (default expanded).
   {
     icon: Plane,
@@ -148,6 +151,9 @@ const OWNER_NAV: NavItem[] = [
 const SHOP_ADMIN_NAV: NavItem[] = [
   // Top — standalone link, no section.
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+
+  // Unified inbox (email + SMS, AI-categorised) — same for shop.
+  { icon: Inbox,           label: "Inbox",     href: "/communications" },
 
   // AIRCRAFT section.
   {
