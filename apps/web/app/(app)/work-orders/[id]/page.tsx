@@ -22,12 +22,14 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
       .eq('organization_id', membership.organization_id)
       .single()
 
-    if (!data?.work_order_number) return { title: 'Work Order | myaircraft.us' }
+    // Root layout's metadata.title.template already appends
+    // " | myaircraft.us" — we'd double the suffix if we added it here too.
+    if (!data?.work_order_number) return { title: 'Work Order' }
     const tail = (Array.isArray(data.aircraft) ? data.aircraft[0]?.tail_number : (data.aircraft as { tail_number?: string } | null)?.tail_number) ?? null
     const tailSegment = tail ? ` · ${tail}` : ''
-    return { title: `${data.work_order_number}${tailSegment} | myaircraft.us` }
+    return { title: `${data.work_order_number}${tailSegment}` }
   } catch {
-    return { title: 'Work Order | myaircraft.us' }
+    return { title: 'Work Order' }
   }
 }
 
