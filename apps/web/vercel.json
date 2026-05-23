@@ -81,6 +81,10 @@
     {
       "path": "/api/cron/ocr-date-sanitiser",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/tach-time-sync",
+      "schedule": "0 6 * * *"
     }
   ],
   "headers": [

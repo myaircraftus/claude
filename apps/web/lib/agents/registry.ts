@@ -156,6 +156,20 @@ export const AGENTS: AgentDefinition[] = [
 
   // ── DATA QUALITY
   {
+    id: 'data-sync.tach-time-scraper',
+    label: 'Tach-time scraper (browser automation)',
+    purpose:
+      "Daily: log into each owner's third-party system (Flight Schedule Pro, Flight Circle, etc.) via headless browser, scrape per-aircraft tach hours, reconcile against ours, emit recommendation rows for deltas + proposed new aircraft. Service-side credential storage is envelope-encrypted; passwords are never logged.",
+    category: 'data-quality',
+    trigger: 'cron',
+    cron_schedule: '0 6 * * *',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'http-only',
+    writes: false, // emits recommendations only; never writes aircraft.total_time_hours directly
+    reference: 'lib/agents/impl/data-sync-tach-time-scraper.ts + lib/agents/scrapers/',
+  },
+  {
     id: 'data-quality.ocr-date-sanitiser',
     label: 'OCR date sanitiser',
     purpose:
