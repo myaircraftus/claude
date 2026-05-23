@@ -19,12 +19,51 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { classifyAskQuestion } from '@/lib/ask/question-classifier'
 import { tryFleetAggregation } from '@/lib/ask/fleet-aggregation'
+import { gradeAnswer } from '@/lib/agents/impl/rag-answer-grader'
+
+/**
+ * Fire-and-forget answer grader. 1% sample of single-aircraft responses
+ * get graded for faithfulness. Anything <3 emits a recommendation
+ * surfaced in /admin/agents. Never blocks the user response.
+ */
+function maybeGradeAsync(args: {
+  question: string
+  answer: string
+  citations: any[]
+  askLogId?: string | null
+}): void {
+  if (Math.random() > 0.01) return
+  // Best-effort. We never await. We swallow errors at the agent layer.
+  void (async () => {
+    try {
+      const service = createServiceSupabase()
+      const previews = (args.citations ?? []).slice(0, 6).map((c: any) => ({
+        chunk_id: c?.chunk_id ?? c?.id,
+        preview:
+          typeof c?.preview === 'string'
+            ? c.preview
+            : typeof c?.snippet === 'string'
+              ? c.snippet
+              : '',
+      }))
+      await gradeAnswer({
+        supabase: service,
+        askLogId: args.askLogId ?? null,
+        question: args.question,
+        answer: args.answer,
+        citations: previews,
+      })
+    } catch (err) {
+      console.warn('[ask.grader] background grade failed:', (err as Error).message)
+    }
+  })()
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -581,6 +620,11 @@ export async function POST(req: NextRequest) {
         persona,
         aircraftId: resolvedAircraftId ?? aircraft_id,
         conversationHistory: conversation_history,
+      })
+      maybeGradeAsync({
+        question,
+        answer: result.answer,
+        citations: result.citations,
       })
       return NextResponse.json({
         answer: result.answer,
