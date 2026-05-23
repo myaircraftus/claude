@@ -126,6 +126,22 @@ export function WorkOrderChatBubble({
   const [hasUnread, setHasUnread] = useState(false)
   const [unreadPreview, setUnreadPreview] = useState<{ work_order_id: string | null; aircraft_id: string | null; preview: string } | null>(null)
 
+  // Allow other components (notably the UnifiedLauncher's Messages tab) to
+  // open this drawer without coupling state. Dispatched as a
+  // CustomEvent('mac:open-wo-chat'); we open + optionally pre-select.
+  useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ aircraftId?: string; workOrderId?: string }>).detail
+      if (detail?.aircraftId) setSelectedAircraftId(detail.aircraftId)
+      if (detail?.workOrderId) setSelectedWoId(detail.workOrderId)
+      setOpen(true)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mac:open-wo-chat', handler as EventListener)
+      return () => window.removeEventListener('mac:open-wo-chat', handler as EventListener)
+    }
+  }, [])
+
   // Poll the unread roll-up every 12s so the bubble lights up when the
   // counterpart sends a message. Cheap: one row, one indexed query.
   useEffect(() => {

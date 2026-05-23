@@ -315,18 +315,37 @@ export function UnifiedLauncher({
                 <MessageSquare className="w-8 h-8 text-violet-500 mb-2" />
                 <p className="font-semibold text-slate-900 mb-1">Owner ↔ mechanic chat</p>
                 <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                  Per-work-order conversations live inside each work order. Open a
-                  work order from the list, then use the Messages panel inside it.
+                  Per-work-order conversations — pick an aircraft, then a
+                  work order, and chat with the shop / owner about it.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Fire the cross-component event the WorkOrderChatBubble
+                    // listens for; it'll open its drawer with the
+                    // last-selected aircraft and most-recent WO. Close the
+                    // launcher so the bubble drawer has the screen.
+                    setOpen(false)
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('mac:open-wo-chat'))
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-md px-4 py-2 transition-colors"
+                >
+                  Open work-order chat
+                </button>
+                <div className="mt-4 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Or jump to
+                </div>
                 <button
                   type="button"
                   onClick={() => {
                     setOpen(false)
                     router.push(persona === 'owner' ? '/owner/dashboard' : '/work-orders')
                   }}
-                  className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-md px-4 py-2 transition-colors"
+                  className="mt-1 inline-flex items-center gap-1.5 text-xs text-violet-700 hover:text-violet-900 hover:underline"
                 >
-                  Open {persona === 'owner' ? 'owner dashboard' : 'work orders'}{' '}
+                  Open {persona === 'owner' ? 'owner dashboard' : 'work orders list'}{' '}
                   <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
