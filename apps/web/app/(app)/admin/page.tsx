@@ -11,6 +11,9 @@ import {
   Loader2,
   ChevronRight,
   ExternalLink,
+  Bot,
+  ShieldCheck,
+  Gauge,
 } from 'lucide-react'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
@@ -633,6 +636,54 @@ export default async function AdminDashboardPage() {
                     <div>
                       <p className="text-sm font-medium text-foreground">Feedback &amp; Support</p>
                       <p className="text-xs text-muted-foreground">Triage user-submitted feedback and tickets</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+
+                <Link
+                  href="/admin/agents"
+                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center">
+                      <Bot className="h-4 w-4 text-violet-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Agent Fleet</p>
+                      <p className="text-xs text-muted-foreground">Registry, recent runs, recommendations</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+
+                <Link
+                  href="/admin/compliance"
+                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Compliance Posture</p>
+                      <p className="text-xs text-muted-foreground">SOC2, ISO, DPA anniversaries, audit chain</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+
+                <Link
+                  href="/admin/tach-review"
+                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-sky-50 flex items-center justify-center">
+                      <Gauge className="h-4 w-4 text-sky-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Tach Time Review</p>
+                      <p className="text-xs text-muted-foreground">Scraper deltas + proposed aircraft</p>
                     </div>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
