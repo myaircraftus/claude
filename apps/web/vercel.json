@@ -141,6 +141,14 @@
     {
       "path": "/api/cron/deployment-canary",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/clock-anomaly",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/audit-event-watchdog",
+      "schedule": "0 * * * *"
     }
   ],
   "headers": [

@@ -1,0 +1,170 @@
+/**
+ * ux-help.bug-triage
+ *
+ * Chained agent. When a support ticket is classified category='bug',
+ * support.triage chains us to extract a structured reproduction from
+ * the user's free-text. Output:
+ *
+ *   { browser, route, persona, action, expected, actual, severity }
+ *
+ * We use gpt-4o-mini with strict JSON output. If OPENAI_API_KEY is
+ * absent, fall back to a heuristic that pulls the user-agent line,
+ * the first URL-like token, and a 1-line narrative from the ticket
+ * subject + body.
+ *
+ * Emits 'bug_repro_drafted' recommendation. Founder reviews on
+ * /admin/agents and clicks "File issue" to push to Linear / GitHub.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { runAgent } from '../runner'
+
+export interface BugRepro {
+  ticket_id: string
+  browser: string | null
+  route: string | null
+  persona: 'owner' | 'mechanic' | 'admin' | 'unknown'
+  action: string
+  expected: string | null
+  actual: string | null
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  source: 'llm' | 'heuristic'
+}
+
+const URL_RE = /https?:\/\/[^\s]+/i
+const ROUTE_RE = /\/(app|admin|api|owner|mechanic|aircraft|inbox|documents|work-orders)[/A-Za-z0-9_\-]*/i
+
+function heuristic(ticketId: string, subject: string, body: string): BugRepro {
+  const text = `${subject}\n${body}`
+  const browserMatch = /(Chrome|Safari|Firefox|Edge|Opera)\/[\d.]+/i.exec(text)
+  const routeMatch = URL_RE.exec(text)?.[0] ?? ROUTE_RE.exec(text)?.[0] ?? null
+  const personaText = text.toLowerCase()
+  const persona: BugRepro['persona'] = personaText.includes('mechanic')
+    ? 'mechanic'
+    : personaText.includes('admin')
+      ? 'admin'
+      : personaText.includes('owner')
+        ? 'owner'
+        : 'unknown'
+  return {
+    ticket_id: ticketId,
+    browser: browserMatch?.[0] ?? null,
+    route: routeMatch,
+    persona,
+    action: subject.slice(0, 200),
+    expected: null,
+    actual: null,
+    severity: 'medium',
+    source: 'heuristic',
+  }
+}
+
+export async function triageBugTicket(args: {
+  supabase: SupabaseClient
+  ticketId: string
+  subject: string
+  body: string
+}): Promise<{ ok: boolean; output?: BugRepro; runId?: string; error?: string }> {
+  return runAgent<BugRepro>(
+    'ux-help.bug-triage',
+    {
+      supabase: args.supabase,
+      input: { ticket_id: args.ticketId },
+      target: { kind: 'support_ticket', id: args.ticketId },
+    },
+    async (logger) => {
+      const apiKey = process.env.OPENAI_API_KEY
+      if (!apiKey) {
+        const repro = heuristic(args.ticketId, args.subject, args.body)
+        return {
+          output: repro,
+          needsHuman: true,
+          recommendation: { kind: 'bug_repro_drafted', repro, source: 'heuristic' },
+        }
+      }
+      try {
+        logger.recordModel('openai', 'gpt-4o-mini')
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            temperature: 0,
+            max_tokens: 400,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Extract a structured bug reproduction from a user support ticket. Output STRICT JSON: {"browser":"...|null","route":"/path|null","persona":"owner|mechanic|admin|unknown","action":"...","expected":"...|null","actual":"...|null","severity":"low|medium|high|critical"}. Do not invent details — use null when unknown. Severity: low=cosmetic, medium=feature impaired, high=user blocked, critical=data loss / cross-tenant.',
+              },
+              {
+                role: 'user',
+                content: `SUBJECT:\n${args.subject}\n\nBODY:\n${args.body}`,
+              },
+            ],
+            response_format: { type: 'json_object' },
+          }),
+          signal: AbortSignal.timeout(5000),
+        })
+        if (!res.ok) {
+          const fallback = heuristic(args.ticketId, args.subject, args.body)
+          return {
+            output: fallback,
+            needsHuman: true,
+            recommendation: { kind: 'bug_repro_drafted', repro: fallback, source: 'heuristic' },
+          }
+        }
+        const j = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string } }>
+          usage?: { prompt_tokens?: number; completion_tokens?: number }
+        }
+        logger.recordTokens(j.usage?.prompt_tokens ?? 0, j.usage?.completion_tokens ?? 0)
+        const raw = j.choices?.[0]?.message?.content ?? '{}'
+        const parsed = JSON.parse(raw) as Partial<BugRepro>
+        const persona: BugRepro['persona'] =
+          parsed.persona === 'owner' ||
+          parsed.persona === 'mechanic' ||
+          parsed.persona === 'admin'
+            ? parsed.persona
+            : 'unknown'
+        const severity: BugRepro['severity'] =
+          parsed.severity === 'low' ||
+          parsed.severity === 'medium' ||
+          parsed.severity === 'high' ||
+          parsed.severity === 'critical'
+            ? parsed.severity
+            : 'medium'
+        const repro: BugRepro = {
+          ticket_id: args.ticketId,
+          browser: parsed.browser ?? null,
+          route: parsed.route ?? null,
+          persona,
+          action: (parsed.action ?? args.subject).slice(0, 400),
+          expected: parsed.expected ?? null,
+          actual: parsed.actual ?? null,
+          severity,
+          source: 'llm',
+        }
+        return {
+          output: repro,
+          needsHuman: true,
+          recommendation: { kind: 'bug_repro_drafted', repro, source: 'llm' },
+        }
+      } catch (err) {
+        const fallback = heuristic(args.ticketId, args.subject, args.body)
+        return {
+          output: fallback,
+          needsHuman: true,
+          recommendation: {
+            kind: 'bug_repro_drafted',
+            repro: fallback,
+            source: 'heuristic',
+            llm_error: (err as Error).message.slice(0, 120),
+          },
+        }
+      }
+    },
+  )
+}
