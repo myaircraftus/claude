@@ -299,6 +299,333 @@ export const AGENTS: AgentDefinition[] = [
     recommended_model: 'gpt-4o',
     writes: false,
   },
+
+  // ── INGESTION + KNOWLEDGE (proposed)
+  {
+    id: 'data-quality.ad-reference-extractor',
+    label: 'AD reference extractor',
+    purpose:
+      'When a logbook entry mentions an AD by number, link it to the FAA AD database and flag if the AD is open / superseded / closed for that aircraft.',
+    category: 'data-quality',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: true,
+  },
+  {
+    id: 'data-quality.tail-number-validator',
+    label: 'Tail-number validator',
+    purpose:
+      'Cross-checks every aircraft.tail_number against the live FAA Civil Aviation Registry. Flags mismatches (model/serial/make) for human review.',
+    category: 'data-quality',
+    trigger: 'cron',
+    cron_schedule: '0 5 * * 1',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'http-only',
+    writes: false,
+  },
+  {
+    id: 'data-quality.duplicate-doc-detector',
+    label: 'Duplicate document detector',
+    purpose:
+      'After OCR completes, computes a content hash + first-page perceptual hash and flags pages that are byte-identical or near-duplicates so the same engine logbook isn\'t imported twice.',
+    category: 'data-quality',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+  },
+  {
+    id: 'knowledge.sop-coverage-gap-detector',
+    label: 'SOP coverage gap detector',
+    purpose:
+      'Reads the most-asked launcher questions weekly. If a high-frequency question has no SOP backing, drafts a one-line gap report for the founder.',
+    category: 'knowledge',
+    trigger: 'cron',
+    cron_schedule: '0 6 * * 1',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'knowledge.faa-airworthiness-context',
+    label: 'FAA airworthiness context fetcher',
+    purpose:
+      'On demand: for a given aircraft, fetch open ADs, SBs, and recent FSDO findings, summarise into a one-pager. Read-only; never recommends a sign-off.',
+    category: 'knowledge',
+    trigger: 'human_button',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: false,
+  },
+
+  // ── SAFETY / SECURITY (proposed)
+  {
+    id: 'safety.pii-leak-scanner',
+    label: 'PII leak scanner',
+    purpose:
+      'Scans every outbound email + every marketplace listing for leaked PII (SSN, DOB, card numbers, phone in a public field). Quarantines the message + alerts ops.',
+    category: 'safety',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: true,
+  },
+  {
+    id: 'safety.prompt-injection-guard',
+    label: 'Prompt-injection guard',
+    purpose:
+      'Inspects every user-supplied document or chat message before it flows into a system-prompt. Detects classic injection patterns (ignore previous instructions, role overrides, exfil requests) and refuses to pass it through.',
+    category: 'safety',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'safety.cross-tenant-leak-watchdog',
+    label: 'Cross-tenant leak watchdog',
+    purpose:
+      'Random samples 1% of every RAG retrieval. Verifies every retrieved chunk\'s organization_id matches the requester. Files an immediate CRITICAL agent_run if mismatch.',
+    category: 'safety',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+  },
+  {
+    id: 'security.failed-login-anomaly',
+    label: 'Failed-login anomaly detector',
+    purpose:
+      'Reads auth.events. If a user account sees ≥10 failed logins in 15 minutes from ≥3 IPs, suspends the account and pages the founder + emails the user.',
+    category: 'safety',
+    trigger: 'cron',
+    cron_schedule: '*/10 * * * *',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: true,
+  },
+
+  // ── OPS (proposed)
+  {
+    id: 'ops.stripe-failed-charge-watcher',
+    label: 'Stripe failed-charge watcher',
+    purpose:
+      'When a Stripe charge fails twice in a row, email the customer with a billing-portal link AND open an admin ticket so a human can call if they\'re a high-LTV account.',
+    category: 'ops',
+    trigger: 'event_trigger',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'http-only',
+    writes: true,
+  },
+  {
+    id: 'ops.cost-anomaly-detector',
+    label: 'Cost anomaly detector',
+    purpose:
+      'Daily: compute per-tenant OpenAI + Modal + Cohere spend. If a tenant\'s spend is ≥3σ above their 14-day rolling baseline, pause their AI surfaces and notify ops.',
+    category: 'ops',
+    trigger: 'cron',
+    cron_schedule: '0 9 * * *',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: true,
+  },
+  {
+    id: 'ops.deployment-canary',
+    label: 'Deployment canary',
+    purpose:
+      'After every Vercel production deploy, runs a 60-second synthetic smoke test (signup, signin, /api/ask sample question, /api/me) and rolls back if any path returns 5xx.',
+    category: 'ops',
+    trigger: 'event_trigger',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'http-only',
+    writes: false,
+  },
+
+  // ── COMPLIANCE (proposed)
+  {
+    id: 'compliance.gdpr-export-fulfilment',
+    label: 'GDPR export fulfilment',
+    purpose:
+      'On Settings → "Download my data" click, gathers the full export packet (profile, aircraft, entries, work-orders, invoices, audit) and emails a signed download link. Bounded to a 7-day URL TTL.',
+    category: 'compliance',
+    trigger: 'human_button',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: true,
+  },
+  {
+    id: 'compliance.dpa-anniversary-reviewer',
+    label: 'DPA anniversary reviewer',
+    purpose:
+      'Tracks every signed DPA and its 12-month re-review date. 30 / 7 / 0 day notifications. Pulls the live sub-processor list and diffs against the customer\'s last-signed copy.',
+    category: 'compliance',
+    trigger: 'cron',
+    cron_schedule: '0 9 * * *',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+  },
+  {
+    id: 'compliance.iso-evidence-collector',
+    label: 'ISO 27001 evidence collector',
+    purpose:
+      'Parallel to the SOC2 packet — collects the annex-A control evidence on a quarterly cadence. Same packaging pipeline.',
+    category: 'compliance',
+    trigger: 'cron',
+    cron_schedule: '0 0 1 */3 *',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: true,
+  },
+
+  // ── UX HELP (proposed)
+  {
+    id: 'ux-help.empty-state-coach',
+    label: 'Empty-state coach',
+    purpose:
+      'When a user lands on a page that\'s empty for them (no aircraft, no work orders, no documents), proposes the 2-3 things they can do next, tailored to their persona.',
+    category: 'ux-help',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'ux-help.error-explainer',
+    label: 'Error explainer',
+    purpose:
+      'When a 5xx or unexpected client error surfaces, rewrites the developer-facing message into a one-sentence user-facing explanation + a "try this" suggestion. Live inline in the error boundary.',
+    category: 'ux-help',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+
+  // ── WORKFORCE (proposed)
+  {
+    id: 'workforce.shift-summary-drafter',
+    label: 'Shift summary drafter',
+    purpose:
+      'At end of shift, drafts a 3-sentence summary for each mechanic of what they signed off, what\'s open, and what\'s blocked. Sits in their inbox for sign-off.',
+    category: 'workforce',
+    trigger: 'cron',
+    cron_schedule: '0 17 * * *',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'workforce.return-to-service-checker',
+    label: 'Return-to-service checker',
+    purpose:
+      'Before a mechanic signs RTS on a work order, validates the chain: every open squawk has a resolution, every AD compliance entry has the AD reference, every part change has the part number. Refuses or warns.',
+    category: 'workforce',
+    trigger: 'human_button',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: false,
+    reference: 'SOP-MNT-002 §3',
+  },
+
+  // ── SALES + GROWTH (proposed)
+  {
+    id: 'sales.trial-conversion-coach',
+    label: 'Trial conversion coach',
+    purpose:
+      'At day 7 of a trial, looks at usage (aircraft added? logbook uploaded? mechanic invited?) and drafts a personalised email pointing at the next high-value action.',
+    category: 'sales',
+    trigger: 'cron',
+    cron_schedule: '0 10 * * *',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o',
+    writes: false,
+  },
+  {
+    id: 'sales.churn-risk-predictor',
+    label: 'Churn-risk predictor',
+    purpose:
+      'Daily: scores every paying customer 0-100 for churn risk based on login frequency + active aircraft + last upload + ticket sentiment. Top-decile risks get a "founder-call" task.',
+    category: 'sales',
+    trigger: 'cron',
+    cron_schedule: '30 6 * * *',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'sales.review-request-timer',
+    label: 'Review request timer',
+    purpose:
+      'When a customer has used the platform for 30 days, has ≥3 aircraft, and has a green NPS, schedule a Trustpilot review request from their account email.',
+    category: 'sales',
+    trigger: 'cron',
+    cron_schedule: '0 11 * * *',
+    status: 'proposed',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+  },
+
+  // ── RAG (proposed)
+  {
+    id: 'rag.query-rewriter',
+    label: 'Query rewriter',
+    purpose:
+      'Before a /api/ask call, expand the user question into 2-3 alternative phrasings to improve recall on small KBs. Cheap model — ranking happens via Cohere rerank.',
+    category: 'rag',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'rag.context-compressor',
+    label: 'Context compressor',
+    purpose:
+      'When the retrieved context exceeds the model\'s usable window, runs a per-chunk compression pass keeping only sentences with the question\'s key entities.',
+    category: 'rag',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
+  {
+    id: 'rag.answer-grader',
+    label: 'Answer grader',
+    purpose:
+      'After every /api/ask answer, ask a separate model to grade the answer\'s faithfulness 0-5 against the cited chunks. Anything <3 gets surfaced in /admin/agents.',
+    category: 'rag',
+    trigger: 'chained',
+    status: 'proposed',
+    recommended_provider: 'openai',
+    recommended_model: 'gpt-4o-mini',
+    writes: false,
+  },
 ]
 
 /** Find an agent by id; throws if not found. */
