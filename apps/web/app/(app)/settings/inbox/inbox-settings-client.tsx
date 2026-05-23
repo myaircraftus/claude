@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Copy, Mail, Phone, Plane, AlertCircle, Loader2, Trash2 } from 'lucide-react'
+import { Copy, Mail, Phone, Plane, AlertCircle, Loader2, Trash2, AtSign, Check, Share2 } from 'lucide-react'
 
 type System =
   | 'flight_schedule_pro'
@@ -24,6 +24,8 @@ const SYSTEM_LABELS: Record<System, string> = {
 interface InboxState {
   inbox_email: string | null
   inbox_phone: string | null
+  handle: string | null
+  full_name: string | null
   external_systems: Array<{
     system: System
     login_email: string
@@ -32,6 +34,14 @@ interface InboxState {
     scrape_disabled: boolean
   }>
 }
+
+const HANDLE_RE = /^[a-z0-9][a-z0-9-]{2,31}$/
+
+type HandleStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available' }
+  | { state: 'taken' | 'reserved' | 'format' | 'error'; message: string }
 
 export function InboxSettingsClient() {
   const [data, setData] = useState<InboxState | null>(null)
@@ -42,6 +52,9 @@ export function InboxSettingsClient() {
   const [addLogin, setAddLogin] = useState('')
   const [addPassword, setAddPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [handleDraft, setHandleDraft] = useState('')
+  const [handleStatus, setHandleStatus] = useState<HandleStatus>({ state: 'idle' })
+  const [savingHandle, setSavingHandle] = useState(false)
 
   async function refresh() {
     const res = await fetch('/api/me/inbox')
@@ -98,6 +111,77 @@ export function InboxSettingsClient() {
     if (!data?.inbox_email) return
     await navigator.clipboard.writeText(data.inbox_email)
     toast.success('Copied')
+  }
+
+  async function copyShareCard() {
+    if (!data?.inbox_email) return
+    const name = data.full_name ?? 'aircraft owner'
+    const shareText = `Hi — I run my aircraft records in myaircraft.us. Please cc any receipts, estimates, invoices, or reminders to ${data.inbox_email} and they'll flow straight into my logbook + AI inbox. Reply-all is fine; my real name is ${name}.`
+    await navigator.clipboard.writeText(shareText)
+    toast.success('Shareable note copied — paste it to your mechanic or FBO')
+  }
+
+  // Handle-availability check, debounced 350ms
+  useEffect(() => {
+    if (!handleDraft) {
+      setHandleStatus({ state: 'idle' })
+      return
+    }
+    const candidate = handleDraft.trim().toLowerCase()
+    if (candidate === data?.handle) {
+      setHandleStatus({ state: 'idle' })
+      return
+    }
+    if (!HANDLE_RE.test(candidate)) {
+      setHandleStatus({
+        state: 'format',
+        message: '3-32 chars, lowercase letters/numbers/dashes, must start alphanumeric',
+      })
+      return
+    }
+    setHandleStatus({ state: 'checking' })
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/me/handle-available?handle=${encodeURIComponent(candidate)}`)
+        const j = (await res.json()) as {
+          available?: boolean
+          reason?: 'taken' | 'reserved' | 'format' | 'missing'
+          message?: string
+        }
+        if (j.available) {
+          setHandleStatus({ state: 'available' })
+        } else {
+          const reason = j.reason === 'taken' || j.reason === 'reserved' || j.reason === 'format'
+            ? j.reason
+            : 'error'
+          setHandleStatus({ state: reason, message: j.message ?? 'Not available' })
+        }
+      } catch {
+        setHandleStatus({ state: 'error', message: 'Could not check availability' })
+      }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [handleDraft, data?.handle])
+
+  async function saveHandle() {
+    if (savingHandle) return
+    if (handleStatus.state !== 'available') return
+    setSavingHandle(true)
+    const res = await fetch('/api/me/handle', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle: handleDraft.trim().toLowerCase() }),
+    })
+    setSavingHandle(false)
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: string } | null
+      toast.error(j?.error ?? 'Could not change handle')
+      return
+    }
+    toast.success('Handle updated — your inbox email moved with it')
+    setHandleDraft('')
+    setHandleStatus({ state: 'idle' })
+    void refresh()
   }
 
   if (loading || !data) {
@@ -174,6 +258,83 @@ export function InboxSettingsClient() {
             </div>
           </div>
         </div>
+
+        {/* Change handle (also re-allocates email) */}
+        <div className="pt-3 border-t border-border">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">
+            Change handle
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-2">
+            Current handle: <span className="font-mono">{data.handle ?? '—'}</span>. Changing it
+            updates your @myaircraft.us address. The old address keeps receiving mail for 30
+            days as a safety net.
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center rounded-md border border-border bg-white overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+              <span className="px-2 text-muted-foreground">
+                <AtSign className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="text"
+                value={handleDraft}
+                onChange={(e) => setHandleDraft(e.target.value.toLowerCase())}
+                placeholder={data.handle ?? 'pick-your-handle'}
+                className="flex-1 py-1.5 text-sm font-mono outline-none"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="px-2 text-xs text-muted-foreground">@myaircraft.us</span>
+            </div>
+            <button
+              type="button"
+              onClick={saveHandle}
+              disabled={savingHandle || handleStatus.state !== 'available'}
+              className="rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold px-3 py-1.5 disabled:opacity-50"
+            >
+              {savingHandle ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Change'}
+            </button>
+          </div>
+          {handleStatus.state === 'checking' && (
+            <div className="mt-1.5 text-[11px] text-muted-foreground flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> checking…
+            </div>
+          )}
+          {handleStatus.state === 'available' && (
+            <div className="mt-1.5 text-[11px] text-emerald-700 flex items-center gap-1">
+              <Check className="w-3 h-3" /> available — click Change to switch
+            </div>
+          )}
+          {(handleStatus.state === 'taken' ||
+            handleStatus.state === 'reserved' ||
+            handleStatus.state === 'format' ||
+            handleStatus.state === 'error') && (
+            <div className="mt-1.5 text-[11px] text-rose-700 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" /> {handleStatus.message}
+            </div>
+          )}
+        </div>
+
+        {/* Share card */}
+        {data.inbox_email && (
+          <div className="pt-3 border-t border-border">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">
+              Share with your mechanic or FBO
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Anyone you give this address to can email receipts, estimates, invoices, or
+              reminders. AI agents parse them, surface drafts, and you approve in one click.
+              No mailbox setup on their side.
+            </p>
+            <button
+              type="button"
+              onClick={copyShareCard}
+              className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Copy share-this-email note
+            </button>
+          </div>
+        )}
       </section>
 
       {/* External systems */}

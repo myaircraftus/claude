@@ -14,6 +14,7 @@ import {
   Bot,
   ShieldCheck,
   Gauge,
+  Mail,
 } from 'lucide-react'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { Topbar } from '@/components/shared/topbar'
@@ -684,6 +685,22 @@ export default async function AdminDashboardPage() {
                     <div>
                       <p className="text-sm font-medium text-foreground">Tach Time Review</p>
                       <p className="text-xs text-muted-foreground">Scraper deltas + proposed aircraft</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+
+                <Link
+                  href="/admin/inbox-identity"
+                  className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-rose-50 flex items-center justify-center">
+                      <Mail className="h-4 w-4 text-rose-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Inbox Identity Roster</p>
+                      <p className="text-xs text-muted-foreground">Email + Twilio number per user; provision SMS</p>
                     </div>
                   </div>
                   <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
