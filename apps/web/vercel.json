@@ -109,6 +109,10 @@
     {
       "path": "/api/cron/duplicate-docs",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/sop-coverage-gap",
+      "schedule": "0 6 * * 1"
     }
   ],
   "headers": [
