@@ -113,6 +113,18 @@
     {
       "path": "/api/cron/sop-coverage-gap",
       "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/tail-number-validator",
+      "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/cron/shift-summary",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/pii-leak-scanner",
+      "schedule": "15 * * * *"
     }
   ],
   "headers": [
