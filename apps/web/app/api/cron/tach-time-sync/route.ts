@@ -12,19 +12,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { syncTachTime } from '@/lib/agents/impl/data-sync-tach-time-scraper'
+// Cron auth — constant-time secret check, always requires CRON_SECRET
+// even on a Vercel-fired request (Vercel sends Authorization: Bearer
+// $CRON_SECRET automatically). See lib/cron/auth.ts.
+import { isCronAuthorized as isAuthorized } from '@/lib/cron/auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-function isAuthorized(req: NextRequest): boolean {
-  if (req.headers.get('x-vercel-cron')) return true
-  const expected = process.env.CRON_SECRET
-  if (!expected) return false
-  const presented =
-    req.nextUrl.searchParams.get('secret') ??
-    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-  return presented === expected
-}
 
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {

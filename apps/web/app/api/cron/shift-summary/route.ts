@@ -1,32 +1,29 @@
 /**
  * GET /api/cron/shift-summary — daily, 17:00 UTC.
  *
- * Drafts a 3-bullet end-of-shift summary per mechanic from
- * work_orders touched in the trailing 24h. Lands as a
- * 'shift_summaries' recommendation surfaced in the launcher.
+ * Drafts shift summaries. Body returns counts only; per-mechanic
+ * detail is in agent_runs under admin auth.
  */
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { draftShiftSummaries } from '@/lib/agents/impl/workforce-shift-summary-drafter'
+import {
+  isCronAuthorized,
+  cronUnauthorizedResponse,
+  cronAckResponse,
+  cronErrorResponse,
+} from '@/lib/cron/auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-function isAuthorized(req: NextRequest): boolean {
-  if (req.headers.get('x-vercel-cron')) return true
-  const expected = process.env.CRON_SECRET
-  if (!expected) return false
-  const presented =
-    req.nextUrl.searchParams.get('secret') ??
-    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-  return presented === expected
-}
-
 export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!isCronAuthorized(req)) return cronUnauthorizedResponse()
   const service = createServiceSupabase()
   const result = await draftShiftSummaries({ supabase: service })
-  return NextResponse.json({ ok: result.ok, run_id: result.runId, ...(result.output ?? {}) })
+  if (!result.ok) return cronErrorResponse(result.error ?? 'agent failed', result.runId)
+  return cronAckResponse({
+    run_id: result.runId,
+    mechanic_count: result.output?.mechanic_count ?? 0,
+  })
 }

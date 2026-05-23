@@ -129,6 +129,10 @@
     {
       "path": "/api/cron/stripe-failed-charges",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/trial-conversion-coach",
+      "schedule": "0 10 * * *"
     }
   ],
   "headers": [

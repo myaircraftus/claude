@@ -14,6 +14,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { rollUpDay, checkCostSpike } from '@/lib/ops/cost-tracker'
+// Cron auth — constant-time secret check, always requires CRON_SECRET
+// even on a Vercel-fired request (Vercel sends Authorization: Bearer
+// $CRON_SECRET automatically). See lib/cron/auth.ts.
+import { isCronAuthorized as isAuthorized } from '@/lib/cron/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,15 +25,6 @@ const WORKER_STALE_MIN = 5
 const QUEUE_DEPTH_THRESHOLD = 100
 const FAILED_JOB_BURST_THRESHOLD = 10
 
-function isAuthorized(req: NextRequest): boolean {
-  if (req.headers.get('x-vercel-cron')) return true
-  const expected = process.env.CRON_SECRET
-  if (!expected) return false
-  const presented =
-    req.nextUrl.searchParams.get('secret') ??
-    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-  return presented === expected
-}
 
 interface AlertCheckResult {
   alert_type: 'worker_stale' | 'queue_depth' | 'cost_spike' | 'failed_job_burst' | 'error_rate_spike' | 'churn_burst' | 'other'
