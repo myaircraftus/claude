@@ -1,0 +1,123 @@
+---
+title: "AD Compliance Tracking Tools: 2026 Comparison for Owners + A&Ps"
+slug: "ad-compliance-tracking-tools-comparison"
+excerpt: "Honest comparison of the four main AD compliance tracking options — paper logs, spreadsheets, dedicated maintenance software, and AI-powered tools — with the trade-offs nobody talks about."
+author: "marcus-webb"
+publishedAt: "2026-05-23"
+category: "Records"
+readTime: "10 min read"
+coverImage: "/blog/ad-compliance-tracking.jpg"
+---
+
+# AD Compliance Tracking Tools: 2026 Comparison for Owners + A&Ps
+
+The FAA expects you to know the airworthiness directive (AD) status of your aircraft at every annual, every 100-hour, and every time you hand the keys to a new A&P. The reality: most owners do this with a spreadsheet, a stack of paper, or — at scale — a maintenance-management platform that does ten things and excels at none of them.
+
+This is a working comparison of the four real options in 2026, with the trade-offs nobody puts in their marketing.
+
+## Option 1: Paper logs + a binder
+
+**What it looks like:** Your A&P writes "AD 87-20-03 c/w" in the airframe logbook at every annual, with a binder of FAA AD print-outs from the day you bought the airplane.
+
+**Pros:**
+- $0 to start
+- Works in any hangar with any A&P
+- Permanent (assuming you don't lose it)
+
+**Cons:**
+- You can't query "what ADs are open right now?" without flipping pages for an hour
+- Recurring ADs (eg. AD 2011-26-04 ELT batteries) get missed because the next-due hour is buried in narrative
+- Hangar fire / coffee spill / theft = lost-log airplane (see [our lost-logbook recovery guide](/blog/aircraft-logbook-lost-or-damaged-what-to-do))
+- New A&P spends 2–4 hours billable rebuilding the AD list every time you switch shops
+
+**Verdict:** Fine for the airplane you'll fly into the ground yourself. Not fine for any aircraft you might sell.
+
+## Option 2: A spreadsheet
+
+**What it looks like:** A Google Sheet or Excel file with columns for AD number, applicability, complied-with date, next-due, and notes. Often started by a meticulous owner; usually inherited half-broken by the next one.
+
+**Pros:**
+- $0 to start
+- Sortable, filterable, queryable
+- Survives a hangar fire (if you sync to the cloud)
+- Searchable by AD number
+
+**Cons:**
+- Manual data entry — nothing auto-updates from your logbook
+- Easy to miss a new AD that was issued after you built the sheet
+- No link from the spreadsheet row to the actual logbook page that proves compliance — auditors still want to see the entry
+- "Recurring AD with hour-based due" needs manual hour tracking that nobody actually does
+
+**Verdict:** Better than paper for query speed. Worse than paper for audit trail. Most owners outgrow it within 2 years.
+
+## Option 3: Dedicated maintenance-tracking software
+
+**What it looks like:** CAMP, Aircraft RecordKeeper, FlightDocs, Veryon, et al. Built for fleet operators, charter ops, flight schools, and increasingly individual owners. Subscription-based ($30–$300/mo depending on scope).
+
+**Pros:**
+- AD database that updates as new ADs come out
+- Recurring AD tracking with hour + calendar reminders
+- Multi-aircraft, multi-user
+- Export reports for buyers / insurance / IAs
+
+**Cons:**
+- Manual entry on day one — somebody types every existing logbook entry into the tool, which costs hours or money
+- The tool's AD database may be out of date the day you switch
+- Switching out is painful (vendor lock-in on the AD compliance history)
+- Doesn't read your existing PDF logbooks — you can attach them, but the searchable data is what you typed in
+- The UX was usually designed for 2008
+
+**Verdict:** The right answer if you operate 5+ aircraft, or one aircraft that's an important business asset. Overkill for one airplane that flies 100 hours a year.
+
+## Option 4: AI-powered logbook ingestion (the new option)
+
+**What it looks like:** You upload your existing logbooks as PDFs or scans. AI reads every entry, extracts the AD references, dates, hours, signatures, and 8130 attachments, then builds the AD list automatically. New entries you write get parsed the same way.
+
+This is what myaircraft.us is built around. Other tools that work this way: a couple of newer entrants are emerging in 2026.
+
+**Pros:**
+- No manual data entry — the AI reads what's already on the page
+- Searchable by AD number, by date, by tail number, by mechanic
+- Citation-backed answers — every AI claim links to the exact logbook page it came from (auditor-friendly)
+- Updates the AD database automatically against the FAA's master list
+- Cheaper than dedicated maintenance software for 1–5 aircraft
+- Survives a hangar fire (cloud + cryptographic checksums on every page)
+
+**Cons:**
+- AI extraction is not 100% — OCR errors on handwritten entries need spot-checking
+- Newer category, fewer integrations with existing FBO / shop systems
+- You still have to upload everything — won't conjure records you never had
+
+**Verdict:** If you bought your airplane in the last 5 years and you have the logbooks in PDF or scanned form, this is the cheapest + fastest path to a queryable, audit-ready compliance file.
+
+## Comparison table
+
+| | Paper | Spreadsheet | Maintenance SW | AI logbook |
+|---|---|---|---|---|
+| **Cost (yr 1)** | $0 | $0 | $360–$3,600 | $0–$240 |
+| **Setup time** | none | 2–10 hrs | 8–40 hrs | <1 hr (upload) |
+| **Queryable** | No | Yes | Yes | Yes |
+| **Auto-updates from new ADs** | No | No | Yes | Yes |
+| **Reads existing logbooks** | n/a | No | No | Yes |
+| **Citation-backed audit trail** | Yes | Partial | Partial | Yes |
+| **Survives hangar fire** | No | If cloud | Yes | Yes |
+| **Switch cost** | Low | Low | High | Low |
+
+## Which one is right for you
+
+- **One airplane, light recreational use:** spreadsheet or AI logbook. Don't pay for maintenance software.
+- **One business / corporate airplane, occasional charter:** AI logbook is the cheapest path to airworthy-defensible records. Dedicated software if you have an existing contractual obligation.
+- **2–5 aircraft, mixed:** AI logbook with multi-aircraft support. Dedicated software starts making sense in this band.
+- **5+ aircraft, charter or training:** dedicated maintenance software, full stop. The AI tool is a complement, not a replacement.
+- **Anything in the certified turbine class:** dedicated software, full stop. The FAA's tolerance for ambiguity is lower.
+
+## What to look for, whatever you pick
+
+1. **AD applicability by serial number** — generic AD lists are useless; you need yours.
+2. **Recurring AD reminders** by hour and by date — not just one.
+3. **Audit trail** — every claim links back to a signed logbook page.
+4. **Export to PDF** so the next owner / IA can take everything with them.
+5. **Off-site backup** — at least two physical regions.
+
+---
+*[Try myaircraft.us free](/signup) — upload your existing logbooks and we'll build your AD compliance list in under 24 hours. No credit card needed.*

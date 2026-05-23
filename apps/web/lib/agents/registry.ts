@@ -370,6 +370,20 @@ export const AGENTS: AgentDefinition[] = [
     reference: 'lib/agents/impl/ops-daily-digest.ts',
   },
   {
+    id: 'content.seo-suggester',
+    label: 'SEO content suggester',
+    purpose:
+      'Weekly Mon 02:00 UTC. Mines /api/ask question volume + recurring inbox topics + AD numbers to surface high-demand blog post gaps. Recommends headline + signal type for each. Heuristic — no LLM.',
+    category: 'content',
+    trigger: 'cron',
+    cron_schedule: '0 2 * * 1',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/content-seo-suggester.ts',
+  },
+  {
     id: 'finance.billing-lifecycle',
     label: 'Billing lifecycle janitor',
     purpose:

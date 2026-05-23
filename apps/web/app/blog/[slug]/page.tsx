@@ -72,6 +72,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   const authors = await getAllAuthors()
   const author = authors.find((a) => a.slug === post.author)
 
+  const postUrl = `https://www.myaircraft.us/blog/${post.slug}`
   // Article JSON-LD for rich results
   const articleLd = {
     '@context': 'https://schema.org',
@@ -80,6 +81,8 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
     description: post.excerpt,
     image: post.coverImage || 'https://www.myaircraft.us/opengraph-image',
     datePublished: post.publishedAt,
+    dateModified: post.updatedAt ?? post.publishedAt,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': postUrl },
     author: {
       '@type': 'Person',
       name: author?.name || post.authorName || 'myaircraft.us',
@@ -87,8 +90,22 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
     publisher: {
       '@type': 'Organization',
       name: 'myaircraft.us',
-      logo: { '@type': 'ImageObject', url: 'https://www.myaircraft.us/logo.png' },
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://www.myaircraft.us/redesign/MY_AIRCRAFT_LOGO.svg',
+      },
     },
+  }
+  // BreadcrumbList — Home > Blog > post — improves Google site links + breadcrumb
+  // display in SERPs.
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.myaircraft.us' },
+      { '@type': 'ListItem', position: 2, name: 'Blog', item: 'https://www.myaircraft.us/blog' },
+      { '@type': 'ListItem', position: 3, name: post.title, item: postUrl },
+    ],
   }
 
   return (
@@ -96,6 +113,10 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
       <article className="max-w-3xl mx-auto px-6 py-16">
         <Link
