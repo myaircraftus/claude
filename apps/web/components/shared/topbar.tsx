@@ -18,6 +18,7 @@ import { SupportDialog } from '@/components/shared/support-dialog'
 import { NotificationBell } from '@/components/notifications/notification-bell'
 import { RunningTimerChip } from '@/components/timeclock/running-timer-chip'
 import { ClockInWidget } from '@/components/clock/clock-in-widget'
+import { ApprovalCountChip } from '@/components/shared/approval-count-chip'
 import type { UserProfile } from '@/types'
 
 interface TopbarProps {
@@ -86,6 +87,8 @@ export function Topbar({ profile, breadcrumbs: _breadcrumbs = [], actions }: Top
 
         <ClockInWidget />
         <RunningTimerChip />
+
+        <ApprovalCountChip />
 
         <FeedbackDialog />
         <SupportDialog />

@@ -191,6 +191,67 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
   const [logbookDirty, setLogbookDirty] = useState(false)
   const [showSignatureModal, setShowSignatureModal] = useState(false)
 
+  // RTS preflight — workforce.return-to-service-checker gates the sign
+  // button. Blockers (open squawks without corrective_action, required
+  // checklist incomplete, AD lines missing source_reference) hard-block.
+  // Warnings (missing part_number, zero WO total) are surfaced but
+  // override-able. See lib/agents/impl/workforce-return-to-service-checker.ts.
+  type RtsCheck = {
+    loading: boolean
+    ran: boolean
+    ok: boolean
+    blockers: string[]
+    warnings: string[]
+    run_id: string | null
+  }
+  const [rtsCheck, setRtsCheck] = useState<RtsCheck>({
+    loading: false,
+    ran: false,
+    ok: false,
+    blockers: [],
+    warnings: [],
+    run_id: null,
+  })
+  const [rtsOverride, setRtsOverride] = useState(false)
+  // Re-run the preflight whenever a draft logbook entry shows up or the
+  // mechanic toggles between dirty / saved. Idempotent on the server side.
+  useEffect(() => {
+    if (!logbookEntry) return
+    if (logbookEntry.status === 'signed') return
+    if (logbookDirty) return
+    let cancelled = false
+    setRtsCheck((p) => ({ ...p, loading: true }))
+    fetch(`/api/work-orders/${wo.id}/rts-check`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`rts-check ${r.status}`))))
+      .then((data: { ok?: boolean; blockers?: string[]; warnings?: string[]; run_id?: string }) => {
+        if (cancelled) return
+        setRtsCheck({
+          loading: false,
+          ran: true,
+          ok: Boolean(data.ok),
+          blockers: Array.isArray(data.blockers) ? data.blockers : [],
+          warnings: Array.isArray(data.warnings) ? data.warnings : [],
+          run_id: data.run_id ?? null,
+        })
+        setRtsOverride(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        // Don't block sign on a network error — surface a warning instead.
+        setRtsCheck({
+          loading: false,
+          ran: true,
+          ok: true,
+          blockers: [],
+          warnings: ['Preflight check could not run — sign at your discretion.'],
+          run_id: null,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [logbookEntry, logbookDirty, wo.id])
+
   // AI Summary state — aggregated narrative from checklist + lines + activity.
   // Cached on work_orders.ai_summary, regenerated on demand.
   const [aiSummary, setAiSummary] = useState<string>(((wo as any).ai_summary as string) ?? '')
@@ -1969,8 +2030,20 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                         <Button
                           size="sm"
                           onClick={() => setShowSignatureModal(true)}
-                          disabled={logbookDirty}
-                          title={logbookDirty ? 'Save your edits before signing' : 'Sign and seal this entry'}
+                          disabled={
+                            logbookDirty ||
+                            rtsCheck.loading ||
+                            (rtsCheck.ran && rtsCheck.blockers.length > 0 && !rtsOverride)
+                          }
+                          title={
+                            logbookDirty
+                              ? 'Save your edits before signing'
+                              : rtsCheck.loading
+                                ? 'Running preflight check…'
+                                : rtsCheck.blockers.length > 0 && !rtsOverride
+                                  ? 'Preflight blockers must be resolved or overridden'
+                                  : 'Sign and seal this entry'
+                          }
                         >
                           <PenLine className="h-3.5 w-3.5 mr-1" /> Sign Entry
                         </Button>
@@ -1981,6 +2054,52 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                         <AlertCircle className="h-3 w-3 mt-0.5" />
                         Unsaved changes. Save before signing.
                       </div>
+                    )}
+
+                    {/* RTS preflight banner */}
+                    {logbookEntry.status !== 'signed' && !logbookDirty && rtsCheck.ran && (
+                      <>
+                        {rtsCheck.blockers.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                            <div className="flex items-center gap-1.5 mb-1.5 font-semibold">
+                              <ShieldCheck className="h-4 w-4" />
+                              Preflight blockers — resolve before signing
+                            </div>
+                            <ul className="list-disc ml-5 space-y-0.5 text-[13px]">
+                              {rtsCheck.blockers.map((b, i) => (
+                                <li key={i}>{b}</li>
+                              ))}
+                            </ul>
+                            <label className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-red-700">
+                              <input
+                                type="checkbox"
+                                checked={rtsOverride}
+                                onChange={(e) => setRtsOverride(e.target.checked)}
+                                className="rounded border-red-300"
+                              />
+                              I understand and accept responsibility — override and sign anyway.
+                            </label>
+                          </div>
+                        )}
+                        {rtsCheck.blockers.length === 0 && rtsCheck.warnings.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800">
+                            <div className="flex items-center gap-1.5 mb-1 font-semibold">
+                              <AlertCircle className="h-4 w-4" />
+                              Preflight warnings
+                            </div>
+                            <ul className="list-disc ml-5 space-y-0.5">
+                              {rtsCheck.warnings.map((w, i) => (
+                                <li key={i}>{w}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {rtsCheck.blockers.length === 0 && rtsCheck.warnings.length === 0 && (
+                          <div className="mt-2 flex items-center gap-1.5 text-[12px] text-emerald-700">
+                            <ShieldCheck className="h-3.5 w-3.5" /> Preflight passed — clear to sign.
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
