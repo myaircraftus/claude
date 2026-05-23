@@ -351,6 +351,29 @@ export async function triageTicket(
         tags: dedupTags([...(ticket.tags ?? []), ...classification.suggested_tags]),
       })
       .eq('id', ticket.id)
+
+    // Bug tickets get a follow-on structured-repro draft from
+    // ux-help.bug-triage. Fire-and-forget — surfaces as a separate
+    // 'bug_repro_drafted' recommendation in /admin/agents so the
+    // founder can act on it without blocking the triage queue.
+    if (classification.category === 'bug') {
+      void (async () => {
+        try {
+          const { triageBugTicket } = await import('@/lib/agents/impl/support-bug-triage')
+          await triageBugTicket({
+            supabase,
+            ticketId: ticket.id,
+            subject: ticket.subject ?? '',
+            body: ticket.body ?? '',
+          })
+        } catch (err) {
+          console.warn(
+            '[ai-triage] bug-triage chain failed:',
+            (err as Error).message,
+          )
+        }
+      })()
+    }
   }
 
   // Tier 1 — pattern-match auto-resolve

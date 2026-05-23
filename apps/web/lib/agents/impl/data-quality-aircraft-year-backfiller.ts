@@ -16,13 +16,14 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { fetchFaaRegistry } from '@/lib/faa/registry-lookup'
 
 export interface YearProposal {
   aircraft_id: string
   tail_number: string | null
   proposed_year: number
   confidence: 'low' | 'medium' | 'high'
-  source: 'serial_prefix' | 'earliest_logbook' | 'mid_estimate'
+  source: 'serial_prefix' | 'earliest_logbook' | 'mid_estimate' | 'faa_registry'
 }
 
 export interface YearBackfillReport {
@@ -35,11 +36,26 @@ const YEAR_PREFIX_RE = /\b(19[2-9]\d|20[0-2]\d)\b/
 
 export async function backfillAircraftYears(args: {
   supabase: SupabaseClient
+  /**
+   * When true (default), the agent tries the FAA Civil Aviation Registry
+   * FIRST for each NULL-year aircraft. Cached 12h in
+   * faa_registry_cache. Bounded to 20 live lookups per run to keep
+   * the cron well under 60s.
+   */
+  enrichWithFaa?: boolean
+  /** Cap on live FAA lookups per run. Default 20. */
+  faaLookupBudget?: number
 }): Promise<{ ok: boolean; output?: YearBackfillReport; runId?: string; error?: string }> {
+  const enrich = args.enrichWithFaa ?? true
+  const budget = Math.max(0, Math.min(100, args.faaLookupBudget ?? 20))
   return runAgent<YearBackfillReport>(
     'data-quality.aircraft-year-backfiller',
-    { supabase: args.supabase, input: {} },
+    {
+      supabase: args.supabase,
+      input: { enrich_with_faa: enrich, faa_lookup_budget: budget },
+    },
     async () => {
+      let faaBudget = budget
       const { data, error } = await args.supabase
         .from('aircraft')
         .select('id, tail_number, serial_number')
@@ -74,24 +90,49 @@ export async function backfillAircraftYears(args: {
         let proposed: number | null = null
         let confidence: YearProposal['confidence'] = 'low'
         let source: YearProposal['source'] = 'mid_estimate'
-        const serial = (r.serial_number ?? '').trim()
-        const m = serial.match(YEAR_PREFIX_RE)
-        if (m) {
-          proposed = parseInt(m[1], 10)
-          confidence = 'medium'
-          source = 'serial_prefix'
-        } else {
+
+        // 1) FAA registry — high confidence when available
+        if (enrich && faaBudget > 0 && r.tail_number) {
+          faaBudget -= 1
+          try {
+            const lookup = await fetchFaaRegistry({
+              supabase: args.supabase,
+              tailNumber: r.tail_number,
+            })
+            if (lookup.ok && lookup.parsed?.year) {
+              proposed = lookup.parsed.year
+              confidence = 'high'
+              source = 'faa_registry'
+            }
+          } catch {
+            // fall through to heuristics
+          }
+        }
+
+        // 2) Serial-prefix heuristic — medium confidence
+        if (proposed === null) {
+          const serial = (r.serial_number ?? '').trim()
+          const m = serial.match(YEAR_PREFIX_RE)
+          if (m) {
+            proposed = parseInt(m[1], 10)
+            confidence = 'medium'
+            source = 'serial_prefix'
+          }
+        }
+
+        // 3) Earliest logbook entry — low confidence
+        if (proposed === null) {
           const e = earliest.get(r.id)
           if (e) {
             const eYear = parseInt(e.slice(0, 4), 10)
             if (eYear > 1920 && eYear <= new Date().getFullYear()) {
-              // Aircraft was at least the year of its first logbook entry
               proposed = eYear
               confidence = 'low'
               source = 'earliest_logbook'
             }
           }
         }
+
         if (proposed === null) continue
         proposals.push({
           aircraft_id: r.id,

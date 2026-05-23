@@ -19,6 +19,7 @@ import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/serv
 import { AGENTS, type AgentDefinition } from '@/lib/agents/registry'
 import type { UserProfile } from '@/types'
 import { AgentTriggerButton } from './agent-trigger-button'
+import { AcknowledgeButton } from './acknowledge-button'
 
 export const metadata = { title: 'Admin — Agent fleet' }
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,7 @@ interface AgentRun {
   recommendation: Record<string, unknown> | null
   created_at: string
   completed_at: string | null
+  acknowledged_at: string | null
 }
 
 function ageMinutes(iso: string): number {
@@ -94,7 +96,7 @@ export default async function AdminAgentsPage() {
   const { data: runsRaw } = await service
     .from('agent_runs')
     .select(
-      'id, agent_id, status, triggered_by, target_kind, target_id, provider, model, latency_ms, tokens_in, tokens_out, error_message, recommendation, created_at, completed_at',
+      'id, agent_id, status, triggered_by, target_kind, target_id, provider, model, latency_ms, tokens_in, tokens_out, error_message, recommendation, created_at, completed_at, acknowledged_at',
     )
     .order('created_at', { ascending: false })
     .limit(50)
@@ -253,6 +255,7 @@ export default async function AdminAgentsPage() {
                         <th className="py-2 pr-3 text-right">Latency</th>
                         <th className="py-2 pr-3 text-right">Tokens (in/out)</th>
                         <th className="py-2 pr-3">Age</th>
+                        <th className="py-2 pr-3"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -289,6 +292,14 @@ export default async function AdminAgentsPage() {
                           </td>
                           <td className="py-2 pr-3 text-[11px] text-muted-foreground">
                             {formatAge(ageMinutes(r.created_at))}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {r.status === 'needs_human' && (
+                              <AcknowledgeButton
+                                runId={r.id}
+                                acknowledged={Boolean(r.acknowledged_at)}
+                              />
+                            )}
                           </td>
                         </tr>
                       ))}
