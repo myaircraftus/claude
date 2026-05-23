@@ -489,6 +489,7 @@ function AppLayoutInner({
     { icon: AlertTriangle,  label: "Health",              href: "/admin/health" },
     { icon: Sparkles,       label: "Ops Assistant",       href: "/admin/ops-assistant" },
     { icon: Bot,            label: "Agent Fleet",         href: "/admin/agents" },
+    { icon: Plane,          label: "Tach-time Review",    href: "/admin/tach-review" },
     { icon: AlertTriangle,  label: "Customer Signals",    href: "/admin/customer-signals" },
     { icon: AlertTriangle,  label: "Ingestion Health",    href: "/admin/ingestion-health" },
     { icon: AlertTriangle,  label: "Ingestion Progress",  href: "/admin/ingestion/progress" },
