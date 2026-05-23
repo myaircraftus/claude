@@ -149,9 +149,19 @@ export function UnifiedLauncher({
         </button>
       )}
 
-      {/* Panel */}
+      {/* Panel — wrapped in a full-screen dim overlay that matches the WO
+          chat drawer treatment: the page recedes, the panel "shines".
+          Clicking the dim closes the launcher (unlike the WO drawer which
+          stays put — the launcher has no native <select>s so the iPad
+          dismiss-tap bug doesn't apply). */}
       {open && (
-        <div className="fixed bottom-4 right-4 z-40 w-[420px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-2rem)] bg-white rounded-xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-40 flex items-end justify-end p-4 pointer-events-none">
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm pointer-events-auto transition-opacity duration-150"
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+          />
+          <div className="relative pointer-events-auto w-[420px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-2rem)] bg-white rounded-xl ring-1 ring-white/40 shadow-[0_0_60px_-10px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-slate-50">
             <div className="text-[11px] uppercase tracking-[0.18em] text-slate-600 font-semibold">
@@ -350,6 +360,7 @@ export function UnifiedLauncher({
                 </button>
               </div>
             )}
+          </div>
           </div>
         </div>
       )}
