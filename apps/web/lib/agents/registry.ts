@@ -579,13 +579,14 @@ export const AGENTS: AgentDefinition[] = [
     id: 'ux-help.error-explainer',
     label: 'Error explainer',
     purpose:
-      'When a 5xx or unexpected client error surfaces, rewrites the developer-facing message into a one-sentence user-facing explanation + a "try this" suggestion. Live inline in the error boundary.',
+      "POST /api/ux/explain-error from the client error boundary. Reads { status, message, path }, returns { user_message, suggestion, retry_safe }. Heuristic fast-path for the common cases (401/403/404/429/5xx/network) so most calls don't hit the LLM; LLM only for the long tail.",
     category: 'ux-help',
-    trigger: 'chained',
-    status: 'proposed',
+    trigger: 'human_button',
+    status: 'active',
     recommended_provider: 'openai',
     recommended_model: 'gpt-4o-mini',
     writes: false,
+    reference: 'lib/agents/impl/ux-error-explainer.ts',
   },
 
   // ── WORKFORCE (proposed)
