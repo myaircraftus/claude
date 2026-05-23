@@ -27,6 +27,8 @@ interface Message {
   content: string
   intent?: string
   attachments?: Attachment[] | null
+  /** Owner/shop tag we set on insert. Legacy rows are untagged → render as 'shop'. */
+  metadata?: { sender_persona?: 'owner' | 'shop' } & Record<string, unknown>
   created_at: string
   sender?: {
     id: string
@@ -581,34 +583,63 @@ export function WoChatTimeline({
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div key={msg.id} className="flex gap-2.5 group">
+        {messages.map((msg) => {
+          // Persona-tagged styling: the viewer's own bubbles land on the
+          // right with a violet tint; the other side lands on the left
+          // with a neutral slate tint. Legacy untagged rows default to
+          // 'shop' so the early prod data still renders sensibly.
+          const msgPersona = msg.metadata?.sender_persona ?? 'shop'
+          const isMine = msgPersona === persona
+          return (
+          <div
+            key={msg.id}
+            className={cn('flex gap-2.5 group', isMine ? 'flex-row-reverse' : 'flex-row')}
+          >
             {/* Avatar */}
-            <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
+            <div
+              className={cn(
+                'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5',
+                isMine
+                  ? 'bg-violet-100 text-violet-700'
+                  : 'bg-brand-100 text-brand-700',
+              )}
+            >
               {getInitials(msg.sender)}
             </div>
 
-            <div className="flex-1 min-w-0">
+            <div className={cn('flex-1 min-w-0', isMine ? 'flex flex-col items-end' : '')}>
               {/* Header */}
-              <div className="flex items-baseline gap-2">
+              <div className={cn('flex items-baseline gap-2', isMine && 'flex-row-reverse')}>
                 <span className="text-xs font-semibold text-foreground">
                   {msg.sender?.full_name ?? msg.sender?.email ?? 'Unknown'}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {msgPersona === 'owner' ? 'Owner' : 'Shop'}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
                   {formatDateTime(msg.created_at)}
                 </span>
               </div>
 
-              {/* Content */}
+              {/* Content — tinted bubble that pops on the viewer's own
+                  side. Subtle background-color difference avoids the
+                  "yet another chat app" look while still being clear. */}
               {msg.content && (
-                <p className="text-sm text-foreground mt-0.5 whitespace-pre-wrap break-words">
+                <p
+                  className={cn(
+                    'mt-0.5 whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-snug max-w-[88%]',
+                    isMine
+                      ? 'bg-violet-50 text-violet-950 border border-violet-100'
+                      : 'bg-slate-50 text-foreground border border-slate-100',
+                  )}
+                >
                   {msg.content}
                 </p>
               )}
 
               {/* Attachments */}
               {msg.attachments && msg.attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
+                <div className={cn('flex flex-wrap gap-2 mt-2', isMine && 'justify-end')}>
                   {msg.attachments.map((att, idx) => (
                     <AttachmentPreview
                       key={idx}
@@ -621,7 +652,7 @@ export function WoChatTimeline({
               )}
             </div>
           </div>
-        ))}
+        )})}
         <div ref={bottomRef} />
       </div>
 
