@@ -55,23 +55,29 @@ const SECTIONS: Array<{ name: string; table: string; filter: 'user_id' | 'trigge
 
 export async function fulfilGdprExport(args: {
   supabase: SupabaseClient
-  /** The user whose data we're exporting — MUST be auth.uid() of the requester. */
+  /** The user whose data we're exporting — MUST equal requesterId. */
   userId: string
-  /** Auth uid of the requester (for audit). Defaults to userId. */
-  requesterId?: string
+  /**
+   * Auth uid of the actual API caller. REQUIRED. We fail closed if it
+   * doesn't match userId — a previous optional signature meant a
+   * caller that forgot to plumb the requesterId would bypass the check
+   * entirely and export any user's data.
+   */
+  requesterId: string
 }): Promise<{ ok: boolean; output?: ExportFulfilmentOutput; runId?: string; error?: string }> {
   return runAgent<ExportFulfilmentOutput>(
     'compliance.gdpr-export-fulfilment',
     {
       supabase: args.supabase,
       input: { user_id: args.userId },
-      triggeredBy: args.requesterId ?? args.userId,
+      triggeredBy: args.requesterId,
       target: { kind: 'user', id: args.userId },
     },
     async () => {
-      // Self-export only — never let one user export another's data via
-      // this agent. The caller layer enforces this; we double-check.
-      if (args.requesterId && args.requesterId !== args.userId) {
+      // Self-export only — fail closed if requester != target. Note we
+      // do NOT short-circuit on `args.requesterId && ...` — a missing
+      // requesterId is now a type error at the call site (required field).
+      if (args.requesterId !== args.userId) {
         return {
           output: {
             user_id: args.userId,

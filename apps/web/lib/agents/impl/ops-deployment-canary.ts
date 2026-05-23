@@ -40,12 +40,47 @@ const PROBES = [
   { path: '/api/ping', expect: 200 },
 ] as const
 
+/**
+ * Allowlist of origin prefixes the canary is permitted to probe. We
+ * deliberately do NOT accept a caller-supplied origin — that would
+ * open an SSRF on the service-role-running cron route (an attacker
+ * could trick the canary into hitting 169.254.169.254 / internal
+ * services). The origin comes only from env vars set at deploy time.
+ */
+function resolveTrustedOrigin(): string {
+  const env =
+    process.env.CANARY_ORIGIN_OVERRIDE ??
+    process.env.PUBLIC_APP_ORIGIN ??
+    ''
+  if (!env) return ''
+  let url: URL
+  try {
+    url = new URL(env)
+  } catch {
+    return ''
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return ''
+  // Reject obvious metadata / loopback / RFC1918 etc.
+  const host = url.hostname
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host === '169.254.169.254' ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    return ''
+  }
+  return `${url.protocol}//${url.host}`
+}
+
 export async function runDeploymentCanary(args: {
   supabase: SupabaseClient
-  /** Override origin for staging probes. */
-  origin?: string
 }): Promise<{ ok: boolean; output?: CanaryReport; runId?: string; error?: string }> {
-  const origin = args.origin ?? process.env.PUBLIC_APP_ORIGIN ?? ''
+  const origin = resolveTrustedOrigin()
   return runAgent<CanaryReport>(
     'ops.deployment-canary',
     {

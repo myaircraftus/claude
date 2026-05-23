@@ -17,6 +17,12 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { guardPromptInjection } from './safety-prompt-injection-guard'
+
+/** Cap body size before sending to the LLM. Keeps prompts bounded AND
+ *  reduces the surface area for an attacker hiding instructions deep
+ *  in a long body. */
+const MAX_BODY_CHARS = 4000
 
 export interface BugRepro {
   ticket_id: string
@@ -72,9 +78,36 @@ export async function triageBugTicket(args: {
       target: { kind: 'support_ticket', id: args.ticketId },
     },
     async (logger) => {
+      // Cap body BEFORE running the injection guard or LLM. Anything past
+      // ~4KB in a bug report is almost always pasted logs / attack payload.
+      const cappedSubject = args.subject.slice(0, 240)
+      const cappedBody = args.body.slice(0, MAX_BODY_CHARS)
+      // Run the prompt-injection guard. On 'blocked', do NOT forward the
+      // text to the LLM — fall back to the heuristic + tag the rec.
+      const guardRes = await guardPromptInjection({
+        supabase: args.supabase,
+        text: `${cappedSubject}\n${cappedBody}`,
+        source: { kind: 'support_ticket', id: args.ticketId },
+      })
+      const guardVerdict = guardRes.output?.verdict ?? 'safe'
+      if (guardVerdict === 'blocked') {
+        const repro = heuristic(args.ticketId, cappedSubject, cappedBody)
+        return {
+          output: repro,
+          needsHuman: true,
+          recommendation: {
+            kind: 'bug_repro_drafted',
+            repro,
+            source: 'heuristic',
+            prompt_injection_suspected: true,
+            guard_score: guardRes.output?.score ?? 0,
+          },
+        }
+      }
+
       const apiKey = process.env.OPENAI_API_KEY
       if (!apiKey) {
-        const repro = heuristic(args.ticketId, args.subject, args.body)
+        const repro = heuristic(args.ticketId, cappedSubject, cappedBody)
         return {
           output: repro,
           needsHuman: true,
@@ -101,7 +134,7 @@ export async function triageBugTicket(args: {
               },
               {
                 role: 'user',
-                content: `SUBJECT:\n${args.subject}\n\nBODY:\n${args.body}`,
+                content: `SUBJECT:\n${cappedSubject}\n\nBODY:\n${cappedBody}`,
               },
             ],
             response_format: { type: 'json_object' },
@@ -109,7 +142,7 @@ export async function triageBugTicket(args: {
           signal: AbortSignal.timeout(5000),
         })
         if (!res.ok) {
-          const fallback = heuristic(args.ticketId, args.subject, args.body)
+          const fallback = heuristic(args.ticketId, cappedSubject, cappedBody)
           return {
             output: fallback,
             needsHuman: true,
@@ -141,7 +174,7 @@ export async function triageBugTicket(args: {
           browser: parsed.browser ?? null,
           route: parsed.route ?? null,
           persona,
-          action: (parsed.action ?? args.subject).slice(0, 400),
+          action: (parsed.action ?? cappedSubject).slice(0, 400),
           expected: parsed.expected ?? null,
           actual: parsed.actual ?? null,
           severity,
@@ -150,10 +183,15 @@ export async function triageBugTicket(args: {
         return {
           output: repro,
           needsHuman: true,
-          recommendation: { kind: 'bug_repro_drafted', repro, source: 'llm' },
+          recommendation: {
+            kind: 'bug_repro_drafted',
+            repro,
+            source: 'llm',
+            guard_verdict: guardVerdict,
+          },
         }
       } catch (err) {
-        const fallback = heuristic(args.ticketId, args.subject, args.body)
+        const fallback = heuristic(args.ticketId, cappedSubject, cappedBody)
         return {
           output: fallback,
           needsHuman: true,

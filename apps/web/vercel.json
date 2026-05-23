@@ -149,6 +149,18 @@
     {
       "path": "/api/cron/audit-event-watchdog",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/aircraft-year-backfill",
+      "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/cron/review-request-timer",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/dpa-anniversary",
+      "schedule": "0 9 * * *"
     }
   ],
   "headers": [

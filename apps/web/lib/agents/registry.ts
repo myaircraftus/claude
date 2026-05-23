@@ -187,14 +187,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'data-quality.aircraft-year-backfiller',
     label: 'Aircraft.year backfiller',
     purpose:
-      'For every aircraft.year IS NULL row, query the FAA Civil Aviation Registry by N-number / serial and propose a year. Founder approves before it commits.',
+      'Weekly Sunday 05:00 UTC. For aircraft with year IS NULL, proposes a year from serial-number 4-digit prefix or earliest logbook entry_date. Founder approves before commit. Live FAA Civil Aviation Registry lookup is a follow-on agent.',
     category: 'data-quality',
     trigger: 'cron',
-    cron_schedule: '0 5 * * 0', // Sunday 05:00
-    status: 'proposed',
+    cron_schedule: '0 5 * * 0',
+    status: 'active',
     recommended_provider: 'none',
-    recommended_model: 'http-only',
-    writes: false, // proposes only
+    recommended_model: 'sql-only',
+    writes: false,
+    reference: 'lib/agents/impl/data-quality-aircraft-year-backfiller.ts',
   },
 
   // ── RAG
@@ -358,13 +359,14 @@ export const AGENTS: AgentDefinition[] = [
     id: 'sales.lead-prep',
     label: 'Lead prep brief',
     purpose:
-      'When a new shop signs up for a trial, generate a 1-pager brief for the founder with their fleet size, FAA registration data, and likely questions.',
+      'Event-triggered on new trial signup. Assembles 1-pager brief: aircraft + first-24h launcher questions + document count + segment (solo / multi / shop / fleet) + 3 suggested demo questions. Pure SQL.',
     category: 'sales',
     trigger: 'event_trigger',
-    status: 'proposed',
-    recommended_provider: 'openai',
-    recommended_model: 'gpt-4o',
+    status: 'active',
+    recommended_provider: 'none',
+    recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/sales-lead-prep.ts',
   },
 
   // ── INGESTION + KNOWLEDGE (proposed)
@@ -555,14 +557,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'compliance.dpa-anniversary-reviewer',
     label: 'DPA anniversary reviewer',
     purpose:
-      'Tracks every signed DPA and its 12-month re-review date. 30 / 7 / 0 day notifications. Pulls the live sub-processor list and diffs against the customer\'s last-signed copy.',
+      'Daily 09:00 UTC. Tracks signed DPAs and their 12-month re-review date. 30/7/0/overdue notifications. Tolerant of an absent dpa_signatures table — no-ops cleanly. Sub-processor diff is a follow-on.',
     category: 'compliance',
     trigger: 'cron',
     cron_schedule: '0 9 * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/compliance-dpa-anniversary-reviewer.ts',
   },
   {
     id: 'compliance.iso-evidence-collector',
@@ -668,14 +671,15 @@ export const AGENTS: AgentDefinition[] = [
     id: 'sales.review-request-timer',
     label: 'Review request timer',
     purpose:
-      'When a customer has used the platform for 30 days, has ≥3 aircraft, and has a green NPS, schedule a Trustpilot review request from their account email.',
+      'Daily 11:00 UTC. Identifies orgs ≥30d active, ≥3 aircraft, ≥1 logbook entry, NO negative feedback in last 30d, NO review request in last 6 months. Founder picks 1-2 per week to ask — agent never auto-sends.',
     category: 'sales',
     trigger: 'cron',
     cron_schedule: '0 11 * * *',
-    status: 'proposed',
+    status: 'active',
     recommended_provider: 'none',
     recommended_model: 'sql-only',
     writes: false,
+    reference: 'lib/agents/impl/sales-review-request-timer.ts',
   },
 
   // ── RAG (proposed)
