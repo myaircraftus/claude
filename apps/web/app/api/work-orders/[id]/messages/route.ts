@@ -119,7 +119,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       artifact_type: 'work_order',
       artifact_id: wo.id,
       metadata: body.metadata ?? {},
-      attachments: body.attachments ?? null,
+      // thread_messages.attachments is NOT NULL with default '[]'::jsonb.
+      attachments: body.attachments ?? [],
       created_by: ctx.user.id,
     })
     .select(`

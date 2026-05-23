@@ -115,7 +115,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Tag the message so the shop UI can distinguish "from owner" vs
       // "from mechanic" — thread_messages itself doesn't carry persona.
       metadata: { ...(body?.metadata ?? {}), sender_persona: 'owner' },
-      attachments: attachments.length > 0 ? attachments : null,
+      // thread_messages.attachments is NOT NULL with default '[]'::jsonb
+      // — passing null explicitly trips the constraint.
+      attachments: attachments,
       created_by: ctx.userId,
     })
     .select(
