@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Loader2, Send, Inbox, Receipt, FileText, Bell, Mail, MessageSquare, Sparkles, CircleAlert } from 'lucide-react'
+import { Loader2, Send, Inbox, Receipt, FileText, Bell, Mail, MessageSquare, Sparkles, CircleAlert, Check } from 'lucide-react'
+import { toast } from 'sonner'
 
 type Filter = 'all' | 'unread' | 'receipt' | 'estimate' | 'invoice' | 'reminder'
 
@@ -54,6 +55,9 @@ interface MessageApi {
   read_at: string | null
   created_at: string
   related_work_order_id: string | null
+  related_expense_id?: string | null
+  related_estimate_id?: string | null
+  related_invoice_id?: string | null
 }
 
 const FILTERS: Array<{ id: Filter; label: string; icon: typeof Inbox }> = [
@@ -123,6 +127,21 @@ export function InboxClient({
   )
 
   const lastInbound = messages.findLast((m) => m.direction === 'inbound')
+
+  async function handleApprove(messageId: string) {
+    const res = await fetch('/api/inbox/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: messageId }),
+    })
+    if (res.ok) {
+      toast.success('Approved')
+      if (selectedKey) void openThread(selectedKey)
+    } else {
+      const err = await res.text()
+      toast.error(`Approve failed: ${err.slice(0, 80)}`)
+    }
+  }
 
   async function handleReply() {
     if (!composeBody.trim() || sending) return
@@ -332,6 +351,42 @@ export function InboxClient({
                           {m.attachments.map((a) => a.filename ?? 'file').join(', ')}
                         </div>
                       )}
+                      {/* AI-drafted artifact actions — inline approve buttons
+                          for messages where the extractor agent already
+                          drafted a row (cost_entries / estimates / invoices).
+                          Owner/mechanic approves in-place; never has to leave
+                          the inbox. */}
+                      {!mine &&
+                        (m.related_expense_id ||
+                          m.related_estimate_id ||
+                          m.related_invoice_id) && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(m.id)}
+                              className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-2.5 py-1 text-[11px] font-semibold"
+                            >
+                              <Check className="w-3 h-3" />
+                              Approve {m.related_expense_id
+                                ? 'expense'
+                                : m.related_estimate_id
+                                  ? 'estimate'
+                                  : 'invoice'}
+                            </button>
+                            <a
+                              href={
+                                m.related_expense_id
+                                  ? '/economics'
+                                  : m.related_estimate_id
+                                    ? `/estimates`
+                                    : `/invoices`
+                              }
+                              className="text-[11px] text-violet-700 hover:underline"
+                            >
+                              open full record
+                            </a>
+                          </div>
+                        )}
                     </div>
                   </div>
                 )

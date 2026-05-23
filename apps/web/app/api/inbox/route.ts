@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const service = createServiceSupabase()
   let q = service
     .from('inbox_messages')
-    .select('id, source, direction, from_addr, to_addr, subject, body_text, classified_as, classify_confidence, thread_key, read_at, created_at, related_work_order_id')
+    .select('id, source, direction, from_addr, to_addr, subject, body_text, classified_as, classify_confidence, thread_key, read_at, created_at, related_work_order_id, related_expense_id, related_estimate_id, related_invoice_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(limit)
