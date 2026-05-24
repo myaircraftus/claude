@@ -17,6 +17,7 @@ import {
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { ImageWithFallback } from "./ImageWithFallback";
 import { MyAircraftLogo } from "./MyAircraftLogo";
+import { ProductPreview } from "./ProductPreview";
 import {
   MaPlane, MaWrench, MaStore, MaChart, MaBook, MaDatabase, MaFileCheck,
   MaMessage, MaUserCheck, MaShield, MaUsers, MaLock, MaZap, MaStar,
@@ -757,6 +758,9 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
           </FadeIn>
         </div>
       </section>
+
+      {/* ══════════════ SEE IT IN ACTION (product preview tabs) ══════════════ */}
+      <ProductPreview />
 
       {/* ══════════════ WHO IT'S FOR ══════════════ */}
       <section className="relative bg-gradient-to-b from-white to-[#F8FAFF] py-24 border-t border-gray-100 overflow-hidden">
