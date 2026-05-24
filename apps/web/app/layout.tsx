@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   description:
     'Aviation-specific AI records intelligence platform. Upload logbooks, POHs, maintenance manuals, and get citation-backed answers from your own records.',
   keywords: [
+    // Core product
     'aircraft logbook software',
     'aviation maintenance tracking',
     'AD compliance',
@@ -20,6 +21,28 @@ export const metadata: Metadata = {
     'FAA records',
     'annual inspection software',
     '100-hour inspection',
+    // Competitor-displacement
+    'CAMP alternative',
+    'FlightDocs alternative',
+    'Veryon alternative',
+    'best aircraft maintenance software',
+    // High-intent ownership queries
+    'aircraft annual inspection cost',
+    'aircraft pre-purchase inspection',
+    'cost of aircraft ownership',
+    'Cessna 172 maintenance cost',
+    'Cessna 182 ADs',
+    'FAR 91.409',
+    'FAR 91.411',
+    'FAR 91.413',
+    'transponder check FAA',
+    'pitot static check',
+    // Workflow / persona
+    'A&P shop software',
+    'A&P work order software',
+    'aircraft owner portal',
+    'AI logbook reader',
+    'aircraft pre-buy checklist',
   ],
   metadataBase: new URL('https://www.myaircraft.us'),
   alternates: { canonical: 'https://www.myaircraft.us' },
@@ -97,9 +120,23 @@ export default function RootLayout({
     '@type': 'SoftwareApplication',
     name: 'myaircraft.us',
     applicationCategory: 'BusinessApplication',
+    applicationSubCategory: 'Aviation Maintenance Software',
     operatingSystem: 'Web, iOS, Android',
     description:
       'AI-powered aircraft records intelligence platform for owners, A&P mechanics, and IAs. Logbook scanning, AD compliance tracking, work-order management, and citation-backed AI search across every record on file.',
+    featureList: [
+      'AI logbook ingestion (PDF + scanned + handwritten)',
+      'Citation-backed answers — every claim links to the source page',
+      'FAA AD database auto-cross-checked against your tail',
+      'Pre-buy / pre-annual digital checklist',
+      'A&P work-order management with timer + checklist',
+      'Owner ↔ mechanic chat in-app',
+      'Calendar-month deadline tracking (91.409 / 91.411 / 91.413)',
+    ],
+    audience: {
+      '@type': 'Audience',
+      audienceType: 'Aircraft Owners and A&P Mechanics',
+    },
     offers: {
       '@type': 'Offer',
       price: '0',
