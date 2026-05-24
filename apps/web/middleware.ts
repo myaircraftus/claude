@@ -147,6 +147,7 @@ function isAppRoute(pathname: string): boolean {
     '/org',
     '/owner-documents',
     '/parts',
+    '/parts-inventory',
     '/procedures',
     '/profile',
     '/purchase-orders',
