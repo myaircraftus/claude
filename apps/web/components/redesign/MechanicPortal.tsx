@@ -1085,18 +1085,52 @@ export function MechanicPortal() {
                 </div>
               </div>
 
-              {/* Active Work Order — link straight into rich tabbed WO detail */}
+              {/* Active Work Order — wired to real DataStore. Picks the
+                  most recently opened non-closed WO on this tail. Used to
+                  fall back to a hardcoded { wo: "WO-2026-0042", desc: "Nav
+                  light intermittent…" } mock that wasn't tied to the real
+                  demo data. */}
               {(() => {
-                // Pull anything we know about this tail's active WO from
-                // both the live + mocked sets so the click always goes
-                // somewhere useful.
                 const acLiveWO = liveWOs.find((w) => w.tail === ac.tail);
-                const ASSIGNED_MOCK_WOS = [
-                  { wo: "WO-2026-0047", tail: "N67890", desc: "Left brake caliper R&R — piston binding", status: "In Progress", progress: 45 },
-                  { wo: "WO-2026-0042", tail: "N12345", desc: "Nav light intermittent — wire repair at wing root", status: "Awaiting Approval", progress: 70 },
-                ] as const;
-                const acMockWO = ASSIGNED_MOCK_WOS.find((w) => w.tail === ac.tail);
-                const activeWo = acLiveWO ?? acMockWO ?? null;
+                const NON_CLOSED = new Set([
+                  "Draft", "Open", "In Progress", "Awaiting Parts",
+                  "Awaiting Approval", "Waiting Customer", "Ready for Signoff",
+                ]);
+                const dataStoreWO = [...workOrders]
+                  .filter((wo) => wo.aircraft === ac.tail && NON_CLOSED.has(wo.status))
+                  .sort(
+                    (a, b) =>
+                      new Date(b.openedDate || 0).getTime() -
+                      new Date(a.openedDate || 0).getTime(),
+                  )[0];
+
+                type ActiveDisplay = {
+                  wo: string;
+                  desc: string;
+                  status: string;
+                  progress: number;
+                  id?: string;
+                };
+
+                const activeWo: ActiveDisplay | null =
+                  acLiveWO
+                    ? {
+                        wo: acLiveWO.wo,
+                        desc: acLiveWO.desc,
+                        status: acLiveWO.status,
+                        progress: acLiveWO.progress,
+                        id: acLiveWO.id,
+                      }
+                    : dataStoreWO
+                      ? {
+                          wo: dataStoreWO.woNumber || dataStoreWO.id.slice(0, 8).toUpperCase(),
+                          desc: dataStoreWO.serviceType || dataStoreWO.squawk || dataStoreWO.discrepancy || "Active work order",
+                          status: dataStoreWO.status,
+                          progress: Number(dataStoreWO.progress ?? 0),
+                          id: dataStoreWO.id,
+                        }
+                      : null;
+
                 if (!activeWo) {
                   return (
                     <div className="bg-white rounded-xl border border-dashed border-border p-5 text-center text-[12px] text-muted-foreground">
@@ -1104,8 +1138,8 @@ export function MechanicPortal() {
                     </div>
                   );
                 }
-                const woProgress = "progress" in activeWo ? activeWo.progress : 0;
-                const woId = "id" in activeWo ? activeWo.id : null;
+                const woProgress = activeWo.progress;
+                const woId = activeWo.id;
                 return (
                   <div className="bg-white rounded-xl border border-border overflow-hidden">
                     <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -1147,21 +1181,40 @@ export function MechanicPortal() {
                   <span className="text-[11px] text-muted-foreground">Work orders &amp; invoices</span>
                 </div>
                 {(() => {
-                  // Mock per-month rollup keyed off the tail so each aircraft
-                  // gets a different shape. Real data wires in via
-                  // /api/aircraft/[id]/history later — UI placeholder for now.
-                  const seed = ac.tail.charCodeAt(ac.tail.length - 1);
+                  // Real per-month rollup of work orders + invoices for this
+                  // tail over the trailing 12 months. Used to be a seed-derived
+                  // mock keyed off ac.tail.charCodeAt() so each aircraft showed
+                  // the same fake shape regardless of actual activity.
+                  const now = new Date();
                   const months = Array.from({ length: 12 }, (_, i) => {
-                    const wos = ((seed + i * 3) % 5) + (i === 11 ? 2 : 0);
-                    const inv = ((seed * 11 + i * 7) % 9000) + 200;
-                    const d = new Date();
-                    d.setMonth(d.getMonth() - (11 - i));
+                    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
                     return {
                       key: d.toLocaleDateString("en-US", { month: "short" }),
-                      wos,
-                      inv,
+                      year: d.getFullYear(),
+                      month: d.getMonth(),
+                      wos: 0,
+                      inv: 0,
                     };
                   });
+
+                  function bucketFor(dateStr: string | undefined | null) {
+                    if (!dateStr) return null;
+                    const d = new Date(dateStr);
+                    if (Number.isNaN(d.getTime())) return null;
+                    return months.find((m) => m.year === d.getFullYear() && m.month === d.getMonth());
+                  }
+
+                  for (const wo of workOrders) {
+                    if (wo.aircraft !== ac.tail) continue;
+                    const m = bucketFor(wo.openedDate || wo.closedDate);
+                    if (m) m.wos += 1;
+                  }
+                  for (const inv of invoices) {
+                    if (inv.aircraft !== ac.tail) continue;
+                    const m = bucketFor(inv.issuedDate);
+                    if (m) m.inv += Number(inv.total ?? 0);
+                  }
+
                   const maxWO = Math.max(1, ...months.map((m) => m.wos));
                   const totalInv = months.reduce((s, m) => s + m.inv, 0);
                   return (
