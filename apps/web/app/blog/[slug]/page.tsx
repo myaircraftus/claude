@@ -16,7 +16,11 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 
   const url = `https://www.myaircraft.us/blog/${post.slug}`
   return {
-    title: `${post.title} · myaircraft.us`,
+    // The root layout template appends " | myaircraft.us", so we only emit the
+    // post title here. Previously this read "${post.title} · myaircraft.us"
+    // and the template tacked on another " | myaircraft.us" — the rendered
+    // <title> double-suffixed as "… · myaircraft.us | myaircraft.us".
+    title: post.title,
     description: post.excerpt,
     alternates: { canonical: url },
     openGraph: {
