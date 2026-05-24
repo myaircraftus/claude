@@ -838,10 +838,28 @@ export function MechanicPortal() {
   };
 
   // ─── New Invoice creation ─────────────────────────────────────
-  const WOS_FOR_INV = [
-    { wo: "WO-2026-0047", tail: "N67890", model: "Piper PA-28-181", customer: "Horizon Flights Inc.", email: "ops@horizonflights.com", phone: "(512) 555-0289" },
-    { wo: "WO-2026-0042", tail: "N12345", model: "Cessna 172S", customer: "John Mitchell", email: "john@mitchellaviation.com", phone: "(512) 555-0147" },
-  ];
+  // Was a hardcoded prototype array of WO-2026-0047 / WO-2026-0042
+  // pointing at fake customers (Horizon Flights, John Mitchell). Now
+  // derived from the real DataStore workOrders so handleCreateInvoice
+  // pre-fills with actual rows. Fall back to a one-element placeholder
+  // when the store is empty so the modal still opens.
+  const WOS_FOR_INV = useMemo(
+    () => {
+      if (workOrders.length === 0) return [];
+      return workOrders.slice(0, 8).map((wo) => {
+        const ac = ASSIGNED_AIRCRAFT.find((a) => a.tail === wo.aircraft);
+        return {
+          wo: wo.woNumber || wo.id.slice(0, 8).toUpperCase(),
+          tail: wo.aircraft,
+          model: ac?.model ?? "",
+          customer: wo.customer || ac?.customer || "",
+          email: "",
+          phone: "",
+        };
+      });
+    },
+    [workOrders, ASSIGNED_AIRCRAFT],
+  );
 
   const handleCreateInvoice = () => {
     const invNum = `INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
@@ -4078,8 +4096,22 @@ export function MechanicPortal() {
                       <p className="text-[13px] text-muted-foreground">AI will read the work order scope, parts, and notes to generate a maintenance logbook entry.</p>
                       <select value={selectedWOForLB} onChange={(e) => setSelectedWOForLB(e.target.value)}
                         className="w-full border-2 border-border rounded-xl px-4 py-3 text-[14px] outline-none focus:border-primary transition-all bg-white" style={{ fontWeight: 500 }}>
-                        <option value="WO-2026-0047">WO-2026-0047 — N67890 — Left brake caliper R&R</option>
-                        <option value="WO-2026-0042">WO-2026-0042 — N12345 — Nav light wire repair</option>
+                        {/* Was a hardcoded list of WO-2026-0047 + WO-2026-0042;
+                            now lists real workOrders from DataStore. Falls
+                            back to a placeholder when no work orders exist. */}
+                        {workOrders.length === 0 ? (
+                          <option value="">No work orders yet — create one first</option>
+                        ) : (
+                          workOrders.slice(0, 20).map((wo) => {
+                            const num = wo.woNumber || wo.id.slice(0, 8).toUpperCase()
+                            const desc = wo.serviceType || wo.squawk || wo.discrepancy || "Work order"
+                            return (
+                              <option key={wo.id} value={num}>
+                                {num} — {wo.aircraft} — {desc.slice(0, 50)}
+                              </option>
+                            )
+                          })
+                        )}
                       </select>
                       <button onClick={handleGenerateLogbook} className="w-full flex items-center justify-center gap-2 bg-primary text-white py-3.5 rounded-xl text-[14px] hover:bg-primary/90 transition-colors" style={{ fontWeight: 600 }}>
                         <Sparkles className="w-4 h-4" /> Generate with AI
