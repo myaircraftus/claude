@@ -15,6 +15,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   if (!post) return { title: 'Post Not Found' }
 
   const url = `https://www.myaircraft.us/blog/${post.slug}`
+  // Next.js auto-discovers app/blog/[slug]/opengraph-image.tsx and emits its
+  // generated PNG as the og:image. We deliberately do NOT set openGraph.images
+  // here — the previous code pointed at post.coverImage paths that didn't
+  // exist on disk (e.g. /blog/maintenance-software-comparison.jpg), so social
+  // previews showed a broken image. The dynamic OG generator is the source of
+  // truth for blog post social previews now.
   return {
     // The root layout template appends " | myaircraft.us", so we only emit the
     // post title here. Previously this read "${post.title} · myaircraft.us"
@@ -30,13 +36,11 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       type: 'article',
       publishedTime: post.publishedAt,
       authors: post.authorName ? [post.authorName] : undefined,
-      images: post.coverImage ? [{ url: post.coverImage }] : undefined,
     },
     twitter: {
       card: 'summary_large_image',
       title: post.title,
       description: post.excerpt,
-      images: post.coverImage ? [post.coverImage] : undefined,
     },
   }
 }
@@ -112,6 +116,43 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
     ],
   }
 
+  // FAQPage JSON-LD — emitted for posts that are structured as Q&A. Eligible
+  // for the FAQ rich result on Google SERPs (the expandable Q&A cards that
+  // appear directly under the title). Hardcoded keyed by slug — much simpler
+  // than parsing the MDX for question-style headings.
+  const FAQ_BY_SLUG: Record<string, Array<{ q: string; a: string }>> = {
+    'far-91-409-411-413-explained': [
+      {
+        q: "I'm VFR-only — do I really need the transponder check?",
+        a: "Yes, if a transponder is installed. FAR 91.413 attaches to the transponder being installed, not to the flight rules you fly under.",
+      },
+      {
+        q: 'We let the annual lapse by 8 days — does the prior annual still count?',
+        a: 'No. The aircraft is non-airworthy starting on the first day of the month after the inspection month ended. There is no grace period in FAR 91.409. You would need a ferry permit to fly to a shop for a new annual.',
+      },
+      {
+        q: 'My 91.411 is good through October but my 91.413 expired in July — can I fly IFR?',
+        a: "No. You also can't fly with the transponder turned on under any flight rules. Realistically, you can't fly an aircraft with a transponder installed at all until 91.413 is current. (You can request the transponder be physically removed and the panel placarded INOP, but that's rare.)",
+      },
+      {
+        q: 'The shop signed only one logbook entry covering both 91.411 and 91.413 — is that OK?',
+        a: 'Yes. Combined entries are standard practice as long as they clearly cite both regs, the test results, and the repair-station certificate number. The IA at next annual will look for both — make sure both are mentioned by name.',
+      },
+    ],
+  }
+  const faqs = FAQ_BY_SLUG[post.slug]
+  const faqLd = faqs && faqs.length > 0
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqs.map((f) => ({
+          '@type': 'Question',
+          name: f.q,
+          acceptedAnswer: { '@type': 'Answer', text: f.a },
+        })),
+      }
+    : null
+
   return (
     <PublicLayout>
       <script
@@ -122,6 +163,12 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
+      {faqLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        />
+      )}
       <article className="max-w-3xl mx-auto px-6 py-16">
         <Link
           href="/blog"
