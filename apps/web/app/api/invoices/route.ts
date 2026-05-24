@@ -339,7 +339,22 @@ export async function POST(req: NextRequest) {
     }))
 
     const { error: lineErr } = await supabase.from('invoice_line_items').insert(itemsToInsert)
-    if (lineErr) console.error('Failed to insert invoice line items:', lineErr.message)
+    if (lineErr) {
+      // Previously we logged-and-continued, which left the caller with a
+      // 201 + an invoice that had no line items — silently broken. Roll
+      // back the parent invoice and surface 500 so the UI shows an error
+      // and the caller can retry.
+      console.error('[invoices] line items insert failed; rolling back invoice:', lineErr.message)
+      await supabase
+        .from('invoices')
+        .delete()
+        .eq('id', invoice.id)
+        .eq('organization_id', orgId)
+      return NextResponse.json(
+        { error: 'Failed to save invoice line items', detail: lineErr.message },
+        { status: 500 },
+      )
+    }
   }
 
   if (depositCredit > 0 && estimate_id) {

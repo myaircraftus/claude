@@ -78,7 +78,11 @@ export async function middleware(request: NextRequest) {
   // Redirect old bookmarks to the new URL.
   if (effectivePathname === '/communications' || effectivePathname.startsWith('/communications/')) {
     const url = request.nextUrl.clone()
-    url.pathname = effectivePathname.replace('/communications', '/messages')
+    // Anchor the replacement to the start of the path so we don't
+    // accidentally rewrite a literal "/communications" string later in
+    // a path like /foo/communications-archive (currently impossible but
+    // defensive).
+    url.pathname = effectivePathname.replace(/^\/communications/, '/messages')
     return NextResponse.redirect(url, 301)
   }
 
@@ -117,7 +121,7 @@ function isAppRoute(pathname: string): boolean {
     '/ask',
     '/ask-logbook-ai',
     '/clock',
-    '/communications',
+    // /communications removed — handled by the 301 redirect above
     '/compliance',
     '/messages',
     '/continued',
