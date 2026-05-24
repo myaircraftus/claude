@@ -448,7 +448,7 @@ function EmptyInbox({ inboxEmail }: { inboxEmail: string | null }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pathname: '/communications',
+          pathname: '/messages',
           persona: 'owner',
           resource: 'inbox',
         }),

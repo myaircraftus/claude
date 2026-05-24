@@ -385,7 +385,7 @@ export function UnifiedLauncher({
                   type="button"
                   onClick={() => {
                     setOpen(false)
-                    router.push('/communications')
+                    router.push('/messages')
                   }}
                   className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-md px-4 py-2 transition-colors"
                 >

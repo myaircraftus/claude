@@ -72,6 +72,16 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse
   }
 
+  // /communications was renamed to /messages because the apex CDN
+  // cached a 404 for it during the failed wave-15..18 deploy streak
+  // and the stuck cache wasn't busting on subsequent successful builds.
+  // Redirect old bookmarks to the new URL.
+  if (effectivePathname === '/communications' || effectivePathname.startsWith('/communications/')) {
+    const url = request.nextUrl.clone()
+    url.pathname = effectivePathname.replace('/communications', '/messages')
+    return NextResponse.redirect(url, 301)
+  }
+
   // Protect app routes
   if (effectivePathname.startsWith('/(app)') || isAppRoute(effectivePathname)) {
     if (!user) {
@@ -109,6 +119,7 @@ function isAppRoute(pathname: string): boolean {
     '/clock',
     '/communications',
     '/compliance',
+    '/messages',
     '/continued',
     '/costs',
     '/customers',

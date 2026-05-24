@@ -1,5 +1,5 @@
 /**
- * /communications — unified email + SMS inbox.
+ * /messages — unified email + SMS inbox.
  *
  * Phase 1 MVP: server-rendered shell + a client component that fetches
  * /api/inbox and /api/inbox/thread/[key]. Filters: All / Unread /

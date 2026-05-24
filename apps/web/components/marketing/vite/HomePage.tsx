@@ -1868,6 +1868,72 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
         </div>
       </section>
 
+      {/* ══════════════ BLOG TEASER (SEO discoverability) ══════════════ */}
+      <section className="bg-white py-24 border-t border-gray-100">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8">
+          <div className="flex items-end justify-between mb-10 gap-6 flex-wrap">
+            <div>
+              <p className="text-[12px] uppercase tracking-widest font-bold text-[#2563EB] mb-2">From the blog</p>
+              <h2 className="text-3xl md:text-4xl font-bold text-[#0A1628] leading-tight">
+                Aviation maintenance guides — backed by real owner data
+              </h2>
+              <p className="text-lg text-gray-600 mt-3 max-w-2xl">
+                Practical, cost-grounded answers to the questions A&Ps actually get asked. Free to read; no signup wall.
+              </p>
+            </div>
+            <Link
+              href="/blog"
+              className="hidden md:inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-[#2563EB] border border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+            >
+              All posts <MaArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                href: "/blog/cessna-172-100-hour-inspection-cost-checklist",
+                tag: "Maintenance",
+                title: "Cessna 172 100-Hour Inspection: Cost Breakdown + Checklist (2026)",
+                excerpt: "$1k-$2.2k typical. The four squawks most likely to land on your discrepancy list, and how to prep your records to shave hours off the bill.",
+              },
+              {
+                href: "/blog/aircraft-logbook-lost-or-damaged-what-to-do",
+                tag: "Records",
+                title: "Lost or Damaged Aircraft Logbooks: The Owner's Recovery Playbook",
+                excerpt: "FAR Part 91 steps, the FAA records package, and how the market actually treats a lost-log airplane (15-55% hit, broker-verified).",
+              },
+              {
+                href: "/blog/best-aircraft-maintenance-software-2026",
+                tag: "Software",
+                title: "Best Aircraft Maintenance Software in 2026: Honest Comparison",
+                excerpt: "CAMP vs FlightDocs vs Veryon vs Aircraft RecordKeeper vs myaircraft.us. Real numbers, no marketing spin.",
+              },
+            ].map((p) => (
+              <Link
+                key={p.href}
+                href={p.href}
+                className="group block rounded-2xl border border-gray-200 p-6 hover:border-[#2563EB] hover:shadow-md transition-all"
+              >
+                <span className="inline-block text-[11px] uppercase tracking-widest font-bold text-[#2563EB] mb-3">{p.tag}</span>
+                <h3 className="text-lg font-bold text-[#0A1628] leading-snug mb-2 group-hover:text-[#2563EB] transition-colors">{p.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">{p.excerpt}</p>
+                <span className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#2563EB] group-hover:gap-2 transition-all">
+                  Read more <MaArrowRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+            ))}
+          </div>
+          <div className="mt-10 md:hidden text-center">
+            <Link
+              href="/blog"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-[#2563EB] border border-[#2563EB] hover:bg-[#EFF6FF] transition-colors"
+            >
+              All posts <MaArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ══════════════ FINAL CTA ══════════════ */}
       <section className="py-32 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1d4ed8 0%, #2563EB 40%, #1E3A5F 100%)" }}>
         {/* Decorative dots */}
