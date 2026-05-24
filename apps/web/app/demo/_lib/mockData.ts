@@ -162,6 +162,13 @@ export const demoCustomers = [
     address_state: "CO",
     aircraft_count: 1,
     created_at: "2025-01-08T10:00:00Z",
+    // DataStore unwraps tails via customer.aircraft_customer_assignments[].aircraft.tail_number
+    // — without this the mechanic-portal Owner/Customer panel shows an empty
+    // person icon with no name, because CUSTOMER_BY_TAIL can't match aircraft
+    // to customer.
+    aircraft_customer_assignments: [
+      { aircraft: { tail_number: "N12345" } },
+    ],
   },
   {
     id: "demo-cust-2",
@@ -173,6 +180,9 @@ export const demoCustomers = [
     address_state: "CO",
     aircraft_count: 1,
     created_at: "2024-11-12T10:00:00Z",
+    aircraft_customer_assignments: [
+      { aircraft: { tail_number: "N67890" } },
+    ],
   },
   {
     id: "demo-cust-3",
@@ -184,6 +194,9 @@ export const demoCustomers = [
     address_state: "CO",
     aircraft_count: 1,
     created_at: "2024-08-22T10:00:00Z",
+    aircraft_customer_assignments: [
+      { aircraft: { tail_number: "N4421J" } },
+    ],
   },
   {
     id: "demo-cust-4",
@@ -195,6 +208,9 @@ export const demoCustomers = [
     address_state: "CO",
     aircraft_count: 1,
     created_at: "2025-03-04T10:00:00Z",
+    aircraft_customer_assignments: [
+      { aircraft: { tail_number: "N221MA" } },
+    ],
   },
   {
     id: "demo-cust-5",
@@ -206,6 +222,9 @@ export const demoCustomers = [
     address_state: "CO",
     aircraft_count: 1,
     created_at: "2024-09-30T10:00:00Z",
+    aircraft_customer_assignments: [
+      { aircraft: { tail_number: "N785GT" } },
+    ],
   },
 ];
 
