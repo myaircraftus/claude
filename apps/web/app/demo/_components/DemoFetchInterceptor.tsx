@@ -108,7 +108,11 @@ async function handleApi(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   // ── Aircraft ──────────────────────────────────────────────────
   if (pathname === "/api/aircraft") {
-    if (method === "GET") return json({ aircraft: demoAircraft });
+    // The real /api/aircraft GET handler returns a flat array (NextResponse.json(result)),
+    // not { aircraft: [...] }. DataStore checks Array.isArray(payload), so wrapping
+    // the demo response in an object causes ASSIGNED_AIRCRAFT to be [] and the
+    // Mechanic Portal renders "My Aircraft (0)" + empty cockpit area.
+    if (method === "GET") return json(demoAircraft);
     if (method === "POST") return json({ aircraft: { id: `demo-ac-${Date.now()}`, ...(body ?? {}) } });
   }
   if (pathname.startsWith("/api/aircraft/faa-lookup")) {
