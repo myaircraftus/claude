@@ -75,6 +75,12 @@ export const metadata: Metadata = {
     shortcut: '/redesign/MY_AIRCRAFT_LOGO.svg',
     apple: '/redesign/MY_AIRCRAFT_LOGO.svg',
   },
+  verification: {
+    // Google Search Console URL-prefix property verification for
+    // https://www.myaircraft.us/ (registered under andy@horf.us).
+    // Next.js renders this as <meta name="google-site-verification" />.
+    google: 'FFbICRGhzRpheoR3ulWkydsJUpxx0KKgn7t4GMV2O24',
+  },
 }
 
 export default function RootLayout({
