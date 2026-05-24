@@ -1035,6 +1035,8 @@ export function AskExperience() {
             <button
               onClick={() => handleAsk()}
               disabled={!question.trim() || isLoading}
+              aria-label={isLoading ? "Sending question…" : "Send question"}
+              title={isLoading ? "Sending…" : "Send (Enter)"}
               className="bg-primary text-white px-4 rounded-xl hover:bg-primary/90 transition-colors"
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
