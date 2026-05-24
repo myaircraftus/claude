@@ -1,7 +1,29 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import '@react-pdf-viewer/core/lib/styles/index.css'
 import '@react-pdf-viewer/search/lib/styles/index.css'
+
+/**
+ * Viewport + theme-color metadata. Next.js 14.2+ requires these in a
+ * dedicated `viewport` export (not in the Metadata object) — otherwise
+ * the framework logs a warning and the meta tags don't render.
+ *
+ * Theme color colors:
+ *   - The mobile browser chrome bar (Safari iOS / Chrome Android)
+ *   - The link-preview frame in iMessage / Slack on dark mode
+ *   - The Windows MS-tile background when the site is pinned
+ */
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#0A1628' },
+    { media: '(prefers-color-scheme: dark)', color: '#0A1628' },
+  ],
+  colorScheme: 'light',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: 'cover',
+}
 
 export const metadata: Metadata = {
   title: {
@@ -49,19 +71,50 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'myaircraft.us — AI-powered aircraft records intelligence',
     description:
-      'Upload your logbooks, POHs and maintenance manuals. Ask anything. Get citation-backed answers in seconds.',
+      'Your aircraft\'s entire history — AI-readable, searchable, audit-proof. Upload logbooks, POHs, AD lists. Ask anything. Get citation-backed answers in seconds. Free for individual owners.',
     url: 'https://www.myaircraft.us',
     siteName: 'myaircraft.us',
     type: 'website',
     locale: 'en_US',
-    images: [{ url: '/opengraph-image' }],
+    // Explicit width/height help iMessage, WhatsApp, LinkedIn, Slack
+    // size the link-preview card correctly. The Next.js generator
+    // returns a 1200×630 PNG (the standard Facebook/Twitter card size).
+    images: [
+      {
+        url: '/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'myaircraft.us — AI-powered aircraft records intelligence for owners and A&P mechanics',
+        type: 'image/png',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
+    site: '@myaircraftus',
+    creator: '@myaircraftus',
     title: 'myaircraft.us — AI-powered aircraft records intelligence',
     description:
-      'Upload your logbooks, POHs and maintenance manuals. Ask anything. Get citation-backed answers in seconds.',
+      'Your aircraft\'s entire history — AI-readable, searchable, audit-proof. Free for individual owners.',
     images: ['/opengraph-image'],
+  },
+  // iOS Safari "Add to Home Screen" / iMessage link previews on iPhone
+  // use these app-specific meta tags alongside og:image.
+  appleWebApp: {
+    capable: true,
+    title: 'myaircraft.us',
+    statusBarStyle: 'black-translucent',
+  },
+  manifest: '/manifest.webmanifest',
+  other: {
+    // MS-tile color for Windows pinned-tile icons.
+    'msapplication-TileColor': '#0A1628',
+    // Twitter dnt + content-discovery flags (no harm if Twitter ignores).
+    'twitter:domain': 'myaircraft.us',
+    'twitter:label1': 'Best for',
+    'twitter:data1': 'Aircraft owners + A&P shops',
+    'twitter:label2': 'Pricing',
+    'twitter:data2': 'Free for individual owners',
   },
   robots: {
     index: true,
@@ -70,10 +123,16 @@ export const metadata: Metadata = {
   },
   authors: [{ name: 'Andy Patel' }],
   category: 'aviation maintenance software',
+  // Icons are now auto-discovered from app/icon.tsx (32×32 favicon) and
+  // app/apple-icon.tsx (180×180 Apple touch icon). The SVG logo is still
+  // referenced as a fallback for browsers that prefer SVG icons.
   icons: {
-    icon: '/redesign/MY_AIRCRAFT_LOGO.svg',
-    shortcut: '/redesign/MY_AIRCRAFT_LOGO.svg',
-    apple: '/redesign/MY_AIRCRAFT_LOGO.svg',
+    icon: [
+      { url: '/icon', type: 'image/png', sizes: '32x32' },
+      { url: '/redesign/MY_AIRCRAFT_LOGO.svg', type: 'image/svg+xml' },
+    ],
+    shortcut: '/icon',
+    apple: [{ url: '/apple-icon', sizes: '180x180', type: 'image/png' }],
   },
   verification: {
     // Google Search Console URL-prefix property verification for
