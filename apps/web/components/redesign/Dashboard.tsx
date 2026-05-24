@@ -236,12 +236,39 @@ function createQueueRows(
   return rows.slice(0, 6);
 }
 
-export function Dashboard() {
+export type DashboardPersona = "owner" | "mechanic" | "admin";
+
+interface DashboardProps {
+  /**
+   * Tailors the page heading + subhead. `mechanic` (default) frames the
+   * dashboard as a Shop Command Center for A&P workflow. `owner` frames it
+   * as an aircraft-owner view. `admin` is reserved for the platform admin.
+   */
+  persona?: DashboardPersona;
+}
+
+const PERSONA_COPY: Record<DashboardPersona, { title: string; subhead: string }> = {
+  mechanic: {
+    title: "Dashboard — Shop Command Center",
+    subhead: "Global operating view: current work, approvals, billing, and aircraft risk in one simple place.",
+  },
+  owner: {
+    title: "Dashboard — Your Aircraft Overview",
+    subhead: "Track work orders on your aircraft, approve estimates, view invoices, and stay on top of compliance.",
+  },
+  admin: {
+    title: "Dashboard — Platform Overview",
+    subhead: "Cross-tenant operating view: work, approvals, billing, and aircraft risk across the fleet.",
+  },
+};
+
+export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
   const router = useTenantRouter();
   const { aircraft, workOrders, invoices, estimates, logbookEntries } = useDataStore();
   const [createOpen, setCreateOpen] = useState(false);
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const copy = PERSONA_COPY[persona] ?? PERSONA_COPY.mechanic;
 
   const activeWorkOrders = useMemo(() => workOrders.filter(isActiveWorkOrder), [workOrders]);
   const waitingEstimates = useMemo(() => estimates.filter(isEstimateWaiting), [estimates]);
@@ -378,19 +405,21 @@ export function Dashboard() {
         <section className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <h1 className="text-[34px] font-extrabold leading-none tracking-[0] text-slate-950">
-              Dashboard &mdash; Shop Command Center
+              {copy.title}
             </h1>
             <p className="mt-2 text-[15px] text-slate-500">
-              Global operating view: current work, approvals, billing, and aircraft risk in one simple place.
+              {copy.subhead}
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              href="/costs/intake"
-              className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-[13px] font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
-            >
-              New Intake
-            </Link>
+            {persona !== "owner" && (
+              <Link
+                href="/costs/intake"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-[13px] font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:text-blue-700"
+              >
+                New Intake
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setCreateOpen((value) => !value)}
@@ -523,11 +552,20 @@ export function Dashboard() {
             </div>
           </DashboardPanel>
 
-          <DashboardPanel title="My Assignments" subtitle="Personalized to the logged-in mechanic or lead.">
+          <DashboardPanel
+            title={persona === "owner" ? "My Aircraft Work" : "My Assignments"}
+            subtitle={
+              persona === "owner"
+                ? "Open work, squawks, and approvals on the aircraft you own."
+                : "Personalized to the logged-in mechanic or lead."
+            }
+          >
             <div className="space-y-2">
               {assignmentRows.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 px-5 py-9 text-center text-sm text-slate-400">
-                  No assigned shop work is waiting.
+                  {persona === "owner"
+                    ? "No active work on your aircraft right now."
+                    : "No assigned shop work is waiting."}
                 </div>
               ) : (
                 assignmentRows.map((row) => (
