@@ -21,27 +21,32 @@ import { ArrowRight } from "lucide-react"
  * plain <img> works and we skip the image-domains allowlist dance.
  */
 
+// Use the same Unsplash photo IDs the HomePage already loads at the top of
+// the file (IMG_MECHANIC / IMG_LOGBOOK / IMG_OWNER) — those were hand-picked
+// from search results so they actually depict aviation maintenance scenes.
+// Plus a fourth "pilot at aircraft" photo. The CSP allows img-src 'https:'
+// so plain <img> tags work without configuring next/image remotePatterns.
 const PHOTOS = [
   {
-    // Cessna in a hangar — classic small GA shop scene
-    url: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=1000&q=80&fit=facearea&facepad=2",
-    alt: "Aircraft inside a maintenance hangar",
+    url:
+      "https://images.unsplash.com/photo-1742729251800-2f58d9c91553?auto=format&fit=crop&w=1000&q=80",
+    alt: "Aircraft mechanic working on an engine",
     caption: "Built in the hangar",
     description:
       "Designed with A&P mechanics in real shops — from one-person owner-operations to 30-tech MRO floors.",
   },
   {
-    // Aviation logbook / records photo
-    url: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1000&q=80",
-    alt: "Aviation maintenance documentation and instruments",
+    url:
+      "https://images.unsplash.com/photo-1547717015-67560f10d0a0?auto=format&fit=crop&w=1000&q=80",
+    alt: "Aviation logbook and maintenance records",
     caption: "Every cylinder. Every page.",
     description:
       "Engine logbook, airframe logbook, prop logbook, equipment list, 337s, 8130-3s, AD compliance — one searchable source of truth.",
   },
   {
-    // Single-engine aircraft in flight or on runway
-    url: "https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1000&q=80",
-    alt: "Small general aviation aircraft",
+    url:
+      "https://images.unsplash.com/photo-1686686489494-76caffffe5b5?auto=format&fit=crop&w=1000&q=80",
+    alt: "Pilot walking around their aircraft at a GA airport",
     caption: "From Cessna to Cirrus",
     description:
       "Vintage paper-logbook airframes through brand-new glass-panel composites. If it flies and has records, we manage them.",
