@@ -45,6 +45,7 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'manuals',
   'marketplace',
   'mechanic',
+  'messages',
   'meters',
   'my-aircraft',
   'my-day',
