@@ -107,6 +107,12 @@ export default async function BlogPostOgImage({ params }: { params: { slug: stri
   const title = known?.title ?? titleizeSlug(params.slug)
   const category = known?.category ?? 'Aviation Records'
 
+  // NOTE: Satori (the renderer behind next/og) supports a small subset of
+  // CSS. Stick to display: flex, basic align/justify, padding/margin,
+  // background-color, color, font*. NO inline-flex, NO gap, NO grid,
+  // NO conditional fontSize expressions, NO textTransform on Satori in
+  // some versions. Keep this layout boring and explicit to avoid 500s.
+  const titleFontSize = title.length > 70 ? 48 : title.length > 50 ? 56 : 64
   return new ImageResponse(
     (
       <div
@@ -116,74 +122,34 @@ export default async function BlogPostOgImage({ params }: { params: { slug: stri
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          padding: '72px 80px',
-          background: 'linear-gradient(135deg, #0A1628 0%, #1E3A5F 50%, #2563EB 100%)',
+          padding: 72,
+          background: 'linear-gradient(135deg, #0A1628 0%, #1E3A5F 100%)',
           color: 'white',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontFamily: 'sans-serif',
         }}
       >
-        {/* Top — brand wordmark */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 16,
-              background: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#0A1628',
-              fontSize: 30,
-              fontWeight: 900,
-            }}
-          >
-            m
-          </div>
-          <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>
-            myaircraft.us
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>myaircraft.us</div>
         </div>
 
-        {/* Middle — category pill + title */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignSelf: 'flex-start',
-              padding: '8px 20px',
-              borderRadius: 999,
-              background: 'rgba(255,255,255,0.16)',
-              border: '1px solid rgba(255,255,255,0.28)',
-              fontSize: 18,
-              fontWeight: 600,
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase',
-            }}
-          >
-            {category}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontSize: 20, opacity: 0.7, marginBottom: 20, fontWeight: 600 }}>
+            {String(category).toUpperCase()}
           </div>
           <div
             style={{
-              fontSize: title.length > 70 ? 48 : title.length > 50 ? 56 : 64,
+              fontSize: titleFontSize,
               fontWeight: 800,
-              lineHeight: 1.08,
-              letterSpacing: '-1px',
-              maxWidth: 1040,
+              lineHeight: 1.1,
             }}
           >
             {title}
           </div>
         </div>
 
-        {/* Bottom — domain */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 20, opacity: 0.7, fontWeight: 500 }}>
-            Aircraft Records Intelligence · AI-powered
-          </div>
-          <div style={{ fontSize: 20, opacity: 0.7, fontWeight: 500 }}>
-            myaircraft.us/blog
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 20, opacity: 0.7 }}>Aircraft Records Intelligence</div>
+          <div style={{ fontSize: 20, opacity: 0.7 }}>myaircraft.us/blog</div>
         </div>
       </div>
     ),
