@@ -512,8 +512,16 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
                 <tbody className="divide-y divide-slate-100 text-[13px]">
                   {riskRows.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-9 text-center text-sm text-slate-400">
-                        Add aircraft to start the risk board.
+                      <td colSpan={4} className="py-12">
+                        <div className="flex flex-col items-center justify-center gap-2 text-center">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                            <CheckCircle2 className="h-5 w-5" />
+                          </div>
+                          <p className="text-sm font-semibold text-slate-700">All clear</p>
+                          <p className="text-xs text-slate-500">
+                            No aircraft currently flagged for operational, compliance, or billing risk.
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -587,11 +595,11 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
           </DashboardPanel>
         </div>
 
-        <section className={`${CARD} px-6 py-5 text-center text-[15px] text-slate-500`}>
-          <strong className="mr-1 text-lg text-slate-900">Dashboard rule:</strong>
-          Show exceptions, due items, approvals, and shortcuts. Do not use Dashboard as the permanent record.
-          Every card links to its module and to the aircraft timeline.
-        </section>
+        {/* Internal "Dashboard rule" footer removed — it was an editor-facing
+            note ("Show exceptions, due items, approvals, and shortcuts. Do
+            not use Dashboard as the permanent record.") that leaked into
+            the customer-facing demo. Users don't need to be told how the
+            dashboard is supposed to be used. */}
       </div>
 
       <AnimatePresence>

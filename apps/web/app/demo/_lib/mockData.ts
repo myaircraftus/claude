@@ -175,8 +175,15 @@ export const demoWorkOrders = [
   {
     id: "demo-wo-1",
     organization_id: DEMO_ORG_ID,
+    // The shared DataStore reads work_order_number (real Supabase column name)
+    // and maps it to woNumber for the UI. The demo data must use the same
+    // field name so Dashboard / Work Orders / etc. show "WO-1042" instead
+    // of the truncated "DEMO-WO-" id-slice fallback.
+    work_order_number: "WO-1042",
     number: "WO-1042",
     title: "Right brake overhaul + rotor inspection",
+    service_type: "Right brake overhaul + rotor inspection",
+    customer_complaint: "Pulsing on right brake during rollout",
     status: "in_progress",
     priority: "high",
     aircraft_id: "demo-ac-1",
@@ -184,14 +191,18 @@ export const demoWorkOrders = [
     estimated_total: 1280.0,
     actual_total: 0,
     created_at: "2026-04-22T13:30:00Z",
+    opened_at: "2026-04-22T13:30:00Z",
     aircraft: { tail_number: "N12345" },
     customer: { name: "Demo Owner" },
   },
   {
     id: "demo-wo-2",
     organization_id: DEMO_ORG_ID,
+    work_order_number: "WO-1041",
     number: "WO-1041",
     title: "G500 reboot diagnostic",
+    service_type: "G500 PFD reboot diagnostic",
+    customer_complaint: "G500 PFD intermittently reboots in flight",
     status: "scheduled",
     priority: "medium",
     aircraft_id: "demo-ac-1",
@@ -199,6 +210,7 @@ export const demoWorkOrders = [
     estimated_total: 480.0,
     actual_total: 0,
     created_at: "2026-04-19T09:30:00Z",
+    opened_at: "2026-04-19T09:30:00Z",
     aircraft: { tail_number: "N12345" },
     customer: { name: "Demo Owner" },
   },
@@ -208,6 +220,7 @@ export const demoEstimates = [
   {
     id: "demo-est-1",
     organization_id: DEMO_ORG_ID,
+    estimate_number: "EST-2098",
     number: "EST-2098",
     title: "Cabin door seal replacement",
     status: "sent",
@@ -221,6 +234,7 @@ export const demoEstimates = [
   {
     id: "demo-est-2",
     organization_id: DEMO_ORG_ID,
+    estimate_number: "EST-2099",
     number: "EST-2099",
     title: "Annual + ELT battery (N67890)",
     status: "draft",
@@ -237,6 +251,7 @@ export const demoInvoices = [
   {
     id: "demo-inv-1",
     organization_id: DEMO_ORG_ID,
+    invoice_number: "INV-3401",
     number: "INV-3401",
     status: "paid",
     customer_id: "demo-cust-1",
@@ -251,6 +266,7 @@ export const demoInvoices = [
   {
     id: "demo-inv-2",
     organization_id: DEMO_ORG_ID,
+    invoice_number: "INV-3402",
     number: "INV-3402",
     status: "open",
     customer_id: "demo-cust-2",
@@ -264,6 +280,7 @@ export const demoInvoices = [
   {
     id: "demo-inv-3",
     organization_id: DEMO_ORG_ID,
+    invoice_number: "INV-3403",
     number: "INV-3403",
     status: "open",
     customer_id: "demo-cust-1",

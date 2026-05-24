@@ -956,7 +956,11 @@ function AppLayoutInner({
         {(() => {
           const onSettings = effectivePathname.startsWith("/settings");
           const name   = persona === "shop" ? activeMechanic.name  : userName;
-          const role   = persona === "shop" ? activeMechanic.role  : "Owner / Operator";
+          // Owner persona footer used to read "Owner / Operator" + the OWNER
+          // badge — the badge claimed half the row width so "Owner / Operator"
+          // truncated to "Owner · Oper...". "Aircraft owner" is shorter, more
+          // descriptive, and doesn't overlap with the badge text.
+          const role   = persona === "shop" ? activeMechanic.role  : "Aircraft owner";
           const avatar = persona === "shop"
             ? <span>{activeMechanic.initials}</span>
             : <User className="w-4 h-4 text-white/70" />;

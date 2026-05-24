@@ -37,6 +37,13 @@ export function FeedbackWidget() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    // Suppress on /demo/* — first-time visitors are evaluating the product;
+    // asking for feedback before they've used anything is noise + makes
+    // the demo feel cluttered. The widget only appears for real auth'd
+    // users on /(app)/* routes.
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/demo')) {
+      return
+    }
     // Defer to first idle frame so we don't compete with above-the-fold.
     const id = setTimeout(() => {
       if (shouldShow()) setVisible(true)
