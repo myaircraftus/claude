@@ -18,6 +18,7 @@ import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { ImageWithFallback } from "./ImageWithFallback";
 import { MyAircraftLogo } from "./MyAircraftLogo";
 import { ProductPreview } from "./ProductPreview";
+import { RealShopsStrip } from "./RealShopsStrip";
 import {
   MaPlane, MaWrench, MaStore, MaChart, MaBook, MaDatabase, MaFileCheck,
   MaMessage, MaUserCheck, MaShield, MaUsers, MaLock, MaZap, MaStar,
@@ -761,6 +762,9 @@ export function HomePage({ brandKit }: { brandKit?: BrandKit } = {}) {
 
       {/* ══════════════ SEE IT IN ACTION (product preview tabs) ══════════════ */}
       <ProductPreview />
+
+      {/* ══════════════ REAL SHOPS / IN THE WILD (Unsplash trust photos) ══════════════ */}
+      <RealShopsStrip />
 
       {/* ══════════════ WHO IT'S FOR ══════════════ */}
       <section className="relative bg-gradient-to-b from-white to-[#F8FAFF] py-24 border-t border-gray-100 overflow-hidden">
