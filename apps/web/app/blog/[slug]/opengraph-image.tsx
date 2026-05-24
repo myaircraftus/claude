@@ -1,24 +1,111 @@
 import { ImageResponse } from 'next/og'
-import { getPostBySlug } from '@/lib/blog'
 
 export const alt = 'myaircraft.us blog post'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
 /**
- * Per-blog-post OG image generator. Renders the post title + category +
- * brand wordmark over the brand gradient. This replaces the broken
- * coverImage references in the blog frontmatter (the JPG files were never
- * committed to apps/web/public/blog/, so the previous OG metadata was
- * pointing at 404 URLs and social previews showed a broken image).
+ * Per-blog-post OG image generator. Renders the post title (derived from
+ * the slug) + brand wordmark over the brand gradient. This replaces the
+ * broken coverImage references in the blog frontmatter (the JPG files
+ * were never committed to apps/web/public/blog/, so the previous OG
+ * metadata was pointing at 404 URLs and social previews showed a broken
+ * image).
+ *
+ * NOTE: We deliberately do NOT call getPostBySlug() here — that helper
+ * reads MDX files from process.cwd() + content/blog/ via fs.readFileSync,
+ * which fails at runtime inside the OG image serverless function because
+ * the content directory isn't traced into the function bundle. Deriving
+ * the title from the slug keeps the function self-contained.
  *
  * Next.js auto-discovers this file for /blog/[slug] URLs and writes the
  * resulting PNG into the page's <meta property="og:image" />.
  */
+
+// Map known slugs to their human-readable titles (for the most-shared posts).
+// Falls back to slug-to-title formatting for any unmapped slug.
+const SLUG_TITLE: Record<string, { title: string; category: string }> = {
+  'best-aircraft-maintenance-software-2026': {
+    title: 'Best Aircraft Maintenance Software in 2026: Honest Comparison',
+    category: 'Software',
+  },
+  'aircraft-annual-inspection-cost-2026': {
+    title: 'How Much Does an Aircraft Annual Inspection Cost in 2026?',
+    category: 'Maintenance',
+  },
+  'far-91-409-411-413-explained': {
+    title: 'FAR 91.409, 91.411, 91.413 — Annual, Altimeter, Transponder Checks',
+    category: 'Compliance',
+  },
+  'aircraft-ownership-true-cost-2026': {
+    title: 'The True Cost of Aircraft Ownership in 2026',
+    category: 'Ownership',
+  },
+  'aircraft-records-prebuy-inspection-checklist-2026': {
+    title: 'Aircraft Records Pre-Buy Inspection Checklist (2026)',
+    category: 'Pre-Buy',
+  },
+  'aircraft-logbook-lost-or-damaged-what-to-do': {
+    title: "Lost or Damaged Aircraft Logbooks: The Owner's Recovery Playbook",
+    category: 'Records',
+  },
+  'cessna-172-100-hour-inspection-cost-checklist': {
+    title: 'Cessna 172 100-Hour Inspection: Cost Breakdown + Checklist (2026)',
+    category: 'Cessna 172',
+  },
+  'ad-compliance-tracking-tools-comparison': {
+    title: 'AD Compliance Tracking Tools — Honest Comparison',
+    category: 'Software',
+  },
+  'understanding-ad-compliance-2025': {
+    title: 'Understanding AD Compliance in 2025',
+    category: 'Compliance',
+  },
+  'ai-aviation-records-how-it-works': {
+    title: 'How AI Actually Reads Your Logbooks',
+    category: 'AI',
+  },
+  'annual-inspection-checklist': {
+    title: 'Annual Inspection Season: Pre-Annual Checklist',
+    category: 'Maintenance',
+  },
+  'faa-registry-changes-2026': {
+    title: 'FAA Aircraft Registry Updates in 2026',
+    category: 'FAA',
+  },
+  'mechanic-portal-v2-launch': {
+    title: 'Mechanic Portal 2.0: Work Orders, Revenue Analytics, Parts',
+    category: 'Product',
+  },
+  'elt-battery-replacement-guide': {
+    title: 'ELT Battery Replacement: The Compliance Item Most Owners Forget',
+    category: 'Compliance',
+  },
+  'cessna-182-common-ads': {
+    title: 'Cessna 182: The 12 ADs Every Owner Should Have Memorized',
+    category: 'Cessna 182',
+  },
+  'document-scanning-best-practices': {
+    title: 'Scanning Paper Logbooks: Best Practices for OCR Accuracy',
+    category: 'Scanning',
+  },
+  'prepurchase-inspection-questions': {
+    title: '27 Questions to Ask Before Buying a Used Aircraft',
+    category: 'Pre-Buy',
+  },
+}
+
+function titleizeSlug(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
 export default async function BlogPostOgImage({ params }: { params: { slug: string } }) {
-  const post = await getPostBySlug(params.slug)
-  const title = post?.title ?? 'myaircraft.us'
-  const category = post?.category ?? 'Aviation Records'
+  const known = SLUG_TITLE[params.slug]
+  const title = known?.title ?? titleizeSlug(params.slug)
+  const category = known?.category ?? 'Aviation Records'
 
   return new ImageResponse(
     (
