@@ -111,6 +111,26 @@ export async function POST(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  // Fire-and-forget: immediately verify the just-stored credentials by
+  // running the per-vendor browser-automation scraper for just this user.
+  // The owner expects to see "verified" / "synced" within a minute of
+  // adding creds — without this they'd have to wait up to 24 hours for
+  // the daily cron, which feels like the feature doesn't work.
+  //
+  // We don't await the result: the scraper takes 20-60s and we want the
+  // POST to return immediately. The user's settings page polls GET
+  // /api/owner/external-systems for last_synced_at / last_error to know
+  // when the verify completes.
+  void (async () => {
+    try {
+      const { syncTachTime } = await import('@/lib/agents/impl/data-sync-tach-time-scraper')
+      await syncTachTime({ supabase: service, userId: user.id })
+    } catch (e) {
+      console.error('[external-systems] inline verify after store failed:', e)
+    }
+  })()
+
   return NextResponse.json({ ok: true, system: row })
 }
 
