@@ -584,8 +584,10 @@ function BrowseView({
           )}
         </div>
 
-        {/* Category quick-filter strip */}
-        <div className="flex items-center gap-2 px-4 pb-2.5 overflow-x-auto max-w-5xl mx-auto">
+        {/* Category quick-filter strip — full-width with horizontal scroll so
+            "Instruments / Panels" + "Miscellaneous" don't clip off the right
+            edge inside the 5xl container they used to live in. */}
+        <div className="flex items-center gap-2 px-4 pb-2.5 overflow-x-auto scrollbar-thin">
           <button
             onClick={() => setCategory("")}
             className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all ${
