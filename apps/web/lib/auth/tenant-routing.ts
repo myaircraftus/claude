@@ -79,6 +79,19 @@ const RESERVED_TOP_LEVEL_SEGMENTS = new Set([
   'workflow',
   'workforce',
   'workspace',
+  // Next.js metadata-API generated routes — must NOT be treated as tenant
+  // slugs. extractTenantPathname() returns null for reserved segments;
+  // without these entries /opengraph-image would 307-redirect to /login
+  // (treating "opengraph-image" as the org slug and "/dashboard" as the
+  // rewritten path) — breaking the social-share link-preview card on
+  // iMessage / WhatsApp / Slack / LinkedIn / Twitter.
+  'opengraph-image',
+  'twitter-image',
+  'icon',
+  'apple-icon',
+  'manifest.webmanifest',
+  'robots.txt',
+  'sitemap.xml',
 ])
 
 export interface TenantPathMatch {
