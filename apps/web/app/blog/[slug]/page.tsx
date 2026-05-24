@@ -34,13 +34,32 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       description: post.excerpt,
       url,
       type: 'article',
+      siteName: 'myaircraft.us',
+      locale: 'en_US',
       publishedTime: post.publishedAt,
       authors: post.authorName ? [post.authorName] : undefined,
+      section: post.category,
+      // Next.js auto-discovers app/blog/[slug]/opengraph-image.tsx and
+      // wires it in, but we set width/height/alt explicitly here so
+      // iMessage / WhatsApp / Slack / LinkedIn size the link-preview
+      // card correctly and don't fall back to a placeholder.
+      images: [
+        {
+          url: `/blog/${post.slug}/opengraph-image`,
+          width: 1200,
+          height: 630,
+          alt: post.title,
+          type: 'image/png',
+        },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
+      site: '@myaircraftus',
+      creator: '@myaircraftus',
       title: post.title,
       description: post.excerpt,
+      images: [`/blog/${post.slug}/opengraph-image`],
     },
   }
 }
