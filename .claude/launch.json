@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "Web App (Next.js)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3001"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@myaircraft/web", "dev", "--port", "3001"],
       "port": 3001
     }
   ]

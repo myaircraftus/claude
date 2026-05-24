@@ -18,6 +18,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [showDemoMenu, setShowDemoMenu] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
   const demoMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,6 +32,12 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => setIsAuthed(r.ok))
+      .catch(() => setIsAuthed(false));
   }, []);
 
   return (
@@ -118,20 +125,32 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                   )}
                 </div>
 
-                <Link
-                  href="/login?preview=1"
-                  className="px-4 py-2 rounded-lg text-[13px] text-white/70 hover:text-white hover:bg-white/8 transition-colors"
-                  style={{ fontWeight: 500 }}
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/signup?preview=1"
-                  className="px-4 py-2 rounded-lg text-[13px] bg-[#2563EB] hover:bg-[#1d4ed8] text-white transition-colors shadow-md shadow-[#2563EB]/25"
-                  style={{ fontWeight: 600 }}
-                >
-                  Get started
-                </Link>
+                {isAuthed ? (
+                  <Link
+                    href="/dashboard"
+                    className="px-4 py-2 rounded-lg text-[13px] bg-[#2563EB] hover:bg-[#1d4ed8] text-white transition-colors shadow-md shadow-[#2563EB]/25"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Dashboard
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login?preview=1"
+                      className="px-4 py-2 rounded-lg text-[13px] text-white/70 hover:text-white hover:bg-white/8 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      Sign in
+                    </Link>
+                    <Link
+                      href="/signup?preview=1"
+                      className="px-4 py-2 rounded-lg text-[13px] bg-[#2563EB] hover:bg-[#1d4ed8] text-white transition-colors shadow-md shadow-[#2563EB]/25"
+                      style={{ fontWeight: 600 }}
+                    >
+                      Get started
+                    </Link>
+                  </>
+                )}
               </div>
 
               {/* Mobile hamburger */}
@@ -174,21 +193,34 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                     <Wrench className="w-4 h-4 text-white/60" />
                     Mechanic Demo
                   </Link>
-                  <Link
-                    href="/login?preview=1"
-                    onClick={() => setOpen(false)}
-                    className="block text-center px-4 py-2.5 rounded-lg text-[14px] text-white/70 hover:text-white hover:bg-white/8 transition-colors"
-                  >
-                    Sign in
-                  </Link>
-                  <Link
-                    href="/signup?preview=1"
-                    onClick={() => setOpen(false)}
-                    className="block text-center px-4 py-2.5 rounded-lg text-[14px] bg-[#2563EB] text-white"
-                    style={{ fontWeight: 600 }}
-                  >
-                    Get started — free
-                  </Link>
+                  {isAuthed ? (
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setOpen(false)}
+                      className="block text-center px-4 py-2.5 rounded-lg text-[14px] bg-[#2563EB] text-white"
+                      style={{ fontWeight: 600 }}
+                    >
+                      Dashboard
+                    </Link>
+                  ) : (
+                    <>
+                      <Link
+                        href="/login?preview=1"
+                        onClick={() => setOpen(false)}
+                        className="block text-center px-4 py-2.5 rounded-lg text-[14px] text-white/70 hover:text-white hover:bg-white/8 transition-colors"
+                      >
+                        Sign in
+                      </Link>
+                      <Link
+                        href="/signup?preview=1"
+                        onClick={() => setOpen(false)}
+                        className="block text-center px-4 py-2.5 rounded-lg text-[14px] bg-[#2563EB] text-white"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Get started — free
+                      </Link>
+                    </>
+                  )}
                 </div>
               </div>
             )}

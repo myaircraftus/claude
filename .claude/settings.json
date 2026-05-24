@@ -23,6 +23,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/check-worklog.ps1",
+            "timeout": 5000
+          }
+        ]
+      }
     ]
   }
 }
