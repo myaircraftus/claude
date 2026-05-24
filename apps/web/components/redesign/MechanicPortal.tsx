@@ -392,18 +392,35 @@ export function MechanicPortal() {
       const owner = CUSTOMER_BY_TAIL[tail];
       const woCount = workOrders.filter((wo) => wo.aircraft === tail).length;
       const openSquawks = savedSquawks.filter((s) => s.tail === tail).length;
+      // hobbs/tach come from the aircraft row. Real Supabase rows use
+      // `total_time` (column name) — fall back through the alternate
+      // names the demo + legacy seeds use so the cockpit doesn't read
+      // "0.0 hrs" for every aircraft.
+      const acAny = ac as any;
+      const hobbs = Number(
+        acAny.hobbs ??
+          acAny.total_time ??
+          acAny.airframe_time ??
+          0,
+      );
+      const tach = Number(
+        acAny.tach ??
+          acAny.engine_time ??
+          0,
+      );
+      const lastAnnual = acAny.last_annual ?? acAny.last_annual_at ?? "";
       return {
         tail,
         model: [ac.make, ac.model].filter(Boolean).join(" "),
         year: ac.year ?? undefined,
         customer: owner?.name ?? "",
         company: owner?.company ?? "",
-        hobbs: 0,
-        tach: 0,
+        hobbs,
+        tach,
         status: openSquawks > 0 ? "Attention" : "Airworthy",
         openSquawks,
         activeWOs: woCount,
-        lastService: "",
+        lastService: lastAnnual,
       };
     });
   }, [aircraft, CUSTOMER_BY_TAIL, workOrders, savedSquawks]);
