@@ -23,22 +23,25 @@ import { ArrowRight } from "lucide-react"
 
 const PHOTOS = [
   {
-    url: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=900&q=80",
-    alt: "A&P mechanic working on a single-engine aircraft in a maintenance hangar",
+    // Cessna in a hangar — classic small GA shop scene
+    url: "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=1000&q=80&fit=facearea&facepad=2",
+    alt: "Aircraft inside a maintenance hangar",
     caption: "Built in the hangar",
     description:
       "Designed with A&P mechanics in real shops — from one-person owner-operations to 30-tech MRO floors.",
   },
   {
-    url: "https://images.unsplash.com/photo-1559136555-9303baea8ebd?auto=format&fit=crop&w=900&q=80",
-    alt: "Detailed view of an aircraft engine during maintenance",
+    // Aviation logbook / records photo
+    url: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1000&q=80",
+    alt: "Aviation maintenance documentation and instruments",
     caption: "Every cylinder. Every page.",
     description:
       "Engine logbook, airframe logbook, prop logbook, equipment list, 337s, 8130-3s, AD compliance — one searchable source of truth.",
   },
   {
-    url: "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=900&q=80",
-    alt: "Small aircraft on a runway at a general aviation airport",
+    // Single-engine aircraft in flight or on runway
+    url: "https://images.unsplash.com/photo-1540962351504-03099e0a754b?auto=format&fit=crop&w=1000&q=80",
+    alt: "Small general aviation aircraft",
     caption: "From Cessna to Cirrus",
     description:
       "Vintage paper-logbook airframes through brand-new glass-panel composites. If it flies and has records, we manage them.",
