@@ -4,6 +4,29 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-25 — Session cleanup: ignore `.tmp/`; `useTenantRouter` stabilised
+
+Two small follow-ups at the end of the inspector + audit session:
+
+**Gap 1.** Debug scripts created during the audit (`.tmp/inspect-doc.mjs`, `.tmp/render-pdf-pages.py`) dump JSON and render PDF pages into `.tmp/`. Without an ignore rule, every future `git status` would show `?? .tmp/` (≈ 29 MB after one run) as noise, and a careless `git add .` would commit it.
+
+**Fix 1.** Added `.tmp/` to [.gitignore](.gitignore) under a new "Local scratch / debug artifacts" section so the directory is invisible to git for everyone.
+
+**Gap 2.** During this session `/admin/command-center` was returning a 500 with `TypeError: Cannot read properties of null (reading 'useContext')` traced into `useTenantRouter` → `Topbar`. At the time it was attributed to stale `.next` webpack cache and resolved by stopping the dev server and clearing `apps/web/.next`. After restart the actual root cause was diagnosed: `useTenantRouter` was returning a fresh object literal on every render, so any caller putting it in a `useEffect` dep array entered an infinite render → fetch → setState → render loop (which also manifested as the React "invalid hook call" warnings in the dev log).
+
+**Fix 2.** Wrapped the returned object in `useMemo` keyed on `[router, tenantSlug, demo]` so the returned reference is stable across renders. Inlined the previously-destructured `ctx` inside the memo so dependency tracking stays correct.
+
+**Files changed.** 2 files:
+
+- Committed — [.gitignore](.gitignore) — new `.tmp/` ignore.
+- Working tree (not yet committed) — [apps/web/components/shared/tenant-link.tsx](apps/web/components/shared/tenant-link.tsx) — `useMemo` wrap of `useTenantRouter` return value.
+
+**Verified.** Gitignore: `.tmp/` no longer appears in `git status` output. `tenant-link.tsx`: change is a hook-stability fix; correctness is verified by the `/admin/command-center` page rendering successfully after the dev-server restart (the previously-failing route in the dev logs). Author of the `tenant-link.tsx` change is the operator, not the AI; the AI is logging it here because the working-tree modification was present at session-end and the WORKLOG-policy hook flagged it.
+
+**Commit.** `.gitignore` → `498ef386`. `tenant-link.tsx` → pending (operator to commit + push).
+
+---
+
 ## 2026-05-25 — Inspector polish + first real-doc audit findings
 
 **Two follow-up bug fixes to the inspector** (both surfaced while a real platform admin used it), and a documented audit of one real propeller logbook that revealed material problems in the existing field-extraction pipeline. Fixes ship in this commit; the extraction bugs are scoped for the next session.
