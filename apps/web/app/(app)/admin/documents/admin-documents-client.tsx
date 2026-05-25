@@ -12,8 +12,9 @@
  */
 
 import { Fragment, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronRight, ChevronDown, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Loader2, CheckCircle2, AlertTriangle, Search } from 'lucide-react'
 
 export function AdminDocumentsRefresh({ seconds = 30 }: { seconds?: number }) {
   const router = useRouter()
@@ -147,8 +148,18 @@ export function AdminDocumentsPipeline({ documents }: { documents: PipelineDoc[]
                   <tr className="bg-slate-50/60">
                     <td />
                     <td colSpan={5} className="px-3 py-3">
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
-                        Pipeline stages
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                          Pipeline stages
+                        </div>
+                        <Link
+                          href={`/admin/documents/${doc.id}/inspect`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-semibold"
+                        >
+                          <Search className="h-3 w-3" />
+                          Inspect pipeline content →
+                        </Link>
                       </div>
                       {doc.stages.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
