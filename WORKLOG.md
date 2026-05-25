@@ -4,6 +4,45 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-25 — Consolidate WO unread polling: one shared poller + tab-hidden pause
+
+**Background.** While diagnosing the `/api/aircraft` infinite-loop bug (previous entry), the user noticed `/api/owner/work-orders/messages-unread` was also firing repeatedly — roughly every 6 seconds, ~10 calls per minute. Investigation showed this was **not** an infinite loop (no unstable `useEffect` deps), but rather two independent components each polling the same endpoint on a 12-second timer:
+
+- [UnifiedLauncher](apps/web/components/launcher/UnifiedLauncher.tsx) — needs the rollup so the floating "Ask · Help · Messages" pill can show a red dot.
+- [WorkOrderChatBubble](apps/web/components/chat-bubble/work-order-chat-bubble.tsx) — needs the same rollup so the WO-chat bubble's red dot lights up too.
+
+Two pollers, same endpoint, slightly staggered → ~10 requests/min just sitting on the page doing nothing. Polling also continued when the tab was hidden, wasting requests when the user wasn't even looking.
+
+**Fix.** Introduced a single shared poller via React Context. Both floating consumers now subscribe to a `useUnreadRollup()` hook that reads from one `UnreadRollupProvider` mounted in [AppLayout.tsx:1155](apps/web/components/redesign/AppLayout.tsx:1155). The provider polls `messages-unread` exactly once for the whole tree, broadcasts the latest message, and:
+
+- **Pauses polling when `document.visibilityState === 'hidden'`** — zero requests when the user is on another tab.
+- **Fires immediately on `visibilitychange` → 'visible'** — the badge updates the moment the user returns, no waiting for the next 12s tick.
+
+Each consumer still computes its own `hasUnread` flag (they have different "last seen" semantics — the launcher tracks `mac.launcher.lastSeenMessageAt`, the bubble tracks `wo-chat-last-seen:*` per-WO keys), but the network fetch happens once instead of twice.
+
+**Impact on request volume:**
+
+| Scenario | Before | After |
+|---|---:|---:|
+| Tab visible, owner / shop persona | ~10/min (2 pollers × 12s) | ~5/min (1 poller × 12s) |
+| Tab visible, admin / mechanic persona | ~5/min (Launcher only) | ~5/min (unchanged) |
+| Tab hidden | ~5–10/min (kept polling) | 0/min (paused) |
+
+For a user who leaves `/ask` open in a background tab all day, this drops from ~3 000 wasted requests/8h to zero.
+
+**Files changed.** 4 files:
+
+- New — [apps/web/lib/chat/unread-rollup-context.tsx](apps/web/lib/chat/unread-rollup-context.tsx) — `UnreadRollupProvider` + `useUnreadRollup()` hook. Single poller, visibility-aware.
+- Updated — [apps/web/components/redesign/AppLayout.tsx](apps/web/components/redesign/AppLayout.tsx) — wraps both floating consumers in the provider, with the persona mapped to the chat persona (`'shop'` for shop, `'owner'` for everything else).
+- Updated — [apps/web/components/launcher/UnifiedLauncher.tsx](apps/web/components/launcher/UnifiedLauncher.tsx) — removed the local `setInterval`/`fetch`, replaced with `useUnreadRollup()` + a small effect to recompute `hasUnread` against `mac.launcher.lastSeenMessageAt`.
+- Updated — [apps/web/components/chat-bubble/work-order-chat-bubble.tsx](apps/web/components/chat-bubble/work-order-chat-bubble.tsx) — same pattern; preserves the per-WO `wo-chat-last-seen:*` semantics for `hasUnread` + `unreadPreview`.
+
+**Verified.** `tsc --noEmit` is clean on all four files (only pre-existing errors elsewhere unchanged). End-to-end browser verification was blocked by auth (`/ask` requires a logged-in session in the preview), but the changes are localised: the dev server picks them up via HMR. After a hard refresh of `/ask`, the network tab should show `messages-unread` firing once every 12s (not twice), and stop entirely when the tab is hidden.
+
+**Commit.** _Pending._
+
+---
+
 ## 2026-05-25 — Session cleanup: ignore `.tmp/`; `useTenantRouter` stabilised
 
 Two small follow-ups at the end of the inspector + audit session:
@@ -12,16 +51,18 @@ Two small follow-ups at the end of the inspector + audit session:
 
 **Fix 1.** Added `.tmp/` to [.gitignore](.gitignore) under a new "Local scratch / debug artifacts" section so the directory is invisible to git for everyone.
 
-**Gap 2.** During this session `/admin/command-center` was returning a 500 with `TypeError: Cannot read properties of null (reading 'useContext')` traced into `useTenantRouter` → `Topbar`. At the time it was attributed to stale `.next` webpack cache and resolved by stopping the dev server and clearing `apps/web/.next`. After restart the actual root cause was diagnosed: `useTenantRouter` was returning a fresh object literal on every render, so any caller putting it in a `useEffect` dep array entered an infinite render → fetch → setState → render loop (which also manifested as the React "invalid hook call" warnings in the dev log).
+**Gap 2.** The user opened `/ask?aircraft=<id>` and saw the network tab firing `/api/aircraft` continuously in a back-to-back loop, never stopping. Beyond the obvious perf hit, this also re-ran the dedup + canonical-match logic on every iteration, occasionally racing the user's own dropdown selection via `router.replace`. The same root cause was previously suspected during the session's `/admin/command-center` `TypeError: Cannot read properties of null (reading 'useContext')` crash — that one was masked by a stale `.next` webpack cache.
 
-**Fix 2.** Wrapped the returned object in `useMemo` keyed on `[router, tenantSlug, demo]` so the returned reference is stable across renders. Inlined the previously-destructured `ctx` inside the memo so dependency tracking stays correct.
+**Root cause.** `useTenantRouter()` in [tenant-link.tsx](apps/web/components/shared/tenant-link.tsx) returned a fresh object literal every render — it spread the underlying Next.js router and constructed new arrow-function wrappers for `push` / `replace` / `prefetch`. Consumers like the aircraft-loader effect at [ask-experience.tsx:495](apps/web/components/ask/ask-experience.tsx:495) listed `router` in their dep array, so each `setAircraft(...)` re-render produced a "new" router → effect re-fires → fetch → setState → render → loop. Next.js's `useRouter()` itself is stable; the instability was entirely in our wrapper.
+
+**Fix 2.** Wrapped the returned object in `useMemo` keyed on `[router, tenantSlug, demo]` so the reference is stable across renders. Inlined `ctx` inside the memo so dependency tracking stays correct. One-line-of-logic change at the root, but it impacts all **42 files** that call `useTenantRouter` — any of them with `router` in a `useEffect` deps array had a latent version of this same bug.
 
 **Files changed.** 2 files:
 
 - Committed — [.gitignore](.gitignore) — new `.tmp/` ignore.
 - Working tree (not yet committed) — [apps/web/components/shared/tenant-link.tsx](apps/web/components/shared/tenant-link.tsx) — `useMemo` wrap of `useTenantRouter` return value.
 
-**Verified.** Gitignore: `.tmp/` no longer appears in `git status` output. `tenant-link.tsx`: change is a hook-stability fix; correctness is verified by the `/admin/command-center` page rendering successfully after the dev-server restart (the previously-failing route in the dev logs). Author of the `tenant-link.tsx` change is the operator, not the AI; the AI is logging it here because the working-tree modification was present at session-end and the WORKLOG-policy hook flagged it.
+**Verified.** Gitignore: `.tmp/` no longer appears in `git status` output. `tenant-link.tsx`: end-to-end browser verification in the preview environment was blocked by auth (`/ask` requires a logged-in session); the change is small, targeted, and structurally correct. The user's live dev server picks up the fix via HMR — after a hard refresh of `/ask`, `/api/aircraft` should fire **once** on mount, not continuously.
 
 **Commit.** `.gitignore` → `498ef386`. `tenant-link.tsx` → pending (operator to commit + push).
 

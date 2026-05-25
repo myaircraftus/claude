@@ -26,8 +26,8 @@ import { WoChatTimeline } from '@/components/work-orders/wo-chat-timeline'
 import {
   aircraftListUrl,
   aircraftChatSummaryUrl,
-  unreadRollupUrl,
 } from '@/lib/chat/api-paths'
+import { useUnreadRollup } from '@/lib/chat/unread-rollup-context'
 
 type Persona = 'owner' | 'shop'
 
@@ -147,53 +147,40 @@ export function WorkOrderChatBubble({
     }
   }, [])
 
-  // Poll the unread roll-up every 12s so the bubble lights up when the
-  // counterpart sends a message. Cheap: one row, one indexed query.
+  // Subscribe to the shared unread-rollup poller (see UnreadRollupProvider in
+  // AppLayout). The provider polls once for the whole tree; this hook just
+  // recomputes the red-dot flag + preview against the highest last-seen
+  // marker across all per-WO conversations the chat panel persists.
+  const { latest } = useUnreadRollup()
   useEffect(() => {
-    let cancelled = false
-    async function checkUnread() {
-      try {
-        const res = await fetch(unreadRollupUrl(persona))
-        if (!res.ok) return
-        const json = await res.json()
-        if (cancelled) return
-        const latestIso = json?.latest?.created_at as string | undefined
-        if (!latestIso) {
-          setHasUnread(false)
-          setUnreadPreview(null)
-          return
-        }
-        // Compare against the highest last-seen across all per-WO last-seen
-        // entries the chat panel persists. If the latest message is newer
-        // than every "last seen", there's something new.
-        const lastSeenAll = (() => {
-          if (typeof window === 'undefined') return ''
-          let max = ''
-          for (let i = 0; i < window.localStorage.length; i++) {
-            const k = window.localStorage.key(i)
-            if (!k || !k.startsWith('wo-chat-last-seen:')) continue
-            const v = window.localStorage.getItem(k) ?? ''
-            if (v > max) max = v
-          }
-          return max
-        })()
-        if (latestIso > lastSeenAll) {
-          setHasUnread(true)
-          setUnreadPreview({
-            work_order_id: json.latest.work_order_id ?? null,
-            aircraft_id: json.latest.aircraft_id ?? null,
-            preview: json.latest.preview ?? '',
-          })
-        } else {
-          setHasUnread(false)
-          setUnreadPreview(null)
-        }
-      } catch { /* ignore */ }
+    if (!latest?.created_at) {
+      setHasUnread(false)
+      setUnreadPreview(null)
+      return
     }
-    void checkUnread()
-    const t = setInterval(checkUnread, 12000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [])
+    const lastSeenAll = (() => {
+      if (typeof window === 'undefined') return ''
+      let max = ''
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i)
+        if (!k || !k.startsWith('wo-chat-last-seen:')) continue
+        const v = window.localStorage.getItem(k) ?? ''
+        if (v > max) max = v
+      }
+      return max
+    })()
+    if (latest.created_at > lastSeenAll) {
+      setHasUnread(true)
+      setUnreadPreview({
+        work_order_id: latest.work_order_id,
+        aircraft_id: latest.aircraft_id,
+        preview: latest.preview,
+      })
+    } else {
+      setHasUnread(false)
+      setUnreadPreview(null)
+    }
+  }, [latest])
 
   // Hydrate aircraft list once when first opened. Default selection priority
   // (so the drawer never lands on an old aircraft with zero activity):

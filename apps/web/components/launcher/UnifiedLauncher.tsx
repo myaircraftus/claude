@@ -28,7 +28,7 @@ import {
   Inbox,
 } from 'lucide-react'
 import { VoiceButton } from '@/components/voice/VoiceButton'
-import { unreadRollupUrl } from '@/lib/chat/api-paths'
+import { useUnreadRollup } from '@/lib/chat/unread-rollup-context'
 
 type Tab = 'help' | 'ask' | 'inbox' | 'messages'
 
@@ -53,39 +53,23 @@ export function UnifiedLauncher({
   const [tab, setTab] = useState<Tab>('help')
   const [hasUnread, setHasUnread] = useState(false)
 
-  // Poll the WO unread roll-up so the pill can show a red dot when the
-  // counterpart posts. 12s cadence matches WorkOrderChatBubble — both
-  // surfaces share the same /api/(owner/)work-orders/messages-unread
-  // endpoint and the same lastSeen localStorage key, so opening the
-  // chat naturally clears the dot on the next tick.
+  // Subscribe to the shared unread-rollup poller (see UnreadRollupProvider in
+  // AppLayout). The provider polls once for the whole tree; this hook just
+  // recomputes the red-dot flag against our own lastSeen marker. Opening the
+  // chat writes a fresh lastSeen, which clears the dot on the next broadcast.
+  const { latest } = useUnreadRollup()
   useEffect(() => {
-    let cancelled = false
-    async function check() {
-      try {
-        const res = await fetch(unreadRollupUrl(persona === 'owner' ? 'owner' : 'shop'))
-        if (!res.ok) return
-        const json = await res.json()
-        const latestIso = json?.latest?.created_at as string | undefined
-        if (!latestIso) {
-          if (!cancelled) setHasUnread(false)
-          return
-        }
-        const lastSeen =
-          typeof window === 'undefined'
-            ? ''
-            : window.localStorage.getItem('mac.launcher.lastSeenMessageAt') ?? ''
-        if (!cancelled) setHasUnread(latestIso > lastSeen)
-      } catch {
-        /* ignore — transient errors are fine */
-      }
+    const latestIso = latest?.created_at
+    if (!latestIso) {
+      setHasUnread(false)
+      return
     }
-    void check()
-    const t = setInterval(check, 12000)
-    return () => {
-      cancelled = true
-      clearInterval(t)
-    }
-  }, [persona])
+    const lastSeen =
+      typeof window === 'undefined'
+        ? ''
+        : window.localStorage.getItem('mac.launcher.lastSeenMessageAt') ?? ''
+    setHasUnread(latestIso > lastSeen)
+  }, [latest])
 
   // Mark the latest message as seen the moment the user opens the
   // launcher — clears the red dot without waiting for the polling tick.

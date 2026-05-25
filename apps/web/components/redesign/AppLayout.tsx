@@ -42,6 +42,7 @@ import { PersonaSwitcher } from "@/components/persona/PersonaSwitcher";
 import { AdminFooterLink } from "@/components/admin/AdminFooterLink";
 import { WorkOrderChatBubble } from "@/components/chat-bubble/work-order-chat-bubble";
 import { UnifiedLauncher } from "@/components/launcher/UnifiedLauncher";
+import { UnreadRollupProvider } from "@/lib/chat/unread-rollup-context";
 import { ClientErrorBoundary } from "@/components/observability/ClientErrorBoundary";
 import { FeedbackWidget } from "@/components/feedback/FeedbackWidget";
 import { getDisplayPathname } from "@/lib/auth/tenant-routing";
@@ -1151,14 +1152,21 @@ function AppLayoutInner({
       {/* ── Unified launcher (one button, three modes: Help · Ask · Messages) ──
           Replaces the old HelpWidget. WorkOrderChatBubble still mounts below
           for per-WO chat — its trigger button is now stacked above the
-          UnifiedLauncher so the bottom-right corner stays uncluttered. */}
-      <UnifiedLauncher persona={persona === "shop" ? "shop" : persona === "owner" ? "owner" : "owner"} />
+          UnifiedLauncher so the bottom-right corner stays uncluttered.
 
-      {/* ── Floating work-order chat bubble ──
-          Visible on owner + mechanic personas. Admin doesn't need it.
-          Tap → drawer with aircraft picker → active work orders → timeline + chat thread.
-          Stacks above the UnifiedLauncher pill (see component-level positioning). */}
-      {(persona === "owner" || persona === "shop") && <WorkOrderChatBubble persona={persona} />}
+          Both floating consumers share one UnreadRollupProvider so the
+          messages-unread endpoint is polled exactly once for the tree (not
+          once per consumer). Provider also pauses polling when the tab is
+          hidden. */}
+      <UnreadRollupProvider persona={persona === "shop" ? "shop" : "owner"}>
+        <UnifiedLauncher persona={persona === "shop" ? "shop" : persona === "owner" ? "owner" : "owner"} />
+
+        {/* ── Floating work-order chat bubble ──
+            Visible on owner + mechanic personas. Admin doesn't need it.
+            Tap → drawer with aircraft picker → active work orders → timeline + chat thread.
+            Stacks above the UnifiedLauncher pill (see component-level positioning). */}
+        {(persona === "owner" || persona === "shop") && <WorkOrderChatBubble persona={persona} />}
+      </UnreadRollupProvider>
 
       {/* ── Onboarding: inline guided tour overlay ── */}
       <TourOverlay />
