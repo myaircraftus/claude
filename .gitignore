@@ -23,6 +23,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Local scratch / debug artifacts
+# Used by debug scripts (e.g. .tmp/inspect-doc.mjs, .tmp/render-pdf-pages.py)
+# to dump JSON, render PDF pages, etc. Never commit.
+.tmp/
+
 # OS
 .DS_Store
 Thumbs.db
