@@ -4,6 +4,68 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-25 — Multi-event extraction per OCR page + OCR fallback hardening
+
+**Why.** Previous session's audit of propeller logbook `178fc22f-…` (Cessna 172S, N401LP) found the field extractor producing exactly **one event per OCR page**, dropping ~63% of real entries (7 stored vs. 22-24 actually in the PDF) and producing field-blended "Frankenstein" events — page 4's stored row had date+tach from one entry but mechanic+description from a different entry. The most-recent maintenance event in the book (JDA Services 1/24/2024 on page 10) was completely missing from the data, which means owner-facing logbook views and AD-applicability calculations were silently working from a 2023 snapshot.
+
+Root cause: the LLM JSON schema in `annotateOcrPagesWithOpenAI` typed `extracted_event` as a single object per page, and the prompt asked for one. On standard ASA-SP-L 4-up logbook layouts (4 independent entries per page) the model was forced to either pick one cell or merge cells.
+
+**Fix — three patches in one change:**
+
+1. **Multi-event schema + prompt** — Renamed `extracted_event: object|null` → `extracted_events: array` end-to-end. Both extraction paths updated identically:
+   - [native-pdf.ts:1108-1188](apps/web/lib/ingestion/native-pdf.ts#L1108) — `annotateOcrPagesWithOpenAI` (post-OCR enrichment, runs after Document AI / Tesseract).
+   - [native-pdf.ts:1890-2046](apps/web/lib/ingestion/native-pdf.ts#L1890) — `runScannedOcrBatch` (GPT-4o single-shot PDF OCR + extraction fallback).
+
+   Both prompts now explicitly call out the ASA 4-up grid pattern, instruct "return ONE item in extracted_events per real maintenance event found on the page — never merge fields from different entries," and explicitly tell the model to return an empty array for blank/cover/form pages. A new helper `normalizeExtractedEvents` walks the array, runs each item through the existing single-event normalizer, and preserves the legacy "wrap pageText as single work_description" fallback for substantive but unstructured pages.
+
+2. **OpenAI PDF OCR fallback timeout: 75s → 240s** ([native-pdf.ts:30](apps/web/lib/ingestion/native-pdf.ts#L30)). The multi-event schema produces 3-4× more structured output on dense 4-up pages, and 75s was already tight even with the old single-event schema. New value matches the per-batch ceiling Document AI uses, still well under the 800s retry-route `maxDuration`. **Only affects the fallback path; Doc AI happy path is unchanged.**
+
+3. **OCR batch size: 6 → 4** ([native-pdf.ts:12](apps/web/lib/ingestion/native-pdf.ts#L12)). Smaller batches keep any single batch from spiking past the timeout, especially the trailing partial batch which tends to land on blank pre-printed form pages that GPT-4o vision processes slowly. Same total work, ~30% more API round-trips, much more reliable.
+
+**Downstream plumbing.** `persistOcrArtifacts` event-row builder at [server.ts:1534](apps/web/lib/ingestion/server.ts#L1534) changed from `.filter().map()` to `.flatMap()` over each page's events array — one `ocr_extracted_events` row per real entry. All events from the same page still link to the same `ocr_page_job_id` and the same `bestSegment` (entry-level segmentation is finding (B), deferred). The page-scoped `extracted_field_candidates` / `field_conflicts` loop at [server.ts:1455](apps/web/lib/ingestion/server.ts#L1455) uses the FIRST meaningful event per page — those tables are page-scoped, not event-scoped, so this preserves existing semantics.
+
+**Code-review follow-up — deterministic queue event reference.** A static-analysis pass over the diff caught a subtle Map-collision bug at [server.ts:1619](apps/web/lib/ingestion/server.ts#L1619). The `eventByPageJobId` map was being built via `new Map(iterable)` from a SELECT with no `ORDER BY`. With multi-event pages now writing N rows per `ocr_page_job_id`, the iterable-constructor silently keeps the **last** collision — so `review_queue_items.ocr_extracted_event_id` would have referenced an arbitrary event per page (and `/api/admin/rescore-confidence` would have read the same arbitrary event's confidence). Fix: explicit `if (!map.has(key)) map.set(...)` loop + add `.order('created_at').order('id')` to the SELECT. The chosen event is now reproducibly the lowest-id row for each page, symmetric with the field-candidates loop. This does **not** address the related "approve flips only the referenced event; the other N−1 events stay `needs_review`" UX gap — that's a queue-model change (one queue item per page vs. per event) tracked as a follow-up.
+
+**No DB migration needed.** `ocr_extracted_events` has no UNIQUE on `(ocr_page_job_id)` — already supports N rows per page. The `promote_approved_event_to_logbook` trigger keys `source_id` on the event row's own UUID, so N events → N `logbook_entries` rows with full lineage. The trigger already does the right thing without changes.
+
+**Out of scope** (separate audit findings, deferred):
+- (B) Visual entry-boundary cropping before extraction.
+- (C) Per-field confidence still copies overall confidence — `confidence_date`/`tach`/`mechanic` columns remain a cosmetic same-value-as-overall write. Real per-field scoring is its own change.
+- (D) Canonical-promotion: page 10's JDA entry has no `canonical_document_chunks` row (unreachable by retrieval); pages 11-14 (blank "FACTORY BULLETINS" forms) are wrongly promoted. Extraction now finds page 10 correctly, but the retrieval gap remains.
+- (E) "Logbook page producing <2 events" tripwire.
+
+**Files changed.** 2 files:
+
+- [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — `NativeParsedPage.extracted_events` type, 2 JSON schemas, 2 prompts, new `normalizeExtractedEvents` helper, `OCR_BATCH_SIZE` constant, `OPENAI_OCR_BATCH_TIMEOUT_MS` constant.
+- [apps/web/lib/ingestion/server.ts](apps/web/lib/ingestion/server.ts) — `ParsedPage` interface, `buildOcrPageState`, `persistOcrArtifacts` event-row builder (flatMap over events), `annotateOcrPagesWithOpenAI` call site.
+
+**Verified — end-to-end via UI** (multi-event change). A fresh upload of the same propeller PDF (`logbook-jeet-v6`) ran through the full pipeline using `engine=google_document_ai`. Results vs. the original 7-event baseline:
+
+| Metric | Before | After |
+|---|---:|---:|
+| Total events extracted | 7 | **22** |
+| Page 4 (4-entry layout) | 1 (field-blended) | 3 distinct events |
+| Page 5 (4-entry layout) | 1 (three-way blend) | 4 distinct events |
+| Pages 6-8 (4-entry layouts each) | 3 total | 11 total |
+| Page 9 (3-entry + 1 empty cell) | 1 | 3 |
+| Page 10 (JDA Services single entry, 1/24/2024) | 1 (correct) | 1 (correct, captured) |
+| Pages 11-15 (blank forms / Notes / cover) | 0 | 0 (correctly skipped) |
+| Latest event date | 2023-03-19 (missed 2024 entry) | **2024-01-23** (audit-accurate within OCR variance) |
+
+A standalone read-only verifier at `.tmp/verify-multi-event.mjs` reproduces the same 22-event result by calling OpenAI directly against the stored Document AI OCR text — proving the schema/prompt change is what's responsible, not a side effect of the ingestion plumbing.
+
+The OCR fallback hardening (#2 + #3) was validated separately: with Document AI broken locally, the same PDF ingested through `engine=openai_pdf_ocr` and the multi-event schema repeatedly timed out at 75s on the dense pages 7-12 batch and the blank-form trailing pages 13-15 batch; with the 240s timeout and batch-size-4 change applied, the fallback path completed (slower than Doc AI but functional).
+
+**Operator notes.**
+- `tsc --noEmit` clean on both files (pre-existing errors elsewhere in the repo unchanged) — re-checked after the Map-collision follow-up.
+- The deterministic-queue-event-reference follow-up was a code-review-only fix; it changes which event id `review_queue_items` references for multi-event pages but does **not** alter the events themselves, so the 22-event extraction baseline above is unaffected. Worth a spot-check of the human-review UI on a multi-event review-required page post-deploy.
+- Production has Document AI properly configured, so the fallback patches (#2, #3) are dormant on production — they're pure safety net. Zero impact on the Doc AI happy path latency.
+- Local dev had broken Doc AI credentials (Mac-style path in env on a Windows machine); resolved by pasting the service-account JSON into `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON` in `apps/web/.env.local` (env file is gitignored).
+
+**Commit.** _This commit._
+
+---
+
 ## 2026-05-25 — Consolidate WO unread polling: one shared poller + tab-hidden pause
 
 **Background.** While diagnosing the `/api/aircraft` infinite-loop bug (previous entry), the user noticed `/api/owner/work-orders/messages-unread` was also firing repeatedly — roughly every 6 seconds, ~10 calls per minute. Investigation showed this was **not** an infinite loop (no unstable `useEffect` deps), but rather two independent components each polling the same endpoint on a 12-second timer:

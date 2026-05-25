@@ -9,7 +9,12 @@ import { writeFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 
-const OCR_BATCH_SIZE = 6
+// Lowered 6 → 4. The multi-event extraction schema makes per-batch output
+// volume sensitive to the heaviest page in a batch. Smaller batches keep any
+// single batch from spiking past the timeout, especially the trailing partial
+// batch which tends to land on blank pre-printed form pages that GPT-4o vision
+// processes slowly. Same total work, ~30% more API calls, much more reliable.
+const OCR_BATCH_SIZE = 4
 const OCR_MAX_OUTPUT_TOKENS = 12000
 const OCR_TEXT_ENRICH_BATCH_SIZE = 8
 const OCR_TEXT_ENRICH_MAX_CHARS = 12000
@@ -27,7 +32,14 @@ const DOCUMENT_AI_BATCH_RETRY_DELAY_MS = 3_000
 // big pages and routinely killed retries even though the actual OCR /
 // chunking / embedding had already succeeded.
 const OCR_TEXT_ENRICH_TIMEOUT_MS = 120_000
-const OPENAI_OCR_BATCH_TIMEOUT_MS = 75_000
+// 75s → 180s → 240s. The multi-event extraction schema increases structured
+// output volume 3-4x on dense ASA 4-up logbook pages. 180s handled the dense
+// pages but timed out on trailing partial batches of blank pre-printed forms
+// where GPT-4o vision does extensive "is there really nothing here?" work.
+// 240s with the smaller OCR_BATCH_SIZE=4 gives both more time per batch AND
+// less work per batch — defense in depth. Still well under the 800s retry
+// route maxDuration. Only affects the fallback path; Doc AI is unchanged.
+const OPENAI_OCR_BATCH_TIMEOUT_MS = 240_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
 const TEXTRACT_TIMEOUT_MS = 90_000
 const LOCAL_OCR_TIMEOUT_MS = 120_000
@@ -202,7 +214,11 @@ export interface NativeParsedPage {
   char_count: number
   ocr_engine?: string | null
   page_classification?: string | null
-  extracted_event?: NativeExtractedEvent | null
+  // A single OCR page can contain multiple distinct maintenance entries
+  // (ASA-SP-L 4-up layouts, stacked work-order sheets). The extractor LLM
+  // returns a list; downstream persists one ocr_extracted_events row per item.
+  // Empty array (or undefined) when the page has no structured maintenance entry.
+  extracted_events?: NativeExtractedEvent[]
   geometry_regions?: NativePageGeometryRegion[]
 }
 
@@ -284,13 +300,13 @@ interface OcrBatchResultPage {
   text?: string
   ocr_confidence?: number
   page_classification?: string | null
-  extracted_event?: Record<string, unknown> | null
+  extracted_events?: Array<Record<string, unknown>>
 }
 
 interface OcrTextAnnotationPage {
   page_number: number
   page_classification?: string | null
-  extracted_event?: Record<string, unknown> | null
+  extracted_events?: Array<Record<string, unknown>>
 }
 
 interface DocumentAiProcessResponse {
@@ -955,7 +971,7 @@ function createParsedPage(args: {
   confidence: number
   ocrEngine: string
   pageClassification?: string | null
-  extractedEvent?: NativeExtractedEvent | null
+  extractedEvents?: NativeExtractedEvent[]
   geometryRegions?: NativePageGeometryRegion[]
 }): NativeParsedPage {
   const normalizedText = args.text.trim()
@@ -967,7 +983,7 @@ function createParsedPage(args: {
     char_count: normalizedText.length,
     ocr_engine: args.ocrEngine,
     page_classification: args.pageClassification,
-    extracted_event: args.extractedEvent,
+    extracted_events: args.extractedEvents ?? [],
     geometry_regions: args.geometryRegions ?? [],
   }
 }
@@ -1058,6 +1074,34 @@ function normalizeExtractedEvent(
   return event
 }
 
+// Pages may contain multiple distinct maintenance entries (ASA 4-up layouts,
+// stacked work-order sheets). The LLM is asked to return a list; this walks
+// the list, runs each item through the single-event normalizer, and drops
+// items without signal. If the list is empty/missing but the page has
+// substantive text, fall back to the single-event normalizer so a real page
+// with no structured fields still produces one work_description-only event
+// — preserves the legacy single-event fallback for low-structure pages.
+function normalizeExtractedEvents(
+  value: unknown,
+  pageText: string,
+  fallbackConfidence: number
+): NativeExtractedEvent[] {
+  if (Array.isArray(value)) {
+    const events: NativeExtractedEvent[] = []
+    for (const item of value) {
+      // Per-event normalization passes pageText as "" so the work_description
+      // fallback doesn't fire for every entry — if an entry has no structured
+      // fields AND no work description from the LLM, drop it rather than
+      // glue the whole page text onto it (that's the bug we're fixing).
+      const normalized = normalizeExtractedEvent(item, '', fallbackConfidence)
+      if (normalized) events.push(normalized)
+    }
+    if (events.length > 0) return events
+  }
+  const fallback = normalizeExtractedEvent(value && !Array.isArray(value) ? value : null, pageText, fallbackConfidence)
+  return fallback ? [fallback] : []
+}
+
 export async function annotateOcrPagesWithOpenAI(args: {
   pages: NativeParsedPage[]
   docType: string
@@ -1069,7 +1113,7 @@ export async function annotateOcrPagesWithOpenAI(args: {
     return args.pages.map((page) => ({
       ...page,
       page_classification: normalizeClassification(page.page_classification, args.docType, page.text),
-      extracted_event: page.extracted_event ?? null,
+      extracted_events: page.extracted_events ?? [],
     }))
   }
 
@@ -1131,55 +1175,53 @@ export async function annotateOcrPagesWithOpenAI(args: {
                         null,
                       ],
                     },
-                    extracted_event: {
-                      anyOf: [
-                        { type: 'null' },
-                        {
-                          type: 'object',
-                          additionalProperties: false,
-                          properties: {
-                            event_type: { type: ['string', 'null'] },
-                            logbook_type: { type: ['string', 'null'] },
-                            event_date: { type: ['string', 'null'] },
-                            tach_time: { type: ['string', 'null'] },
-                            airframe_tt: { type: ['string', 'null'] },
-                            tsmoh: { type: ['string', 'null'] },
-                            work_description: { type: ['string', 'null'] },
-                            mechanic_name: { type: ['string', 'null'] },
-                            mechanic_cert_number: { type: ['string', 'null'] },
-                            ia_number: { type: ['string', 'null'] },
-                            ad_references: {
-                              type: 'array',
-                              items: { type: 'string' },
-                            },
-                            part_numbers: {
-                              type: 'array',
-                              items: { type: 'string' },
-                            },
-                            return_to_service: { type: ['boolean', 'null'] },
-                            confidence_overall: { type: ['number', 'null'] },
+                    extracted_events: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                          event_type: { type: ['string', 'null'] },
+                          logbook_type: { type: ['string', 'null'] },
+                          event_date: { type: ['string', 'null'] },
+                          tach_time: { type: ['string', 'null'] },
+                          airframe_tt: { type: ['string', 'null'] },
+                          tsmoh: { type: ['string', 'null'] },
+                          work_description: { type: ['string', 'null'] },
+                          mechanic_name: { type: ['string', 'null'] },
+                          mechanic_cert_number: { type: ['string', 'null'] },
+                          ia_number: { type: ['string', 'null'] },
+                          ad_references: {
+                            type: 'array',
+                            items: { type: 'string' },
                           },
-                          required: [
-                            'event_type',
-                            'logbook_type',
-                            'event_date',
-                            'tach_time',
-                            'airframe_tt',
-                            'tsmoh',
-                            'work_description',
-                            'mechanic_name',
-                            'mechanic_cert_number',
-                            'ia_number',
-                            'ad_references',
-                            'part_numbers',
-                            'return_to_service',
-                            'confidence_overall',
-                          ],
+                          part_numbers: {
+                            type: 'array',
+                            items: { type: 'string' },
+                          },
+                          return_to_service: { type: ['boolean', 'null'] },
+                          confidence_overall: { type: ['number', 'null'] },
                         },
-                      ],
+                        required: [
+                          'event_type',
+                          'logbook_type',
+                          'event_date',
+                          'tach_time',
+                          'airframe_tt',
+                          'tsmoh',
+                          'work_description',
+                          'mechanic_name',
+                          'mechanic_cert_number',
+                          'ia_number',
+                          'ad_references',
+                          'part_numbers',
+                          'return_to_service',
+                          'confidence_overall',
+                        ],
+                      },
                     },
                   },
-                  required: ['page_number', 'page_classification', 'extracted_event'],
+                  required: ['page_number', 'page_classification', 'extracted_events'],
                 },
               },
             },
@@ -1195,9 +1237,15 @@ export async function annotateOcrPagesWithOpenAI(args: {
               type: 'input_text',
               text:
                 'You classify OCR text from aviation documents and extract structured maintenance fields. ' +
+                'A SINGLE OCR PAGE COMMONLY CONTAINS MULTIPLE DISTINCT MAINTENANCE ENTRIES. ' +
+                'Pre-printed logbook pages (e.g. ASA-SP-L, Jeppesen propeller/engine/airframe logs) typically have a 4-up grid of independent entries — ' +
+                'each cell has its OWN date, tach/airframe time, work description, and mechanic signature. ' +
+                'Shop work-order printouts and signoff sheets can stack several distinct entries vertically. ' +
+                'Return ONE item in extracted_events per real maintenance event found on the page — never merge fields from different entries into one item, ' +
+                'and never invent an entry by mixing fields across cells. If you see two dates with two different mechanic signatures, that is two events, not one. ' +
+                'If the page contains no real maintenance entries (cover, blank, generic form, page of "Notes" only), return an empty extracted_events array. ' +
                 'Use only the OCR text provided. Do not invent facts. ' +
-                'Use page_classification values from: engine_log, airframe_log, prop_log, maintenance_entry, work_order, ad_compliance, cover, blank, unknown. ' +
-                'Only return extracted_event when there is a real maintenance, logbook, or compliance entry on the page.',
+                'Use page_classification values from: engine_log, airframe_log, prop_log, maintenance_entry, work_order, ad_compliance, cover, blank, unknown.',
             },
           ],
         },
@@ -1210,7 +1258,7 @@ export async function annotateOcrPagesWithOpenAI(args: {
                 `Document title: ${args.title}\n` +
                 `Aircraft context: ${aircraftContext}\n` +
                 `Document type: ${args.docType}\n\n` +
-                `Classify and extract these OCR pages:\n\n${batchPrompt}`,
+                `Classify and extract these OCR pages. Remember: one page may contain MULTIPLE entries — list each one separately in extracted_events.\n\n${batchPrompt}`,
             },
           ],
         },
@@ -1259,8 +1307,8 @@ export async function annotateOcrPagesWithOpenAI(args: {
     return {
       ...page,
       page_classification: pageClassification,
-      extracted_event: normalizeExtractedEvent(
-        annotation?.extracted_event ?? page.extracted_event,
+      extracted_events: normalizeExtractedEvents(
+        annotation?.extracted_events ?? page.extracted_events,
         page.text,
         page.ocr_confidence
       ),
@@ -1887,52 +1935,50 @@ async function runScannedOcrBatch(args: {
                       null,
                     ],
                   },
-                  extracted_event: {
-                    anyOf: [
-                      { type: 'null' },
-                      {
-                        type: 'object',
-                        additionalProperties: false,
-                        properties: {
-                          event_type: { type: ['string', 'null'] },
-                          logbook_type: { type: ['string', 'null'] },
-                          event_date: { type: ['string', 'null'] },
-                          tach_time: { type: ['string', 'null'] },
-                          airframe_tt: { type: ['string', 'null'] },
-                          tsmoh: { type: ['string', 'null'] },
-                          work_description: { type: ['string', 'null'] },
-                          mechanic_name: { type: ['string', 'null'] },
-                          mechanic_cert_number: { type: ['string', 'null'] },
-                          ia_number: { type: ['string', 'null'] },
-                          ad_references: {
-                            type: 'array',
-                            items: { type: 'string' },
-                          },
-                          part_numbers: {
-                            type: 'array',
-                            items: { type: 'string' },
-                          },
-                          return_to_service: { type: ['boolean', 'null'] },
-                          confidence_overall: { type: ['number', 'null'] },
+                  extracted_events: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        event_type: { type: ['string', 'null'] },
+                        logbook_type: { type: ['string', 'null'] },
+                        event_date: { type: ['string', 'null'] },
+                        tach_time: { type: ['string', 'null'] },
+                        airframe_tt: { type: ['string', 'null'] },
+                        tsmoh: { type: ['string', 'null'] },
+                        work_description: { type: ['string', 'null'] },
+                        mechanic_name: { type: ['string', 'null'] },
+                        mechanic_cert_number: { type: ['string', 'null'] },
+                        ia_number: { type: ['string', 'null'] },
+                        ad_references: {
+                          type: 'array',
+                          items: { type: 'string' },
                         },
-                        required: [
-                          'event_type',
-                          'logbook_type',
-                          'event_date',
-                          'tach_time',
-                          'airframe_tt',
-                          'tsmoh',
-                          'work_description',
-                          'mechanic_name',
-                          'mechanic_cert_number',
-                          'ia_number',
-                          'ad_references',
-                          'part_numbers',
-                          'return_to_service',
-                          'confidence_overall',
-                        ],
+                        part_numbers: {
+                          type: 'array',
+                          items: { type: 'string' },
+                        },
+                        return_to_service: { type: ['boolean', 'null'] },
+                        confidence_overall: { type: ['number', 'null'] },
                       },
-                    ],
+                      required: [
+                        'event_type',
+                        'logbook_type',
+                        'event_date',
+                        'tach_time',
+                        'airframe_tt',
+                        'tsmoh',
+                        'work_description',
+                        'mechanic_name',
+                        'mechanic_cert_number',
+                        'ia_number',
+                        'ad_references',
+                        'part_numbers',
+                        'return_to_service',
+                        'confidence_overall',
+                      ],
+                    },
                   },
                 },
                 required: [
@@ -1940,7 +1986,7 @@ async function runScannedOcrBatch(args: {
                   'text',
                   'ocr_confidence',
                   'page_classification',
-                  'extracted_event',
+                  'extracted_events',
                 ],
               },
             },
@@ -1959,7 +2005,9 @@ async function runScannedOcrBatch(args: {
               'You perform aviation-document OCR and page-level maintenance extraction. ' +
               'For each requested page, preserve the page text as faithfully as possible. Do not skip pages. ' +
               'Use 0-1 confidence values. Keep page_classification to one of: engine_log, airframe_log, prop_log, maintenance_entry, work_order, ad_compliance, cover, blank, unknown. ' +
-              'Only populate extracted_event when the page contains a real maintenance/logbook entry or compliance-relevant record.',
+              'A SINGLE PAGE COMMONLY CONTAINS MULTIPLE DISTINCT MAINTENANCE ENTRIES — pre-printed logbook pages (ASA-SP-L, Jeppesen) typically have a 4-up grid where each cell is an independent entry with its own date, tach/airframe time, work description, and mechanic signature. ' +
+              'Return ONE item in extracted_events per real entry on the page; never merge fields across different entries. ' +
+              'If a page contains no real maintenance entries (cover, blank, generic form), return an empty extracted_events array.',
           },
         ],
       },
@@ -1978,7 +2026,7 @@ async function runScannedOcrBatch(args: {
               `Document type: ${args.docType}\n` +
               `This PDF has ${args.pageCount} pages.\n` +
               `Return OCR results only for pages ${args.startPage}-${args.endPage} inclusive.\n\n` +
-              'Return JSON with this exact shape:\n' +
+              'Return JSON with this exact shape (extracted_events is an array — one item per distinct entry on the page):\n' +
               '{\n' +
               '  "pages": [\n' +
               '    {\n' +
@@ -1986,26 +2034,28 @@ async function runScannedOcrBatch(args: {
               '      "text": "string",\n' +
               '      "ocr_confidence": 0.0,\n' +
               '      "page_classification": "unknown",\n' +
-              '      "extracted_event": {\n' +
-              '        "event_type": "string|null",\n' +
-              '        "logbook_type": "string|null",\n' +
-              '        "event_date": "YYYY-MM-DD|null",\n' +
-              '        "tach_time": "string|null",\n' +
-              '        "airframe_tt": "string|null",\n' +
-              '        "tsmoh": "string|null",\n' +
-              '        "work_description": "string|null",\n' +
-              '        "mechanic_name": "string|null",\n' +
-              '        "mechanic_cert_number": "string|null",\n' +
-              '        "ia_number": "string|null",\n' +
-              '        "ad_references": ["string"],\n' +
-              '        "part_numbers": ["string"],\n' +
-              '        "return_to_service": true,\n' +
-              '        "confidence_overall": 0.0\n' +
-              '      }\n' +
+              '      "extracted_events": [\n' +
+              '        {\n' +
+              '          "event_type": "string|null",\n' +
+              '          "logbook_type": "string|null",\n' +
+              '          "event_date": "YYYY-MM-DD|null",\n' +
+              '          "tach_time": "string|null",\n' +
+              '          "airframe_tt": "string|null",\n' +
+              '          "tsmoh": "string|null",\n' +
+              '          "work_description": "string|null",\n' +
+              '          "mechanic_name": "string|null",\n' +
+              '          "mechanic_cert_number": "string|null",\n' +
+              '          "ia_number": "string|null",\n' +
+              '          "ad_references": ["string"],\n' +
+              '          "part_numbers": ["string"],\n' +
+              '          "return_to_service": true,\n' +
+              '          "confidence_overall": 0.0\n' +
+              '        }\n' +
+              '      ]\n' +
               '    }\n' +
               '  ]\n' +
               '}\n\n' +
-              'If a page is blank or unreadable, return an empty text string, low confidence, classification "blank" or "unknown", and extracted_event null.',
+              'If a page is blank or unreadable, return an empty text string, low confidence, classification "blank" or "unknown", and an empty extracted_events array.',
           },
         ],
       },
@@ -2037,7 +2087,7 @@ async function runScannedOcrBatch(args: {
       word_count: text ? text.split(/\s+/).filter(Boolean).length : 0,
       char_count: text.length,
       page_classification: normalizeClassification(rawPage?.page_classification, args.docType, text),
-      extracted_event: normalizeExtractedEvent(rawPage?.extracted_event, text, confidence),
+      extracted_events: normalizeExtractedEvents(rawPage?.extracted_events, text, confidence),
       geometry_regions: [],
     })
   }

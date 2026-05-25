@@ -77,7 +77,7 @@ interface ParsedPage {
   ocr_engine?: string | null
   is_ocr?: boolean
   page_classification?: string | null
-  extracted_event?: NativeExtractedEvent | null
+  extracted_events?: NativeExtractedEvent[]
   geometry_regions?: NativePageGeometryRegion[]
 }
 
@@ -1052,7 +1052,7 @@ function buildOcrPageState(page: ParsedPage, docType: string) {
     page.page_classification === 'engine_log' ||
     page.page_classification === 'airframe_log' ||
     page.page_classification === 'prop_log'
-  const hasStructuredEvent = hasMeaningfulExtractedEvent(page.extracted_event)
+  const hasStructuredEvent = (page.extracted_events ?? []).some(hasMeaningfulExtractedEvent)
 
   let arbitrationStatus: 'auto_accept' | 'accept_with_caution' | 'review_required' | 'reject'
   let extractionStatus: 'approved' | 'needs_review' | 'rejected'
@@ -1218,7 +1218,7 @@ async function persistOcrArtifacts(args: {
         page_classification: page.page_classification ?? null,
         geometry_regions: page.geometry_regions ?? [],
       },
-      structured_output: page.extracted_event ?? null,
+      structured_output: { events: page.extracted_events ?? [] },
       confidence_summary: {
         overall: page.ocr_confidence ?? null,
       },
@@ -1452,8 +1452,14 @@ async function persistOcrArtifacts(args: {
         })(),
       ]
 
-      if (page.extracted_event) {
-        const event = page.extracted_event
+      // Field-candidate validation rows still use one canonical event per page
+      // (the first meaningful one), since extracted_field_candidates and
+      // field_conflicts are page-scoped, not event-scoped. Per-event field
+      // validation is a follow-up; this preserves current semantics while
+      // letting the eventRows builder below produce N rows per page.
+      const primaryEvent = (page.extracted_events ?? []).find(hasMeaningfulExtractedEvent) ?? null
+      if (primaryEvent) {
+        const event = primaryEvent
         const mappings: Array<[string, string | null]> = [
           ['entry_date', event.event_date ?? null],
           ['event_type', event.event_type ?? null],
@@ -1531,80 +1537,80 @@ async function persistOcrArtifacts(args: {
     await batchInsert(args.supabase, 'field_conflicts', fieldConflictRows, 100)
   }
 
+  // A single OCR page can contain multiple distinct maintenance entries
+  // (ASA-SP-L 4-up layouts most commonly). One ocr_extracted_events row per
+  // event — all rows from the same page share the same ocr_page_job_id and
+  // the same best segment (entry-level segments are a follow-up).
   const eventRows = relevantPages
-    .filter((page) => hasMeaningfulExtractedEvent(page.extracted_event))
-    .map((page) => {
+    .flatMap((page) => {
       const pageJob = pageJobMap.get(page.page_number)
       const bestSegment = bestSegmentByPage.get(page.page_number)
-      if (!pageJob || !page.extracted_event) return null
+      if (!pageJob) return []
 
-      const normalizedEventDate = normalizeValidatedDate(page.extracted_event.event_date ?? null)
-      const normalizedTach =
-        validateOcrField('tach_time', page.extracted_event.tach_time ?? null).normalized ?? null
-      const normalizedAirframeTt =
-        validateOcrField('airframe_tt', page.extracted_event.airframe_tt ?? null).normalized ?? null
-      const normalizedTsmoh =
-        validateOcrField('tsmoh', page.extracted_event.tsmoh ?? null).normalized ?? null
+      const events = (page.extracted_events ?? []).filter(hasMeaningfulExtractedEvent)
+      if (events.length === 0) return []
 
-      return {
-        ocr_page_job_id: pageJob.id,
-        ocr_entry_segment_id: bestSegment?.id ?? null,
-        document_id: args.document.id,
-        organization_id: args.document.organization_id,
-        aircraft_id: args.document.aircraft_id,
-        page_number: page.page_number,
-        segment_group_key: bestSegment?.segment_group_key ?? null,
-        evidence_state: bestSegment?.evidence_state ?? null,
-        event_type: page.extracted_event.event_type ?? null,
-        logbook_type: page.extracted_event.logbook_type ?? null,
-        event_date: normalizedEventDate,
-        tach_time: normalizedTach ? Number(normalizedTach) : null,
-        airframe_tt: normalizedAirframeTt ? Number(normalizedAirframeTt) : null,
-        tsmoh: normalizedTsmoh ? Number(normalizedTsmoh) : null,
-        work_description: page.extracted_event.work_description ?? null,
-        work_description_normalized: page.extracted_event.work_description ?? null,
-        ata_chapter: null,
-        part_numbers:
-          page.extracted_event.part_numbers && page.extracted_event.part_numbers.length > 0
-            ? page.extracted_event.part_numbers
-            : null,
-        serial_numbers: null,
-        ad_references:
-          page.extracted_event.ad_references && page.extracted_event.ad_references.length > 0
-            ? page.extracted_event.ad_references
-            : null,
-        far_references: null,
-        manual_references: null,
-        mechanic_name: page.extracted_event.mechanic_name ?? null,
-        mechanic_cert_number: page.extracted_event.mechanic_cert_number ?? null,
-        ia_number: page.extracted_event.ia_number ?? null,
-        repair_station_cert: null,
-        return_to_service: page.extracted_event.return_to_service ?? false,
-        rts_by: null,
-        confidence_overall:
-          page.extracted_event.confidence_overall ?? page.ocr_confidence ?? null,
-        confidence_date:
-          normalizedEventDate && page.extracted_event.confidence_overall != null
-            ? page.extracted_event.confidence_overall
-            : null,
-        confidence_tach:
-          normalizedTach && page.extracted_event.confidence_overall != null
-            ? page.extracted_event.confidence_overall
-            : null,
-        confidence_mechanic:
-          page.extracted_event.mechanic_name && page.extracted_event.confidence_overall != null
-            ? page.extracted_event.confidence_overall
-            : null,
-        raw_text: page.text,
-        review_status:
-          pageJob.needs_human_review || bestSegment?.evidence_state === 'review_required'
-            ? 'needs_review'
-            : 'approved',
-        created_at: now,
-        updated_at: now,
-      }
+      return events.map((event) => {
+        const normalizedEventDate = normalizeValidatedDate(event.event_date ?? null)
+        const normalizedTach =
+          validateOcrField('tach_time', event.tach_time ?? null).normalized ?? null
+        const normalizedAirframeTt =
+          validateOcrField('airframe_tt', event.airframe_tt ?? null).normalized ?? null
+        const normalizedTsmoh =
+          validateOcrField('tsmoh', event.tsmoh ?? null).normalized ?? null
+
+        return {
+          ocr_page_job_id: pageJob.id,
+          ocr_entry_segment_id: bestSegment?.id ?? null,
+          document_id: args.document.id,
+          organization_id: args.document.organization_id,
+          aircraft_id: args.document.aircraft_id,
+          page_number: page.page_number,
+          segment_group_key: bestSegment?.segment_group_key ?? null,
+          evidence_state: bestSegment?.evidence_state ?? null,
+          event_type: event.event_type ?? null,
+          logbook_type: event.logbook_type ?? null,
+          event_date: normalizedEventDate,
+          tach_time: normalizedTach ? Number(normalizedTach) : null,
+          airframe_tt: normalizedAirframeTt ? Number(normalizedAirframeTt) : null,
+          tsmoh: normalizedTsmoh ? Number(normalizedTsmoh) : null,
+          work_description: event.work_description ?? null,
+          work_description_normalized: event.work_description ?? null,
+          ata_chapter: null,
+          part_numbers:
+            event.part_numbers && event.part_numbers.length > 0 ? event.part_numbers : null,
+          serial_numbers: null,
+          ad_references:
+            event.ad_references && event.ad_references.length > 0 ? event.ad_references : null,
+          far_references: null,
+          manual_references: null,
+          mechanic_name: event.mechanic_name ?? null,
+          mechanic_cert_number: event.mechanic_cert_number ?? null,
+          ia_number: event.ia_number ?? null,
+          repair_station_cert: null,
+          return_to_service: event.return_to_service ?? false,
+          rts_by: null,
+          confidence_overall: event.confidence_overall ?? page.ocr_confidence ?? null,
+          confidence_date:
+            normalizedEventDate && event.confidence_overall != null
+              ? event.confidence_overall
+              : null,
+          confidence_tach:
+            normalizedTach && event.confidence_overall != null ? event.confidence_overall : null,
+          confidence_mechanic:
+            event.mechanic_name && event.confidence_overall != null
+              ? event.confidence_overall
+              : null,
+          raw_text: page.text,
+          review_status:
+            pageJob.needs_human_review || bestSegment?.evidence_state === 'review_required'
+              ? 'needs_review'
+              : 'approved',
+          created_at: now,
+          updated_at: now,
+        }
+      })
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row))
 
   if (eventRows.length > 0) {
     await batchInsert(args.supabase, 'ocr_extracted_events', eventRows, 50)
@@ -1612,15 +1618,22 @@ async function persistOcrArtifacts(args: {
 
   const { data: insertedEvents } = await args.supabase
     .from('ocr_extracted_events')
-    .select('id, ocr_page_job_id')
+    .select('id, ocr_page_job_id, created_at')
     .eq('document_id', args.document.id)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
 
-  const eventByPageJobId = new Map(
-    ((insertedEvents as Array<{ id: string; ocr_page_job_id: string }> | null) ?? []).map((row) => [
-      row.ocr_page_job_id,
-      row.id,
-    ])
-  )
+  // A page may now have N events. Keep the FIRST event id per page so the
+  // queue row's ocr_extracted_event_id is deterministic and matches the event
+  // used by the page-scoped extracted_field_candidates loop above (server.ts
+  // around the primaryEvent line). Without this, Map(iterable) would silently
+  // keep the LAST collision and the chosen event would be undefined order.
+  const eventByPageJobId = new Map<string, string>()
+  for (const row of (insertedEvents as Array<{ id: string; ocr_page_job_id: string; created_at: string }> | null) ?? []) {
+    if (!eventByPageJobId.has(row.ocr_page_job_id)) {
+      eventByPageJobId.set(row.ocr_page_job_id, row.id)
+    }
+  }
 
   const pageIdsWithSegmentReview = new Set(
     segmentRowsTyped
@@ -1841,7 +1854,7 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
           char_count: p.char_count ?? 0,
           ocr_engine: p.ocr_engine ?? null,
           page_classification: p.page_classification ?? null,
-          extracted_event: p.extracted_event ?? null,
+          extracted_events: p.extracted_events ?? [],
           geometry_regions: p.geometry_regions,
         })),
         docType: document.doc_type,
