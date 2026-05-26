@@ -4,6 +4,77 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-27 — OCR engine swap: Gemini 3 Flash Preview as primary, GPT-4o + Doc AI as fallbacks
+
+**Why.** The two prior bug fixes (multi-event extraction + canonical promotion) raised the obvious next question: even with the downstream pipeline working correctly, ingestion accuracy is capped by the OCR step. The audit measured ~55% entry recall on the 1981-92 handwritten airframe logbook — and the root cause analysis kept landing on the same thing: Google Document AI produces structurally garbled text on handwritten cursive. Pages full of entries like `"Tach 1359 / Henry L. Williams A&P 2082536"` came back from Doc AI as `"Tuch 1359 / Hewer & ..."` with reading order chaos and field names interleaved randomly. No amount of downstream cleanup recovers text that OCR never produced correctly.
+
+A focused 3-way bake-off (`.tmp/ocr-bakeoff.mjs`) was built to evaluate alternatives on this codebase's own logbook PDFs, with GPT-4o as a third-party judge scoring each engine's output against the original page image:
+
+| | Airframe handwritten (5 pages) | Propeller printed (5 pages) | Combined |
+|---|:-:|:-:|:-:|
+| Doc AI (current) | 0 wins · **5.2/10** | 1 win · 6.6/10 | 1 win · 5.9/10 |
+| OpenAI GPT-4o vision | 0 wins · 6.4/10 | 3 wins · **8.4/10** | 3 wins · 7.4/10 |
+| **Gemini 3 Flash Preview** | **5 wins · 8.8/10** | 1 win · 7.6/10 | **6 wins · 8.2/10** |
+
+Cost per 1,000 pages: Doc AI ~$1.50, Gemini 3 Flash Preview ~$2.66, GPT-4o ~$9.74. Gemini wins on accuracy *and* is ~3.6× cheaper than GPT-4o. Doc AI is provably the worst on handwriting at any price.
+
+**Two Gemini-specific behaviour bugs discovered + fixed during the bake-off.** Production-relevant — calling them out so they don't bite later:
+
+1. **Mid-page truncation on dense pages.** Gemini 3 Flash is a "thinking model"; at default config it spends a chunk of the `maxOutputTokens` budget on internal reasoning before responding. On dense `airframe_log` pages (multiple stacked sub-tables), this caused output to truncate at ~900 chars mid-transcription, missing 2-3 maintenance entries per page. **Fix:** set `thinkingConfig: { thinkingBudget: 0 }`. Transcription doesn't need reasoning — only the budget. Truncation gone, full pages captured.
+
+2. **Repetition loops on form-template content.** At `temperature: 0`, Gemini occasionally gets stuck repeating form-template lines (e.g. ASA propeller `"☐ HUB & BLADE INSPECTIONS, REPAIRS AND ALTERATIONS"`) for ~250k characters before stopping. The proper fix would be `frequencyPenalty` / `presencePenalty` — but those parameters return `"Penalty is not enabled for this model"` on the preview tier. **Mitigation:** `temperature: 0.4` + `topK: 40` + `topP: 0.9` breaks the greedy-decoding lock. Doesn't fully eliminate the failure mode (see Known Issues below) but reduces it from "kills the page" to "wastes some trailing output tokens."
+
+**Production change.** [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — ~150 lines added:
+
+- New `parseScannedPdfWithGemini` function. Mirrors the existing `parseScannedPdfWithOpenAI` pattern: downloads the PDF, extracts each page individually via `pdf-lib` (matching the bake-off setup that proved 8.8/10), sends each page as a 1-page PDF inline_data to Gemini's `generateContent` API. Concurrency 4. If fewer than 50% of pages produce text, throws so the cascade falls through to the next engine.
+- `parseScannedPdfWithFallbacks` cascade reordered. Doc AI is no longer the primary. New order is presence-gated: **Gemini 3 Flash Preview** (if `GEMINI_API_KEY` set) → **OpenAI GPT-4o** (if `OPENAI_API_KEY` set) → **Google Document AI** (if Doc AI configured) → local Tesseract → AWS Textract.
+- The structured-event extraction step (`annotateOcrPagesWithOpenAI`) is intentionally untouched. It still uses GPT-4o; Gemini just produces cleaner OCR text for that step to extract from. Collapsing OCR + structured extraction into one Gemini call is a follow-up.
+
+**Behaviour right after this lands:**
+- **Production today** (Vercel env has no `GEMINI_API_KEY`): cascade skips Gemini, **GPT-4o vision becomes the primary OCR engine** for every new upload. Doc AI becomes a third-tier fallback. ~6.5× cost increase per page vs prior Doc-AI default, but materially better accuracy on handwriting.
+- **Within 1-2 days** (client adds `GEMINI_API_KEY` to Vercel env): cascade hits Gemini first. No deploy required — env-var change picks up on next cold start. Cost drops to ~$0.003/page. Accuracy on handwriting jumps to ~8.8/10.
+
+**Verified — end-to-end on a fresh upload.** Operator re-uploaded the airframe logbook PDF as `logbook-jeet-v10` (doc id `7cc93d35-…`) post-deploy with `GEMINI_API_KEY` set on local. Confirmed via direct DB query:
+
+| Metric | Result |
+|---|---:|
+| Pages successfully OCR'd | 22 of 23 |
+| Engine used (per-page) | `gemini_3_flash_preview` × 22 |
+| OCR text quality (visual inspection of sample page) | Real names, dates, AD refs, A&P cert numbers — no Doc-AI-style garbage |
+| `ocr_extracted_events` rows | **45** (vs ~34 from prior Doc AI runs on same source PDF — +32%) |
+| `canonical_document_chunks` rows | 76 |
+| `canonical_document_embeddings` rows | 76 (100% retrieval-ready) |
+| Wave 2 contextualization | 76/76 chunks have `context_text` |
+
+Sample of what Gemini produced on page 12 (a previously-garbled dense handwritten page):
+
+> `13 Apr 87 | Oil + Filter Plus New Spark Plugs | 153.9 | Tac 1113.39 / John H Gamy Jr 251-20-0249`
+> `20 June | Tach 1174.9 | Complied with AD 84-26-02 by replacement of the Induction airfilter. Complied with AD 86-05-02 on United Instruments Altimeters...`
+> `I certify that this Aircraft has been inspected in accordance with an approved 100 hr. Inspection procedure required by FAR 91.169 (f) (4)... Name William F Miller Jr. A+P Certificate 571355857`
+
+Compare to what Doc AI used to produce on similar handwritten cursive (`"AIC STRUPPA AND RAIN"`, `"Semester X. Riy AxP526275982"`). The audit-tracking question *"what was the latest annual inspection on this airframe?"* now has clean, queryable, owner-citable evidence in the canonical retrieval layer.
+
+**Known issues — not blockers, deferred to a follow-up:**
+
+1. **Page 17 silently dropped.** Doc has 23 pages, only 22 made it into `ocr_page_jobs`. Root cause is *pre-existing* behaviour in [server.ts:1110](apps/web/lib/ingestion/server.ts#L1110) — pages with empty `text` get filtered out by `persistOcrArtifacts`. Doc AI failed as a batch (all-or-nothing) so this filter never bit; Gemini fails per-page, so silent drops now surface. Fix is to write a stub `ocr_page_jobs` row with `extraction_status: 'rejected'` when an engine returns empty text, so operators can re-process or escalate. Out of scope for this change.
+
+2. **Repetition tails on table-structured pages.** Pages 11 and 18 of the airframe doc produced ~13-14k chars where the first ~800 chars are real content and the trailing 12-13k are `"| | | | |"` empty-table-cells repeated. Same root cause as the propeller form-template loop — different trigger pattern (table cells vs section headers) so the temperature mitigation doesn't fully fix it. **Impact:** real content extraction is fine; loop tails are wasted output tokens + slightly polluted canonical embeddings. Mitigation options for a follow-up: post-process trim on low unique-window ratio in the tail, or `stopSequences` for known patterns, or wait for Gemini 3 Flash GA (likely re-enables `frequencyPenalty`). Doesn't block shipping.
+
+**Files changed.** 1 file:
+
+- [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — new `parseScannedPdfWithGemini` + new `runScannedOcrPageGemini` helpers, new `GEMINI_OCR_*` constants near other engine-config constants, reordered `parseScannedPdfWithFallbacks` cascade.
+
+`tsc --noEmit` clean on the changed file (pre-existing errors elsewhere unchanged).
+
+**Operator notes.**
+- The `GEMINI_API_KEY` env var must be added to the Vercel project for Gemini to become the primary engine. Without it the cascade falls through to GPT-4o automatically — no error.
+- The `GEMINI_OCR_MODEL` env var defaults to `gemini-3-flash-preview`. When Google ships GA (`gemini-3-flash` or similar), update the env var. The preview tier is real production risk — pricing, behaviour, and the active config (thinking, penalties) can change without notice.
+- The `ingestion_progress` UI still labels the OCR stage as `document_ai_ocr` even when Gemini is running. The `engine` field correctly shows `gemini_3_flash_preview` underneath. Cosmetic; safe to defer.
+
+**Commit.** _Pending operator approval. End-to-end verification on the freshly-uploaded `logbook-jeet-v10` confirmed Gemini is running and producing dramatically better output than Doc AI on handwritten content; the two known issues above are non-blockers documented for follow-up._
+
+---
+
 ## 2026-05-26 — Canonical promotion bug (audit finding D): two-layer fix
 
 **Why.** Yesterday's multi-event extraction fix correctly stored the JDA Services 1/24/2024 entry as an `ocr_extracted_events` row on page 10. But an owner asking Ask AI *"what's the most recent inspection on this propeller?"* still got an answer claiming "November 1, 2023" — completely hallucinated, citing page 10 in the source preview, but with a fabricated date. Investigation found two compounding bugs in the canonical-promotion chain (`document_chunks` → `ocr_entry_segments` → `canonical_document_chunks` is what Ask AI queries; page 10's text never reached the canonical layer).

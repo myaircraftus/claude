@@ -43,6 +43,13 @@ const OPENAI_OCR_BATCH_TIMEOUT_MS = 240_000
 const OPENAI_FILE_UPLOAD_TIMEOUT_MS = 60_000
 const TEXTRACT_TIMEOUT_MS = 90_000
 const LOCAL_OCR_TIMEOUT_MS = 120_000
+// Gemini 3 Flash Preview OCR (per-page). Concurrency 4 keeps total latency
+// reasonable (15-page logbook ~ 60-90s end-to-end). Each page is sent as a
+// 1-page PDF extracted with pdf-lib — matches the bake-off setup that proved
+// 8.8/10 accuracy on handwritten airframe logs.
+const GEMINI_OCR_TIMEOUT_MS = 90_000
+const GEMINI_OCR_CONCURRENCY = 4
+const GEMINI_OCR_MIN_SUCCESS_RATIO = 0.5
 const TARGET_CHUNK_TOKENS = 600
 const CHUNK_OVERLAP_TOKENS = 80
 // Per-page char threshold for "this page has a real text layer".
@@ -2197,6 +2204,180 @@ export async function parseScannedPdfWithOpenAI(args: {
   }
 }
 
+// ─── OCR prompt for Gemini 3 Flash Preview ─────────────────────────────────
+// Config + prompt were tuned in the .tmp/ocr-bakeoff.mjs bake-off against
+// real MyAircraft logbook pages. Three things matter:
+//   1. thinkingBudget: 0  — Gemini 3 Flash is a "thinking model"; default
+//      thinking budget eats output tokens and causes mid-page truncation.
+//   2. temperature: 0.4 + topK: 40 + topP: 0.9  — strict temperature=0 lets
+//      Gemini get stuck repeating form-template text on dense ASA propeller
+//      logbook pages. Slight non-zero sampling breaks the lock. Penalties
+//      (frequencyPenalty/presencePenalty) would be cleaner but are disabled
+//      on the preview tier.
+//   3. The "transcribe from TOP to BOTTOM, don't stop early" prompt helps
+//      Gemini complete multi-section pages reliably.
+const GEMINI_OCR_PROMPT =
+  'Transcribe ALL text from this aircraft maintenance logbook page exactly as written. ' +
+  'Preserve layout — use line breaks and spaces to keep distinct entries separated. ' +
+  'Include EVERY visible item: handwritten cursive, printed form text, signatures, dates, ' +
+  'tach/hour readings, mechanic names, A&P/IA certificate numbers, AD references, part numbers, ' +
+  'work descriptions, stamps. For unreadable / ambiguous text, write [illegible] rather than ' +
+  'guessing. Do not summarize. Do not skip blank lines that separate entries. ' +
+  'CRITICAL: Transcribe the page from the TOP all the way to the BOTTOM. ' +
+  'Do not stop after the first section. This page may have multiple stacked sections ' +
+  '(e.g. AIRCRAFT LOG header + entries + VOR Receiver check sub-table + REMARKS section). ' +
+  'Continue until you have transcribed everything visible on the page. ' +
+  'Output ONLY the transcription, no commentary, no markdown headings.'
+
+async function runScannedOcrPageGemini(args: {
+  pdfDoc: PDFDocument
+  pageNumber: number
+}): Promise<NativeParsedPage> {
+  // Extract just this page as a 1-page PDF for the API call. Matches the
+  // bake-off setup. Sending the whole PDF inline_data would also work but
+  // wastes bandwidth at scale.
+  const singleDoc = await PDFDocument.create()
+  const [copied] = await singleDoc.copyPages(args.pdfDoc, [args.pageNumber - 1])
+  singleDoc.addPage(copied)
+  const singleBytes = await singleDoc.save()
+  const base64 = Buffer.from(singleBytes).toString('base64')
+
+  const apiKey = process.env.GEMINI_API_KEY!
+  const model = process.env.GEMINI_OCR_MODEL || 'gemini-3-flash-preview'
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
+  const resp = await withTimeout(
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: GEMINI_OCR_PROMPT },
+              { inline_data: { mime_type: 'application/pdf', data: base64 } },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.4,
+          topP: 0.9,
+          topK: 40,
+          maxOutputTokens: 8192,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    }),
+    GEMINI_OCR_TIMEOUT_MS,
+    `Gemini OCR timed out after ${Math.round(GEMINI_OCR_TIMEOUT_MS / 1000)}s for page ${args.pageNumber}`,
+  )
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '(no body)')
+    throw new Error(`Gemini OCR HTTP ${resp.status}: ${errText.slice(0, 400)}`)
+  }
+
+  const json = (await resp.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  }
+  const text = (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim()
+
+  return {
+    page_number: args.pageNumber,
+    text,
+    // Empirical from the bake-off: Gemini scored ~8.8/10 on handwritten,
+    // ~7.6/10 on printed. 0.88 maps roughly. Doesn't matter exactly — the
+    // downstream segments.ts / canonical promotion uses this as input.
+    ocr_confidence: text.length > 0 ? 0.88 : 0.2,
+    word_count: text ? text.split(/\s+/).filter(Boolean).length : 0,
+    char_count: text.length,
+    // Leave classification null — annotateOcrPagesWithOpenAI runs after this
+    // and assigns page_classification via GPT-4o (same flow as Doc AI path).
+    page_classification: null,
+    extracted_events: [],
+    geometry_regions: [],
+  }
+}
+
+export async function parseScannedPdfWithGemini(args: {
+  fileUrl: string
+  docType: string
+  title: string
+  pageCount: number
+  make?: string | null
+  model?: string | null
+  annotateWithOpenAI?: boolean
+}): Promise<NativeIngestResponse> {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is required for Gemini OCR')
+  }
+
+  const pdfBytes = await downloadPdfBytes(args.fileUrl)
+  const pdfDoc = await PDFDocument.load(pdfBytes)
+  const actualPageCount = pdfDoc.getPageCount()
+  const pageCount = Math.min(args.pageCount, actualPageCount)
+
+  const pages: NativeParsedPage[] = new Array(pageCount)
+  let nextIdx = 0
+
+  async function worker() {
+    while (true) {
+      const i = nextIdx++
+      if (i >= pageCount) return
+      const pageNum = i + 1
+      try {
+        pages[i] = await runScannedOcrPageGemini({
+          pdfDoc,
+          pageNumber: pageNum,
+        })
+      } catch (err) {
+        // Per-page failure is non-fatal here. Below we count successes and
+        // throw if too many failed, which cascades to the next OCR engine.
+        console.warn(`[ingestion] Gemini OCR failed for page ${pageNum}:`, err)
+        pages[i] = {
+          page_number: pageNum,
+          text: '',
+          ocr_confidence: 0,
+          word_count: 0,
+          char_count: 0,
+          page_classification: null,
+          extracted_events: [],
+          geometry_regions: [],
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: GEMINI_OCR_CONCURRENCY }, worker))
+
+  // Cascade-trigger: if too many pages produced no text, abandon Gemini and
+  // let parseScannedPdfWithFallbacks fall through to the next engine. The
+  // 0.5 ratio handles both transient outages (most pages fail) and content
+  // mismatches (every page returned empty).
+  const successCount = pages.filter((page) => page.text.length > 0).length
+  if (successCount < Math.ceil(pageCount * GEMINI_OCR_MIN_SUCCESS_RATIO)) {
+    throw new Error(
+      `Gemini OCR produced text on only ${successCount}/${pageCount} pages — below ${GEMINI_OCR_MIN_SUCCESS_RATIO * 100}% threshold; falling back`,
+    )
+  }
+
+  return buildScannedIngestResponse({
+    pageCount,
+    pages: await maybeAnnotateOcrPages({
+      annotateWithOpenAI: args.annotateWithOpenAI,
+      pages: pages.map((page) => ({ ...page, ocr_engine: 'gemini_3_flash_preview' })),
+      docType: args.docType,
+      title: args.title,
+      make: args.make,
+      model: args.model,
+    }),
+    docType: args.docType,
+    title: args.title,
+    make: args.make,
+    model: args.model,
+  })
+}
+
 export async function parseScannedPdfWithFallbacks(args: {
   fileUrl: string
   docType: string
@@ -2207,11 +2388,32 @@ export async function parseScannedPdfWithFallbacks(args: {
   annotateWithOpenAI?: boolean
   onProgressUpdate?: (update: OcrProgressUpdate) => Promise<void> | void
 }): Promise<NativeIngestResponse> {
+  // Cascade order (decided after the .tmp/ocr-bakeoff.mjs bake-off):
+  //   1. Gemini 3 Flash Preview — best handwriting accuracy (8.8/10 on
+  //      airframe logs vs 6.4 GPT-4o, 5.2 Doc AI), cheap (~$2.66/1000 pages),
+  //      gated on GEMINI_API_KEY being set.
+  //   2. OpenAI GPT-4o — production-stable fallback. Still better than Doc AI
+  //      on handwritten content, and ALWAYS runs in environments where
+  //      Gemini is not yet configured (e.g. client production before they
+  //      add their key).
+  //   3. Google Document AI — final fallback. The previous default. Bad on
+  //      handwriting (23% WER) but cheap and reliable for clean printed text.
+  //   4-5. Local tesseract / AWS Textract — only used if explicitly enabled.
   const attempts: Array<{
     name: string
     enabled: boolean
     run: () => Promise<NativeIngestResponse>
   }> = [
+    {
+      name: 'gemini_3_flash_preview',
+      enabled: Boolean(process.env.GEMINI_API_KEY),
+      run: () => parseScannedPdfWithGemini(args),
+    },
+    {
+      name: 'openai_pdf_ocr',
+      enabled: Boolean(process.env.OPENAI_API_KEY),
+      run: () => parseScannedPdfWithOpenAI(args),
+    },
     {
       name: 'google_document_ai',
       enabled: Boolean(getDocumentAiConfig()),
@@ -2221,11 +2423,6 @@ export async function parseScannedPdfWithFallbacks(args: {
       name: 'local_tesseract',
       enabled: hasLocalOcrConfig(),
       run: () => parseScannedPdfWithLocalOcr(args),
-    },
-    {
-      name: 'openai_pdf_ocr',
-      enabled: Boolean(process.env.OPENAI_API_KEY),
-      run: () => parseScannedPdfWithOpenAI(args),
     },
     {
       name: 'aws_textract',
