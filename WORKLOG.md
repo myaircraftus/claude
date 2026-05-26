@@ -4,6 +4,37 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-27 — Gemini OCR prompt: doc-type-aware (logbook / work_order / ad_sb / inspection / manual_reference / general)
+
+**Why.** The OCR engine swap earlier today shipped one Gemini prompt — and it was logbook-biased ("aircraft maintenance logbook page", "tach/hour readings, mechanic names, A&P/IA certificate numbers"). MyAircraft's upload flow handles ~18 doc types (work orders, ADs/SBs, POH/AFM, service manuals, parts catalogs, inspection reports, Form 337 / 8130, etc.). Most reference docs (POH/AFM/manual) are text-native PDFs that skip OCR entirely, so unaffected. But scanned work orders, scanned regulatory documents, and scanned inspection reports DO flow through the new Gemini OCR path — and were being told they were "logbook pages with multiple maintenance entries", which mismatches their actual structure.
+
+Gemini transcribes verbatim regardless of the framing, so no observed breakage — but the prompt was carrying logbook assumptions into doc types where they don't apply (e.g. work orders are usually one work order per page, not a 4-up grid of entries; ADs are clause-based regulatory text, not handwritten entries). Subtly degrades accuracy in cases the bake-off didn't cover.
+
+**Fix.** Six prompt variants keyed by `inferDocumentFamily(docType)` (reused from [segments.ts](apps/web/lib/ocr/segments.ts) — exported `inferDocumentFamily` + `DocumentFamily` type for this; the segments-level doc-family taxonomy is now a single source of truth for both segment classification AND OCR prompt selection):
+
+- **logbook** — handwritten cursive, tach/Hobbs, mechanic names, A&P/IA cert numbers, multi-section pages (AIRCRAFT LOG + VOR check + REMARKS). _Same content as before._
+- **work_order** — customer/aircraft header, WO number, labor + parts line items, discrepancies, signoff. Replaces "multiple maintenance entries per page" with "header + parts + labor + signoff" framing.
+- **ad_sb** — AD/SB number, effective date, applicability (make/model/serial ranges), compliance instructions + dates, FAR references. Explicit "transcribe regulatory language verbatim — do not paraphrase legal phrasing."
+- **inspection** — inspection type (annual / 100hr / pre-buy etc.), checklist marks (✓/✗/N/A), itemised findings, corrective actions, signoff.
+- **manual_reference** (POH, AFM, service manual, maintenance manual, parts catalog) — chapter/section numbers, procedural steps, tables (preserve row/column with `|` delimiters), warnings/cautions/notes (verbatim — safety-critical), references to figures.
+- **general** — catch-all for anything else (lease, insurance, miscellaneous). Neutral verbatim transcription, no domain-specific framing.
+
+All six share an identical closer: `[illegible]`-not-guessing, no summarising, top-to-bottom transcription, output ONLY the transcription. The closer is where the loop-breaking + completeness rules live, so they apply uniformly across doc types.
+
+**Out of scope** (deferred — flagged for the client doc):
+- The downstream **structured-event annotation step** (`annotateOcrPagesWithOpenAI` at [native-pdf.ts:1108](apps/web/lib/ingestion/native-pdf.ts#L1108)) is ALSO logbook-biased — explicitly mentions "pre-printed logbook pages (e.g. ASA-SP-L, Jeppesen propeller/engine/airframe logs) typically have a 4-up grid of independent entries". For work orders, ADs, and manuals this is wrong. Bigger change because that step's whole schema (`extracted_events[]` with `tach_time`, `mechanic_name`, `ia_number`, etc.) is logbook-shaped. Either needs per-doc-family schemas or to move into the upstream Gemini OCR call as part of the "option 3" pipeline collapse.
+
+**Files changed.** 2 files:
+
+- [apps/web/lib/ocr/segments.ts](apps/web/lib/ocr/segments.ts) — exported `inferDocumentFamily` function + `DocumentFamily` type (previously private).
+- [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — replaced the single `GEMINI_OCR_PROMPT` constant with `OCR_PROMPTS: Record<DocumentFamily, string>` + `getGeminiOcrPrompt(docType)` helper; added a shared closer `OCR_PROMPT_SHARED_CLOSER`; threaded `docType` through `runScannedOcrPageGemini`'s signature so the prompt is selected per page based on the doc's type.
+
+**Verified.** `tsc --noEmit` clean on both files (pre-existing errors elsewhere unchanged). No browser-observable behaviour — the change only takes effect when a scanned non-logbook doc (e.g. a scanned work order) is uploaded. End-to-end verification: operator should upload one non-logbook scanned doc (a work order or scanned AD/inspection report) and confirm via `/admin/documents/[id]/inspect` that the OCR text reads naturally for that doc type (no "I expected mechanic signatures here" artefacts from a misfit prompt).
+
+**Commit.** _Pending operator approval._
+
+---
+
 ## 2026-05-27 — OCR engine swap: Gemini 3 Flash Preview as primary, GPT-4o + Doc AI as fallbacks
 
 **Why.** The two prior bug fixes (multi-event extraction + canonical promotion) raised the obvious next question: even with the downstream pipeline working correctly, ingestion accuracy is capped by the OCR step. The audit measured ~55% entry recall on the 1981-92 handwritten airframe logbook — and the root cause analysis kept landing on the same thing: Google Document AI produces structurally garbled text on handwritten cursive. Pages full of entries like `"Tach 1359 / Henry L. Williams A&P 2082536"` came back from Doc AI as `"Tuch 1359 / Hewer & ..."` with reading order chaos and field names interleaved randomly. No amount of downstream cleanup recovers text that OCR never produced correctly.

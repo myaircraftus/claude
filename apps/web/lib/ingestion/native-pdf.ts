@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
+import { inferDocumentFamily, type DocumentFamily } from '@/lib/ocr/segments'
 
 // Lowered 6 → 4. The multi-event extraction schema makes per-batch output
 // volume sensitive to the heaviest page in a batch. Smaller batches keep any
@@ -2204,34 +2205,98 @@ export async function parseScannedPdfWithOpenAI(args: {
   }
 }
 
-// ─── OCR prompt for Gemini 3 Flash Preview ─────────────────────────────────
-// Config + prompt were tuned in the .tmp/ocr-bakeoff.mjs bake-off against
-// real MyAircraft logbook pages. Three things matter:
+// ─── OCR prompts for Gemini 3 Flash Preview (per doc family) ───────────────
+// Config + base shape were tuned in the .tmp/ocr-bakeoff.mjs bake-off:
 //   1. thinkingBudget: 0  — Gemini 3 Flash is a "thinking model"; default
 //      thinking budget eats output tokens and causes mid-page truncation.
 //   2. temperature: 0.4 + topK: 40 + topP: 0.9  — strict temperature=0 lets
 //      Gemini get stuck repeating form-template text on dense ASA propeller
 //      logbook pages. Slight non-zero sampling breaks the lock. Penalties
-//      (frequencyPenalty/presencePenalty) would be cleaner but are disabled
-//      on the preview tier.
-//   3. The "transcribe from TOP to BOTTOM, don't stop early" prompt helps
+//      (frequencyPenalty/presencePenalty) are disabled on the preview tier.
+//   3. The "transcribe from TOP to BOTTOM, don't stop early" closer helps
 //      Gemini complete multi-section pages reliably.
-const GEMINI_OCR_PROMPT =
-  'Transcribe ALL text from this aircraft maintenance logbook page exactly as written. ' +
-  'Preserve layout — use line breaks and spaces to keep distinct entries separated. ' +
-  'Include EVERY visible item: handwritten cursive, printed form text, signatures, dates, ' +
-  'tach/hour readings, mechanic names, A&P/IA certificate numbers, AD references, part numbers, ' +
-  'work descriptions, stamps. For unreadable / ambiguous text, write [illegible] rather than ' +
-  'guessing. Do not summarize. Do not skip blank lines that separate entries. ' +
-  'CRITICAL: Transcribe the page from the TOP all the way to the BOTTOM. ' +
-  'Do not stop after the first section. This page may have multiple stacked sections ' +
-  '(e.g. AIRCRAFT LOG header + entries + VOR Receiver check sub-table + REMARKS section). ' +
-  'Continue until you have transcribed everything visible on the page. ' +
-  'Output ONLY the transcription, no commentary, no markdown headings.'
+//
+// Each prompt family customises the framing + domain-specific items to
+// notice (logbook = mechanic certs, AD numbers; work_order = parts/labor
+// line items; ad_sb = regulatory clauses + applicability; manual_reference
+// = chapters/tables/diagrams; etc.). The shared closer is identical across
+// all variants so the loop-breaking + completeness rules apply universally.
+const OCR_PROMPT_SHARED_CLOSER =
+  'For unreadable / ambiguous text, write [illegible] rather than guessing. ' +
+  'Do not summarize or paraphrase. Do not skip blank lines that separate sections. ' +
+  'CRITICAL: Transcribe the page from the TOP all the way to the BOTTOM — do not stop ' +
+  'after the first section. A single page may have multiple stacked sections; transcribe all. ' +
+  'Output ONLY the transcription, no commentary, no markdown headings, no JSON.'
+
+const OCR_PROMPTS: Record<DocumentFamily, string> = {
+  logbook:
+    'Transcribe ALL text from this aircraft maintenance LOGBOOK page exactly as written. ' +
+    'Preserve layout — use line breaks and spaces to keep distinct maintenance entries separated. ' +
+    'Include EVERY visible item: handwritten cursive, printed form text, signatures, dates, ' +
+    'tach/Hobbs/total-time readings, mechanic names, A&P / IA certificate numbers, AD references, ' +
+    'part numbers, work descriptions, return-to-service language, stamps. ' +
+    'A page may have multiple stacked sections (e.g. AIRCRAFT LOG header + entries + VOR Receiver ' +
+    'check sub-table + REMARKS section). ' +
+    OCR_PROMPT_SHARED_CLOSER,
+  work_order:
+    'Transcribe ALL text from this aircraft maintenance WORK ORDER page exactly as written. ' +
+    'Preserve layout — use line breaks and spaces to keep distinct sections and line items separated. ' +
+    'Include EVERY visible item: customer + aircraft info (tail number, make/model, serial), ' +
+    'work order number, open/close dates, labor entries (hours, mechanic, description), ' +
+    'parts used (part number, qty, description, price), discrepancies + corrective actions, ' +
+    'mechanic / inspector names, A&P / IA certificate numbers, return-to-service statement, ' +
+    'totals, signatures, stamps. ' +
+    'A single work order page commonly has multiple sections (header + parts list + labor + ' +
+    'notes + signoff) — transcribe all of them. ' +
+    OCR_PROMPT_SHARED_CLOSER,
+  ad_sb:
+    'Transcribe ALL text from this aviation REGULATORY DOCUMENT page (Airworthiness Directive ' +
+    'or Service Bulletin) exactly as written. Preserve layout — keep clauses, numbered ' +
+    'paragraphs, applicability tables, and reference lists intact. ' +
+    'Include EVERY visible item: AD/SB number, effective date, subject line, applicability ' +
+    '(make / model / serial number ranges, often in tables), compliance instructions, ' +
+    'compliance dates and intervals, FAR references, part numbers, alternative means of ' +
+    'compliance, recordkeeping requirements, contact / inquiry info, footnotes. ' +
+    'Transcribe regulatory language verbatim — do not paraphrase legal phrasing. ' +
+    OCR_PROMPT_SHARED_CLOSER,
+  inspection:
+    'Transcribe ALL text from this aircraft INSPECTION REPORT page exactly as written. ' +
+    'Preserve layout — use line breaks and spaces to keep checklist items, findings, and ' +
+    'signatures separated. Include EVERY visible item: inspection type (annual, 100-hour, ' +
+    'progressive, conformity, pre-buy, etc.), inspection date, aircraft info (tail, make/model, ' +
+    'serial), hours / cycles at inspection, itemized findings + deficiencies + corrective ' +
+    'actions, parts replaced with numbers, inspector / mechanic names, A&P / IA certificate ' +
+    'numbers, return-to-service statement, signatures, stamps, checklist marks (✓ / ✗ / N/A). ' +
+    'Inspection reports often have stacked sections (header + checklist + discrepancies + signoff). ' +
+    OCR_PROMPT_SHARED_CLOSER,
+  manual_reference:
+    'Transcribe ALL text from this aircraft TECHNICAL MANUAL / REFERENCE DOCUMENT page exactly ' +
+    'as written (POH, AFM, service manual, maintenance manual, parts catalog). ' +
+    'Preserve layout — keep paragraphs, numbered sections, lists, and tables intact. For tables, ' +
+    'preserve row/column structure using consistent spacing or pipe (|) delimiters. ' +
+    'Include EVERY visible item: chapter / section numbers and titles, procedural steps, ' +
+    'technical specifications, table contents (rows, columns, headers, units), diagram caption ' +
+    'text, warnings / cautions / notes (verbatim — these are safety-critical), part numbers, ' +
+    'references to other chapters or figures, appendix items. ' +
+    'Do not skip technical detail just because it looks repetitive — lists of part numbers, ' +
+    'specifications, and settings are intentionally that way. ' +
+    OCR_PROMPT_SHARED_CLOSER,
+  general:
+    'Transcribe ALL text from this document page exactly as written. Preserve layout — use ' +
+    'line breaks and spaces to keep distinct sections separated. Include EVERY visible item: ' +
+    'text, headings, dates, names, identifiers, numbers, signatures, stamps, table contents, ' +
+    'form field labels and values. ' +
+    OCR_PROMPT_SHARED_CLOSER,
+}
+
+function getGeminiOcrPrompt(docType: string): string {
+  return OCR_PROMPTS[inferDocumentFamily(docType)]
+}
 
 async function runScannedOcrPageGemini(args: {
   pdfDoc: PDFDocument
   pageNumber: number
+  docType: string
 }): Promise<NativeParsedPage> {
   // Extract just this page as a 1-page PDF for the API call. Matches the
   // bake-off setup. Sending the whole PDF inline_data would also work but
@@ -2254,7 +2319,7 @@ async function runScannedOcrPageGemini(args: {
         contents: [
           {
             parts: [
-              { text: GEMINI_OCR_PROMPT },
+              { text: getGeminiOcrPrompt(args.docType) },
               { inline_data: { mime_type: 'application/pdf', data: base64 } },
             ],
           },
@@ -2329,6 +2394,7 @@ export async function parseScannedPdfWithGemini(args: {
         pages[i] = await runScannedOcrPageGemini({
           pdfDoc,
           pageNumber: pageNum,
+          docType: args.docType,
         })
       } catch (err) {
         // Per-page failure is non-fatal here. Below we count successes and

@@ -1,4 +1,4 @@
-type DocumentFamily =
+export type DocumentFamily =
   | 'logbook'
   | 'manual_reference'
   | 'ad_sb'
@@ -138,7 +138,7 @@ function findBoundingRegionsForSegment(
     : [{ page: page.page_number, source: 'page_fallback', x: 0, y: 0, width: 1, height: 1 }]
 }
 
-function inferDocumentFamily(docType: string): DocumentFamily {
+export function inferDocumentFamily(docType: string): DocumentFamily {
   const normalized = docType.toLowerCase()
   if (normalized.includes('logbook')) return 'logbook'
   if (
