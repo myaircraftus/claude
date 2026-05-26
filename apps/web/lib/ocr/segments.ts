@@ -186,22 +186,43 @@ function splitIntoBlocks(text: string) {
 function detectSegmentType(text: string, pageClassification: string | null | undefined): OcrSegmentType {
   const normalized = text.trim()
   if (!normalized) return 'ignore_block'
+
+  // Format-specific signals (FAA forms, 8130 tags, diagrams) override page
+  // classification — these identify content that's definitively a form/tag/
+  // diagram regardless of where it appears.
   if (FORM_HINT_RE.test(normalized)) return 'inserted_form'
   if (TAG_HINT_RE.test(normalized)) return 'attached_tag'
   if (DIAGRAM_HINT_RE.test(normalized)) return 'diagram_graph_block'
-  if (TABLE_HINT_RE.test(normalized) && normalized.split('\n').length >= 3) return 'table_block'
-  if (SIGNOFF_RE.test(normalized) && normalized.length < 1200) return 'signoff_block'
-  if (HEADER_RE.test(normalized) && normalized.length < 220) return 'header_template_block'
 
-  if (
+  // If the OCR step already classified this page as logbook / maintenance
+  // content, trust that classification BEFORE falling through to keyword
+  // heuristics. The TABLE_HINT_RE / HEADER_RE checks below match common
+  // words ("hours", "tach", "serial", "model", "s/n") that appear in every
+  // real maintenance entry — without the page-classification trust, those
+  // entries get silently miscategorized as `table_block` and dropped from
+  // the canonical retrieval layer. Owner-facing Ask AI then can't find them.
+  const isMaintenancePageClassification =
     pageClassification === 'maintenance_entry' ||
     pageClassification === 'engine_log' ||
     pageClassification === 'airframe_log' ||
-    pageClassification === 'prop_log'
-  ) {
+    pageClassification === 'prop_log' ||
+    pageClassification === 'ad_compliance' ||
+    pageClassification === 'work_order'
+
+  if (isMaintenancePageClassification) {
+    // A signoff block ("I certify... A&P 12345...") is still treated
+    // specially even inside a logbook page — it routes to the cert-aware
+    // review queue and gets its own evidence-state handling.
+    if (SIGNOFF_RE.test(normalized) && normalized.length < 400) return 'signoff_block'
     return 'maintenance_entry'
   }
 
+  // For non-logbook content, the keyword heuristics remain the primary
+  // signal — POH/AFM tables, AD bulletins, parts catalogs etc. genuinely
+  // are tables/diagrams.
+  if (TABLE_HINT_RE.test(normalized) && normalized.split('\n').length >= 3) return 'table_block'
+  if (SIGNOFF_RE.test(normalized) && normalized.length < 1200) return 'signoff_block'
+  if (HEADER_RE.test(normalized) && normalized.length < 220) return 'header_template_block'
   if (MANUAL_HINT_RE.test(normalized)) return 'informational_reference_block'
   return 'maintenance_entry'
 }
@@ -225,6 +246,43 @@ function detectEvidenceState(args: {
       evidenceState: 'ignore' as OcrEvidenceState,
       canonicalCandidate: false,
       suppressionReason: args.confidence < 0.4 ? 'low_confidence' : 'ignored_block',
+    }
+  }
+
+  // Minimum-content filter for maintenance_entry segments. Blank pre-printed
+  // logbook pages ("FACTORY BULLETINS / Total Time / Complied by the following:"
+  // repeated, or "Notes" headers) were classifying as maintenance_entry and
+  // promoting into the canonical retrieval layer — polluting Ask AI with form
+  // template text. Real maintenance entries always have either substantive
+  // text length or a date. Either condition is sufficient; both being absent
+  // means the segment is template noise, not content.
+  if (args.segmentType === 'maintenance_entry') {
+    const trimmed = args.text.trim()
+    const hasDateMarker = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/.test(trimmed)
+
+    if (trimmed.length < 30 && !hasDateMarker) {
+      return {
+        evidenceState: 'ignore' as OcrEvidenceState,
+        canonicalCandidate: false,
+        suppressionReason: 'insufficient_content',
+      }
+    }
+
+    // Longer text with mostly-repeated tokens and no date is a pre-printed
+    // form template (the 2-up "FACTORY BULLETINS / Total Time" pattern hits
+    // ~10 unique tokens repeated across ~80 total).
+    if (!hasDateMarker && trimmed.length >= 30) {
+      const tokens = trimmed.toLowerCase().split(/\s+/).filter((t) => t.length >= 3)
+      if (tokens.length >= 20) {
+        const uniqueRatio = new Set(tokens).size / tokens.length
+        if (uniqueRatio < 0.45) {
+          return {
+            evidenceState: 'ignore' as OcrEvidenceState,
+            canonicalCandidate: false,
+            suppressionReason: 'template_or_form',
+          }
+        }
+      }
     }
   }
 

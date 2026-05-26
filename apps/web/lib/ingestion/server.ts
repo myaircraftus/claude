@@ -791,7 +791,13 @@ async function insertCanonicalChunksFromOcrSegments(args: {
   document: DocumentRecord
   minConfidence?: number
 }) {
-  const minConfidence = args.minConfidence ?? 0.86
+  // Aligned with the segment-level canonical_candidate threshold in
+  // segments.ts (0.72 for logbook content). Previous default of 0.86 was a
+  // hidden second gate that silently dropped handwritten content in the
+  // 0.72-0.86 confidence band — exactly the OCR-confidence range for older
+  // handwritten airframe / engine logbooks. The segment-level threshold
+  // already gates intelligently; this layer should match, not stack.
+  const minConfidence = args.minConfidence ?? 0.72
   const { data: segments, error } = await args.supabase
     .from('ocr_entry_segments')
     .select(

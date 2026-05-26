@@ -4,6 +4,49 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-26 — Canonical promotion bug (audit finding D): two-layer fix
+
+**Why.** Yesterday's multi-event extraction fix correctly stored the JDA Services 1/24/2024 entry as an `ocr_extracted_events` row on page 10. But an owner asking Ask AI *"what's the most recent inspection on this propeller?"* still got an answer claiming "November 1, 2023" — completely hallucinated, citing page 10 in the source preview, but with a fabricated date. Investigation found two compounding bugs in the canonical-promotion chain (`document_chunks` → `ocr_entry_segments` → `canonical_document_chunks` is what Ask AI queries; page 10's text never reached the canonical layer).
+
+**The two bugs:**
+
+1. **Segment classification was inverted by keyword regex false-positives.** `detectSegmentType` in [segments.ts](apps/web/lib/ocr/segments.ts) checked `TABLE_HINT_RE = /\b(table|hours|cycles|serial|model|part\s+number|p\/n|s\/n)\b/i` BEFORE the page-classification trust check. Every real maintenance entry naturally contains "hours" (tach hours), "model", "serial", "s/n" — so the table-block heuristic matched every logbook page and routed them to `evidence_state='non_canonical_evidence'`. Meanwhile blank pre-printed forms ("FACTORY BULLETINS / Total Time" repeated, "Notes" pages) defaulted to `maintenance_entry` and **promoted** to canonical. Real maintenance content suppressed, template noise kept.
+
+2. **Hidden second confidence threshold dropped handwritten content.** Even after segments are flagged `canonical_candidate=true` (threshold 0.72), `insertCanonicalChunksFromOcrSegments` in [server.ts:794](apps/web/lib/ingestion/server.ts#L794) applied its own `minConfidence ?? 0.86` filter. Older handwritten airframe/engine logbooks hit OCR confidence 0.80-0.86 consistently — cleared the segment-level gate, then silently dropped at the promotion gate. Doc AI-OCR'd typed propeller logs at 0.96-0.97 cleared both, which is why we didn't notice until testing a 1981-1992 airframe log.
+
+**Fix.** Two files, ~50 lines:
+
+- **[apps/web/lib/ocr/segments.ts](apps/web/lib/ocr/segments.ts)** — `detectSegmentType` re-ordered: form/tag/diagram signals still win first (they're definitive), then page_classification trust (`maintenance_entry`/`engine_log`/`airframe_log`/`prop_log`/`ad_compliance`/`work_order` → always `maintenance_entry`), only THEN the keyword heuristics for non-logbook content. Also added a minimum-content filter in `detectEvidenceState` so blank/template `maintenance_entry` segments don't promote: text under 30 chars without a date marker → `insufficient_content`; longer text with low unique-token ratio and no date → `template_or_form`. The 3 existing vitest tests still pass; comments at the bug sites explain why each branch exists.
+
+- **[apps/web/lib/ingestion/server.ts](apps/web/lib/ingestion/server.ts)** — `insertCanonicalChunksFromOcrSegments` default `minConfidence` lowered `0.86 → 0.72` to match the segment-level threshold. Comment notes why: the previous value was a hidden second gate that contradicted the segment-level decision.
+
+**Audit observations on a second real doc** (`02_19810401-19920812_AF_Logbook.pdf`, 23-page handwritten airframe log from 1981-1992, doc id `abae553b-…`). Ground-truth comparison via manual visual count of the rendered PDF pages vs. the pipeline output:
+
+- Estimated 50-65 real entries visible across pages 4-20; pipeline extracted **34 events** → ~55% recall.
+- For comparison the cleaner Cessna prop log (printed forms, 0.96 OCR confidence) hit ~92% recall on the same code path.
+- Recall drop comes from OCR text quality on handwritten cursive: Doc AI returns text where adjacent entries blur together, so the multi-event LLM can't see entry boundaries. One concrete artifact: page 8 stored `mechanic_name: "O'neal Holsonbank"` but the actual signature on page 8 is Donald Holcomb — the LLM pulled a name from a different page's bleed-in text.
+- Also surfaced a missing date sanity check: page 20 extracted `event_date: 2088-10-31` from what's actually "11/1/88" on the page. The bogus year 2088 sits in `ocr_extracted_events` with no flag.
+
+**Out of scope** (deferred audit findings + new):
+- (B) Per-entry image cropping before extraction — would address the ~55% recall on handwritten content by giving GPT-4o vision page regions instead of garbled OCR text.
+- (C) Per-field confidence still copies overall.
+- (E) "Logbook page produces <2 events" tripwire — would have flagged this doc as suspicious.
+- (new) Date sanity check at extraction time — reject impossible years; trivial to add.
+- (new) Duplicate-document cleanup — same aircraft has 47 prop-log docs from repeat uploads; polluting retrieval.
+
+**Files changed.** 2 files:
+
+- [apps/web/lib/ocr/segments.ts](apps/web/lib/ocr/segments.ts) — page-classification trust re-ordering + minimum-content filter for maintenance_entry.
+- [apps/web/lib/ingestion/server.ts](apps/web/lib/ingestion/server.ts) — `minConfidence` 0.86 → 0.72 in canonical promotion.
+
+**Verified — partial.** `tsc --noEmit` clean on both files (only pre-existing errors elsewhere). The 3 existing `lib/ocr/segments.test.ts` cases still pass with the segments.ts changes. **End-to-end UI verification of the 0.72 threshold fix is pending** — operator needs to re-ingest the airframe log and confirm pages 10/14/16 (canonical_candidate segments with confidence 0.83-0.85) now land in `canonical_document_chunks`. The segments.ts fix was verified separately on the propeller log earlier today.
+
+A side-channel cleanup also happened: 6 duplicate "logbook-jeet" test docs (versions 1-6) and their ~400 derived rows (events, page_jobs, segments, chunks, embeddings, canonical, plus the auto-bridged logbook_entries and maintenance_events) were removed from the database in a single transaction so the next test upload would be clean. Script kept at `.tmp/delete-jeet.mjs` for future reuse.
+
+**Commit.** _Pending operator verification of the 0.72 promotion-threshold fix._
+
+---
+
 ## 2026-05-25 — Multi-event extraction per OCR page + OCR fallback hardening
 
 **Why.** Previous session's audit of propeller logbook `178fc22f-…` (Cessna 172S, N401LP) found the field extractor producing exactly **one event per OCR page**, dropping ~63% of real entries (7 stored vs. 22-24 actually in the PDF) and producing field-blended "Frankenstein" events — page 4's stored row had date+tach from one entry but mechanic+description from a different entry. The most-recent maintenance event in the book (JDA Services 1/24/2024 on page 10) was completely missing from the data, which means owner-facing logbook views and AD-applicability calculations were silently working from a 2023 snapshot.
