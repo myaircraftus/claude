@@ -23,6 +23,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
 import { generateEmbeddings } from '@/lib/openai/embeddings'
+import { DIRECT_CHUNKING_SOURCE_TAG } from '@/lib/ocr/direct-chunking'
 
 const CTX_MODEL = process.env.WAVE2_CTX_MODEL || 'gpt-4o-mini'
 const LLM_CONCURRENCY = 12
@@ -39,6 +40,10 @@ interface CanonChunk {
   chunk_index: number
   section_title: string | null
   chunk_text: string | null
+  // Populated for direct-chunking canonical chunks so we can skip the LLM
+  // context-blurb call (chunks already carry family-aware semantic context
+  // from the vision-model call). Other chunks have an empty / legacy shape.
+  metadata_json: Record<string, unknown> | null
 }
 
 async function runPool<T, R>(items: T[], concurrency: number, worker: (item: T, i: number) => Promise<R>): Promise<R[]> {
@@ -84,6 +89,11 @@ function buildWindow(group: CanonChunk[], idx: number): string {
   return text.slice(0, WINDOW_CHAR_CAP)
 }
 
+function isDirectChunkingChunk(chunk: CanonChunk): boolean {
+  const source = (chunk.metadata_json as { source?: unknown } | null)?.source
+  return source === DIRECT_CHUNKING_SOURCE_TAG
+}
+
 async function generateContext(
   openai: OpenAI,
   group: CanonChunk[],
@@ -91,6 +101,14 @@ async function generateContext(
   detLine: string,
 ): Promise<string> {
   const chunk = group[idx]
+  // Direct-chunking chunks are already family-aware (one chunk per maintenance
+  // entry / signoff / AD clause with explicit chunk_kind + family_metadata).
+  // The LLM blurb would be near-duplicate of what the chunk text already
+  // says, so we skip the call and use the deterministic identifier line only
+  // — keeps tail/make/model context but drops the per-chunk LLM cost.
+  if (isDirectChunkingChunk(chunk)) {
+    return detLine
+  }
   const window = buildWindow(group, idx)
   let summary = ''
   let identifiers = ''
@@ -147,9 +165,11 @@ export async function contextualizeCanonicalDocument(
     }
 
     // Only chunks not already contextualized (idempotent / resumable).
+    // metadata_json is selected so direct-chunking chunks can be detected
+    // and short-circuit the LLM call (see isDirectChunkingChunk above).
     const { data: chunkRows, error: chunkErr } = await supabase
       .from('canonical_document_chunks')
-      .select('id, document_id, organization_id, aircraft_id, page_number, chunk_index, section_title, chunk_text')
+      .select('id, document_id, organization_id, aircraft_id, page_number, chunk_index, section_title, chunk_text, metadata_json')
       .eq('document_id', documentId)
       .is('context_text', null)
       .order('chunk_index', { ascending: true })

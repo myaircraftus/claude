@@ -9,6 +9,13 @@ import { writeFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { inferDocumentFamily, type DocumentFamily } from '@/lib/ocr/segments'
+import {
+  directChunkingProviderHasKey,
+  getDirectChunkingProvider,
+  parseScannedPdfWithDirectChunking,
+  shouldUseDirectChunkingFor,
+} from '@/lib/ocr/direct-chunking'
+import type { DirectChunkPageResult } from '@/lib/ocr/direct-chunking'
 
 // Lowered 6 → 4. The multi-event extraction schema makes per-batch output
 // volume sensitive to the heaviest page in a batch. Smaller batches keep any
@@ -259,6 +266,13 @@ export interface NativeIngestResponse {
   page_count: number
   pages: NativeParsedPage[]
   chunks: NativeParsedChunk[]
+  // Direct-chunking signals — set by parseScannedPdfWithDirectChunking so the
+  // ingestion orchestrator can branch into the new persistence path: skip
+  // GPT-4o annotation, skip buildOcrEntrySegments, write canonical chunks
+  // directly from the per-page payload, write ocr_extracted_events directly
+  // from the per-page events array.
+  direct_chunking?: boolean
+  direct_chunking_pages?: DirectChunkPageResult[]
 }
 
 export interface NativeMetadataEvent {
@@ -2465,12 +2479,33 @@ export async function parseScannedPdfWithFallbacks(args: {
   //   3. Google Document AI — final fallback. The previous default. Bad on
   //      handwriting (23% WER) but cheap and reliable for clean printed text.
   //   4-5. Local tesseract / AWS Textract — only used if explicitly enabled.
+  // Direct-chunking is its own FIRST-class attempt at the top of the
+  // cascade when enabled. Gated on the CONFIGURED PROVIDER'S key, NOT on
+  // GEMINI_API_KEY: if OCR_DIRECT_CHUNKING_PROVIDER=openai but the operator
+  // doesn't have a Gemini key, direct-chunking must still run via OpenAI.
+  // (Earlier version of this cascade conflated the two and silently fell
+  // back to legacy GPT-4o OCR — fix: treat them as independent attempts.)
+  const directEnabled = shouldUseDirectChunkingFor(args.docType)
+  const directProvider = directEnabled ? getDirectChunkingProvider() : null
+
   const attempts: Array<{
     name: string
     enabled: boolean
     run: () => Promise<NativeIngestResponse>
   }> = [
+    ...(directEnabled && directProvider
+      ? [{
+          name: `${directProvider}_direct_chunking`,
+          enabled: directChunkingProviderHasKey(),
+          run: () => parseScannedPdfWithDirectChunking(args),
+        }]
+      : []),
     {
+      // Legacy text-only Gemini OCR. Always considered (when GEMINI_API_KEY
+      // is set) so it remains a fallback if direct-chunking via either
+      // provider failed — Gemini is the strongest handwritten-OCR engine
+      // per the bake-off, and a simpler call shape may succeed where the
+      // structured-output schema didn't.
       name: 'gemini_3_flash_preview',
       enabled: Boolean(process.env.GEMINI_API_KEY),
       run: () => parseScannedPdfWithGemini(args),

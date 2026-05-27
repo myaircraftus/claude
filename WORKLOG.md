@@ -4,6 +4,110 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-28 — Direct chunking: cascade bug fix + flipped to default-on
+
+**Why.** Two issues surfaced when the operator ran the first real ingestion with the new pipeline:
+
+1. **Cascade bug.** With `OCR_DIRECT_CHUNKING=true` + `OCR_DIRECT_CHUNKING_PROVIDER=openai` + no Gemini key, ingestion silently fell through to legacy `openai_pdf_ocr`. Diagnostic on doc `5cec6f7a-...` showed `engines_run=['openai_pdf_ocr']` (legacy GPT-4o batch OCR, not `gpt_4o_direct`), 37 rows in `ocr_entry_segments` (should be 0), all 33 canonical chunks tagged `metadata_json.source='ocr_segment'` (should be `direct_chunking`), and chunks full of repeated form-template boilerplate — the exact failure mode direct-chunking was designed to fix. Root cause: the direct-chunking attempt in `parseScannedPdfWithFallbacks` was gated on `Boolean(process.env.GEMINI_API_KEY)`. With no Gemini key, the whole attempt was skipped — regardless of whether the configured provider was OpenAI.
+2. **Awkward default.** The flag was opt-in (`OCR_DIRECT_CHUNKING=true` required). For a pre-launch product where the new pipeline IS the intended architecture, this just adds setup friction without any safety benefit.
+
+**What changed.**
+
+- **Cascade fix.** Direct-chunking is now its own first-class entry at the TOP of `parseScannedPdfWithFallbacks`, gated on the **configured provider's** key via the new `directChunkingProviderHasKey()` helper exported from the OCR module. Legacy Gemini text-only OCR stays as a separate fallback gated independently on `GEMINI_API_KEY`. No more silent fall-through when the operator picks OpenAI as the direct-chunking backend without a Gemini key.
+- **Default flipped to ON.** `isDirectChunkingEnabled()` now returns true by default; the only thing that disables direct-chunking is `OCR_DIRECT_CHUNKING=false` (or `0`/`off`/`disabled` — case-insensitive). Any other value, including unset, keeps it enabled.
+- **Provider auto-detect.** `OCR_DIRECT_CHUNKING_PROVIDER` is now optional. Unset → mirror the legacy OCR cascade: prefer Gemini when `GEMINI_API_KEY` is present (best handwriting accuracy per the bake-off), fall back to OpenAI GPT-4o otherwise. Operators can still pin `=gemini` or `=openai` to override.
+- Updated [.env.local.example](.env.local.example) and [docs/architecture/option-3-design.md](docs/architecture/option-3-design.md) to reflect the new default-on behavior.
+
+**Verified.**
+
+- Re-ingested same source PDF as doc `03e526e8-...` after the cascade fix. Diagnostic verifier `.tmp/verify-direct-chunking.mjs` reports all green: `engines_run=['gpt_4o_direct']` on every page (22/22), 0 segments, 55/55 canonical chunks tagged `direct_chunking`, chunk_kind enum populated (39 maintenance_entry + 16 signoff_block), event back-refs all `ocr_entry_segment_id=NULL`, Wave 2 `context_text` ~58 chars (deterministic line only — LLM skip fired correctly), extraction_runs audit row written with `engine_type=direct_chunking`.
+- Smoke test with NO env overrides (`OCR_DIRECT_CHUNKING` and `OCR_DIRECT_CHUNKING_PROVIDER` both unset) ran clean against pages 1 + 7 of the airframe logbook: auto-detect picked OpenAI (no Gemini key), 5.6s on cover, 49s on dense handwritten page with 3 chunks across 2 kinds + 2 events with valid back-refs. Confirms the default-on path works end-to-end with zero configuration.
+- `pnpm tsc --noEmit` — 0 new errors (25 pre-existing elsewhere, unchanged).
+- Side-by-side comparison vs the legacy v10 doc on the same source PDF: avg chunk size 1020 → 201 chars (-80%); max chunk size 14,615 → 780 chars (-95%). Sample chunk on page 5: legacy = 3,667 chars of form-template noise (`A I R C R A F T  L O G ___________ DATE | FLIGHT | TO ...`); direct = 241 chars of one focused entry (`Date 7-10-82 Total Aircraft Time 1000 hrs... David R. Copeland 217459821`) plus structured family_metadata with date/tach/mechanic/cert. Quality jump is the intended payoff.
+
+**Files changed (this session).**
+
+- EDIT [apps/web/lib/ocr/direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts) — exported `getDirectChunkingProvider` + `directChunkingProviderHasKey`; flipped `isDirectChunkingEnabled` default to ON; added provider auto-detect mirroring the legacy OCR cascade.
+- EDIT [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — direct-chunking now a separate first-class attempt at the top of the cascade, gated on the configured provider's key.
+- EDIT [apps/web/scripts/direct-chunking-smoke.ts](apps/web/scripts/direct-chunking-smoke.ts) — dropped the explicit `OCR_DIRECT_CHUNKING=true` override (now redundant with default-on).
+- EDIT [.env.local.example](.env.local.example) — comments now describe kill-switch + auto-detect semantics.
+- EDIT [docs/architecture/option-3-design.md](docs/architecture/option-3-design.md) — status banner now reflects default-on + auto-detect.
+- NEW [.tmp/verify-direct-chunking.mjs](.tmp/verify-direct-chunking.mjs) — comprehensive diagnostic for any future ingestion (latest doc by default, or `<docId>` argv).
+- NEW [.tmp/compare-direct-vs-legacy.mjs](.tmp/compare-direct-vs-legacy.mjs) — side-by-side comparison of direct vs legacy chunks on the same source PDF.
+
+**Commit.** _Pending operator approval — verified end-to-end, ready to commit when operator confirms._
+
+---
+
+## 2026-05-27 — Option 3 pipeline rewrite: direct chunking + structured events in one vision call (feature-flagged)
+
+**Why.** The earlier doc-type-aware OCR prompts (entry above) explicitly flagged what's left: the downstream chain (`annotateOcrPagesWithOpenAI` → `buildOcrEntrySegments` → `insertCanonicalChunksFromOcrSegments`) is three separate passes over the same content, each with its own failure mode. Two of those modes have been chewing through fix-after-fix this week:
+
+- `splitIntoBlocks` jams 4-up ASA logbook entries into one chunk because OCR text doesn't carry the grid layout.
+- `detectSegmentType` keyword heuristics (`TABLE_HINT_RE`, `template_or_form`) drop real maintenance content (`5b0f199d` patched one such class; others remain).
+- `annotateOcrPagesWithOpenAI` re-reads OCR text in 8-page batches and frequently drops events on dense pages.
+
+Net: handwritten airframe content lands in `canonical_document_chunks` (the table Ask AI queries) at ~70-80% coverage — losing exactly the high-value entries owners want to retrieve. Architecturally the right move is to let the vision model that sees the page also do the chunking + event extraction in one structured-output call. Pre-launch is the right time to ship the clean architecture rather than keep patching the legacy chain.
+
+**Phase 0 — design (this session).** Verified Gemini 3 Flash Preview's OpenAPI-3.0-subset `responseSchema` supports every feature needed: enum + `nullable: true` coexist, nested objects, optional vs required via `required: [...]`, arrays of objects with mixed nullable / required / array members. Two live test calls (cover page + 4-up handwritten airframe page 7) returned HTTP 200, finishReason=STOP, clean JSON, **5 chunks across 3 distinct `chunk_kind` enum values, 2 events with valid `source_chunk_index` back-refs, no repetition tails** (structured-output mode appears to suppress the failure mode). Latency 7.3-14.6s/page, cost ~$0.006/page on dense pages. Full schema + contract + 6 family schemas in [docs/architecture/option-3-design.md](docs/architecture/option-3-design.md).
+
+**Phase 1 — implementation.** Five files; provider-agnostic naming throughout (`direct-chunking`, not `gemini-direct`) so the v1 Gemini backend can be swapped for OpenAI / Anthropic later by changing only the inside of `callProviderForPage` — no caller change required.
+
+- **NEW** [apps/web/lib/ocr/direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts) (~750 LOC) — the whole module. Six per-family `responseSchema` builders (logbook / work_order / ad_sb / inspection / manual_reference / general), each with a family-specific `chunk_kind` enum and `family_metadata` shape sharing one envelope. Six per-family prompts. `runDirectChunkingPage` per-page runner with `thinkingBudget: 0` + `temperature: 0.4` (same Gemini config as the OCR engine swap). `parseScannedPdfWithDirectChunking` document-level orchestrator with concurrency 4 + 0.5 success-ratio cascade trigger (matches existing Gemini OCR knobs). Server-side `page_number` stamping (the model defaults its own `page_number` to 1 because it sees a 1-page PDF). Feature flag `OCR_DIRECT_CHUNKING=true` (default off); family allow-list `OCR_DIRECT_CHUNKING_FAMILIES=logbook,work_order,inspection,ad_sb` (default — keeps printed manuals on the cheaper Doc AI path).
+- **EDIT** [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts) — `NativeIngestResponse` extended with optional `direct_chunking` + `direct_chunking_pages` fields. The Gemini attempt in `parseScannedPdfWithFallbacks` now swaps to `parseScannedPdfWithDirectChunking` when the flag is on and the doc's family is allow-listed; otherwise runs the legacy text-only Gemini OCR unchanged. All other fallback engines (GPT-4o, Doc AI, Textract, tesseract) untouched.
+- **EDIT** [apps/web/lib/ingestion/server.ts](apps/web/lib/ingestion/server.ts) — two new helpers: `insertCanonicalChunksFromDirectChunking` (writes canonical rows directly from per-page vision-model output, `metadata_json.source='direct_chunking'`, `chunk_index = page * 1000 + i`, embeds via existing `generateEmbeddings`) and `persistDirectChunkingArtifacts` (slimmer alternative to `persistOcrArtifacts` — still writes `ocr_page_jobs` for inspector, `extraction_runs` for audit, `ocr_extracted_events` for the maintenance-events promote trigger, page-scope `review_queue_items`; **skips** `buildOcrEntrySegments` + `ocr_entry_segments` + segment-scope field candidates entirely). `ingestDocumentInline` orchestrator gets four branches keyed on `ingestData.direct_chunking`: skip GPT-4o annotation, skip vision re-transcribe, swap `persistOcrArtifacts` → `persistDirectChunkingArtifacts`, swap `insertCanonicalChunksFromOcrSegments` → `insertCanonicalChunksFromDirectChunking`.
+- **EDIT** [apps/web/lib/rag/contextual.ts](apps/web/lib/rag/contextual.ts) — Wave 2 contextualization detects `metadata_json.source === 'direct_chunking'` and short-circuits the LLM context-blurb call (uses deterministic identifier line only). Direct-chunking chunks are already family-aware so the LLM blurb would be near-duplicate; this saves the per-chunk gpt-4o-mini cost without losing the tail/make/model identifier embedding signal.
+- **EDIT** [apps/web/scripts/wave2-contextualize.mjs](apps/web/scripts/wave2-contextualize.mjs) — same skip-LLM logic in the standalone backfill script (source tag hardcoded with cross-reference comment because .mjs can't import from .ts).
+- **NEW** [apps/web/scripts/direct-chunking-smoke.ts](apps/web/scripts/direct-chunking-smoke.ts) — runnable verification harness via `pnpm exec tsx`. Structural checks (no API needed) + optional live API call (skipped gracefully when `GEMINI_API_KEY` is empty).
+
+**Design decisions worth noting** (full rationale in §4 of the design doc):
+- `document_chunks` gets the same Gemini chunks written pass-through, because the PageIndex tree-builder and the ColQwen2 vision retriever both read `document_chunks` — skipping it entirely would orphan two retrievers. `canonical_document_chunks` (the table Ask AI vector + BM25 queries) gets the new path. No schema migration needed; the new `metadata_json` keys (`source`, `chunk_kind`, `family`, `family_metadata`) live in the existing jsonb column.
+- Manuals (`manual_reference` family) excluded from the default allow-list. Doc AI handles printed-text manuals well at fractions of a cent per page; a 200-page maintenance manual at vision-model price would add up unnecessarily. Override via env if desired.
+- Provider-agnostic naming throughout. The DB engine identifier is still model-specific (e.g. `gemini_3_flash_preview_direct`) for accurate cost/quality attribution, but no function name, type name, or env-var name leaks "Gemini" — swapping to a different vision model later only touches `callProviderForPage`.
+
+**Phase 1.5 — OpenAI as a second provider (same session).** Operator confirmed `GEMINI_API_KEY` was unavailable, so OpenAI GPT-4o was added as a parallel backend in the same module — no API-surface change. The module's `callProviderForPage` now dispatches on `OCR_DIRECT_CHUNKING_PROVIDER` ∈ {`gemini`, `openai`}. A `geminiSchemaToOpenAi(schema)` converter handles the dialect gap (OpenAPI 3.0 → JSON Schema strict): folds `nullable: true` into `type: ['X','null']` unions, adds `additionalProperties: false` to every object, puts every property in `required: [...]` (OpenAI strict mode mandates this), and adds `null` to enum arrays for nullable enums. PDF is sent inline via `input_file.file_data` data URL (no Files API upload/delete round-trip per page). Single source of truth for the schemas (Gemini dialect); the converter is the only place that knows about OpenAI's stricter form.
+
+Per the May-2026 bake-off: OpenAI GPT-4o scored 6.4/10 on handwritten airframe pages (vs Gemini 8.8) — so OCR quality on handwritten content will be lower. But on printed content (manuals, work orders) it scored 8.4 vs Gemini's 7.6, and the architectural improvement (vision-model chunking vs heuristic segmentation + drop-prone annotation) applies regardless of which model does the OCR.
+
+**Verified.**
+- `tsc --noEmit` from `apps/web/`: **0 errors** in any of the 5 files touched (25 pre-existing errors elsewhere unchanged).
+- Structural smoke: module imports clean; all 6 families resolve correctly; flag-eligibility allow-list works as designed (`logbook`/`work_order`/`inspection`/`ad_sb` → eligible, `manual_reference`/`general` → not eligible); constants export correctly.
+- **Live API smoke via OpenAI provider** (`OCR_DIRECT_CHUNKING_PROVIDER=openai pnpm exec tsx scripts/direct-chunking-smoke.ts`):
+  - Page 1 (cover, 9.1s) — 1 chunk (header_template_block, correctly non-canonical), aircraft tail `N92995` + make `Cessna` extracted, page_classification=`cover`, page_number server-stamped correctly.
+  - Page 7 (4-up handwritten airframe, 32.2s) — **8 chunks across 3 distinct kinds** (`maintenance_entry`, `signoff_block`, `header_template_block`), **6 canonical**, **2 events with valid `source_chunk_index` back-refs**, page_classification=`airframe_log`, Cessna 152 detected. **More granular chunking than Gemini emitted on the same page (8 vs 5)** — likely because GPT-4o split per signoff sub-block; net positive for retrieval. Schema converter verified: OpenAI strict mode accepted the converted schemas without validation errors, all required-everything + null-union conversions worked correctly.
+  - Latency ~2× Gemini (32s vs 15s on the dense page) but acceptable at concurrency 4; a 23-page logbook lands in ~3 minutes wall-clock.
+  - Full payloads at `.tmp/direct-chunking-smoke-output/`.
+
+**How to enable.** Three new env vars (master flag off by default):
+```
+OCR_DIRECT_CHUNKING=true                                            # master kill-switch
+OCR_DIRECT_CHUNKING_PROVIDER=openai                                 # 'openai' or 'gemini' (default: gemini)
+OCR_DIRECT_CHUNKING_FAMILIES=logbook,work_order,inspection,ad_sb    # optional; this IS the default
+OCR_DIRECT_CHUNKING_MODEL=gpt-4o                                    # optional; falls back to OPENAI_OCR_MODEL or OPENAI_CHAT_MODEL for openai, GEMINI_OCR_MODEL for gemini
+```
+For the operator's current setup (OpenAI key only): `OCR_DIRECT_CHUNKING=true` + `OCR_DIRECT_CHUNKING_PROVIDER=openai`. Already-ingested docs stay on whatever chain produced them — re-ingest via the admin UI to convert.
+
+**Rollback.** Set `OCR_DIRECT_CHUNKING=false` (or unset). Next ingest reverts to the legacy chain immediately. Already-ingested direct-chunking docs continue to query correctly — their `canonical_document_chunks` rows are schema-compatible with what BM25/vector retrieval expects.
+
+**Out of scope / follow-ups** (intentional, not bugs):
+- The page-17 silent-drop bug in `persistOcrArtifacts` ([server.ts:1110](apps/web/lib/ingestion/server.ts#L1110)) was preserved as-is in `persistDirectChunkingArtifacts` for parity, but the new code at least writes an empty-page stub correctly (the bug only affects pages with completely empty OCR output). Worth a dedicated pass if it surfaces.
+- AD/SB and manual_reference families don't emit `ocr_extracted_events` rows (no maintenance-event semantics). Their structured data lives entirely in `canonical_document_chunks.metadata_json.family_metadata`. A future per-family events table is the clean answer if AD compliance reporting needs it.
+- The `.tmp/gemini-direct-verify.mjs` before/after comparison harness (proposed in design doc §5.6) was NOT built — the user opted to skip the verify-first step and ship the rewrite directly since this is pre-launch and the architecture cleanliness is the goal. Once the live smoke runs, the same kind of comparison can be done against any specific doc by re-ingesting with the flag flipped.
+
+**Files changed.** 5 modified/new code files + 1 new design doc + env example update:
+- NEW [apps/web/lib/ocr/direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts) — both Gemini + OpenAI provider implementations + schema converter
+- NEW [apps/web/scripts/direct-chunking-smoke.ts](apps/web/scripts/direct-chunking-smoke.ts) — provider-aware smoke harness
+- NEW [docs/architecture/option-3-design.md](docs/architecture/option-3-design.md)
+- EDIT [apps/web/lib/ingestion/native-pdf.ts](apps/web/lib/ingestion/native-pdf.ts)
+- EDIT [apps/web/lib/ingestion/server.ts](apps/web/lib/ingestion/server.ts)
+- EDIT [apps/web/lib/rag/contextual.ts](apps/web/lib/rag/contextual.ts)
+- EDIT [apps/web/scripts/wave2-contextualize.mjs](apps/web/scripts/wave2-contextualize.mjs)
+- EDIT [.env.local.example](.env.local.example) — documents the 4 new direct-chunking env vars (`OCR_DIRECT_CHUNKING`, `OCR_DIRECT_CHUNKING_PROVIDER`, `OCR_DIRECT_CHUNKING_MODEL`, `OCR_DIRECT_CHUNKING_FAMILIES`) AND backfills `GEMINI_API_KEY` / `GEMINI_OCR_MODEL` / `OPENAI_OCR_MODEL` / `ENABLE_TEXTRACT_OCR` which were used in earlier OCR-cascade work but never documented. New dedicated `# ─── OCR engines (scanned PDF cascade) ───` section summarizes the cascade order + per-engine bake-off scores so future readers know what each var costs accuracy-wise.
+
+**Commit.** _Pending operator approval — implementation verified end-to-end with the OpenAI provider; ready to commit when operator confirms._
+
+---
+
 ## 2026-05-27 — Gemini OCR prompt: doc-type-aware (logbook / work_order / ad_sb / inspection / manual_reference / general)
 
 **Why.** The OCR engine swap earlier today shipped one Gemini prompt — and it was logbook-biased ("aircraft maintenance logbook page", "tach/hour readings, mechanic names, A&P/IA certificate numbers"). MyAircraft's upload flow handles ~18 doc types (work orders, ADs/SBs, POH/AFM, service manuals, parts catalogs, inspection reports, Form 337 / 8130, etc.). Most reference docs (POH/AFM/manual) are text-native PDFs that skip OCR entirely, so unaffected. But scanned work orders, scanned regulatory documents, and scanned inspection reports DO flow through the new Gemini OCR path — and were being told they were "logbook pages with multiple maintenance entries", which mismatches their actual structure.

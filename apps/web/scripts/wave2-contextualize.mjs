@@ -78,6 +78,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSessi
 const openai = new OpenAI({ apiKey: OPENAI_KEY })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// Source-of-truth: DIRECT_CHUNKING_SOURCE_TAG in apps/web/lib/ocr/direct-chunking.ts.
+// Direct-chunking canonical chunks already carry family-aware semantic context
+// (per-entry chunk_kind + family_metadata) so the LLM blurb is redundant.
+// Hard-coded here because this is a .mjs standalone script that can't import
+// from a .ts module; the constant on the TS side is the source of truth.
+const DIRECT_CHUNKING_SOURCE_TAG = 'direct_chunking'
+
 async function withRetry(fn, label) {
   for (let attempt = 1; attempt <= 6; attempt++) {
     try {
@@ -112,7 +119,8 @@ async function loadPendingChunks() {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from('canonical_document_chunks')
-      .select('id, document_id, organization_id, aircraft_id, page_number, chunk_index, section_title, chunk_text')
+      // metadata_json drives the direct-chunking short-circuit in generateContext.
+      .select('id, document_id, organization_id, aircraft_id, page_number, chunk_index, section_title, chunk_text, metadata_json')
       .is('context_text', null)
       .order('document_id', { ascending: true })
       .order('chunk_index', { ascending: true })
@@ -174,9 +182,20 @@ function buildWindow(group, idx) {
   return text.slice(0, WINDOW_CHAR_CAP)
 }
 
+function isDirectChunkingChunk(chunk) {
+  return chunk?.metadata_json?.source === DIRECT_CHUNKING_SOURCE_TAG
+}
+
 async function generateContext(group, idx, doc, ac, tally) {
   const chunk = group[idx]
   const detLine = deterministicLine(chunk, doc, ac)
+  // Direct-chunking chunks are already family-aware (vision model emitted
+  // one chunk per maintenance entry / signoff / AD clause with explicit
+  // chunk_kind + family_metadata). The LLM blurb would be near-duplicate
+  // information, so skip the call and use the deterministic line only.
+  if (isDirectChunkingChunk(chunk)) {
+    return detLine
+  }
   const window = buildWindow(group, idx)
   const messages = [
     {

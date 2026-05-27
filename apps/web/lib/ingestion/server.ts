@@ -13,6 +13,12 @@ import {
 } from '@/lib/documents/processing-state'
 import { buildOcrEntrySegments } from '@/lib/ocr/segments'
 import { validateOcrField } from '@/lib/ocr/validation'
+import {
+  DIRECT_CHUNKING_SOURCE_TAG,
+  type DirectChunk,
+  type DirectChunkEvent,
+  type DirectChunkPageResult,
+} from '@/lib/ocr/direct-chunking'
 import { retranscribeGarbledPages, isRetranscribeEnabled } from '@/lib/ingestion/vision-retranscribe'
 import { recordDocumentDriftSnapshot } from '@/lib/intelligence/quality'
 import { ensureTriggerSecretKey, isTriggerConfigured } from '@/lib/ingestion/trigger-env'
@@ -96,6 +102,12 @@ interface IngestResponse {
   page_count: number
   pages: ParsedPage[]
   chunks: ParsedChunk[]
+  // Direct-chunking signals — populated by parseScannedPdfWithDirectChunking
+  // (apps/web/lib/ocr/direct-chunking.ts). When set, the orchestrator routes
+  // persistence through persistDirectChunkingArtifacts +
+  // insertCanonicalChunksFromDirectChunking instead of the legacy chain.
+  direct_chunking?: boolean
+  direct_chunking_pages?: DirectChunkPageResult[]
 }
 
 interface MetadataEvent {
@@ -877,6 +889,442 @@ async function insertCanonicalChunksFromOcrSegments(args: {
   if (embeddingRows.length > 0) {
     await args.supabase.from('canonical_document_embeddings').insert(embeddingRows)
   }
+}
+
+// ─── Direct-chunking persistence (Option 3) ───────────────────────────────
+//
+// Used when the OCR cascade ran the direct-chunking module
+// (apps/web/lib/ocr/direct-chunking.ts) instead of the legacy text-only
+// Gemini path. The direct-chunking module already produced family-aware
+// chunks + structured events in ONE vision call, so we skip the GPT-4o
+// annotation step, skip buildOcrEntrySegments, and write directly:
+//   - ocr_page_jobs  (one per page — for inspector + review queue)
+//   - extraction_runs (one per page — audit trail of the call)
+//   - ocr_extracted_events (one per event — feeds maintenance_events trigger)
+//   - canonical_document_chunks (one per canonical-candidate chunk — the
+//     table Ask AI actually queries)
+//   - canonical_document_embeddings (one per canonical chunk)
+//   - page-scope review_queue_items (for low-confidence pages)
+
+async function insertCanonicalChunksFromDirectChunking(args: {
+  supabase: ServiceClient
+  document: DocumentRecord
+  pages: DirectChunkPageResult[]
+}) {
+  // Build canonical rows from chunks the model flagged as canonical
+  // candidates. is_canonical_candidate is the per-chunk decision the vision
+  // model made while looking at the page; it replaces the heuristic
+  // detectEvidenceState gate from segments.ts.
+  type CanonicalRow = {
+    document_id: string
+    organization_id: string
+    aircraft_id: string | null
+    page_number: number
+    page_number_end: number | null
+    chunk_index: number
+    section_title: string | null
+    chunk_text: string
+    token_count: number | null
+    char_count: number
+    parser_confidence: number | null
+    metadata_json: Record<string, unknown>
+  }
+
+  const rows: CanonicalRow[] = []
+  for (const page of args.pages) {
+    for (const chunk of page.chunks) {
+      if (!chunk.is_canonical_candidate) continue
+      const text = chunk.text.trim()
+      // Drop trivial chunks — same filter the segments.ts gate applied so
+      // canonical retrieval doesn't get polluted with single-word noise.
+      if (text.length < 5) continue
+      rows.push({
+        document_id: args.document.id,
+        organization_id: args.document.organization_id,
+        aircraft_id: args.document.aircraft_id,
+        page_number: page.page_number,
+        page_number_end: null,
+        chunk_index: page.page_number * 1000 + chunk.chunk_index,
+        section_title: chunk.section_title,
+        chunk_text: text,
+        token_count: Math.max(1, Math.ceil(text.length / 4)),
+        char_count: text.length,
+        parser_confidence: chunk.confidence,
+        metadata_json: {
+          source: DIRECT_CHUNKING_SOURCE_TAG,
+          chunk_kind: chunk.chunk_kind,
+          family: page.family,
+          family_metadata: chunk.family_metadata,
+          page_classification: page.page_classification,
+          is_ocr: true,
+        },
+      })
+    }
+  }
+
+  if (rows.length === 0) return
+
+  // Upsert on (document_id, chunk_index) — matches the existing canonical
+  // writers and tolerates a retry racing a still-running prior attempt.
+  await args.supabase
+    .from('canonical_document_chunks')
+    .upsert(rows, { onConflict: 'document_id,chunk_index' })
+
+  // Fetch back to map chunk_index → canonical chunk id. Page through the
+  // 1000-row PostgREST cap (a 200-page logbook can produce 3-4k chunks).
+  const insertedChunks: Array<{ id: string; chunk_index: number }> = []
+  const CHUNK_PAGE_SIZE = 1000
+  for (let from = 0; ; from += CHUNK_PAGE_SIZE) {
+    const { data, error } = await args.supabase
+      .from('canonical_document_chunks')
+      .select('id, chunk_index')
+      .eq('document_id', args.document.id)
+      .order('chunk_index', { ascending: true })
+      .range(from, from + CHUNK_PAGE_SIZE - 1)
+    if (error) {
+      throw new Error(`Failed to fetch canonical chunks: ${error.message}`)
+    }
+    if (!data || data.length === 0) break
+    insertedChunks.push(...(data as Array<{ id: string; chunk_index: number }>))
+    if (data.length < CHUNK_PAGE_SIZE) break
+  }
+
+  const idByChunkIndex = new Map(insertedChunks.map((c) => [c.chunk_index, c.id]))
+
+  // Embed chunks (canonical layer only — the document_chunks pass-through
+  // gets its embedding via the existing insertEmbeddingsCompat call in
+  // ingestDocumentInline). Same model and shape as text-native canonical.
+  const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large'
+  const embeddingInputs = rows.map((row) => ({
+    id: String(row.chunk_index),
+    text: row.chunk_text,
+  }))
+  const embeddings = await generateEmbeddings(embeddingInputs)
+
+  const embeddingRows = embeddings
+    .map((embedding) => {
+      const chunkId = idByChunkIndex.get(Number(embedding.id))
+      if (!chunkId) return null
+      return {
+        document_id: args.document.id,
+        chunk_id: chunkId,
+        organization_id: args.document.organization_id,
+        aircraft_id: args.document.aircraft_id,
+        embedding_model: embeddingModel,
+        embedding: embedding.embedding,
+      }
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+
+  if (embeddingRows.length > 0) {
+    // Upsert on chunk_id so a retry doesn't fail on the canonical_document_embeddings_chunk_id_key
+    // unique constraint. Same idempotency pattern as Wave 2.
+    await args.supabase
+      .from('canonical_document_embeddings')
+      .upsert(embeddingRows, { onConflict: 'chunk_id' })
+  }
+}
+
+/** Direct-chunking equivalent of persistOcrArtifacts. Writes the per-page
+ *  ocr_page_jobs + extraction_runs + ocr_extracted_events that the
+ *  inspector / maintenance-events trigger / review queue depend on,
+ *  WITHOUT building segments (the vision-model chunks already are the
+ *  semantic boundaries). Returns whether any page needs human review so
+ *  the orchestrator can flag the document. */
+async function persistDirectChunkingArtifacts(args: {
+  supabase: ServiceClient
+  document: DocumentRecord
+  pages: DirectChunkPageResult[]
+}): Promise<{ requiresHumanReview: boolean }> {
+  const relevantPages = args.pages.filter(
+    (page) => page.raw_text.trim().length > 0 || page.page_classification === 'blank',
+  )
+
+  if (relevantPages.length === 0) {
+    return { requiresHumanReview: false }
+  }
+
+  const now = new Date().toISOString()
+
+  // Pull scan_pages capture metadata for the same reason as persistOcrArtifacts
+  // — owner-side scanner uploads tie OCR pages back to their original
+  // captured images and ABBYY classification.
+  const scanPageMap = new Map<number, {
+    original_image_path?: string | null
+    processed_capture_image_path?: string | null
+    capture_classification?: string | null
+    capture_quality_score?: number | null
+    abbyy_classification?: string | null
+    abbyy_confidence?: number | null
+    abbyy_payload?: Record<string, unknown> | null
+  }>()
+
+  if (args.document.scan_batch_id) {
+    const { data: scanPages } = await args.supabase
+      .from('scan_pages')
+      .select(
+        'page_number, original_image_path, processed_capture_image_path, capture_classification, capture_quality_score, abbyy_classification, abbyy_confidence, abbyy_payload',
+      )
+      .eq('scan_batch_id', args.document.scan_batch_id)
+
+    for (const page of (scanPages as Array<any> | null) ?? []) {
+      scanPageMap.set(page.page_number, {
+        original_image_path: page.original_image_path,
+        processed_capture_image_path: page.processed_capture_image_path,
+        capture_classification: page.capture_classification,
+        capture_quality_score: page.capture_quality_score,
+        abbyy_classification: page.abbyy_classification,
+        abbyy_confidence: page.abbyy_confidence,
+        abbyy_payload: page.abbyy_payload,
+      })
+    }
+  }
+
+  // Build ocr_page_jobs rows. buildOcrPageState takes the legacy ParsedPage
+  // shape — project the direct-chunking page to that shape locally so we
+  // reuse the same arbitration / extraction-status logic that the legacy
+  // path uses (confidence thresholds, classification consistency, etc.).
+  const pageRows = relevantPages.map((page) => {
+    const legacyEvents: NativeExtractedEvent[] = page.events.map((event) => ({
+      event_type: event.event_type,
+      logbook_type: event.logbook_type,
+      event_date: event.event_date,
+      tach_time: event.tach_time,
+      airframe_tt: event.airframe_tt,
+      tsmoh: event.tsmoh,
+      work_description: event.work_description,
+      mechanic_name: event.mechanic_name,
+      mechanic_cert_number: event.mechanic_cert_number,
+      ia_number: event.ia_number,
+      ad_references: event.ad_references,
+      part_numbers: event.part_numbers,
+      return_to_service: event.return_to_service,
+      confidence_overall: event.confidence_overall,
+    }))
+    const legacyPage: ParsedPage = {
+      page_number: page.page_number,
+      text: page.raw_text,
+      ocr_confidence: page.overall_confidence,
+      word_count: page.raw_text ? page.raw_text.split(/\s+/).filter(Boolean).length : 0,
+      char_count: page.raw_text.length,
+      ocr_engine: page.ocr_engine,
+      is_ocr: true,
+      page_classification: page.page_classification,
+      extracted_events: legacyEvents,
+      geometry_regions: [],
+    }
+    const state = buildOcrPageState(legacyPage, args.document.doc_type)
+    const scanPage = scanPageMap.get(page.page_number)
+    return {
+      document_id: args.document.id,
+      organization_id: args.document.organization_id,
+      aircraft_id: args.document.aircraft_id,
+      scan_batch_id: args.document.scan_batch_id ?? null,
+      page_number: page.page_number,
+      page_image_path: scanPage?.original_image_path ?? null,
+      processed_image_path: scanPage?.processed_capture_image_path ?? null,
+      page_classification: page.page_classification ?? 'unknown',
+      classification_confidence: page.overall_confidence,
+      ocr_raw_text: page.raw_text,
+      ocr_confidence: page.overall_confidence,
+      extraction_status: state.extractionStatus,
+      needs_human_review: state.needsHumanReview,
+      review_reason: state.reviewReason,
+      processed_at: now,
+      arbitration_status: state.arbitrationStatus,
+      arbitration_confidence: page.overall_confidence,
+      arbitration_reasoning: state.reasoning,
+      engines_run: [page.ocr_engine],
+      abbyy_classification: scanPage?.abbyy_classification ?? scanPage?.capture_classification ?? null,
+      abbyy_confidence:
+        scanPage?.abbyy_confidence ??
+        (typeof scanPage?.capture_quality_score === 'number' ? scanPage.capture_quality_score : null),
+      abbyy_payload: scanPage?.abbyy_payload ?? {},
+      updated_at: now,
+    }
+  })
+
+  await insertOcrPageJobsCompat(args.supabase, pageRows, 50)
+
+  // Fetch back to get the page job ids for FK use in extraction_runs +
+  // ocr_extracted_events + review_queue_items.
+  const { data: insertedPageJobs, error: pageJobsError } = await args.supabase
+    .from('ocr_page_jobs')
+    .select('id, page_number, needs_human_review, review_reason')
+    .eq('document_id', args.document.id)
+
+  if (pageJobsError || !insertedPageJobs) {
+    throw new Error(
+      `Failed to fetch OCR page jobs: ${pageJobsError?.message ?? 'unknown error'}`,
+    )
+  }
+
+  const pageJobByPageNumber = new Map(
+    (insertedPageJobs as Array<{
+      id: string
+      page_number: number
+      needs_human_review: boolean
+      review_reason?: string | null
+    }>).map((row) => [row.page_number, row]),
+  )
+
+  // extraction_runs — one per page. raw_output carries the full
+  // direct-chunking payload so the inspector can show what the model emitted.
+  const extractionRunRows = relevantPages
+    .map((page) => {
+      const pageJob = pageJobByPageNumber.get(page.page_number)
+      if (!pageJob) return null
+      return {
+        page_id: pageJob.id,
+        engine_name: page.ocr_engine,
+        engine_type: 'direct_chunking',
+        raw_output: {
+          page_number: page.page_number,
+          page_classification: page.page_classification,
+          raw_text: page.raw_text,
+          chunks: page.chunks,
+        },
+        structured_output: { events: page.events },
+        confidence_summary: { overall: page.overall_confidence },
+      }
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+
+  if (extractionRunRows.length > 0) {
+    await batchInsert(args.supabase, 'extraction_runs', extractionRunRows, 50)
+  }
+
+  // ocr_extracted_events — one row per event with chunk-text as raw_text
+  // (chunk text is the precise evidence the event came from, vs the whole
+  // page like the legacy path uses).
+  const eventRows: Array<Record<string, unknown>> = []
+  for (const page of relevantPages) {
+    const pageJob = pageJobByPageNumber.get(page.page_number)
+    if (!pageJob) continue
+    const meaningfulEvents = page.events.filter((event) =>
+      hasMeaningfulExtractedEvent({
+        event_type: event.event_type,
+        logbook_type: event.logbook_type,
+        event_date: event.event_date,
+        tach_time: event.tach_time,
+        airframe_tt: event.airframe_tt,
+        tsmoh: event.tsmoh,
+        work_description: event.work_description,
+        mechanic_name: event.mechanic_name,
+        mechanic_cert_number: event.mechanic_cert_number,
+        ia_number: event.ia_number,
+        ad_references: event.ad_references,
+        part_numbers: event.part_numbers,
+        return_to_service: event.return_to_service,
+        confidence_overall: event.confidence_overall,
+      }),
+    )
+
+    for (const event of meaningfulEvents) {
+      const normalizedDate = normalizeValidatedDate(event.event_date ?? null)
+      const normalizedTach =
+        validateOcrField('tach_time', event.tach_time ?? null).normalized ?? null
+      const normalizedAirframeTt =
+        validateOcrField('airframe_tt', event.airframe_tt ?? null).normalized ?? null
+      const normalizedTsmoh =
+        validateOcrField('tsmoh', event.tsmoh ?? null).normalized ?? null
+
+      // Source chunk text is the precise evidence — fall back to the whole
+      // page only if the back-ref is out of range (shouldn't happen, but
+      // parsePageResponse clamps invalid indices defensively).
+      const sourceChunk: DirectChunk | undefined = page.chunks[event.source_chunk_index]
+      const rawText = sourceChunk?.text ?? page.raw_text
+
+      const confidence = event.confidence_overall ?? page.overall_confidence
+
+      eventRows.push({
+        ocr_page_job_id: pageJob.id,
+        ocr_entry_segment_id: null,
+        document_id: args.document.id,
+        organization_id: args.document.organization_id,
+        aircraft_id: args.document.aircraft_id,
+        page_number: page.page_number,
+        segment_group_key: null,
+        evidence_state: null,
+        event_type: event.event_type,
+        logbook_type: event.logbook_type,
+        event_date: normalizedDate,
+        tach_time: normalizedTach ? Number(normalizedTach) : null,
+        airframe_tt: normalizedAirframeTt ? Number(normalizedAirframeTt) : null,
+        tsmoh: normalizedTsmoh ? Number(normalizedTsmoh) : null,
+        work_description: event.work_description,
+        work_description_normalized: event.work_description,
+        ata_chapter: null,
+        part_numbers:
+          event.part_numbers.length > 0 ? event.part_numbers : null,
+        serial_numbers: null,
+        ad_references:
+          event.ad_references.length > 0 ? event.ad_references : null,
+        far_references: null,
+        manual_references: null,
+        mechanic_name: event.mechanic_name,
+        mechanic_cert_number: event.mechanic_cert_number,
+        ia_number: event.ia_number,
+        repair_station_cert: null,
+        return_to_service: event.return_to_service ?? false,
+        rts_by: null,
+        confidence_overall: confidence,
+        confidence_date: normalizedDate && confidence != null ? confidence : null,
+        confidence_tach: normalizedTach && confidence != null ? confidence : null,
+        confidence_mechanic:
+          event.mechanic_name && confidence != null ? confidence : null,
+        raw_text: rawText,
+        review_status: pageJob.needs_human_review ? 'needs_review' : 'approved',
+        created_at: now,
+        updated_at: now,
+      })
+    }
+  }
+
+  if (eventRows.length > 0) {
+    await batchInsert(args.supabase, 'ocr_extracted_events', eventRows, 50)
+  }
+
+  // Page-scope review queue. No segment-scope items because there are no
+  // segments in direct-chunking mode — chunks ARE the segments.
+  const pageQueueRows = Array.from(pageJobByPageNumber.values())
+    .filter((pageJob) => pageJob.needs_human_review)
+    .map((pageJob) => ({
+      organization_id: args.document.organization_id,
+      aircraft_id: args.document.aircraft_id,
+      ocr_page_job_id: pageJob.id,
+      ocr_extracted_event_id: null,
+      queue_type: 'ocr_page',
+      review_scope: 'page',
+      priority: 'normal',
+      reason: pageJob.review_reason ?? 'OCR review required',
+      status: 'pending',
+    }))
+
+  if (pageQueueRows.length > 0) {
+    await batchInsert(args.supabase, 'review_queue_items', pageQueueRows, 50)
+  }
+
+  // Drift snapshot — same instrumentation as the legacy path, with an empty
+  // segment list since segments aren't materialized for direct-chunking.
+  await recordDocumentDriftSnapshot({
+    supabase: args.supabase,
+    organizationId: args.document.organization_id,
+    documentId: args.document.id,
+    documentFamily: args.document.doc_type,
+    providerName: relevantPages[0]?.ocr_engine ?? 'direct_chunking',
+    pages: relevantPages.map((page) => ({
+      page_number: page.page_number,
+      text: page.raw_text,
+      ocr_confidence: page.overall_confidence,
+      ocr_engine: page.ocr_engine,
+      page_classification: page.page_classification,
+    })),
+    segments: [],
+    conflictCount: 0,
+  })
+
+  return { requiresHumanReview: pageQueueRows.length > 0 }
 }
 
 async function persistMetadata(args: {
@@ -1850,7 +2298,15 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
       },
     })
 
-    if (!ingestData.is_text_native && ingestData.pages.length > 0) {
+    // GPT-4o annotation pass — adds page_classification + extracted_events to
+    // each OCR'd page. Skipped under direct-chunking: that pipeline already
+    // emits both in the same vision call, and re-annotating would clobber
+    // the higher-fidelity per-chunk events with page-level batched output.
+    if (
+      !ingestData.is_text_native &&
+      ingestData.pages.length > 0 &&
+      !ingestData.direct_chunking
+    ) {
       const enrichedPages = await annotateOcrPagesWithOpenAI({
         pages: ingestData.pages.map((p) => ({
           page_number: p.page_number,
@@ -1880,7 +2336,14 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
     // re-transcribed by GPT-4o BEFORE chunking/segmentation, so the clean text
     // flows into document_pages, the OCR entry segments and the canonical
     // retrieval layer with no replace-and-rerun. Best-effort — never blocks.
-    if (!ingestData.is_text_native && ingestData.pages.length > 0 && isRetranscribeEnabled()) {
+    // Skipped under direct-chunking: the vision model already produced the
+    // page text and chunks together; re-OCRing wouldn't change the chunks.
+    if (
+      !ingestData.is_text_native &&
+      ingestData.pages.length > 0 &&
+      !ingestData.direct_chunking &&
+      isRetranscribeEnabled()
+    ) {
       try {
         const pdfResponse = await fetch(fileUrl)
         if (pdfResponse.ok) {
@@ -1969,11 +2432,21 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
     let requiresHumanReview = false
 
     if (!ingestData.is_text_native && ingestData.pages.length > 0) {
-      const ocrArtifacts = await persistOcrArtifacts({
-        supabase,
-        document,
-        pages: ingestData.pages,
-      })
+      // Direct-chunking gets its own slimmer persister that bypasses the
+      // segment-building chain (chunks ARE the segments). The legacy path
+      // is unchanged.
+      const ocrArtifacts =
+        ingestData.direct_chunking && ingestData.direct_chunking_pages
+          ? await persistDirectChunkingArtifacts({
+              supabase,
+              document,
+              pages: ingestData.direct_chunking_pages,
+            })
+          : await persistOcrArtifacts({
+              supabase,
+              document,
+              pages: ingestData.pages,
+            })
       requiresHumanReview = ocrArtifacts.requiresHumanReview
     }
 
@@ -2083,6 +2556,14 @@ export async function ingestDocumentInline(documentId: string): Promise<Document
             chunk.id,
           ])
         ),
+      })
+    } else if (ingestData.direct_chunking && ingestData.direct_chunking_pages) {
+      // Direct-chunking: write canonical chunks straight from the per-page
+      // vision-model output. Bypasses ocr_entry_segments entirely.
+      await insertCanonicalChunksFromDirectChunking({
+        supabase,
+        document,
+        pages: ingestData.direct_chunking_pages,
       })
     } else {
       await insertCanonicalChunksFromOcrSegments({
