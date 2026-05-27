@@ -52,15 +52,19 @@ import type {
  *  legacy text-native / OCR-segment-promoted chunks. */
 export const DIRECT_CHUNKING_SOURCE_TAG = 'direct_chunking'
 
-/** Default families allowed under direct-chunking. Manuals are excluded by
- *  default — Doc AI handles their clean printed text well, and the per-page
- *  vision-model cost on a 200-page manual adds up fast. Override with the
- *  OCR_DIRECT_CHUNKING_FAMILIES env var. */
+/** Default families allowed under direct-chunking — ALL 6, after per-family
+ *  verification (see WORKLOG entry on the cross-family verification harness).
+ *  Override with the OCR_DIRECT_CHUNKING_FAMILIES env var if a specific
+ *  family needs to revert to the legacy chain (e.g. for cost control on
+ *  massive scanned-manual binders, set to
+ *  `logbook,work_order,inspection,ad_sb`). */
 const DEFAULT_FAMILIES: readonly DocumentFamily[] = [
   'logbook',
   'work_order',
   'inspection',
   'ad_sb',
+  'manual_reference',
+  'general',
 ] as const
 
 /** Match the existing Gemini-OCR concurrency and timeout knobs — the
@@ -631,6 +635,15 @@ const WORK_ORDER_GUIDANCE =
   'signoff_block, ignore_block. Each chunk\'s text MUST be the verbatim page ' +
   'slice. For parts_line and labor_entry chunks, populate family_metadata ' +
   '(part_number, part_quantity, labor_hours, labor_mechanic, labor_cert).\n\n' +
+  'CANONICAL: Most work-order chunks ARE canonical content (the WO is what ' +
+  'a maintainer would search for later). Default is_canonical_candidate=true ' +
+  'for: labor_entry, parts_line, discrepancy_finding, corrective_action, ' +
+  'signoff_block — ALWAYS true regardless of content. For header_block: ' +
+  'true if it contains work-order-specific data (WO number, customer name, ' +
+  'aircraft tail, open/close dates, repair-station number); false ONLY if ' +
+  'the header is pure company letterhead (name + address with no WO context) ' +
+  'or repeated form labels with no values. For ignore_block: ALWAYS false. ' +
+  'When in doubt between true and false on a content-bearing chunk, pick true.\n\n' +
   'EVENTS: For each signoff_block chunk that represents a return-to-service ' +
   'action, emit ONE events[] item with source_chunk_index. Capture the ' +
   'mechanic_name, mechanic_cert_number, ia_number, return_to_service=true, ' +
@@ -662,6 +675,14 @@ const INSPECTION_GUIDANCE =
   'finding (one per finding), corrective_action, signoff_block, ignore_block. ' +
   'For findings, set family_metadata.finding_severity in ' +
   '{info, minor, major, airworthiness, deferred}.\n\n' +
+  'CANONICAL: Most inspection chunks ARE canonical content. Default ' +
+  'is_canonical_candidate=true for: finding, checklist_section, ' +
+  'corrective_action, signoff_block — ALWAYS true regardless of content. ' +
+  'For header_block: true if it contains inspection-specific data ' +
+  '(inspection type, date, hours/cycles, aircraft identification); false ' +
+  'ONLY if the header is pure binder/cover title or page-number boilerplate ' +
+  'with no inspection context. For ignore_block: ALWAYS false. When in doubt ' +
+  'between true and false on a content-bearing chunk, pick true.\n\n' +
   'EVENTS: For each signoff_block chunk, emit ONE events[] item capturing ' +
   'the mechanic_name, mechanic_cert_number, ia_number, return_to_service, ' +
   'and event_type set to the inspection type (e.g. "annual_inspection").'

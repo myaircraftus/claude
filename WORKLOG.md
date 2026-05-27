@@ -4,6 +4,56 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-28 — Cross-family verification + default expanded to all 6 families
+
+**Why.** Before flipping the direct-chunking default to cover every family (logbook + work_order + inspection + ad_sb + manual_reference + general), the operator wanted the same level of verification done for logbooks applied to each other family. The previous default-on flip put `work_order`, `inspection`, and `ad_sb` into production unverified — a fast-follow risk.
+
+**Verification harness.** New script [apps/web/scripts/verify-all-families.ts](apps/web/scripts/verify-all-families.ts). For each non-logbook family it picks a representative OCR doc from the DB, downloads the source PDF via a signed Supabase storage URL, runs direct-chunking on 3 representative pages (first + middle + last), and prints structural signals + a side-by-side with the LEGACY canonical chunks already in the DB. No DB writes, ~15 OpenAI calls (~$0.10). Supports a CLI family filter for focused re-runs (`tsx verify-all-families.ts work_order,inspection`). Output payloads in `.tmp/verify-all-families-output/`.
+
+**First-pass findings.**
+
+| Family | Sample doc | Verdict |
+|---|---|---|
+| `logbook` | (previously verified) | ✅ |
+| `ad_sb` | 10_AD_Compliance_Reports (106pg) | ✅ canonical chunks + family_metadata (ad_number, subject, affected_makes/models) on every page |
+| `manual_reference` | 16_Garmin_G5_EFI_Pilots_Guide_Binder (87pg) | ✅ subsection + diagram_caption + ignore_block mix; correct canonical gating |
+| `general` | 11_WOs_AD_Docs miscellaneous binder (105pg) | ✅ section + table_block + signature_block + ignore_block mix; correct canonical gating |
+| `work_order` | 11_WOs_AD_Docs work_order binder (105pg) | ❌ structurally correct (chunk_kind + family_metadata populated) but **0/all chunks marked is_canonical_candidate=true** — would leave docs invisible to retrieval |
+| `inspection` | 01_Current_Maintenance_Binder (28pg) | ❌ same 0-canonical problem on pages 14 + 28; page 1 returned empty |
+
+**Root cause + fix.** The logbook prompt explicitly tells the model when a chunk is NOT canonical ("Pre-printed form boilerplate... → is_canonical_candidate=false"), which implicitly teaches "real content → true". The ad_sb / manual_reference / general prompts work because the model's prior knowledge correctly identifies AD clauses / manual subsections / general sections as canonical. But the work_order + inspection prompts had ZERO canonical guidance — so the model defaulted to false everywhere out of caution. Added explicit CANONICAL paragraphs to both prompts:
+
+- WORK_ORDER: "labor_entry, parts_line, discrepancy_finding, corrective_action, signoff_block — ALWAYS canonical. header_block canonical if it has WO-specific data; false ONLY if pure letterhead. ignore_block always false. When in doubt, pick true."
+- INSPECTION: same pattern — "finding, checklist_section, corrective_action, signoff_block — ALWAYS canonical. header_block canonical if it has inspection-specific data; false ONLY if pure cover/page-number. ignore_block always false."
+
+**Re-verification after the prompt fix.**
+
+| Family | Before fix | After fix |
+|---|---|---|
+| WORK_ORDER page 1 | 7 chunks, **0 canonical** | 7 chunks, **7 canonical** ✓ |
+| WORK_ORDER page 52 | 6 chunks, **0 canonical** | 11 chunks, **11 canonical** ✓ |
+| WORK_ORDER page 105 | 4 chunks, **0 canonical** | 4 chunks, **4 canonical** ✓ |
+| INSPECTION page 1 | empty output | 1 chunk (cover, correctly ignore_block) ✓ |
+| INSPECTION page 14 | 3 chunks, **0 canonical** | 20 chunks, **20 canonical** ✓ |
+| INSPECTION page 28 | 2 chunks, **0 canonical** | 5 chunks, **5 canonical** ✓ |
+
+Both flipped from invisible-to-retrieval to fully indexed. Inspection page 1's earlier empty output was a side effect of the same prompt vagueness — fix resolved that too.
+
+**Expanded default to all 6 families.** With every family now verified, `DEFAULT_FAMILIES` in [apps/web/lib/ocr/direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts) now includes all 6 (logbook, work_order, inspection, ad_sb, manual_reference, general). New uploads of any document family get direct-chunking by default. Operators can narrow via `OCR_DIRECT_CHUNKING_FAMILIES` if cost control is needed on scanned-manual binders. Env-example comment + design-doc status banner updated to match.
+
+**Verified.** `pnpm tsc --noEmit` from `apps/web/`: 0 new errors (25 pre-existing elsewhere unchanged). Verification re-run output payloads in `.tmp/verify-all-families-output/`. Full transcripts of both verification runs in `.tmp/`.
+
+**Files changed (this session).**
+
+- EDIT [apps/web/lib/ocr/direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts) — WORK_ORDER_GUIDANCE + INSPECTION_GUIDANCE added explicit CANONICAL paragraphs; `DEFAULT_FAMILIES` expanded to all 6.
+- NEW [apps/web/scripts/verify-all-families.ts](apps/web/scripts/verify-all-families.ts) — cross-family verification harness with CLI family filter.
+- EDIT [.env.local.example](.env.local.example) — `OCR_DIRECT_CHUNKING_FAMILIES` comment now describes the new all-6 default.
+- EDIT [docs/architecture/option-3-design.md](docs/architecture/option-3-design.md) — status banner notes all 6 families enabled.
+
+**Commit.** _Pending operator approval — verified end-to-end, ready to commit when operator confirms._
+
+---
+
 ## 2026-05-28 — Direct chunking: cascade bug fix + flipped to default-on
 
 **Why.** Two issues surfaced when the operator ran the first real ingestion with the new pipeline:

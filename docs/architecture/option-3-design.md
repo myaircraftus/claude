@@ -1,9 +1,10 @@
 # Option 3 — Gemini-Direct Chunking (Design)
 
-**Status:** Implemented + verified end-to-end. Default ON in production.
+**Status:** Implemented + verified end-to-end across all 6 families. Default ON in production for every family.
 **Author:** Pipeline rewrite, May 2026.
 **Master kill-switch:** `OCR_DIRECT_CHUNKING=false` (any other value, including unset, keeps it enabled).
 **Provider:** Auto-detect (Gemini if `GEMINI_API_KEY` set, else OpenAI GPT-4o); pin via `OCR_DIRECT_CHUNKING_PROVIDER=gemini|openai`.
+**Family allow-list:** All 6 families (`logbook`, `work_order`, `inspection`, `ad_sb`, `manual_reference`, `general`) enabled by default after per-family verification. Narrow via `OCR_DIRECT_CHUNKING_FAMILIES` if cost control is needed on scanned-manual binders.
 **Scope:** Replace the OCR-text → annotation → segmentation → canonical-promotion
 chain with a single Gemini 3 Flash Preview call per page that emits raw text +
 family-aware chunks + structured events as a constrained-JSON response, then
