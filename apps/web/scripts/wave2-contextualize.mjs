@@ -186,16 +186,71 @@ function isDirectChunkingChunk(chunk) {
   return chunk?.metadata_json?.source === DIRECT_CHUNKING_SOURCE_TAG
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+function formatDateMulti(iso) {
+  if (typeof iso !== 'string') return null
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const month = parseInt(m[2], 10)
+  const day = parseInt(m[3], 10)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return `${MONTH_NAMES[month - 1]} ${day}, ${m[1]} (${iso})`
+}
+
+function extractStructuredIdentifiers(chunk) {
+  const fm = chunk?.metadata_json?.family_metadata
+  if (!fm || typeof fm !== 'object') return ''
+  const parts = []
+  const dateFields = [
+    ['entry_date_iso', 'Date'],
+    ['open_date_iso', 'Open date'],
+    ['close_date_iso', 'Close date'],
+    ['effective_date_iso', 'Effective date'],
+    ['compliance_date_iso', 'Compliance date'],
+    ['inspection_date_iso', 'Inspection date'],
+  ]
+  for (const [field, label] of dateFields) {
+    const v = fm[field]
+    if (typeof v === 'string') {
+      const f = formatDateMulti(v)
+      if (f) parts.push(`${label}: ${f}`)
+    }
+  }
+  const mech = []
+  if (typeof fm.mechanic_name === 'string' && fm.mechanic_name.length > 0) mech.push(fm.mechanic_name)
+  if (typeof fm.mechanic_cert === 'string' && fm.mechanic_cert.length > 0) mech.push(`A&P ${fm.mechanic_cert}`)
+  if (typeof fm.ia_number === 'string' && fm.ia_number.length > 0) mech.push(`IA ${fm.ia_number}`)
+  if (mech.length > 0) parts.push(`Mechanic: ${mech.join(' ')}`)
+  for (const [field, label] of [['tach_time_text', 'Tach'], ['airframe_tt_text', 'Airframe TT'], ['tsmoh_text', 'TSMOH']]) {
+    const v = fm[field]
+    if (typeof v === 'string' && v.length > 0) parts.push(`${label}: ${v}`)
+  }
+  if (Array.isArray(fm.ad_references) && fm.ad_references.length > 0) parts.push(`AD: ${fm.ad_references.join(', ')}`)
+  if (Array.isArray(fm.part_numbers) && fm.part_numbers.length > 0) parts.push(`Parts: ${fm.part_numbers.join(', ')}`)
+  if (typeof fm.work_order_number === 'string' && fm.work_order_number.length > 0) parts.push(`WO: ${fm.work_order_number}`)
+  if (typeof fm.ad_number === 'string' && fm.ad_number.length > 0) parts.push(`AD #: ${fm.ad_number}`)
+  if (typeof fm.sb_number === 'string' && fm.sb_number.length > 0) parts.push(`SB #: ${fm.sb_number}`)
+  if (typeof fm.subject === 'string' && fm.subject.length > 0) parts.push(`Subject: ${fm.subject}`)
+  if (typeof fm.inspection_type === 'string' && fm.inspection_type.length > 0) parts.push(`Inspection: ${fm.inspection_type}`)
+  if (typeof fm.tail_number === 'string' && fm.tail_number.length > 0) parts.push(`Tail: ${fm.tail_number}`)
+  return parts.join('; ')
+}
+
 async function generateContext(group, idx, doc, ac, tally) {
   const chunk = group[idx]
   const detLine = deterministicLine(chunk, doc, ac)
-  // Direct-chunking chunks are already family-aware (vision model emitted
-  // one chunk per maintenance entry / signoff / AD clause with explicit
-  // chunk_kind + family_metadata). The LLM blurb would be near-duplicate
-  // information, so skip the call and use the deterministic line only.
-  if (isDirectChunkingChunk(chunk)) {
-    return detLine
-  }
+  // Note: previously short-circuited for direct-chunking chunks. That assumption
+  // broke for short signoff/header chunks where the chunk text alone is
+  // "I certify... [name] A&P [number]" — no date / aircraft context in the
+  // text the embedding model sees, even though family_metadata has both. Now
+  // family_metadata fields are explicitly fed to the prompt as <extracted_fields>
+  // AND deterministically appended to context_text. Source of truth lives in
+  // apps/web/lib/rag/contextual.ts; this .mjs mirrors it for the standalone
+  // backfill path. ~$0.005/chunk on gpt-4o-mini.
   const window = buildWindow(group, idx)
   const messages = [
     {
@@ -203,17 +258,21 @@ async function generateContext(group, idx, doc, ac, tally) {
       content:
         'You situate an excerpt within its aircraft-maintenance document so it ' +
         'can be retrieved on its own (logbooks, manuals, ADs, SBs, work orders). ' +
+        'When <extracted_fields> are present, weave the date and mechanic/signer ' +
+        'into your context sentence using natural English ("Month Day, Year") so ' +
+        'date-anchored queries match. ' +
         'Reply with strict JSON: {"context": "<1-2 plain sentences situating ' +
-        'this chunk — what aircraft/component/event/section it belongs to>", ' +
+        'this chunk — include any extracted date and mechanic name>", ' +
         '"identifiers": "<comma-separated AD/SB/STC numbers, part numbers, ' +
-        'serial numbers, dates, tach/Hobbs times literally present in the chunk; ' +
-        'empty string if none>"}. Never invent facts not supported by the text.',
+        'serial numbers, dates, tach/Hobbs times from the chunk or ' +
+        '<extracted_fields>; empty string if none>"}. Never invent facts.',
     },
     {
       role: 'user',
       content:
         `<document>${detLine}</document>\n\n` +
         `<surrounding_excerpts>\n${window || '(none)'}\n</surrounding_excerpts>\n\n` +
+        `<extracted_fields>\n${structuredIdents || '(none)'}\n</extracted_fields>\n\n` +
         `<chunk>\n${(chunk.chunk_text || '').slice(0, 4000)}\n</chunk>`,
     },
   ]
@@ -225,7 +284,7 @@ async function generateContext(group, idx, doc, ac, tally) {
         openai.chat.completions.create({
           model: CTX_MODEL,
           temperature: 0,
-          max_tokens: 220,
+          max_tokens: 240,
           response_format: { type: 'json_object' },
           messages,
         }),
@@ -244,6 +303,9 @@ async function generateContext(group, idx, doc, ac, tally) {
   let ctx = detLine
   if (summary) ctx += `\n${summary}`
   if (identifiers) ctx += `\nKey references: ${identifiers}`
+  // Belt-and-suspenders: always append structured identifiers so high-signal
+  // fields land in the embedding text even if the LLM omitted them.
+  if (structuredIdents) ctx += `\nFields: ${structuredIdents}`
   return ctx
 }
 

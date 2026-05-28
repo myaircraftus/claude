@@ -69,7 +69,16 @@ export async function generateAnswer(
     };
   }
 
-  // 2. Build numbered citation context block
+  // 2. Build numbered citation context block.
+  //
+  // Each chunk is presented as: header line, then optional Context: line
+  // (Wave 2 enrichment — situates the chunk with date, mechanic, AD refs
+  // synthesized from family_metadata across sibling chunks on the same page),
+  // then the verbatim chunk_text. The verbatim text remains the citation
+  // source; the Context: line is "ambient" information the model can use to
+  // reason about WHICH chunk to cite (e.g. a signoff chunk whose text is just
+  // "I certify... [name] A&P [#]" needs the Context: line to know which date
+  // it belongs to).
   const contextLines: string[] = ['DOCUMENT EXCERPTS:'];
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -84,7 +93,11 @@ export async function generateAnswer(
       .filter(Boolean)
       .join(' | ');
 
-    contextLines.push(`\n${header}\n${chunk.chunk_text}`);
+    const ctxBlock =
+      chunk.context_text && chunk.context_text.trim().length > 0
+        ? `Context: ${chunk.context_text.trim()}\n`
+        : '';
+    contextLines.push(`\n${header}\n${ctxBlock}Text: ${chunk.chunk_text}`);
   }
   const contextBlock = contextLines.join('\n');
 

@@ -18,6 +18,12 @@
 export interface RerankableChunk {
   chunk_id: string
   chunk_text: string
+  /** Wave 2 enrichment — when present, prepended to chunk_text in the document
+   *  the reranker sees. Critical for short signoff/header chunks whose
+   *  chunk_text alone is too generic to distinguish from siblings (e.g.
+   *  "I certify... [name] A&P [#]" — context_text adds the date that lets
+   *  the reranker pick the right signoff for a date-anchored query). */
+  context_text?: string
 }
 
 /** True when a Cohere key is configured — used only for logging/telemetry. */
@@ -137,6 +143,14 @@ export async function rerankChunks<T extends RerankableChunk>(
     }
   }
 
+  // Tried prepending context_text here so Cohere sees the same Wave 2
+  // enrichment the generation model sees. Net effect on the eval was
+  // negative — aggregation queries got worse because context_text on
+  // recent chunks (mentioning 2024 dates) crowded out older entries.
+  // Reverted to chunk_text-only for now. The right fix is either a
+  // chunk-length-aware blend (use context_text only for short signoff
+  // chunks) or a page-bundle reranker that scores per-page rather than
+  // per-chunk. Tracked as a known limitation on multi-fact queries.
   const documents = candidates.map((c) => (c.chunk_text ?? '').slice(0, MAX_DOC_CHARS))
   const requestedTopN = Math.min(topN, candidates.length)
 

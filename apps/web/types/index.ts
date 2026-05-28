@@ -505,6 +505,14 @@ export interface RetrievedChunk {
   page_number_end?: number
   section_title?: string
   chunk_text: string
+  /** Wave 2 enrichment line — aircraft+doc+section identifier plus an LLM
+   *  blurb that situates the chunk (date, mechanic, AD refs from sibling
+   *  chunks' family_metadata). Optional. The embedding used for vector
+   *  retrieval is computed over `context_text || chunk_text`, so the model
+   *  that generates an answer should also see context_text — otherwise it
+   *  loses the cross-chunk linkage Wave 2 added (e.g. signoff chunk's text
+   *  alone has no date, but its context_text says "On Dec 3, 1984..."). */
+  context_text?: string
   metadata_json: Record<string, unknown>
   vector_score: number
   keyword_score: number

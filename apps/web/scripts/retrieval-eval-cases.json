@@ -1,0 +1,233 @@
+{
+  "_README": "Extended eval set for retrieval-eval-run.ts. 28 cases across 8 categories testing the direct-chunking + Wave 2 + Cohere + page-expansion pipeline on doc 03e526e8 (N92995 Cessna 152 airframe log).",
+  "_categories": {
+    "fact-lookup": "Simple 'who/what/when' single-fact queries — the baseline",
+    "date-format": "Same fact, different date format in the query (short / slash / month-name)",
+    "ad-sb": "AD/SB compliance + reference lookups",
+    "aggregation": "count / list / sum / first / last across multiple entries",
+    "multi-fact": "Answer requires combining info from multiple chunks on the same page",
+    "negative": "Records that DON'T exist — system must honestly decline, not hallucinate",
+    "vague": "Interpretive / ambiguous queries the model has to reason about",
+    "off-topic": "Out-of-scope (capital of France, jokes) — system must refuse"
+  },
+  "_grading_keys": {
+    "expected_substrings": "Answer must contain at least one (case-insensitive)",
+    "target_chunk_ids": "Optional — chunks containing ground truth, for retrieval-recall scoring",
+    "expect_insufficient": "Optional — true if system should return insufficient_evidence or honestly decline (no hallucinated answer)",
+    "expect_one_of_substrings_groups": "Optional — array of arrays; must match at least one whole group"
+  },
+  "target_doc": "03e526e8-7c9b-4bba-873a-c7ac4c606f4c",
+  "target_aircraft": "1ee40686-666c-4fd8-9bbd-b1ba44be4732",
+  "cases": [
+    {
+      "id": "fact-craig-1984",
+      "category": "fact-lookup",
+      "question": "Who performed the 100 hour inspection on December 3, 1984?",
+      "expected_substrings": ["John M. Craig", "Craig"],
+      "target_chunk_ids": ["ecf59dab-a209-4652-bbcc-30f69d3d2a4a"],
+      "notes": "Sparse signoff chunk — needs context_text + page expansion"
+    },
+    {
+      "id": "fact-cert-1985",
+      "category": "fact-lookup",
+      "question": "What was the mechanic certificate number for the 100 hour inspection on October 21, 1985?",
+      "expected_substrings": ["1344039"],
+      "target_chunk_ids": ["bc19fddb-7448-49f7-9429-6e5103ac54e8"],
+      "notes": "Charles A. Brown A&P 1344039"
+    },
+    {
+      "id": "fact-tach-1988-nov",
+      "category": "fact-lookup",
+      "question": "On the November 24, 1988 inspection entry, what was the tach reading?",
+      "expected_substrings": ["257.6"],
+      "target_chunk_ids": ["de1359a3-0691-405c-b5b5-d24ad38419b2"],
+      "notes": "Tach reading in chunk text"
+    },
+    {
+      "id": "fact-holtzclaw-1983",
+      "category": "fact-lookup",
+      "question": "Who performed the 100 hour inspection in January 1983?",
+      "expected_substrings": ["Holtzclaw", "O'Neal"],
+      "target_chunk_ids": ["7d4c3204-90f4-47a0-9c54-f18acc2a3593"],
+      "notes": "O'Neal Holtzclaw A&P 27948781 on 1983-01-03"
+    },
+    {
+      "id": "fact-douglas-tires",
+      "category": "fact-lookup",
+      "question": "Who replaced the main wheel tires on January 30, 1985?",
+      "expected_substrings": ["Douglas", "Robert"],
+      "notes": "Robert W. Douglas A&P 2244073"
+    },
+    {
+      "id": "date-format-short",
+      "category": "date-format",
+      "question": "Who signed off the 100 hour inspection on 12-3-84?",
+      "expected_substrings": ["John M. Craig", "Craig"],
+      "target_chunk_ids": ["ecf59dab-a209-4652-bbcc-30f69d3d2a4a"],
+      "notes": "Short date format — chunk text uses 12-3-84"
+    },
+    {
+      "id": "date-format-month-year",
+      "category": "date-format",
+      "question": "Who performed the annual inspection in June 1987?",
+      "expected_substrings": ["Miller", "Kathleen", "Clark", "Harry"],
+      "notes": "Two annual signoffs in June 1987 (Miller + Clark) — either acceptable"
+    },
+    {
+      "id": "date-format-slash",
+      "category": "date-format",
+      "question": "What work was performed on the aircraft on 11/24/1988?",
+      "expected_substrings": ["stall warning", "landing light", "spar", "trim tab", "brake", "100 hour", "100hr"],
+      "target_chunk_ids": ["de1359a3-0691-405c-b5b5-d24ad38419b2"],
+      "notes": "Slash-format date, page 20 entry"
+    },
+    {
+      "id": "ad-84-26-02",
+      "category": "ad-sb",
+      "question": "Has AD 84-26-02 been complied with on this aircraft?",
+      "expected_substrings": ["complied", "yes", "induction", "airfilter", "1987", "June"],
+      "notes": "Page 12, June 20 1987 by Kathleen Miller"
+    },
+    {
+      "id": "ad-87-20-03",
+      "category": "ad-sb",
+      "question": "What does AD 87-20-03 require for this aircraft?",
+      "expected_substrings": ["seat", "rail", "visual"],
+      "notes": "Page 17/18 — seat rail visual inspection"
+    },
+    {
+      "id": "ad-altimeter",
+      "category": "ad-sb",
+      "question": "When was AD 86-05-02 about United Instruments altimeters complied with?",
+      "expected_substrings": ["1987", "June", "06-20", "6-20", "20 June"],
+      "notes": "Page 12, 20 June 87"
+    },
+    {
+      "id": "ad-list-comply",
+      "category": "ad-sb",
+      "question": "List the airworthiness directives complied with on this aircraft in 1987.",
+      "expected_substrings": ["84-26-02", "86-05-02"],
+      "notes": "Multiple ADs complied with in June 1987"
+    },
+    {
+      "id": "agg-100hr-count",
+      "category": "aggregation",
+      "question": "How many 100-hour inspections have been performed on this aircraft according to the logbook?",
+      "expect_one_of_substrings_groups": [["1983", "1984", "1985"], ["1988", "1987"], ["several", "many", "multiple"]],
+      "notes": "Multiple 100hr inspections — count exactness less important than identifying multiple"
+    },
+    {
+      "id": "agg-mechanics-list",
+      "category": "aggregation",
+      "question": "List the mechanics who have signed off inspections on this aircraft.",
+      "expected_substrings": ["Craig", "Brown", "Holtzclaw", "Miller", "Clark", "Chamberlin", "Kelly", "Hinn", "Robertson"],
+      "notes": "Should surface multiple mechanic names"
+    },
+    {
+      "id": "agg-1988-entries",
+      "category": "aggregation",
+      "question": "List the maintenance entries on this aircraft from 1988.",
+      "expected_substrings": ["1988", "100", "inspect", "tach"],
+      "notes": "Multiple 1988 entries — Jan, Jun, Jul, Aug, Sep, Oct, Nov, Dec"
+    },
+    {
+      "id": "agg-most-recent",
+      "category": "aggregation",
+      "question": "What is the most recent maintenance entry recorded in this logbook?",
+      "expected_substrings": ["1998", "1989", "8/10/89", "rudder", "Shupe", "March", "2024", "2023", "Jackson", "Trey"],
+      "notes": "Aircraft has multiple logbook docs. Most-recent answer can be from 1998 (doc 03e526e8) or 2023/2024 from a newer doc on the same aircraft. Any is fine — the test is whether retrieval surfaces the genuinely most-recent maintenance for the AIRCRAFT, not just one doc."
+    },
+    {
+      "id": "multi-engine-install",
+      "category": "multi-fact",
+      "question": "Who installed the new engine on this aircraft, on what date, and what was the engine part number?",
+      "expected_substrings": ["Roy C. May", "May", "9-27-88", "0-235-L2C"],
+      "notes": "Page 18 entry — Roy C. May A&P 2811848 on 9-27-88, engine PN 0-235-L2C SN L-22039-15"
+    },
+    {
+      "id": "multi-craig-work",
+      "category": "multi-fact",
+      "question": "What maintenance work was performed during the December 3, 1984 inspection, and who signed it off?",
+      "expected_substrings": ["John M. Craig", "Craig"],
+      "target_chunk_ids": ["a61f4d15-4a39-4b5e-81f0-ea1cf5acf668", "ecf59dab-a209-4652-bbcc-30f69d3d2a4a"],
+      "notes": "Needs BOTH the entry chunk (work description) AND signoff chunk (mechanic). Page expansion required."
+    },
+    {
+      "id": "multi-brown-work",
+      "category": "multi-fact",
+      "question": "What work did Charles A. Brown perform on this aircraft, and on what date?",
+      "expected_substrings": ["10-21-85", "October 21, 1985", "Oct", "1985", "mag", "alternator", "ELT"],
+      "target_chunk_ids": ["bc19fddb-7448-49f7-9429-6e5103ac54e8"],
+      "notes": "Brown's Oct 1985 entry — 100hr with mag timing + alternator + ELT"
+    },
+    {
+      "id": "neg-no-annual-1986",
+      "category": "negative",
+      "question": "Who performed the annual inspection on this aircraft in 1986?",
+      "expect_insufficient": true,
+      "expected_substrings": ["no", "not", "don't see", "cannot find", "do not", "no record", "could not"],
+      "notes": "There is NO 1986 annual record in the logbook — first annual is June 1987. System must honestly decline."
+    },
+    {
+      "id": "neg-fake-ad",
+      "category": "negative",
+      "question": "Has AD 2010-04-05 been complied with on this aircraft?",
+      "expect_insufficient": true,
+      "expected_substrings": ["no", "not", "don't see", "cannot find", "do not", "no record", "could not"],
+      "notes": "AD 2010-04-05 is NOT in this logbook. System must honestly say it has no evidence."
+    },
+    {
+      "id": "neg-future-date",
+      "category": "negative",
+      "question": "What was the tach reading on January 1, 2030?",
+      "expect_insufficient": true,
+      "expected_substrings": ["no", "not", "don't see", "cannot find", "do not", "no record", "could not", "future"],
+      "notes": "Future date — no possible records. Must decline."
+    },
+    {
+      "id": "vague-last-annual",
+      "category": "vague",
+      "question": "When was this aircraft's most recent annual inspection?",
+      "expected_substrings": ["1987", "June", "Miller", "Clark", "1988", "1-1-88", "2023", "2024", "Jackson", "Trey"],
+      "notes": "Most-recent annual could be from doc 03e526e8 (1987 Miller/Clark) OR from a newer doc on the same aircraft (2023/2024). Either is correct relative to the aircraft."
+    },
+    {
+      "id": "vague-brake-history",
+      "category": "vague",
+      "question": "What repairs have been made to the brakes on this aircraft?",
+      "expected_substrings": ["brake", "pad", "lining", "leak"],
+      "notes": "Multiple brake entries across the doc — system should surface several"
+    },
+    {
+      "id": "off-topic-france",
+      "category": "off-topic",
+      "question": "What is the capital of France?",
+      "expect_insufficient": true,
+      "expected_substrings": ["aircraft", "maintenance", "records", "not", "cannot", "outside", "off-topic", "unable"],
+      "notes": "Off-topic — system must refuse and redirect"
+    },
+    {
+      "id": "off-topic-joke",
+      "category": "off-topic",
+      "question": "Tell me a joke about airplanes.",
+      "expect_insufficient": true,
+      "expected_substrings": ["aircraft", "maintenance", "records", "not", "cannot", "decline", "unable", "outside"],
+      "notes": "Not a records question — should decline"
+    },
+    {
+      "id": "edge-cert-only",
+      "category": "edge-case",
+      "question": "Which mechanic on this aircraft has A&P certificate number 123456?",
+      "expected_substrings": ["Chamberlin"],
+      "target_chunk_ids": ["d422d949-4f7c-49fa-b6e4-d37157090f2e"],
+      "notes": "Lookup by cert number alone, no date"
+    },
+    {
+      "id": "edge-part-tach",
+      "category": "edge-case",
+      "question": "What was the part number of the new tachometer installed on October 10, 1988?",
+      "expected_substrings": ["3320-01-91"],
+      "notes": "Page 15 entry — Tach PN 3320-01-91"
+    }
+  ]
+}

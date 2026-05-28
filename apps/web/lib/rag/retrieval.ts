@@ -309,7 +309,20 @@ function collapseDuplicatePages(chunks: RetrievedChunk[]) {
   const byPage = new Map<string, RetrievedChunk>()
 
   for (const chunk of chunks) {
-    const key = `${chunk.document_id}:${chunk.page_number}:${chunk.page_number_end ?? chunk.page_number}`
+    // Direct-chunking chunks are intentionally multiple per page (the vision
+    // model emits one chunk per semantic unit: maintenance_entry, signoff_block,
+    // parts_line, etc.). They are NOT duplicates and must NOT be collapsed —
+    // collapsing them was dropping the signoff chunk (with the mechanic name)
+    // whenever the same page also had a maintenance_entry chunk with a higher
+    // keyword score, making date-anchored "who signed off on date X" queries
+    // unanswerable. Key by chunk_id (no-op dedup) for the direct-chunking source;
+    // legacy / OCR-segment chunks keep the original per-page collapse so
+    // duplicate OCR fragments stay deduped.
+    const source = (chunk.metadata_json as { source?: unknown } | null | undefined)?.source
+    const key =
+      source === 'direct_chunking'
+        ? chunk.chunk_id
+        : `${chunk.document_id}:${chunk.page_number}:${chunk.page_number_end ?? chunk.page_number}`
     const existing = byPage.get(key)
     if (!existing || chunk.combined_score > existing.combined_score) {
       byPage.set(key, chunk)
@@ -341,6 +354,10 @@ function mapRpcRow(row: Record<string, unknown>): RetrievedChunk {
     page_number_end: (row.page_number_end as number | undefined) ?? undefined,
     section_title: (row.section_title as string | undefined) ?? undefined,
     chunk_text: row.chunk_text as string,
+    context_text:
+      typeof row.context_text === 'string' && row.context_text.length > 0
+        ? (row.context_text as string)
+        : undefined,
     metadata_json: (row.metadata_json as Record<string, unknown>) ?? {},
     vector_score: coerceFiniteNumber(row.vector_score, 0),
     keyword_score: coerceFiniteNumber(row.keyword_score, 0),

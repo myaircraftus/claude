@@ -94,6 +94,85 @@ function isDirectChunkingChunk(chunk: CanonChunk): boolean {
   return source === DIRECT_CHUNKING_SOURCE_TAG
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const
+
+function formatDateMulti(iso: string): string | null {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const month = parseInt(m[2], 10)
+  const day = parseInt(m[3], 10)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return `${MONTH_NAMES[month - 1]} ${day}, ${m[1]} (${iso})`
+}
+
+/** Extract high-signal identifiers from family_metadata as a single string the
+ *  Wave 2 LLM can weave into the blurb AND that we deterministically append to
+ *  context_text. This is what makes date-anchored queries match short signoff
+ *  chunks whose own text lacks the date — the date+mechanic+cert come from
+ *  family_metadata (already extracted at ingestion) and land in the embedding
+ *  text + BM25 tsvector via context_text. */
+function extractStructuredIdentifiers(chunk: CanonChunk): string {
+  const fm = (chunk.metadata_json as { family_metadata?: Record<string, unknown> } | null)?.family_metadata
+  if (!fm || typeof fm !== 'object') return ''
+  const f = fm as Record<string, unknown>
+  const parts: string[] = []
+
+  // Dates — formatted as "Month Day, Year (YYYY-MM-DD)" so both natural-language
+  // and ISO queries match. Any populated date field counts; the field name
+  // labels which kind of date it is (entry / open / close / effective / etc.).
+  const dateFields: Array<[string, string]> = [
+    ['entry_date_iso', 'Date'],
+    ['open_date_iso', 'Open date'],
+    ['close_date_iso', 'Close date'],
+    ['effective_date_iso', 'Effective date'],
+    ['compliance_date_iso', 'Compliance date'],
+    ['inspection_date_iso', 'Inspection date'],
+  ]
+  for (const [field, label] of dateFields) {
+    const v = f[field]
+    if (typeof v === 'string') {
+      const formatted = formatDateMulti(v)
+      if (formatted) parts.push(`${label}: ${formatted}`)
+    }
+  }
+
+  // Mechanic / signer
+  const mech: string[] = []
+  if (typeof f.mechanic_name === 'string' && f.mechanic_name.length > 0) mech.push(f.mechanic_name)
+  if (typeof f.mechanic_cert === 'string' && f.mechanic_cert.length > 0) mech.push(`A&P ${f.mechanic_cert}`)
+  if (typeof f.ia_number === 'string' && f.ia_number.length > 0) mech.push(`IA ${f.ia_number}`)
+  if (mech.length > 0) parts.push(`Mechanic: ${mech.join(' ')}`)
+
+  // Hour/tach readings
+  for (const [field, label] of [['tach_time_text', 'Tach'], ['airframe_tt_text', 'Airframe TT'], ['tsmoh_text', 'TSMOH']]) {
+    const v = f[field]
+    if (typeof v === 'string' && v.length > 0) parts.push(`${label}: ${v}`)
+  }
+
+  // Reference numbers
+  if (Array.isArray(f.ad_references) && f.ad_references.length > 0)
+    parts.push(`AD: ${(f.ad_references as string[]).join(', ')}`)
+  if (Array.isArray(f.part_numbers) && f.part_numbers.length > 0)
+    parts.push(`Parts: ${(f.part_numbers as string[]).join(', ')}`)
+  if (typeof f.work_order_number === 'string' && f.work_order_number.length > 0)
+    parts.push(`WO: ${f.work_order_number}`)
+  if (typeof f.ad_number === 'string' && f.ad_number.length > 0)
+    parts.push(`AD #: ${f.ad_number}`)
+  if (typeof f.sb_number === 'string' && f.sb_number.length > 0)
+    parts.push(`SB #: ${f.sb_number}`)
+  if (typeof f.subject === 'string' && f.subject.length > 0)
+    parts.push(`Subject: ${f.subject}`)
+  if (typeof f.inspection_type === 'string' && f.inspection_type.length > 0)
+    parts.push(`Inspection: ${f.inspection_type}`)
+  if (typeof f.tail_number === 'string' && f.tail_number.length > 0)
+    parts.push(`Tail: ${f.tail_number}`)
+
+  return parts.join('; ')
+}
+
 async function generateContext(
   openai: OpenAI,
   group: CanonChunk[],
@@ -101,22 +180,23 @@ async function generateContext(
   detLine: string,
 ): Promise<string> {
   const chunk = group[idx]
-  // Direct-chunking chunks are already family-aware (one chunk per maintenance
-  // entry / signoff / AD clause with explicit chunk_kind + family_metadata).
-  // The LLM blurb would be near-duplicate of what the chunk text already
-  // says, so we skip the call and use the deterministic identifier line only
-  // — keeps tail/make/model context but drops the per-chunk LLM cost.
-  if (isDirectChunkingChunk(chunk)) {
-    return detLine
-  }
+  // Note: previously short-circuited for direct-chunking chunks here, on the
+  // assumption that family-aware chunks already carried enough context. That
+  // assumption broke for short signoff/header chunks whose text is e.g. just
+  // "I certify... [name] A&P [number]" — no date or aircraft context in the
+  // chunk text itself, even though family_metadata has both. Now the LLM
+  // blurb runs uniformly AND family_metadata fields are explicitly fed to the
+  // prompt as <extracted_fields> so the date/mechanic land in the blurb.
+  // Cost: ~$0.005/chunk on gpt-4o-mini.
   const window = buildWindow(group, idx)
+  const structuredIdents = extractStructuredIdentifiers(chunk)
   let summary = ''
   let identifiers = ''
   try {
     const resp = await openai.chat.completions.create({
       model: CTX_MODEL,
       temperature: 0,
-      max_tokens: 220,
+      max_tokens: 240,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -124,17 +204,21 @@ async function generateContext(
           content:
             'You situate an excerpt within its aircraft-maintenance document so it ' +
             'can be retrieved on its own (logbooks, manuals, ADs, SBs, work orders). ' +
+            'When <extracted_fields> are present, weave the date and mechanic/signer ' +
+            'into your context sentence using natural English ("Month Day, Year") so ' +
+            'date-anchored queries match. ' +
             'Reply with strict JSON: {"context": "<1-2 plain sentences situating this ' +
-            'chunk — what aircraft/component/event/section it belongs to>", ' +
+            'chunk — include any extracted date and mechanic name>", ' +
             '"identifiers": "<comma-separated AD/SB/STC numbers, part numbers, serial ' +
-            'numbers, dates, tach/Hobbs times literally present in the chunk; empty ' +
-            'string if none>"}. Never invent facts not supported by the text.',
+            'numbers, dates, tach/Hobbs times from the chunk or <extracted_fields>; ' +
+            'empty string if none>"}. Never invent facts.',
         },
         {
           role: 'user',
           content:
             `<document>${detLine}</document>\n\n` +
             `<surrounding_excerpts>\n${window || '(none)'}\n</surrounding_excerpts>\n\n` +
+            `<extracted_fields>\n${structuredIdents || '(none)'}\n</extracted_fields>\n\n` +
             `<chunk>\n${(chunk.chunk_text || '').slice(0, 4000)}\n</chunk>`,
         },
       ],
@@ -148,6 +232,10 @@ async function generateContext(
   let ctx = detLine
   if (summary) ctx += `\n${summary}`
   if (identifiers) ctx += `\nKey references: ${identifiers}`
+  // Belt-and-suspenders: always append the structured identifiers. Guarantees
+  // the high-signal fields land in the embedding text even if the LLM blurb
+  // omitted them (which it did for short signoff chunks in the prior version).
+  if (structuredIdents) ctx += `\nFields: ${structuredIdents}`
   return ctx
 }
 

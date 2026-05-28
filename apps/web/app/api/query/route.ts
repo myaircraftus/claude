@@ -233,6 +233,109 @@ interface HybridRetrieval {
 }
 
 /**
+ * Page-sibling expansion — for any direct-chunking chunk in the merged pool,
+ * also fetch every OTHER canonical chunk on the same (document_id, page_number).
+ *
+ * Why: the vision model emits MULTIPLE semantic chunks per page (one per
+ * maintenance entry / signoff / parts_line) and answers often need evidence
+ * from more than one chunk on the same page — e.g. the entry chunk has the
+ * date+work, the signoff chunk has the mechanic name. Without expansion,
+ * retrieval picks the highest-scoring chunk on the page and drops the
+ * siblings, leaving the LLM with a partial picture and an "unspecified
+ * individual" answer.
+ *
+ * Siblings ride into the rerank pool at 0.95× the parent chunk's score, so
+ * they're available for Cohere to re-elevate when truly relevant but don't
+ * displace already-strong top hits. Direct-chunking is the only source this
+ * fires on; legacy OCR-segment docs ignore it (one chunk per page already).
+ *
+ * Best-effort: a DB hiccup returns the input chunks unchanged. Cost: one
+ * extra SELECT per query (~5-10ms).
+ */
+async function expandWithPageSiblings(args: {
+  supabase: ReturnType<typeof createServiceSupabase>
+  organizationId: string
+  chunks: RetrievedChunk[]
+}): Promise<{ chunks: RetrievedChunk[]; siblingsAdded: number }> {
+  const { supabase, organizationId, chunks } = args
+  const directChunks = chunks.filter(
+    (c) => (c.metadata_json as { source?: unknown } | null)?.source === 'direct_chunking',
+  )
+  if (directChunks.length === 0) return { chunks, siblingsAdded: 0 }
+
+  const existingIds = new Set(chunks.map((c) => c.chunk_id))
+  const pageKeys = new Set<string>()
+  for (const c of directChunks) {
+    if (c.document_id && c.page_number != null) {
+      pageKeys.add(`${c.document_id}:${c.page_number}`)
+    }
+  }
+  if (pageKeys.size === 0) return { chunks, siblingsAdded: 0 }
+
+  // Best parent score per (doc, page) so siblings inherit a realistic baseline
+  // — keeps weakly-retrieved pages from inflating sibling ranks.
+  const parentScoreByPage = new Map<string, number>()
+  for (const c of directChunks) {
+    const k = `${c.document_id}:${c.page_number}`
+    const score = c.combined_score ?? 0
+    const prev = parentScoreByPage.get(k) ?? 0
+    if (score > prev) parentScoreByPage.set(k, score)
+  }
+
+  try {
+    const docIds = [...new Set(directChunks.map((c) => c.document_id))]
+    const pageNums = [
+      ...new Set(
+        directChunks.map((c) => c.page_number).filter((p): p is number => p != null),
+      ),
+    ]
+    const { data: rows } = await supabase
+      .from('canonical_document_chunks')
+      .select(
+        'id, document_id, aircraft_id, page_number, page_number_end, section_title, chunk_text, context_text, metadata_json, documents:document_id!inner(title, doc_type)',
+      )
+      .eq('organization_id', organizationId)
+      .in('document_id', docIds)
+      .in('page_number', pageNums)
+      .eq('metadata_json->>source', 'direct_chunking')
+
+    const siblings: RetrievedChunk[] = []
+    for (const row of (rows ?? []) as Array<Record<string, any>>) {
+      const id = row.id as string
+      if (existingIds.has(id)) continue
+      const key = `${row.document_id}:${row.page_number}`
+      if (!pageKeys.has(key)) continue
+      const doc = Array.isArray(row.documents) ? row.documents[0] : row.documents
+      const baseScore = parentScoreByPage.get(key) ?? 0
+      siblings.push({
+        chunk_id: id,
+        document_id: row.document_id as string,
+        document_title: doc?.title ?? 'Document',
+        doc_type: (doc?.doc_type ?? 'miscellaneous') as DocType,
+        aircraft_id: (row.aircraft_id as string | null) ?? undefined,
+        page_number: typeof row.page_number === 'number' ? row.page_number : 0,
+        page_number_end: (row.page_number_end as number | null) ?? undefined,
+        section_title: (row.section_title as string | null) ?? undefined,
+        chunk_text: (row.chunk_text as string) ?? '',
+        context_text:
+          typeof row.context_text === 'string' && row.context_text.length > 0
+            ? (row.context_text as string)
+            : undefined,
+        metadata_json: (row.metadata_json as Record<string, unknown>) ?? {},
+        vector_score: 0,
+        keyword_score: 0,
+        combined_score: baseScore * 0.95,
+      })
+    }
+    if (siblings.length === 0) return { chunks, siblingsAdded: 0 }
+    return { chunks: [...chunks, ...siblings], siblingsAdded: siblings.length }
+  } catch (err) {
+    console.error('[query] page-sibling expansion failed (ignored):', err)
+    return { chunks, siblingsAdded: 0 }
+  }
+}
+
+/**
  * Hybrid retrieval — vector + BM25 + PageIndex tree run CONCURRENTLY
  * (Promise.all), merged + de-duplicated by chunk_id, then ranked by a weighted
  * blend: vector 0.45 + bm25 0.35 + tree 0.20. Returns the top `limit` chunks.
@@ -448,12 +551,29 @@ async function hybridRetrieve(args: {
     })
     .sort((a, b) => b.combined_score - a.combined_score)
 
+  // ── Page-sibling expansion ──
+  // For direct-chunking chunks in the merged pool, pull the rest of their
+  // page's chunks too. The vision model splits pages into multiple semantic
+  // chunks (entry / signoff / parts_line), and many owner questions need
+  // evidence from TWO chunks on the same page (date is in entry, mechanic
+  // is in signoff). Without this, top-K retrieval drops the sibling and the
+  // answer model can't reason across the page. Cohere rerank below decides
+  // final ranking — expansion just guarantees the siblings are in the pool.
+  const { chunks: expanded, siblingsAdded } = await expandWithPageSiblings({
+    supabase,
+    organizationId,
+    chunks: merged,
+  })
+  if (siblingsAdded > 0) {
+    expanded.sort((a, b) => b.combined_score - a.combined_score)
+  }
+
   // ── Wave 1 — cross-encoder rerank ──
   // The weighted blend above is a recall filter; a cross-encoder rerank is
   // the precision pass. Take a wide candidate pool from the merge, rerank by
   // true query relevance, keep the top `limit`. Best-effort: with no
   // COHERE_API_KEY this returns the merge order unchanged (identity).
-  const rerankPool = merged.slice(0, Math.max(limit * 4, 30))
+  const rerankPool = expanded.slice(0, Math.max(limit * 4, 30))
   const { chunks: ranked, reranked } = await rerankChunks(question, rerankPool, limit)
 
   const strategiesUsed: string[] = []
@@ -461,6 +581,7 @@ async function hybridRetrieve(args: {
   if (bm.r.length > 0) strategiesUsed.push('bm25')
   if (tr.r.length > 0) strategiesUsed.push('tree')
   if (vis.r.length > 0) strategiesUsed.push('vision')
+  if (siblingsAdded > 0) strategiesUsed.push('page-expand')
   if (reranked) strategiesUsed.push('rerank')
 
   return {
