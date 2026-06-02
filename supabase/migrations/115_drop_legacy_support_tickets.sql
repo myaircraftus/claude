@@ -26,7 +26,14 @@
 -- This migration is NOT applied automatically. Andy applies via
 -- apps/web/scripts/apply-115.ts (deleted after success).
 
-DROP TABLE IF EXISTS public.support_tickets CASCADE;
+-- No-op on a clean from-scratch replay. Migration 109 now drops the legacy
+-- prototype table itself before creating the Phase 16 schema, so running this
+-- standalone drop here (which executes AFTER 109 on a linear replay) would
+-- destroy the NEW support_tickets table 109 just created. Prod already
+-- applied this drop historically via apply-115.ts; kept as a documented no-op
+-- so the version ledger still records 115.
+SELECT 1;
+-- DROP TABLE IF EXISTS public.support_tickets CASCADE;  -- original (see note above)
 
 -- Verification (run by apply-115.ts post-COMMIT):
 --   SELECT 1 FROM information_schema.tables

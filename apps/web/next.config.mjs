@@ -87,13 +87,22 @@ const nextConfig = {
     // 'unsafe-eval' in script-src) — tighten with a nonce once the inline
     // JSON-LD scripts in app/layout.tsx are nonce'd. Allowlist: Vercel
     // Insights, PostHog, Stripe.js, Supabase, Anthropic, OpenAI, Sentry.
+    // Local-dev only: allow the local Supabase stack (REST/auth/storage over
+    // http + realtime over ws) in connect-src. The production CSP only permits
+    // https://*.supabase.co, which blocks the browser from reaching
+    // http://127.0.0.1:54321 when running against `supabase start` — it
+    // surfaces as "Failed to fetch" on signup/login. Production CSP unchanged.
+    const devConnectSrc =
+      process.env.NODE_ENV !== 'production'
+        ? ' http://127.0.0.1:54321 http://localhost:54321 ws://127.0.0.1:54321 ws://localhost:54321'
+        : ''
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.vercel-insights.com https://*.posthog.com https://js.stripe.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.supabase.co https://api.anthropic.com https://api.openai.com https://*.vercel-insights.com https://*.posthog.com https://*.sentry.io https://*.ingest.sentry.io https://api.stripe.com",
+      `connect-src 'self' https://*.supabase.co https://api.anthropic.com https://api.openai.com https://*.vercel-insights.com https://*.posthog.com https://*.sentry.io https://*.ingest.sentry.io https://api.stripe.com${devConnectSrc}`,
       // 'self' on frame-src + frame-ancestors lets the Ask AI Source Preview
       // embed the same-origin /api/documents/:id/preview PDF iframe. Third-
       // party clickjacking is still blocked because no other origins are

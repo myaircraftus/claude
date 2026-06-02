@@ -22,6 +22,13 @@
 -- support_tickets
 -- ──────────────────────────────────────────────────────────────────────
 
+-- Clean from-scratch replay fix (local `supabase start`): the legacy
+-- prototype support_tickets (migration 035) still exists at this point on a
+-- linear replay. In prod it was dropped manually via migration 115 *before*
+-- 109 ran; since 115 hasn't run yet here, drop it now. Safe — 115's probe
+-- confirmed 0 rows / 0 incoming FKs / 0 dependent views.
+DROP TABLE IF EXISTS public.support_tickets CASCADE;
+
 CREATE TYPE support_ticket_source AS ENUM (
   'web_form', 'email', 'in_app', 'admin_created'
 );

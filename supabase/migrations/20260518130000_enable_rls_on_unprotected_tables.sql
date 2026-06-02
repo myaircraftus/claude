@@ -20,6 +20,13 @@ BEGIN
     'legacy_migration_rows', 'part_orders', 'part_request_events',
     'part_requests', 'part_searches', 'parts_catalog', 'vendor_results'
   ] LOOP
+    -- Clean-replay tolerance: several of these tables exist in prod but were
+    -- created outside the migration chain (see the matching 150000 PK
+    -- migration), so they're absent on a from-scratch local replay. Harden the
+    -- ones that exist; skip the rest. Full effect is unchanged in prod.
+    IF to_regclass('public.' || t) IS NULL THEN
+      CONTINUE;
+    END IF;
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE TRUNCATE ON public.%I FROM anon, authenticated', t);
   END LOOP;

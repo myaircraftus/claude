@@ -13,12 +13,6 @@ major_version = 15
 port = 54323
 api_url = "http://localhost"
 
-[ingest]
-port = 54324
-
-[storage]
-port = 54325
-
 [auth]
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://myaircraft.us"]

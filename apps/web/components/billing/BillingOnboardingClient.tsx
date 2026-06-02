@@ -29,6 +29,18 @@ export function BillingOnboardingClient({ persona, setupResult }: Props) {
   const [state, setState] = useState<FlowState>("intro");
   const [error, setError] = useState<string | null>(null);
 
+  // Local-dev: skip the Stripe card-capture step entirely. The dev billing
+  // bypass already entitles every org, so onboarding shouldn't dead-end at a
+  // card form that local mock-Stripe can't complete. Forward straight to the
+  // persona dashboard. Gated on a NEXT_PUBLIC flag — production is unchanged.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_BILLING_DEV_BYPASS === "true") {
+      // `/dashboard` is the canonical app home (middleware + sidebar point here).
+      // Bare `/owner` / `/mechanic` are NOT routes and 404.
+      router.replace("/dashboard");
+    }
+  }, [router]);
+
   useEffect(() => {
     if (setupResult !== "success") return;
 

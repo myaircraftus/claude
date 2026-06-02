@@ -20,6 +20,13 @@
 
 -- ─── 1. Backfill rows ────────────────────────────────────────────────────────
 
+-- Clean-replay fix: organization_memberships.updated_at exists in prod (added
+-- via a manual hot-fix that was never captured as a migration) but not in the
+-- linear migration chain, so the backfill below fails on a from-scratch
+-- replay. Add it idempotently — a no-op in prod where the column exists.
+ALTER TABLE organization_memberships
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
 UPDATE organization_memberships
    SET persona = 'shop',
        updated_at = now()
@@ -134,6 +141,12 @@ COMMENT ON POLICY "documents_insert" ON documents IS
   'Phase 18 mig 119 — mechanic persona merged into shop. Shop can upload anything except aircraft_logbook + aircraft_registration. Owner uploads aircraft_* + photo/receipt/other. Admin uploads anything. Service-role bypasses.';
 
 -- ─── 4. Audit trail ──────────────────────────────────────────────────────────
+
+-- Clean-replay fix: this audit row is intentionally org-less (a platform-level
+-- event, organization_id = NULL). In prod tier_history.organization_id is
+-- nullable, but the migration chain defines it NOT NULL — drop the constraint
+-- to match prod. No-op if already nullable.
+ALTER TABLE tier_history ALTER COLUMN organization_id DROP NOT NULL;
 
 INSERT INTO tier_history (
   organization_id,

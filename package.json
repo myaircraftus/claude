@@ -13,6 +13,7 @@
     "db:types": "supabase gen types typescript --local > packages/database/types.ts"
   },
   "devDependencies": {
+    "supabase": "^2.103.0",
     "turbo": "^1.13.0",
     "typescript": "^5.4.0"
   },

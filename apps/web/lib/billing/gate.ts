@@ -101,6 +101,41 @@ function deriveEntitlement(persona: Persona, row: EntitlementRow | null): Person
 }
 
 export async function getOrganizationBillingStatus(organizationId: string): Promise<BillingStatus> {
+  // Local-dev only: when BILLING_DEV_BYPASS=true, treat every org as fully
+  // entitled (owner + shop active). Local mock-Stripe can't provide the payment
+  // method that startPersonaTrial() requires, so without this every fresh
+  // signup/org gets paywalled out of onboarding. Gated on NODE_ENV — prod ignores it.
+  if (process.env.NODE_ENV !== 'production' && process.env.BILLING_DEV_BYPASS === 'true') {
+    const active = (persona: Persona): PersonaEntitlement => ({
+      persona,
+      state: 'active',
+      trialEndsAt: null,
+      trialDaysRemaining: null,
+      paywalledReason: null,
+      stripeSubscriptionId: null,
+      bundle: true,
+      canRead: true,
+      canWrite: true,
+    })
+    return {
+      organizationId,
+      owner: active('owner'),
+      shop: active('shop'),
+      hasAnyAccess: true,
+      hasBundleEquivalent: true,
+      state: 'active',
+      trialEndsAt: null,
+      trialDaysRemaining: null,
+      paywalledReason: null,
+      subscriptionStatus: 'active',
+      stripeSubscriptionId: null,
+      pricePerAircraftCents: 10000,
+      billingModel: 'per_aircraft',
+      canWrite: true,
+      canUseMessaging: true,
+    }
+  }
+
   const service = createServiceSupabase()
 
   const [{ data: rows }, { data: org }] = await Promise.all([
