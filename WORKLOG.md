@@ -4,6 +4,19 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-02 — Ask AI Phase 1: moved to dedicated conversation tables (drift fix)
+
+**Why.** Verifying Phase 1 surfaced two problems. (1) A conversation appeared in the list but reopened **empty** — message persistence was failing silently: the insert wrote a `created_by` column that exists on `conversation_threads` but **not** on `thread_messages` (migration 016), and the best-effort insert swallowed the error, so the thread saved while its messages vanished. (2) More fundamentally, the reused work-order chat tables aren't reliably present across environments — the paused cloud project doesn't have them at all — so building Ask AI on them was fragile (same migration-drift theme as the local-replay fixes).
+
+**What.**
+- **Ask AI now owns its storage** — new `ask_threads` + `ask_thread_messages` tables in a self-contained, idempotent migration ([20260602000000_ask_ai_threads.sql](supabase/migrations/20260602000000_ask_ai_threads.sql)), RLS-scoped to the owner (`user_id = auth.uid()`). No dependency on `conversation_threads` / `thread_messages`.
+- **Rewrote** [lib/ask/threads.ts](apps/web/lib/ask/threads.ts) to use the new tables. Function signatures + response shapes are unchanged, so the API routes and UI are untouched.
+- This eliminates the `created_by` failure mode — the new messages table has exactly the columns the code writes.
+
+**Verified.** `tsc --noEmit` + `eslint` clean on all changed files. **Requires applying the new migration** to the local DB before the feature works again (then re-test: send → reload → reopen the thread). **Not pushed** — deploy when prod is un-paused and the migration is applied there.
+
+---
+
 ## 2026-05-30 — Ask AI: persistent threads + context-aware follow-ups (Phase 1)
 
 **Why.** Operator review flagged the Ask AI agent as not production-ready on three counts: (1) follow-up questions drifted to a *different document* because retrieval had no memory of the conversation; (2) conversations weren't stored, so you couldn't reopen a past chat; (3) the agent kept no per-thread scope. This is **Phase 1** of the agreed hardening plan — persistence + conversational context. (Token streaming and an explicit greeting/intent gate are Phases 2–3, not in this change.)

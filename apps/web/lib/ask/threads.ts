@@ -1,20 +1,18 @@
 /**
  * Ask AI thread persistence.
  *
- * Reuses the generic `conversation_threads` + `thread_messages` tables
- * (migration 016, also used by work-order chat) rather than introducing a
- * new schema. Ask AI threads are tagged `metadata.source = 'ask'` so they are
- * cleanly separable from work-order chat threads, and scoped to `created_by`
- * so a user only sees their own conversations.
+ * Backed by dedicated, self-contained tables — `ask_threads` +
+ * `ask_thread_messages` (migration 20260602000000_ask_ai_threads.sql) — so the
+ * feature does NOT depend on the work-order chat schema (conversation_threads /
+ * thread_messages), which is not reliably present across environments and whose
+ * messages table lacks a `created_by` column. RLS scopes every row to its owner
+ * (`user_id = auth.uid()`), so a user only ever sees their own conversations.
  *
- * The thread carries `aircraft_id` (the scope selection) so reopening a
- * conversation restores it. All writes are best-effort: a persistence failure
- * degrades the Ask agent to a stateless single-shot answer rather than
- * blocking the user's reply.
+ * All writes are best-effort: a persistence failure degrades the Ask agent to a
+ * stateless single-shot answer rather than blocking the user's reply.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const ASK_SOURCE = 'ask'
 const HISTORY_TURN_LIMIT = 10
 const HISTORY_CONTENT_CAP = 2000
 
@@ -29,7 +27,7 @@ export interface AskThreadSummary {
 
 export interface AskThreadMessage {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant'
   content: string
   metadata: Record<string, unknown>
   created_at: string
@@ -43,9 +41,9 @@ export interface ResolvedAskThread {
 
 /**
  * Resolve the conversation thread for an Ask AI turn: reuse an existing
- * (owned) thread or create a new one. Keeps the thread's `aircraft_id` in
- * sync with the latest explicit scope selection. Returns null on failure so
- * the caller can degrade to a stateless answer.
+ * (owned) thread or create a new one. Keeps the thread's `aircraft_id` in sync
+ * with the latest explicit scope selection. Returns null on failure so the
+ * caller can degrade to a stateless answer.
  */
 export async function resolveAskThread(
   supabase: SupabaseClient,
@@ -62,21 +60,21 @@ export async function resolveAskThread(
 
   if (threadId) {
     const { data: existing } = await supabase
-      .from('conversation_threads')
+      .from('ask_threads')
       .select('id, aircraft_id')
       .eq('id', threadId)
       .eq('organization_id', organizationId)
-      .eq('created_by', userId)
+      .eq('user_id', userId)
       .maybeSingle()
 
     if (existing) {
       // Keep the thread's scope in sync with the latest explicit selection.
       if (((existing as { aircraft_id: string | null }).aircraft_id ?? null) !== aircraftId) {
         await supabase
-          .from('conversation_threads')
+          .from('ask_threads')
           .update({ aircraft_id: aircraftId, updated_at: new Date().toISOString() })
           .eq('id', threadId)
-          .eq('organization_id', organizationId)
+          .eq('user_id', userId)
       }
       return { threadId: (existing as { id: string }).id, aircraftId, isNew: false }
     }
@@ -85,14 +83,13 @@ export async function resolveAskThread(
 
   const title = firstMessage.replace(/\s+/g, ' ').trim().slice(0, 80) || 'New conversation'
   const { data: created, error } = await supabase
-    .from('conversation_threads')
+    .from('ask_threads')
     .insert({
       organization_id: organizationId,
-      created_by: userId,
+      user_id: userId,
       title,
-      thread_type: 'general',
       aircraft_id: aircraftId,
-      metadata: { source: ASK_SOURCE, persona },
+      persona,
     })
     .select('id')
     .single()
@@ -112,11 +109,10 @@ export async function loadAskHistory(
   limit = HISTORY_TURN_LIMIT,
 ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
   const { data } = await supabase
-    .from('thread_messages')
+    .from('ask_thread_messages')
     .select('role, content, created_at')
     .eq('thread_id', threadId)
     .eq('organization_id', organizationId)
-    .in('role', ['user', 'assistant'])
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -138,18 +134,12 @@ export async function appendAskMessage(
     metadata?: Record<string, unknown>
   },
 ): Promise<void> {
-  // NOTE: `thread_messages` (migration 016) has NO `created_by` column — only
-  // `conversation_threads` does. Writing it here made every message insert fail
-  // ("column created_by does not exist"); because this insert is best-effort,
-  // the error was swallowed and threads were created with zero messages (they
-  // showed in the list but reopened empty). Author attribution lives in
-  // metadata.user_id instead; thread ownership is enforced on the thread row.
-  const { error } = await supabase.from('thread_messages').insert({
+  const { error } = await supabase.from('ask_thread_messages').insert({
     thread_id: args.threadId,
     organization_id: args.organizationId,
     role: args.role,
     content: args.content ?? '',
-    metadata: { source: ASK_SOURCE, user_id: args.userId, ...(args.metadata ?? {}) },
+    metadata: { user_id: args.userId, ...(args.metadata ?? {}) },
   })
   if (error) console.warn('[ask.threads] failed to persist message:', error.message)
 }
@@ -160,7 +150,7 @@ export async function touchAskThread(
   organizationId: string,
 ): Promise<void> {
   await supabase
-    .from('conversation_threads')
+    .from('ask_threads')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', threadId)
     .eq('organization_id', organizationId)
@@ -174,12 +164,11 @@ export async function listAskThreads(
   limit = 30,
 ): Promise<AskThreadSummary[]> {
   const { data } = await supabase
-    .from('conversation_threads')
-    .select('id, title, aircraft_id, metadata, created_at, updated_at')
+    .from('ask_threads')
+    .select('id, title, aircraft_id, persona, created_at, updated_at')
     .eq('organization_id', organizationId)
-    .eq('created_by', userId)
+    .eq('user_id', userId)
     .eq('archived', false)
-    .contains('metadata', { source: ASK_SOURCE })
     .order('updated_at', { ascending: false })
     .limit(limit)
 
@@ -187,7 +176,7 @@ export async function listAskThreads(
     id: r.id as string,
     title: (r.title as string) ?? 'Conversation',
     aircraft_id: (r.aircraft_id as string | null) ?? null,
-    persona: (r.metadata?.persona as string | undefined) ?? null,
+    persona: (r.persona as string | null) ?? null,
     created_at: r.created_at as string,
     updated_at: r.updated_at as string,
   }))
@@ -201,17 +190,17 @@ export async function loadAskThreadMessages(
   userId: string,
 ): Promise<{ thread: AskThreadSummary; messages: AskThreadMessage[] } | null> {
   const { data: thread } = await supabase
-    .from('conversation_threads')
-    .select('id, title, aircraft_id, metadata, created_at, updated_at')
+    .from('ask_threads')
+    .select('id, title, aircraft_id, persona, created_at, updated_at')
     .eq('id', threadId)
     .eq('organization_id', organizationId)
-    .eq('created_by', userId)
+    .eq('user_id', userId)
     .maybeSingle()
 
   if (!thread) return null
 
   const { data: msgs } = await supabase
-    .from('thread_messages')
+    .from('ask_thread_messages')
     .select('id, role, content, metadata, created_at')
     .eq('thread_id', threadId)
     .eq('organization_id', organizationId)
@@ -219,7 +208,7 @@ export async function loadAskThreadMessages(
 
   const messages = ((msgs ?? []) as Array<Record<string, any>>).map((m) => ({
     id: m.id as string,
-    role: m.role as 'user' | 'assistant' | 'system',
+    role: m.role as 'user' | 'assistant',
     content: (m.content as string) ?? '',
     metadata: (m.metadata as Record<string, unknown>) ?? {},
     created_at: m.created_at as string,
@@ -231,7 +220,7 @@ export async function loadAskThreadMessages(
       id: t.id as string,
       title: (t.title as string) ?? 'Conversation',
       aircraft_id: (t.aircraft_id as string | null) ?? null,
-      persona: (t.metadata?.persona as string | undefined) ?? null,
+      persona: (t.persona as string | null) ?? null,
       created_at: t.created_at as string,
       updated_at: t.updated_at as string,
     },
@@ -240,9 +229,8 @@ export async function loadAskThreadMessages(
 }
 
 /**
- * Soft-delete a conversation (archive). We archive rather than DELETE because
- * the conversation_threads DELETE RLS policy is owner/admin-only, whereas any
- * member may UPDATE their own thread — and a soft delete is reversible.
+ * Soft-delete a conversation (archive). Reversible, and avoids a hard delete —
+ * the list query filters `archived = false`.
  */
 export async function archiveAskThread(
   supabase: SupabaseClient,
@@ -251,11 +239,11 @@ export async function archiveAskThread(
   userId: string,
 ): Promise<boolean> {
   const { error } = await supabase
-    .from('conversation_threads')
+    .from('ask_threads')
     .update({ archived: true, updated_at: new Date().toISOString() })
     .eq('id', threadId)
     .eq('organization_id', organizationId)
-    .eq('created_by', userId)
+    .eq('user_id', userId)
 
   if (error) {
     console.warn('[ask.threads] archive failed:', error.message)
