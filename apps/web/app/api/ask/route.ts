@@ -11,10 +11,14 @@
  * Falls back to pure RAG for simple Q&A (when no tools are called).
  *
  * Request body:
- *   { question: string, aircraft_id?: string, persona?: 'owner' | 'mechanic', conversation_history?: ConversationTurn[] }
+ *   { question: string, aircraft_id?: string | null, persona?: 'owner' | 'shop',
+ *     thread_id?: string }
+ * Conversation history is NOT sent by the client — it is loaded server-side
+ * from the persisted thread (thread_messages). aircraft_id null = All Aircraft.
  *
  * Response:
- *   { answer: string, artifacts?: Artifact[], citations?: ..., tool_calls_made?: string[] }
+ *   { answer: string, artifacts?: Artifact[], citations?: ..., tool_calls_made?: string[],
+ *     thread_id: string | null }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -27,6 +31,13 @@ import { classifyAskQuestion } from '@/lib/ask/question-classifier'
 import { tryFleetAggregation } from '@/lib/ask/fleet-aggregation'
 import { gradeAnswer } from '@/lib/agents/impl/rag-answer-grader'
 import { auditRagRetrieval } from '@/lib/agents/impl/safety-cross-tenant-leak-watchdog'
+import { condenseFollowUp } from '@/lib/ask/condense'
+import {
+  resolveAskThread,
+  loadAskHistory,
+  appendAskMessage,
+  touchAskThread,
+} from '@/lib/ask/threads'
 
 /**
  * Fire-and-forget answer grader. 1% sample of single-aircraft responses
@@ -167,7 +178,8 @@ async function callInternalGet(
 async function dispatchTool(
   req: NextRequest,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
 ): Promise<{ result: unknown; artifact?: Artifact; citations?: any[]; followUps?: string[]; confidence?: string }> {
   switch (name) {
     case 'create_logbook_entry': {
@@ -263,7 +275,10 @@ async function dispatchTool(
       const data = await callInternal(req, '/api/query', {
         question: args.query,
         aircraft_id: args.aircraft_id,
-        conversation_history: [],
+        // Forward the thread's prior turns so answer generation has the
+        // conversational context (the agent already condenses the query
+        // itself; this makes the grounding pass context-aware too).
+        conversation_history: conversationHistory,
       }) as any
       return { result: data, citations: data?.citations ?? [], followUps: data?.follow_up_questions ?? [], confidence: data?.confidence }
     }
@@ -527,7 +542,7 @@ async function runAskAgent(
       }
 
       toolCallsMade.push(tc.function.name)
-      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args)
+      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args, conversationHistory)
       if (artifact) artifacts.push(artifact)
       if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
       if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
@@ -635,7 +650,13 @@ export async function POST(req: NextRequest) {
   }
 
   const question: string = String(body.question ?? '').trim()
-  const aircraft_id: string | undefined = body.aircraft_id ?? undefined
+  // Scope selection. The client sends an explicit aircraft_id (UUID) for a
+  // specific tail, or null for "All Aircraft". A persisted thread carries its
+  // own scope so reopening it restores the selection.
+  const requestedAircraftId: string | null =
+    typeof body.aircraft_id === 'string' && body.aircraft_id ? body.aircraft_id : null
+  const requestedThreadId: string | null =
+    typeof body.thread_id === 'string' && body.thread_id ? body.thread_id : null
   // Coerce legacy 'mechanic' inputs to 'shop' at the boundary (mig 119).
   const requestedPersona: AskPersona =
     body.persona === 'shop' || body.persona === 'mechanic' ? 'shop' : 'owner'
@@ -643,27 +664,110 @@ export async function POST(req: NextRequest) {
     requestedPersona === 'shop' && MECHANIC_ELIGIBLE_ROLES.has(String(membership.role))
       ? 'shop'
       : 'owner'
-  const resolvedAircraftId = await resolveCanonicalAircraftId(
-    supabase,
-    orgContext.organizationId,
-    aircraft_id
-  )
-  const conversation_history: Array<{ role: 'user' | 'assistant'; content: string }> =
-    Array.isArray(body.conversation_history) ? body.conversation_history.slice(-10) : []
-
   if (!question) return NextResponse.json({ error: 'question is required' }, { status: 400 })
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const orgId = orgContext.organizationId
+  const userId = orgContext.user.id
+
+  // ── Conversational context — two calling modes ──
+  //  • Persistence mode (web Ask experience): the client sends a `thread_id`
+  //    KEY (null for a new chat). The thread + history live in the DB; we
+  //    resolve/create the thread, load prior turns, and persist this turn.
+  //  • Stateless mode (internal callers like /api/chat that manage their own
+  //    history and send NO `thread_id` key): honor the body's
+  //    conversation_history verbatim and persist nothing.
+  // Best-effort: any persistence failure degrades to a stateless answer.
+  const persistThread = Object.prototype.hasOwnProperty.call(body, 'thread_id')
+  let threadId: string | null = null
+  let scopeAircraftId: string | null = requestedAircraftId
+  let history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  if (persistThread) {
+    try {
+      const resolvedThread = await resolveAskThread(supabase, {
+        organizationId: orgId,
+        userId,
+        threadId: requestedThreadId,
+        firstMessage: question,
+        aircraftId: requestedAircraftId,
+        persona,
+      })
+      if (resolvedThread) {
+        threadId = resolvedThread.threadId
+        scopeAircraftId = resolvedThread.aircraftId
+        history = await loadAskHistory(supabase, threadId, orgId, 10)
+        await appendAskMessage(supabase, {
+          threadId,
+          organizationId: orgId,
+          userId,
+          role: 'user',
+          content: question,
+          metadata: { aircraft_id: scopeAircraftId },
+        })
+      }
+    } catch (threadErr) {
+      console.warn('[api/ask] thread setup failed (stateless fallback):', (threadErr as Error).message)
+    }
+  } else if (Array.isArray(body.conversation_history)) {
+    // Legacy/internal caller owns its history; nothing is persisted here.
+    history = body.conversation_history
+      .filter(
+        (m: any) =>
+          (m?.role === 'user' || m?.role === 'assistant') &&
+          typeof m?.content === 'string' &&
+          m.content.trim().length > 0,
+      )
+      .slice(-10)
+      .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: String(m.content).slice(0, 2000) }))
+  }
+
+  // Canonicalize the (possibly thread-pinned) aircraft scope.
+  const resolvedAircraftId = await resolveCanonicalAircraftId(
+    supabase,
+    orgId,
+    scopeAircraftId ?? undefined,
+  )
+
+  // Rewrite a context-dependent follow-up ("who signed it?") into a
+  // standalone query so retrieval doesn't drift to an unrelated document.
+  // No-op for the first turn or an already-standalone question.
+  const searchQuestion = await condenseFollowUp(openai, history, question)
+
+  // Persist the assistant answer + advance the thread, then respond. Every
+  // success path funnels through here so persistence lives in exactly one
+  // place and the response always carries thread_id back to the client.
+  const finalize = async (payload: Record<string, any>): Promise<NextResponse> => {
+    if (threadId) {
+      await appendAskMessage(supabase, {
+        threadId,
+        organizationId: orgId,
+        userId,
+        role: 'assistant',
+        content: typeof payload.answer === 'string' ? payload.answer : '',
+        metadata: {
+          confidence: payload.confidence ?? null,
+          citations: payload.citations ?? [],
+          follow_up_questions: payload.follow_up_questions ?? [],
+          warning_flags: payload.warning_flags ?? [],
+          artifacts: payload.artifacts ?? null,
+          per_aircraft: payload.per_aircraft ?? null,
+          tool_calls: payload.tool_calls_made ?? null,
+        },
+      })
+      await touchAskThread(supabase, threadId, orgId)
+    }
+    return NextResponse.json({ ...payload, thread_id: threadId })
+  }
 
   try {
     // ── Single-aircraft path: aircraft_id is set ───────────────────────────────
     // Behavior is byte-identical to the pre-refactor inline loop.
-    if (aircraft_id) {
+    if (scopeAircraftId) {
       const result = await runAskAgent(req, openai, {
-        question,
+        question: searchQuestion,
         persona,
-        aircraftId: resolvedAircraftId ?? aircraft_id,
-        conversationHistory: conversation_history,
+        aircraftId: resolvedAircraftId ?? scopeAircraftId,
+        conversationHistory: history,
       })
       maybeGradeAsync({
         question,
@@ -671,12 +775,12 @@ export async function POST(req: NextRequest) {
         citations: result.citations,
       })
       maybeAuditTenantsAsync({
-        callingOrgId: orgContext.organizationId,
-        triggeredBy: orgContext.user.id,
+        callingOrgId: orgId,
+        triggeredBy: userId,
         question,
         citations: result.citations,
       })
-      return NextResponse.json({
+      return finalize({
         answer: result.answer,
         artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
         tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
@@ -699,12 +803,12 @@ export async function POST(req: NextRequest) {
     //
     //    Motivated by the 40-question stress test on 2026-05-21 which found
     //    two high-confidence hallucinations on extremum queries.
-    const structured = await tryFleetAggregation(question, {
-      organizationId: orgContext.organizationId,
+    const structured = await tryFleetAggregation(searchQuestion, {
+      organizationId: orgId,
       supabase,
     })
     if (structured) {
-      return NextResponse.json({
+      return finalize({
         answer: structured.answer,
         confidence: structured.confidence,
         citations: structured.citations,
@@ -715,17 +819,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Classify the question: org_wide → one pass; per_aircraft → fan out.
-    const kind = await classifyAskQuestion(question)
+    const kind = await classifyAskQuestion(searchQuestion)
 
     // org_wide → existing single org-wide pass (aircraftId undefined). Unchanged.
     if (kind === 'org_wide') {
       const result = await runAskAgent(req, openai, {
-        question,
+        question: searchQuestion,
         persona,
         aircraftId: undefined,
-        conversationHistory: conversation_history,
+        conversationHistory: history,
       })
-      return NextResponse.json({
+      return finalize({
         answer: result.answer,
         artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
         tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
@@ -757,12 +861,12 @@ export async function POST(req: NextRequest) {
     // No aircraft to fan out over — degrade gracefully to a single org-wide pass.
     if (fleet.length === 0) {
       const result = await runAskAgent(req, openai, {
-        question,
+        question: searchQuestion,
         persona,
         aircraftId: undefined,
-        conversationHistory: conversation_history,
+        conversationHistory: history,
       })
-      return NextResponse.json({
+      return finalize({
         answer: result.answer,
         artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
         tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
@@ -779,10 +883,10 @@ export async function POST(req: NextRequest) {
     const perAircraft = await runWithConcurrency(fleet, 10, async (ac) => {
       try {
         const result = await runAskAgent(req, openai, {
-          question,
+          question: searchQuestion,
           persona,
           aircraftId: ac.id,
-          conversationHistory: conversation_history,
+          conversationHistory: history,
         })
         return { aircraft: ac, result, error: false }
       } catch (err) {
@@ -868,7 +972,7 @@ export async function POST(req: NextRequest) {
       for (const t of result.toolCalls ?? []) mergedToolCalls.add(t)
     }
 
-    return NextResponse.json({
+    return finalize({
       answer: answerLines.join('\n'),
       // Per-aircraft artifacts are intentionally omitted — a fleet-wide answer
       // is a text rollup, not a single actionable card.
@@ -886,6 +990,18 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('[api/ask] Error:', err)
+    // Record a placeholder assistant turn so a half-failed thread doesn't
+    // reopen with a dangling user message and no reply. Best-effort.
+    if (threadId) {
+      await appendAskMessage(supabase, {
+        threadId,
+        organizationId: orgId,
+        userId,
+        role: 'assistant',
+        content: 'Sorry — something went wrong answering that. Please try again.',
+        metadata: { error: true },
+      }).catch(() => {})
+    }
     return NextResponse.json(
       { error: err.message ?? 'An error occurred' },
       { status: 500 }

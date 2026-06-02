@@ -4,6 +4,22 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-05-30 — Ask AI: persistent threads + context-aware follow-ups (Phase 1)
+
+**Why.** Operator review flagged the Ask AI agent as not production-ready on three counts: (1) follow-up questions drifted to a *different document* because retrieval had no memory of the conversation; (2) conversations weren't stored, so you couldn't reopen a past chat; (3) the agent kept no per-thread scope. This is **Phase 1** of the agreed hardening plan — persistence + conversational context. (Token streaming and an explicit greeting/intent gate are Phases 2–3, not in this change.)
+
+**What.**
+
+1. **Thread persistence — reuses `conversation_threads` + `thread_messages` (migration 016; no new migration).** Every Ask AI turn now resolves or creates a conversation thread, persists the user message and the assistant answer (citations / confidence / artifacts / per-aircraft sections ride in `metadata`), tags the thread `metadata.source='ask'` to keep it separable from work-order chat, and scopes threads to `created_by` so a user only sees their own. New endpoints: `GET /api/ask/threads` (list), `GET /api/ask/threads/[id]` (history), `DELETE /api/ask/threads/[id]` (archive / soft-delete). Files: [lib/ask/threads.ts](apps/web/lib/ask/threads.ts), [app/api/ask/threads/route.ts](apps/web/app/api/ask/threads/route.ts), [app/api/ask/threads/[id]/route.ts](apps/web/app/api/ask/threads/[id]/route.ts).
+2. **Follow-up condensation.** Before retrieval, a context-dependent follow-up ("who signed it?", "what about the prop?") is rewritten into a standalone query using the thread history (`gpt-4o-mini`, best-effort — no-op on first turn / failure). Directly targets the document-drift bug from the prior review. File: [lib/ask/condense.ts](apps/web/lib/ask/condense.ts).
+3. **History forwarded to retrieval.** `/api/ask` previously called `/api/query` with `conversation_history: []` (thread context discarded at the boundary). It now forwards the thread's prior turns so answer generation is context-aware. File: [app/api/ask/route.ts](apps/web/app/api/ask/route.ts).
+4. **Per-thread scope + single persistence point.** The thread stores its aircraft selection (`aircraft_id`); reopening restores it. The agent route was refactored so every response path funnels through one `finalize()` that persists the answer and returns `thread_id`. A failed turn records a placeholder assistant row so a half-failed thread doesn't reopen with a dangling user message.
+5. **UI.** The Ask experience right rail replaces the localStorage "Query History" (question text only) with a real **Conversations** list — click to reopen a full transcript (answer, citations, artifacts rehydrated), "New" to start fresh, hover-trash to archive. File: [components/ask/ask-experience.tsx](apps/web/components/ask/ask-experience.tsx).
+
+**Verified.** `tsc --noEmit` and `eslint` clean on every new/changed file (the repo's pre-existing, unrelated type errors in estimates / blog / sop / agents are untouched). Behavioral verification — send a message, reload, reopen the thread; confirm a follow-up stays on-document — is **pending operator test in the running app**. **Not yet committed**, per our verify-before-commit workflow.
+
+---
+
 ## 2026-05-29 — Ask AI retrieval: accuracy hardening for direct-chunking docs (50% → 96%)
 
 **Why.** With ingestion now stable across all 6 families, the operator asked for an end-to-end audit of the retrieval / Ask AI side. Built a runnable accuracy harness, found the pipeline at 50% pass rate with one **confidently hallucinated answer** ("Bill Brand A&P #2201431" for a Dec 3 1984 inspection that was actually John M. Craig). Six targeted fixes — each one justified by the eval — took the pipeline to **96% (27/28)** on an extended 28-case eval covering 8 distinct question categories.

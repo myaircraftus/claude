@@ -82,6 +82,7 @@ docs/*-key.json
 # Never commit env files with real secrets
 .env.deploy
 .env.*.local
+.env*.cloud
 # Added by code-review-graph
 .code-review-graph/
 

@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X } from 'lucide-react'
+import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X, Plus, Trash2, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -43,6 +43,15 @@ interface AircraftOption {
   tail_number: string
   make: string
   model: string
+}
+
+/** A persisted Ask AI conversation (from GET /api/ask/threads). */
+interface AskThreadSummary {
+  id: string
+  title: string
+  aircraft_id: string | null
+  persona: string | null
+  updated_at: string
 }
 
 function buildAircraftIdentityKey(option: AircraftOption) {
@@ -102,7 +111,6 @@ const MECHANIC_PROMPTS = [
 ]
 
 const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic']
-const RECENT_QUERY_STORAGE_KEY_PREFIX = 'ask_recent_queries'
 const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
 // Phase 18 mig 119 — mechanic merged into shop. AskExperience exposes the
@@ -160,48 +168,12 @@ function createMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function getRecentQueryStorageKey(persona: AskPersona) {
-  return `${RECENT_QUERY_STORAGE_KEY_PREFIX}:${persona}`
-}
-
 function loadPersistedAircraftSelection() {
   if (typeof window === 'undefined') return null
   try {
     return window.localStorage.getItem(OWNER_SELECTED_AIRCRAFT_STORAGE_KEY)
   } catch {
     return null
-  }
-}
-
-function loadRecentQueries(persona: AskPersona): Array<{ id: string; question: string; created_at: string }> {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(getRecentQueryStorageKey(persona))
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map((entry: any) => ({
-        id: typeof entry?.id === 'string' ? entry.id : createMessageId(),
-        question: typeof entry?.question === 'string' ? entry.question : '',
-        created_at: typeof entry?.created_at === 'string' ? entry.created_at : new Date().toISOString(),
-      }))
-      .filter((entry) => entry.question.trim().length > 0)
-      .slice(0, 20)
-  } catch {
-    return []
-  }
-}
-
-function persistRecentQueries(
-  persona: AskPersona,
-  queries: Array<{ id: string; question: string; created_at: string }>
-) {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(getRecentQueryStorageKey(persona), JSON.stringify(queries.slice(0, 20)))
-  } catch {
-    // ignore storage failures
   }
 }
 
@@ -468,7 +440,9 @@ export function AskExperience() {
   const [question, setQuestion] = useState(initialQuestionFromQuery)
   const [isLoading, setIsLoading] = useState(false)
   const [activeCitation, setActiveCitation] = useState<AnswerCitation | null>(null)
-  const [previousQueries, setPreviousQueries] = useState<Array<{ id: string; question: string; created_at: string }>>([])
+  // Persisted conversations + the active thread id (null = unsaved/new chat).
+  const [threads, setThreads] = useState<AskThreadSummary[]>([])
+  const [threadId, setThreadId] = useState<string | null>(null)
   // Per-aircraft uploaded-document counts — drives the "no documents
   // uploaded" empty state when a specific aircraft is selected.
   const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map())
@@ -605,14 +579,29 @@ export function AskExperience() {
   }, [messages])
 
   useEffect(() => {
+    // Switching persona starts a fresh, unsaved conversation view.
     setMessages([])
     setQuestion('')
     setActiveCitation(null)
+    setThreadId(null)
     autoAskedQueryRef.current = null
-    // `persona` was already narrowed to AskPersona at line 451 (admin/shop
-    // collapse to owner-mode for /ask), so we can use it directly here.
-    setPreviousQueries(loadRecentQueries(persona))
   }, [persona])
+
+  // Load the user's saved conversations for the sidebar.
+  const loadThreads = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ask/threads', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data?.threads)) setThreads(data.threads as AskThreadSummary[])
+    } catch {
+      // non-fatal — the sidebar simply shows no history
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadThreads()
+  }, [loadThreads])
 
   const handleAsk = useCallback(async (questionText?: string) => {
     const q = questionText ?? question.trim()
@@ -630,18 +619,16 @@ export function AskExperience() {
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const history = messages
-        .slice(-10)
-        .map(m => ({ role: m.role, content: m.content }))
-
+      // Conversation history is loaded server-side from the persisted thread —
+      // the client only sends the thread id (null for a new conversation).
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: q,
-          aircraft_id: selectedAircraftId === 'all' ? undefined : selectedAircraftId,
+          aircraft_id: selectedAircraftId === 'all' ? null : selectedAircraftId,
           persona,
-          conversation_history: history,
+          thread_id: threadId,
         }),
       })
 
@@ -692,20 +679,12 @@ export function AskExperience() {
       if (firstCitation) {
         setActiveCitation(firstCitation)
       }
-      setPreviousQueries((prev) => {
-        const next = [
-          {
-            id: data.query_id ?? createMessageId(),
-            question: q,
-            created_at: new Date().toISOString(),
-          },
-          ...prev.filter((item) => item.question !== q),
-        ]
-
-        const trimmed = next.slice(0, 20)
-        persistRecentQueries(persona, trimmed)
-        return trimmed
-      })
+      // Capture the (possibly newly-created) thread id so follow-ups continue
+      // it, and refresh the sidebar so a new conversation shows up.
+      if (typeof data.thread_id === 'string') {
+        setThreadId(data.thread_id)
+        void loadThreads()
+      }
     } catch {
       setMessages(prev => [...prev, {
         id: createMessageId(),
@@ -721,7 +700,7 @@ export function AskExperience() {
       setIsLoading(false)
       inputRef.current?.focus()
     }
-  }, [isLoading, messages, persona, question, selectedAircraftId])
+  }, [isLoading, persona, question, selectedAircraftId, threadId, loadThreads])
 
   useEffect(() => {
     const queryQuestion = searchParams.get('q')?.trim() ?? ''
@@ -733,6 +712,67 @@ export function AskExperience() {
     setQuestion(queryQuestion)
     void handleAsk(queryQuestion)
   }, [handleAsk, isLoading, messages.length, searchParams])
+
+  // Start a fresh, unsaved conversation (clears the in-view transcript; the
+  // next message creates a new thread server-side).
+  const startNewConversation = useCallback(() => {
+    setMessages([])
+    setThreadId(null)
+    setActiveCitation(null)
+    setQuestion('')
+    inputRef.current?.focus()
+  }, [])
+
+  // Reopen a saved conversation: rehydrate the transcript (answer text,
+  // citations, artifacts, per-aircraft sections) from persisted metadata and
+  // restore the thread's aircraft scope.
+  const openThread = useCallback(async (id: string) => {
+    if (isLoading) return
+    try {
+      const res = await fetch(`/api/ask/threads/${id}`, { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const stored = Array.isArray(data?.messages) ? data.messages : []
+      const rebuilt: Message[] = stored
+        .map((m: any) => {
+          const meta = (m?.metadata ?? {}) as Record<string, any>
+          return {
+            id: typeof m?.id === 'string' ? m.id : createMessageId(),
+            role: m?.role === 'assistant' ? 'assistant' : 'user',
+            content: typeof m?.content === 'string' ? m.content : '',
+            confidence: meta.confidence ?? undefined,
+            citations: Array.isArray(meta.citations) ? meta.citations : [],
+            warningFlags: Array.isArray(meta.warning_flags) ? meta.warning_flags : [],
+            followUpQuestions: Array.isArray(meta.follow_up_questions) ? meta.follow_up_questions : [],
+            artifacts: Array.isArray(meta.artifacts) ? meta.artifacts : [],
+            perAircraft: Array.isArray(meta.per_aircraft) ? meta.per_aircraft : undefined,
+            timestamp: m?.created_at ? new Date(m.created_at) : new Date(),
+          } as Message
+        })
+        // A failed turn persists an empty-content assistant row — skip it.
+        .filter((m: Message) => m.role === 'user' || (m.content?.trim().length ?? 0) > 0)
+
+      setMessages(rebuilt)
+      setThreadId(id)
+      setActiveCitation(null)
+      const acId = data?.thread?.aircraft_id
+      setSelectedAircraftId(typeof acId === 'string' && acId ? acId : 'all')
+    } catch {
+      // non-fatal — leave the current view untouched
+    }
+  }, [isLoading])
+
+  // Soft-delete (archive) a saved conversation.
+  const deleteThread = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/ask/threads/${id}`, { method: 'DELETE' })
+      if (!res.ok) return
+      setThreads((prev) => prev.filter((t) => t.id !== id))
+      if (id === threadId) startNewConversation()
+    } catch {
+      // non-fatal
+    }
+  }, [threadId, startNewConversation])
 
   function handleCitationSelect(citation: AnswerCitation) {
     setActiveCitation(citation)
@@ -1093,24 +1133,50 @@ export function AskExperience() {
             )}
 
             <div>
-              <h3 className="text-[13px] text-foreground mb-3" style={{ fontWeight: 600 }}>Query History</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
+                <button
+                  onClick={startNewConversation}
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                  style={{ fontWeight: 600 }}
+                >
+                  <Plus className="w-3.5 h-3.5" /> New
+                </button>
+              </div>
               <div className="space-y-2">
-                {previousQueries.map(q => (
-                  <button
-                    key={q.id}
-                    onClick={() => handleAsk(q.question)}
-                    className="w-full text-left bg-muted/30 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>{q.question}</div>
-                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3 h-3" /> {formatDateTime(q.created_at)}
+                {threads.map((t) => {
+                  const isActive = t.id === threadId
+                  return (
+                    <div
+                      key={t.id}
+                      className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${isActive ? 'bg-primary/10' : 'bg-muted/30 hover:bg-muted/50'}`}
+                    >
+                      <button
+                        onClick={() => openThread(t.id)}
+                        className="flex-1 text-left min-w-0"
+                      >
+                        <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>
+                          {t.title || 'Conversation'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="w-3 h-3" /> {formatDateTime(t.updated_at)}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => deleteThread(t.id)}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity flex-shrink-0"
+                        aria-label="Delete conversation"
+                        title="Delete conversation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  </button>
-                ))}
-                {previousQueries.length === 0 && (
+                  )
+                })}
+                {threads.length === 0 && (
                   <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    No recent questions yet.
+                    <MessageSquare className="w-4 h-4" />
+                    No conversations yet.
                   </div>
                 )}
               </div>
