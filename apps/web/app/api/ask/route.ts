@@ -448,6 +448,15 @@ interface AskAgentResult {
   toolCalls: string[]
 }
 
+/** Coarse client-facing progress stage for a dispatched tool (streaming only). */
+const TOOL_STATUS: Record<string, string> = {
+  search_documents: 'searching',
+  search_logbook: 'searching',
+  search_parts: 'searching',
+  create_logbook_entry: 'drafting',
+  generate_checklist: 'drafting',
+}
+
 /**
  * Run one GPT-4o tool-calling agent pass (max 3 rounds) and return the
  * assembled artifacts / citations / confidence / follow-ups / tool calls.
@@ -468,6 +477,22 @@ async function runAskAgent(
     persona: AskPersona
     aircraftId?: string
     conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+    /**
+     * Streaming hooks for the web Ask experience. When `onToken` is provided,
+     * the FINAL synthesis is streamed token-by-token and the tool-calling
+     * rounds are consumed silently. When it is omitted, the agent runs in
+     * blocking mode — byte-identical to the original inline loop (this is what
+     * the "All Aircraft" fan-out and org-wide passes still use).
+     */
+    onToken?: (text: string) => void
+    onStatus?: (stage: string) => void
+    onMeta?: (meta: {
+      citations: any[]
+      confidence: string | undefined
+      followUps: string[]
+      artifacts: Artifact[]
+    }) => void
+    onReset?: () => void
   },
 ): Promise<AskAgentResult> {
   const { question, persona, aircraftId, conversationHistory } = opts
@@ -495,30 +520,106 @@ async function runAskAgent(
   const collectedFollowUps: string[] = []
   let ragConfidence: string | undefined
 
+  const streaming = typeof opts.onToken === 'function'
+
   // ── Tool-calling loop (max 3 rounds) ───────────────────────────────────────
   let round = 0
   while (round < 3) {
     round++
 
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-      temperature: 0.3,
-      max_tokens: 1500,
-      tools: personaTools,
-      tool_choice: 'auto',
-      messages,
-    })
+    // One assistant turn. We normalize both modes down to `assistantText` (the
+    // round's prose) + `dispatchList` (its tool calls), so the dispatch logic
+    // below is shared. Blocking mode stays byte-identical to the original.
+    let assistantText = ''
+    let dispatchList: Array<{ id: string; name: string; args: string }> = []
 
-    const choice = response.choices[0]
-    const msg = choice.message
+    if (streaming) {
+      const stream = await openai.chat.completions.create({
+        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+        temperature: 0.3,
+        max_tokens: 1500,
+        tools: personaTools,
+        tool_choice: 'auto',
+        messages,
+        stream: true,
+      })
 
-    // Add assistant message to history
-    messages.push(msg as OpenAI.Chat.ChatCompletionMessageParam)
+      const toolAcc: Array<{ id: string; name: string; args: string }> = []
+      let sawToolCall = false
+      let startedAnswer = false
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta
+        if (!delta) continue
+
+        if (delta.tool_calls) {
+          sawToolCall = true
+          for (const tcd of delta.tool_calls) {
+            const idx = tcd.index ?? 0
+            if (!toolAcc[idx]) toolAcc[idx] = { id: '', name: '', args: '' }
+            if (tcd.id) toolAcc[idx].id = tcd.id
+            if (tcd.function?.name) toolAcc[idx].name = tcd.function.name
+            if (tcd.function?.arguments) toolAcc[idx].args += tcd.function.arguments
+          }
+        }
+
+        if (typeof delta.content === 'string' && delta.content.length > 0) {
+          assistantText += delta.content
+          // Only forward tokens for a pure-answer round. If this round ALSO
+          // makes tool calls (a rare model "preamble"), the streamed text is not
+          // the final answer — we emit onReset() below and let a later round
+          // stream the real answer.
+          if (!sawToolCall) {
+            if (!startedAnswer) {
+              startedAnswer = true
+              opts.onStatus?.('writing')
+            }
+            opts.onToken?.(delta.content)
+          }
+        }
+      }
+
+      dispatchList = toolAcc.filter(Boolean)
+
+      if (dispatchList.length > 0) {
+        if (startedAnswer) opts.onReset?.()
+        messages.push({
+          role: 'assistant',
+          content: assistantText || null,
+          tool_calls: dispatchList.map((t) => ({
+            id: t.id,
+            type: 'function' as const,
+            function: { name: t.name, arguments: t.args },
+          })),
+        } as OpenAI.Chat.ChatCompletionMessageParam)
+      } else {
+        messages.push({ role: 'assistant', content: assistantText } as OpenAI.Chat.ChatCompletionMessageParam)
+      }
+    } else {
+      const response = await openai.chat.completions.create({
+        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+        temperature: 0.3,
+        max_tokens: 1500,
+        tools: personaTools,
+        tool_choice: 'auto',
+        messages,
+      })
+
+      const msg = response.choices[0].message
+      // Add assistant message to history (preserve exact original shape).
+      messages.push(msg as OpenAI.Chat.ChatCompletionMessageParam)
+      assistantText = msg.content ?? ''
+      dispatchList = (msg.tool_calls ?? []).map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        args: tc.function.arguments,
+      }))
+    }
 
     // If no tool calls → final answer
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+    if (dispatchList.length === 0) {
       return {
-        answer: msg.content ?? '',
+        answer: assistantText,
         artifacts,
         // Confidence reflects RAG evidence only — never hard-code 'high' just
         // because a non-RAG tool produced an artifact (audit fix: an artifact
@@ -532,17 +633,18 @@ async function runAskAgent(
 
     // Dispatch each tool call
     const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = []
-    for (const tc of msg.tool_calls) {
+    for (const tc of dispatchList) {
       let args: Record<string, unknown> = {}
-      try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
+      try { args = JSON.parse(tc.args) } catch { /* ignore */ }
 
       // Inject aircraft_id from context if not provided
       if (!args.aircraft_id && aircraftId) {
         args.aircraft_id = aircraftId
       }
 
-      toolCallsMade.push(tc.function.name)
-      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.function.name, args, conversationHistory)
+      toolCallsMade.push(tc.name)
+      opts.onStatus?.(TOOL_STATUS[tc.name] ?? 'working')
+      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.name, args, conversationHistory)
       if (artifact) artifacts.push(artifact)
       if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
       if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
@@ -554,6 +656,16 @@ async function runAskAgent(
         content: JSON.stringify(result),
       })
     }
+
+    // Citations / confidence / follow-ups are now known for this round. Push
+    // them to the client BEFORE the answer streams so inline [N] markers resolve
+    // against a populated citation list as the tokens arrive.
+    opts.onMeta?.({
+      citations: [...collectedCitations],
+      confidence: ragConfidence,
+      followUps: [...collectedFollowUps],
+      artifacts: [...artifacts],
+    })
 
     // Add tool results to messages and loop
     messages.push(...toolResults)
@@ -666,6 +778,11 @@ export async function POST(req: NextRequest) {
       : 'owner'
   if (!question) return NextResponse.json({ error: 'question is required' }, { status: 400 })
 
+  // Opt-in token streaming (web Ask experience sends { stream: true }). Other
+  // callers (mobile, internal /api/chat, query bars) never set it and keep
+  // getting the JSON response unchanged.
+  const wantsStream = body.stream === true
+
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const orgId = orgContext.organizationId
   const userId = orgContext.user.id
@@ -736,30 +853,141 @@ export async function POST(req: NextRequest) {
   // Persist the assistant answer + advance the thread, then respond. Every
   // success path funnels through here so persistence lives in exactly one
   // place and the response always carries thread_id back to the client.
+  // Persist the assistant turn for a resolved thread. Shared by the JSON
+  // `finalize` path and the streaming path so persistence lives in one place.
+  const persistAssistantTurn = async (payload: Record<string, any>): Promise<void> => {
+    if (!threadId) return
+    await appendAskMessage(supabase, {
+      threadId,
+      organizationId: orgId,
+      userId,
+      role: 'assistant',
+      content: typeof payload.answer === 'string' ? payload.answer : '',
+      metadata: {
+        confidence: payload.confidence ?? null,
+        citations: payload.citations ?? [],
+        follow_up_questions: payload.follow_up_questions ?? [],
+        warning_flags: payload.warning_flags ?? [],
+        artifacts: payload.artifacts ?? null,
+        per_aircraft: payload.per_aircraft ?? null,
+        tool_calls: payload.tool_calls_made ?? null,
+      },
+    })
+    await touchAskThread(supabase, threadId, orgId)
+  }
+
   const finalize = async (payload: Record<string, any>): Promise<NextResponse> => {
-    if (threadId) {
-      await appendAskMessage(supabase, {
-        threadId,
-        organizationId: orgId,
-        userId,
-        role: 'assistant',
-        content: typeof payload.answer === 'string' ? payload.answer : '',
-        metadata: {
-          confidence: payload.confidence ?? null,
-          citations: payload.citations ?? [],
-          follow_up_questions: payload.follow_up_questions ?? [],
-          warning_flags: payload.warning_flags ?? [],
-          artifacts: payload.artifacts ?? null,
-          per_aircraft: payload.per_aircraft ?? null,
-          tool_calls: payload.tool_calls_made ?? null,
-        },
-      })
-      await touchAskThread(supabase, threadId, orgId)
-    }
+    await persistAssistantTurn(payload)
     return NextResponse.json({ ...payload, thread_id: threadId })
   }
 
   try {
+    // ── Streaming path (web Ask experience, single-aircraft only) ──────────────
+    // Opt-in via { stream: true }. We stream ONLY the single-aircraft agent
+    // pass — "All Aircraft" (structured / org-wide / fan-out) still returns
+    // JSON, and the client falls back via the response Content-Type. NDJSON
+    // event protocol: thread_id → status* → meta* → token* → done | error.
+    if (wantsStream && scopeAircraftId) {
+      const aircraftForAgent = resolvedAircraftId ?? scopeAircraftId
+      const encoder = new TextEncoder()
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          let closed = false
+          const send = (obj: unknown) => {
+            if (closed) return
+            try {
+              controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
+            } catch {
+              /* client disconnected — stop enqueuing, persistence still runs */
+            }
+          }
+          let answerAccum = ''
+          let persisted = false
+          try {
+            // thread_id is known up front so the client can pin the thread even
+            // if the stream dies mid-answer.
+            send({ type: 'thread_id', thread_id: threadId })
+            send({ type: 'status', stage: 'thinking' })
+
+            const result = await runAskAgent(req, openai, {
+              question: searchQuestion,
+              persona,
+              aircraftId: aircraftForAgent,
+              conversationHistory: history,
+              onStatus: (stage) => send({ type: 'status', stage }),
+              onMeta: (meta) =>
+                send({
+                  type: 'meta',
+                  citations: meta.citations,
+                  confidence: meta.confidence,
+                  follow_up_questions: meta.followUps,
+                  artifacts: meta.artifacts.length > 0 ? meta.artifacts : undefined,
+                }),
+              onToken: (text) => {
+                answerAccum += text
+                send({ type: 'token', text })
+              },
+              onReset: () => {
+                answerAccum = ''
+                send({ type: 'reset' })
+              },
+            })
+
+            maybeGradeAsync({ question, answer: result.answer, citations: result.citations })
+            maybeAuditTenantsAsync({
+              callingOrgId: orgId,
+              triggeredBy: userId,
+              question,
+              citations: result.citations,
+            })
+
+            const payload = {
+              answer: result.answer,
+              artifacts: result.artifacts.length > 0 ? result.artifacts : undefined,
+              tool_calls_made: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+              confidence: result.confidence,
+              citations: result.citations,
+              warning_flags: [],
+              follow_up_questions: result.followUps,
+            }
+            await persistAssistantTurn(payload)
+            persisted = true
+            // The done event carries the authoritative full bundle; the client
+            // replaces its streamed-in content with this on completion.
+            send({ type: 'done', ...payload, thread_id: threadId })
+          } catch (err) {
+            console.error('[api/ask] stream error:', err)
+            send({ type: 'error', message: (err as Error)?.message ?? 'An error occurred' })
+          } finally {
+            // Persist even if the client disconnected mid-stream, so a thread
+            // never reopens with a dangling user message and no reply.
+            if (!persisted && threadId) {
+              await appendAskMessage(supabase, {
+                threadId,
+                organizationId: orgId,
+                userId,
+                role: 'assistant',
+                content: answerAccum || 'Sorry — something went wrong answering that. Please try again.',
+                metadata: answerAccum ? { partial: true } : { error: true },
+              }).catch(() => {})
+              await touchAskThread(supabase, threadId, orgId).catch(() => {})
+            }
+            closed = true
+            try { controller.close() } catch { /* already closed */ }
+          }
+        },
+      })
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          // Defeat proxy buffering (e.g. nginx) so tokens flush immediately.
+          'X-Accel-Buffering': 'no',
+        },
+      })
+    }
+
     // ── Single-aircraft path: aircraft_id is set ───────────────────────────────
     // Behavior is byte-identical to the pre-refactor inline loop.
     if (scopeAircraftId) {

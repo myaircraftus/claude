@@ -113,6 +113,15 @@ const MECHANIC_PROMPTS = [
 const MECHANIC_PERSONA_ROLES: readonly OrgRole[] = ['owner', 'admin', 'mechanic']
 const OWNER_SELECTED_AIRCRAFT_STORAGE_KEY = 'owner_selected_aircraft_id'
 
+/** Human labels for the streamed progress stages emitted by /api/ask. */
+const STREAM_STATUS_LABELS: Record<string, string> = {
+  thinking: 'Thinking…',
+  searching: 'Searching your documents…',
+  drafting: 'Preparing…',
+  working: 'Working on it…',
+  writing: 'Writing answer…',
+}
+
 // Phase 18 mig 119 — mechanic merged into shop. AskExperience exposes the
 // two operational personas (owner / shop) that have curated suggested
 // prompts. Admin / view-as falls back to the owner prompt set.
@@ -439,6 +448,9 @@ export function AskExperience() {
   const [messages, setMessages] = useState<Message[]>([])
   const [question, setQuestion] = useState(initialQuestionFromQuery)
   const [isLoading, setIsLoading] = useState(false)
+  // Coarse progress label while a streamed answer is in flight (thinking →
+  // searching → writing). null when idle or once the answer is complete.
+  const [streamStatus, setStreamStatus] = useState<string | null>(null)
   const [activeCitation, setActiveCitation] = useState<AnswerCitation | null>(null)
   // Persisted conversations + the active thread id (null = unsaved/new chat).
   const [threads, setThreads] = useState<AskThreadSummary[]>([])
@@ -629,16 +641,19 @@ export function AskExperience() {
           aircraft_id: selectedAircraftId === 'all' ? null : selectedAircraftId,
           persona,
           thread_id: threadId,
+          // Opt into token streaming. The server streams NDJSON for a single
+          // aircraft and returns JSON for "All Aircraft"; we branch on the
+          // response Content-Type below so both work.
+          stream: true,
         }),
       })
 
-      const data = await res.json()
-
       if (!res.ok) {
+        const errData = await res.json().catch(() => ({}) as any)
         setMessages(prev => [...prev, {
           id: createMessageId(),
           role: 'assistant',
-          content: data.error ?? 'An error occurred. Please try again.',
+          content: errData.error ?? 'An error occurred. Please try again.',
           confidence: 'insufficient_evidence',
           citations: [],
           warningFlags: [],
@@ -648,42 +663,146 @@ export function AskExperience() {
         return
       }
 
-      const assistantMsg: Message = {
-        id: createMessageId(),
-        role: 'assistant',
-        content: data.answer,
-        confidence: data.confidence,
-        citations: data.citations ?? [],
-        warningFlags: data.warning_flags ?? [],
-        followUpQuestions: data.follow_up_questions ?? [],
-        artifacts: data.artifacts ?? [],
-        // Only present for fanned-out "All Aircraft" answers; undefined otherwise.
-        perAircraft: Array.isArray(data.per_aircraft) ? data.per_aircraft : undefined,
-        timestamp: new Date(),
-      }
-      setMessages(prev => [...prev, assistantMsg])
+      const contentType = res.headers.get('content-type') ?? ''
+      const isStream = contentType.includes('application/x-ndjson') && !!res.body
 
-      // Auto-open the first citation in the side preview so the user gets
-      // the cited evidence immediately — they don't have to click a pill to
-      // see where the answer came from. Prefer a citation with a real
-      // documentId (so we get the PDF page), but fall back to ANY citation
-      // — the DocumentViewer now renders a text-only "snippet card" when
-      // no documentId is available, which is far better than the panel
-      // silently staying in Query-History mode (the bug the user hit when
-      // citations came back without a docId on historical-data answers).
-      const citationList = data.citations ?? []
-      const firstCitation =
-        citationList.find((c: AnswerCitation) => Boolean(c.documentId)) ??
-        citationList[0] ??
-        null
-      if (firstCitation) {
-        setActiveCitation(firstCitation)
+      // Auto-open the first citation in the side preview so the user gets the
+      // cited evidence immediately. Prefer one with a real documentId (so we get
+      // the PDF page), but fall back to ANY citation — the DocumentViewer renders
+      // a text-only "snippet card" when no documentId is available.
+      let openedCitation = false
+      const maybeOpenCitation = (list: AnswerCitation[]) => {
+        if (openedCitation) return
+        const first = list.find(c => Boolean(c.documentId)) ?? list[0] ?? null
+        if (first) { setActiveCitation(first); openedCitation = true }
       }
-      // Capture the (possibly newly-created) thread id so follow-ups continue
-      // it, and refresh the sidebar so a new conversation shows up.
-      if (typeof data.thread_id === 'string') {
-        setThreadId(data.thread_id)
-        void loadThreads()
+
+      if (isStream) {
+        // ── Streamed answer (NDJSON). The assistant message is appended lazily
+        //    on the first meta/token, so the "searching…" phase shows the bottom
+        //    status spinner rather than an empty answer card. ──
+        let assistantId: string | null = null
+        const ensureMessage = () => {
+          if (assistantId) return
+          assistantId = createMessageId()
+          setMessages(prev => [...prev, {
+            id: assistantId!,
+            role: 'assistant',
+            content: '',
+            confidence: undefined,
+            citations: [],
+            warningFlags: [],
+            followUpQuestions: [],
+            artifacts: [],
+            timestamp: new Date(),
+          }])
+        }
+        const patch = (p: Partial<Message>) =>
+          setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, ...p } : m)))
+
+        const reader = res.body!.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let doneEvent: any = null
+
+        const processEvent = (evt: any) => {
+          switch (evt.type) {
+            case 'thread_id':
+              if (typeof evt.thread_id === 'string') setThreadId(evt.thread_id)
+              break
+            case 'status':
+              setStreamStatus(typeof evt.stage === 'string' ? evt.stage : null)
+              break
+            case 'meta':
+              ensureMessage()
+              patch({
+                citations: evt.citations ?? [],
+                confidence: evt.confidence,
+                followUpQuestions: evt.follow_up_questions ?? [],
+                artifacts: evt.artifacts ?? [],
+              })
+              maybeOpenCitation(evt.citations ?? [])
+              break
+            case 'token':
+              ensureMessage()
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, content: m.content + (evt.text ?? '') } : m))
+              break
+            case 'reset':
+              if (assistantId) patch({ content: '' })
+              break
+            case 'error':
+              ensureMessage()
+              patch({
+                content: evt.message ?? 'An error occurred. Please try again.',
+                confidence: 'insufficient_evidence',
+              })
+              break
+            case 'done':
+              doneEvent = evt
+              break
+          }
+        }
+
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? '' // keep the trailing partial line for the next read
+          for (const rawLine of lines) {
+            const line = rawLine.trim()
+            if (!line) continue
+            try { processEvent(JSON.parse(line)) } catch { /* skip malformed line */ }
+          }
+        }
+        // Defensive: flush a final line that arrived without a trailing newline.
+        const tail = buf.trim()
+        if (tail) { try { processEvent(JSON.parse(tail)) } catch { /* ignore */ } }
+
+        // The done event carries the authoritative bundle — replace whatever
+        // streamed in with it (covers any token/render drift).
+        if (doneEvent) {
+          ensureMessage()
+          patch({
+            content: doneEvent.answer ?? '',
+            citations: doneEvent.citations ?? [],
+            confidence: doneEvent.confidence,
+            followUpQuestions: doneEvent.follow_up_questions ?? [],
+            warningFlags: doneEvent.warning_flags ?? [],
+            artifacts: doneEvent.artifacts ?? [],
+            perAircraft: Array.isArray(doneEvent.per_aircraft) ? doneEvent.per_aircraft : undefined,
+          })
+          maybeOpenCitation(doneEvent.citations ?? [])
+          if (typeof doneEvent.thread_id === 'string') {
+            setThreadId(doneEvent.thread_id)
+            void loadThreads()
+          }
+        }
+      } else {
+        // ── JSON answer ("All Aircraft", or any non-streaming response). ──
+        const data = await res.json()
+        const assistantMsg: Message = {
+          id: createMessageId(),
+          role: 'assistant',
+          content: data.answer,
+          confidence: data.confidence,
+          citations: data.citations ?? [],
+          warningFlags: data.warning_flags ?? [],
+          followUpQuestions: data.follow_up_questions ?? [],
+          artifacts: data.artifacts ?? [],
+          // Only present for fanned-out "All Aircraft" answers; undefined otherwise.
+          perAircraft: Array.isArray(data.per_aircraft) ? data.per_aircraft : undefined,
+          timestamp: new Date(),
+        }
+        setMessages(prev => [...prev, assistantMsg])
+        maybeOpenCitation(data.citations ?? [])
+        // Capture the (possibly newly-created) thread id so follow-ups continue
+        // it, and refresh the sidebar so a new conversation shows up.
+        if (typeof data.thread_id === 'string') {
+          setThreadId(data.thread_id)
+          void loadThreads()
+        }
       }
     } catch {
       setMessages(prev => [...prev, {
@@ -698,6 +817,7 @@ export function AskExperience() {
       }])
     } finally {
       setIsLoading(false)
+      setStreamStatus(null)
       inputRef.current?.focus()
     }
   }, [isLoading, persona, question, selectedAircraftId, threadId, loadThreads])
@@ -1050,7 +1170,9 @@ export function AskExperience() {
               {isLoading && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Working on it…</span>
+                  <span className="text-sm">
+                    {(streamStatus && STREAM_STATUS_LABELS[streamStatus]) ?? 'Working on it…'}
+                  </span>
                 </div>
               )}
               <div ref={messagesEndRef} />
