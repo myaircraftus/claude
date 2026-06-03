@@ -40,9 +40,16 @@ interface Props {
   /** Max recording duration in seconds. Default 30. Hard cap is platform max. */
   maxSeconds?: number
   className?: string
+  /**
+   * 'floating' (default) — the large round shadowed FAB used on home/detail
+   * surfaces. 'inline' — a small icon-sized mic meant to sit inside a composer
+   * (used by /ask). Inline suppresses the inline error chip and relies on the
+   * toast for errors so it doesn't disturb the input row's layout.
+   */
+  variant?: 'floating' | 'inline'
 }
 
-export function VoiceButton({ onResult, classifyIntent = true, context, maxSeconds = 30, className }: Props) {
+export function VoiceButton({ onResult, classifyIntent = true, context, maxSeconds = 30, className, variant = 'floating' }: Props) {
   const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [secondsLeft, setSecondsLeft] = useState(maxSeconds)
   const [error, setError] = useState<string | null>(null)
@@ -140,26 +147,34 @@ export function VoiceButton({ onResult, classifyIntent = true, context, maxSecon
     }
   }
 
+  const isInline = variant === 'inline'
+
   return (
-    <div className={cn('inline-flex flex-col items-end gap-1', className)}>
+    <div className={cn(isInline ? 'inline-flex' : 'inline-flex flex-col items-end gap-1', className)}>
       <button
         type="button"
         onClick={() => state === 'recording' ? stop() : start()}
         disabled={!supported || state === 'transcribing'}
+        aria-label={!supported ? 'Voice input not supported' : state === 'recording' ? 'Stop recording' : 'Dictate your question'}
         title={!supported ? 'Voice not supported' : state === 'recording' ? `Stop (${secondsLeft}s left)` : 'Tap to speak'}
         className={cn(
-          'inline-flex items-center justify-center rounded-full w-12 h-12 shadow-lg transition-colors',
-          state === 'recording' ? 'bg-rose-600 text-white animate-pulse' :
-          state === 'transcribing' ? 'bg-slate-200 text-slate-500' :
-          'bg-primary text-primary-foreground hover:opacity-90',
+          'inline-flex items-center justify-center transition-colors',
+          isInline ? 'rounded-lg w-8 h-8 shrink-0' : 'rounded-full w-12 h-12 shadow-lg',
+          state === 'recording'
+            ? 'bg-rose-600 text-white animate-pulse'
+            : state === 'transcribing'
+            ? (isInline ? 'text-muted-foreground' : 'bg-slate-200 text-slate-500')
+            : isInline
+            ? 'text-muted-foreground hover:text-primary hover:bg-muted'
+            : 'bg-primary text-primary-foreground hover:opacity-90',
           !supported && 'opacity-50 cursor-not-allowed',
         )}
       >
-        {state === 'recording' ? <Square className="h-5 w-5" /> :
-         state === 'transcribing' ? <Loader2 className="h-5 w-5 animate-spin" /> :
-         <Mic className="h-5 w-5" />}
+        {state === 'recording' ? <Square className={isInline ? 'h-4 w-4' : 'h-5 w-5'} /> :
+         state === 'transcribing' ? <Loader2 className={cn('animate-spin', isInline ? 'h-4 w-4' : 'h-5 w-5')} /> :
+         <Mic className={isInline ? 'h-4 w-4' : 'h-5 w-5'} />}
       </button>
-      {error && (
+      {error && !isInline && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 text-[11px] rounded-md px-2 py-1 max-w-[220px] flex gap-1">
           <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" /> {error}
         </div>

@@ -32,13 +32,13 @@ export function CitationCard({ citation, index, isActive, onSelect }: CitationCa
       onClick={() => onSelect(citation)}
       className={`w-full text-left p-3 rounded-lg border transition-all ${
         isActive
-          ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-200'
-          : 'border-border hover:border-brand-200 hover:bg-muted/50'
+          ? 'border-primary/30 bg-primary/5 ring-1 ring-primary/20'
+          : 'border-border hover:border-primary/20 hover:bg-muted/50'
       }`}
     >
       <div className="flex items-start gap-2">
         {/* Citation number */}
-        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center mt-0.5">
           {index}
         </span>
 

@@ -3,13 +3,14 @@
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X, Plus, Trash2, MessageSquare } from 'lucide-react'
+import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X, Plus, Trash2, MessageSquare, Copy } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AnswerBlock, type PerAircraftAnswer } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
+import { VoiceButton } from '@/components/voice/VoiceButton'
 import { useAppContext } from '@/components/redesign/AppContext'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { formatDateTime } from '@/lib/utils'
@@ -35,6 +36,8 @@ interface Message {
   artifacts?: Artifact[]
   /** Present only for fanned-out "All Aircraft" answers — one section per aircraft. */
   perAircraft?: PerAircraftAnswer[]
+  /** The aircraft scope the question was asked under (e.g. "N12345" or "All aircraft"). */
+  scopeLabel?: string
   timestamp: Date
 }
 
@@ -459,7 +462,7 @@ export function AskExperience() {
   // uploaded" empty state when a specific aircraft is selected.
   const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map())
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const autoAskedQueryRef = useRef<string | null>(null)
   const canUseMechanicPersona = currentUserRole != null && MECHANIC_PERSONA_ROLES.includes(currentUserRole)
   const suggestedPrompts = persona === 'shop' ? MECHANIC_PROMPTS : OWNER_PROMPTS
@@ -590,6 +593,15 @@ export function AskExperience() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Phase 2 — auto-grow the composer textarea up to a cap as the user types,
+  // so long squawk descriptions aren't crammed into a single line.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`
+  }, [question])
+
   useEffect(() => {
     // Switching persona starts a fresh, unsaved conversation view.
     setMessages([])
@@ -626,6 +638,9 @@ export function AskExperience() {
       id: createMessageId(),
       role: 'user',
       content: q,
+      scopeLabel: selectedAircraftId === 'all'
+        ? 'All aircraft'
+        : (aircraft.find(a => a.id === selectedAircraftId)?.tail_number ?? 'This aircraft'),
       timestamp: new Date(),
     }
     setMessages(prev => [...prev, userMsg])
@@ -666,16 +681,9 @@ export function AskExperience() {
       const contentType = res.headers.get('content-type') ?? ''
       const isStream = contentType.includes('application/x-ndjson') && !!res.body
 
-      // Auto-open the first citation in the side preview so the user gets the
-      // cited evidence immediately. Prefer one with a real documentId (so we get
-      // the PDF page), but fall back to ANY citation — the DocumentViewer renders
-      // a text-only "snippet card" when no documentId is available.
-      let openedCitation = false
-      const maybeOpenCitation = (list: AnswerCitation[]) => {
-        if (openedCitation) return
-        const first = list.find(c => Boolean(c.documentId)) ?? list[0] ?? null
-        if (first) { setActiveCitation(first); openedCitation = true }
-      }
+      // Phase 2 — citations no longer auto-open. Opening the source preview is
+      // an explicit user action (clicking a citation), so an answer never
+      // hijacks the right-hand panel or reflows the conversation.
 
       if (isStream) {
         // ── Streamed answer (NDJSON). The assistant message is appended lazily
@@ -721,7 +729,6 @@ export function AskExperience() {
                 followUpQuestions: evt.follow_up_questions ?? [],
                 artifacts: evt.artifacts ?? [],
               })
-              maybeOpenCitation(evt.citations ?? [])
               break
             case 'token':
               ensureMessage()
@@ -773,7 +780,6 @@ export function AskExperience() {
             artifacts: doneEvent.artifacts ?? [],
             perAircraft: Array.isArray(doneEvent.per_aircraft) ? doneEvent.per_aircraft : undefined,
           })
-          maybeOpenCitation(doneEvent.citations ?? [])
           if (typeof doneEvent.thread_id === 'string') {
             setThreadId(doneEvent.thread_id)
             void loadThreads()
@@ -796,7 +802,6 @@ export function AskExperience() {
           timestamp: new Date(),
         }
         setMessages(prev => [...prev, assistantMsg])
-        maybeOpenCitation(data.citations ?? [])
         // Capture the (possibly newly-created) thread id so follow-ups continue
         // it, and refresh the sidebar so a new conversation shows up.
         if (typeof data.thread_id === 'string') {
@@ -898,7 +903,18 @@ export function AskExperience() {
     setActiveCitation(citation)
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  // Phase 3 — copy an answer's text to the clipboard.
+  async function copyAnswer(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Answer copied')
+    } catch {
+      toast.error('Could not copy')
+    }
+  }
+
+  // Enter sends; Shift+Enter inserts a newline (the composer is a textarea now).
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleAsk()
@@ -921,6 +937,24 @@ export function AskExperience() {
 
     const next = params.toString()
     router.replace(next ? `/ask?${next}` : '/ask', { scroll: false })
+  }
+
+  // Phase 1 — switching persona clears the in-view conversation (owner and
+  // mechanic have different prompts + scope, and a thread is persona-scoped).
+  // It used to do this silently; now we confirm when there's a conversation on
+  // screen. The cleared thread is still saved server-side and reachable from
+  // the Conversations list, so this guards against accidental loss, not data
+  // loss. No prompt when the view is already empty.
+  function requestPersonaSwitch(next: AskPersona) {
+    if (next === persona) return
+    if (messages.length > 0) {
+      const label = next === 'shop' ? 'Mechanic' : 'Owner'
+      const ok = window.confirm(
+        `Switch to ${label} mode? This conversation is saved in your history; the view will clear for a fresh ${label.toLowerCase()} chat.`
+      )
+      if (!ok) return
+    }
+    setPersona(next)
   }
 
   return (
@@ -986,7 +1020,7 @@ export function AskExperience() {
                   size="sm"
                   variant={persona === 'owner' ? 'default' : 'ghost'}
                   className="h-8 px-3 text-[12px]"
-                  onClick={() => setPersona('owner')}
+                  onClick={() => requestPersonaSwitch('owner')}
                 >
                   Owner
                 </Button>
@@ -996,7 +1030,7 @@ export function AskExperience() {
                     size="sm"
                     variant={persona === 'shop' ? 'default' : 'ghost'}
                     className="h-8 px-3 text-[12px]"
-                    onClick={() => setPersona('shop')}
+                    onClick={() => requestPersonaSwitch('shop')}
                   >
                     Mechanic
                   </Button>
@@ -1040,10 +1074,27 @@ export function AskExperience() {
                   <h2 className="text-[20px] text-foreground mb-2" style={{ fontWeight: 700 }}>
                     No documents uploaded for {selectedAircraft?.tail_number ?? 'this aircraft'}
                   </h2>
-                  <p className="text-[14px] text-muted-foreground mb-8 max-w-md mx-auto">
-                    The owner has not yet uploaded documents for this aircraft. You can only
-                    view this aircraft manually.
+                  <p className="text-[14px] text-muted-foreground mb-6 max-w-md mx-auto">
+                    The AI answers from uploaded records, and there are none for{' '}
+                    {selectedAircraft?.tail_number ?? 'this aircraft'} yet. Upload its
+                    documents, or ask across your whole fleet.
                   </p>
+                  <div className="flex items-center justify-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => router.push('/documents')}
+                      className="inline-flex items-center gap-1.5 bg-primary text-white text-[13px] px-4 py-2 rounded-xl hover:bg-primary/90 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <FileText className="w-4 h-4" /> Upload documents
+                    </button>
+                    <button
+                      onClick={() => handleAircraftChange('all')}
+                      className="inline-flex items-center gap-1.5 bg-white border border-border text-foreground text-[13px] px-4 py-2 rounded-xl hover:bg-muted/50 transition-colors"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <Plane className="w-4 h-4 text-primary" /> Ask across all aircraft
+                    </button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -1072,14 +1123,19 @@ export function AskExperience() {
               )}
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto space-y-4">
+            <div className="max-w-2xl mx-auto space-y-4" aria-live="polite">
               {messages.map((msg) => (
                 <div key={msg.id}>
                   {msg.role === 'user' ? (
-                    <div className="flex justify-end">
+                    <div className="flex flex-col items-end gap-1">
                       <div className="bg-primary text-white rounded-2xl rounded-br-md px-4 py-3 max-w-md text-[13px]">
                         {msg.content}
                       </div>
+                      {msg.scopeLabel && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground pr-1">
+                          <Plane className="w-2.5 h-2.5" /> {msg.scopeLabel}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-white rounded-2xl rounded-bl-md border border-border p-5 space-y-4">
@@ -1155,13 +1211,21 @@ export function AskExperience() {
                               </a>
                             )
                           })}
-                          {msg.confidence && (
-                            <span className="text-[11px] bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
-                              {msg.confidence === 'high' ? 'High' : msg.confidence === 'medium' ? 'Medium' : 'Low'} confidence
-                            </span>
-                          )}
                         </div>
                       )}
+                      {/* Phase 3 — answer footer: timestamp + copy. */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-muted-foreground/70">
+                          {msg.timestamp.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                        <button
+                          onClick={() => copyAnswer(msg.content)}
+                          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Copy answer"
+                        >
+                          <Copy className="w-3 h-3" /> Copy
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1182,16 +1246,47 @@ export function AskExperience() {
 
         {/* Input */}
         <div className="p-4 border-t border-border bg-white">
+          {/* Phase 2 — keep a compact suggestion row reachable after the first
+              message (the full prompt grid only shows on the empty state). */}
+          {messages.length > 0 && (
+            <div className="max-w-2xl mx-auto mb-2 flex gap-1.5 overflow-x-auto no-scrollbar">
+              {suggestedPrompts.slice(0, 4).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handleAsk(p)}
+                  disabled={isLoading}
+                  className="shrink-0 text-[11px] text-muted-foreground bg-muted/40 border border-border rounded-full px-3 py-1 hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="max-w-2xl mx-auto flex gap-2">
             <div className="flex-1 flex items-center gap-2 bg-muted/30 border border-border rounded-xl px-4 py-3">
-              <Input
+              <textarea
                 ref={inputRef}
                 value={question}
                 onChange={e => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={inputPlaceholder}
-                className="bg-transparent text-[13px] outline-none flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                rows={1}
+                className="bg-transparent text-[13px] outline-none flex-1 border-0 shadow-none resize-none max-h-32 leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground"
                 maxLength={2000}
+              />
+              {/* Phase 1 — dictate into the question box. The previous floating
+                  mic on this page recorded then discarded the transcript; the
+                  mic now lives in the composer and fills the input (the user
+                  reviews, then sends). */}
+              <VoiceButton
+                variant="inline"
+                classifyIntent={false}
+                onResult={({ transcript }) => {
+                  const t = (transcript ?? '').trim()
+                  if (!t) return
+                  setQuestion(prev => (prev.trim() ? `${prev.trim()} ${t}` : t))
+                  inputRef.current?.focus()
+                }}
               />
             </div>
             <button
@@ -1199,11 +1294,14 @@ export function AskExperience() {
               disabled={!question.trim() || isLoading}
               aria-label={isLoading ? "Sending question…" : "Send question"}
               title={isLoading ? "Sending…" : "Send (Enter)"}
-              className="bg-primary text-white px-4 rounded-xl hover:bg-primary/90 transition-colors"
+              className="bg-primary text-white px-4 rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
+          <p className="max-w-2xl mx-auto mt-2 text-[11px] text-muted-foreground/60 text-center">
+            AI-generated from your records — not FAA compliance advice. Verify with a certified A&P or FSDO for airworthiness determinations.
+          </p>
         </div>
       </div>
 

@@ -355,12 +355,12 @@ export function DocumentViewer({ citation, documentId, onClose }: DocumentViewer
 
       {/* Cited passage strip */}
       {citation?.snippet ? (
-        <div className="p-3 border-t border-border bg-brand-50 flex-shrink-0">
-          <p className="text-xs font-medium text-brand-700 mb-1">Cited passage</p>
-          <p className="text-xs text-brand-800 leading-relaxed italic line-clamp-3">
+        <div className="p-3 border-t border-border bg-primary/5 flex-shrink-0">
+          <p className="text-xs font-medium text-primary mb-1">Cited passage</p>
+          <p className="text-xs text-primary/90 leading-relaxed italic line-clamp-3">
             &ldquo;{citation.quotedText ?? citation.snippet}&rdquo;
           </p>
-          <p className="text-[11px] text-brand-700/80 mt-2">
+          <p className="text-[11px] text-primary/70 mt-2">
             Page {citation.pageNumber}
             {citation.pageNumberEnd && citation.pageNumberEnd !== citation.pageNumber
               ? `–${citation.pageNumberEnd}`

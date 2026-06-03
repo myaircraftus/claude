@@ -75,7 +75,7 @@ export function AnswerBlock({
         const citation = citations[num - 1]
         if (citation) {
           const href = buildHref(citation)
-          const baseClass = 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-xs font-bold hover:bg-brand-600 transition-colors mx-0.5 align-middle no-underline'
+          const baseClass = 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-colors mx-0.5 align-middle no-underline'
           if (!href) {
             // No document — still let the user open the side preview, but
             // render a button (no dead /documents/undefined href).
@@ -188,19 +188,14 @@ export function AnswerBlock({
             <button
               key={i}
               onClick={() => onFollowUp(q)}
-              className="w-full flex items-center gap-2 p-2 rounded-md border border-dashed border-border hover:border-brand-300 hover:bg-brand-50 transition-colors text-left"
+              className="w-full flex items-center gap-2 p-2 rounded-md border border-dashed border-border hover:border-primary/30 hover:bg-primary/5 transition-colors text-left"
             >
-              <ChevronRight className="h-3.5 w-3.5 text-brand-400 flex-shrink-0" />
+              <ChevronRight className="h-3.5 w-3.5 text-primary/60 flex-shrink-0" />
               <span className="text-sm text-muted-foreground hover:text-foreground">{q}</span>
             </button>
           ))}
         </div>
       )}
-
-      {/* Legal disclaimer */}
-      <p className="text-xs text-muted-foreground/60 border-t pt-3">
-        myaircraft.us provides document retrieval, not FAA compliance advice. Always verify with a certified A&P mechanic or FSDO for airworthiness determinations.
-      </p>
     </div>
   )
 }

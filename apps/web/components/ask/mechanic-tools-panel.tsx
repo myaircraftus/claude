@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { Sparkles, ClipboardList, Package, X, Loader2, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -70,12 +71,18 @@ function GenerateLogbookDialog({
     }
   }
 
-  function handleUse() {
-    const params = new URLSearchParams()
-    if (aircraftId) params.set('aircraft_id', aircraftId)
-    // Pass description as a seed via the URL isn't supported, so navigate to
-    // /maintenance/new and let the user paste — OR open with pre-fill via state.
-    // For now navigate to new entry page so the user can continue there.
+  async function handleUse() {
+    // Phase 4 — carry the generated text forward instead of discarding it.
+    // Copy it to the clipboard so the user can paste it straight into the
+    // new-entry form, then navigate there.
+    if (result) {
+      try {
+        await navigator.clipboard.writeText(result)
+        toast.success('Generated entry copied — paste it into the form')
+      } catch {
+        toast.error('Could not copy the generated entry')
+      }
+    }
     router.push(`/maintenance/new?aircraft_id=${aircraftId}`)
     onClose()
   }
