@@ -293,7 +293,16 @@ function AppLayoutInner({
   const { launchTour } = useOnboarding();
 
   const effectivePathname = getDisplayPathname(pathname);
-  const hideSidebarPersonaSwitcher = effectivePathname === "/ask" || effectivePathname.startsWith("/ask/");
+  // The Ask surface (/ask and its owner alias /ask-logbook-ai) is an immersive
+  // chat layout with its own left Conversations panel, so we collapse the nav
+  // into its icon rail there and hide the sidebar persona switcher (the page
+  // has its own Owner/Mechanic toggle).
+  const isAskRoute =
+    effectivePathname === "/ask" ||
+    effectivePathname.startsWith("/ask/") ||
+    effectivePathname === "/ask-logbook-ai" ||
+    effectivePathname.startsWith("/ask-logbook-ai/");
+  const hideSidebarPersonaSwitcher = isAskRoute;
 
   // null = not yet loaded; false = confirmed non-admin; true = admin.
   // Used to gate the BillingBanner so we don't briefly render "14 days
@@ -317,6 +326,13 @@ function AppLayoutInner({
   const [categoryStateLoaded, setCategoryStateLoaded] = useState(false);
 
   const activeTab = searchParams?.get("tab") ?? "dashboard";
+
+  // Collapse the nav to its icon rail on the Ask surface (it has its own left
+  // Conversations panel); expand it again elsewhere. A manual toggle on the
+  // current page still wins until the next route change.
+  useEffect(() => {
+    setCollapsed(isAskRoute);
+  }, [isAskRoute]);
 
   useEffect(() => {
     let cancelled = false;

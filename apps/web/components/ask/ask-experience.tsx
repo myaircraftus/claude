@@ -1000,6 +1000,68 @@ export function AskExperience() {
         </div>
       )}
 
+      {/* Left panel: Conversations (+ mechanic tools for shop). Moved from the
+          right so the Ask page reads [collapsed nav] · [Conversations] · [chat],
+          freeing the right side for the source preview. lg-only, matching the
+          old sidebar's breakpoint (mobile never showed it). */}
+      <aside className="hidden lg:flex flex-col w-[264px] border-r border-border bg-white shrink-0">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {persona === 'shop' && (
+            <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
+          )}
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
+              <button
+                onClick={startNewConversation}
+                className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                style={{ fontWeight: 600 }}
+              >
+                <Plus className="w-3.5 h-3.5" /> New
+              </button>
+            </div>
+            <div className="space-y-2">
+              {threads.map((t) => {
+                const isActive = t.id === threadId
+                return (
+                  <div
+                    key={t.id}
+                    className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${isActive ? 'bg-primary/10' : 'bg-muted/30 hover:bg-muted/50'}`}
+                  >
+                    <button
+                      onClick={() => openThread(t.id)}
+                      className="flex-1 text-left min-w-0"
+                    >
+                      <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>
+                        {t.title || 'Conversation'}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="w-3 h-3" /> {formatDateTime(t.updated_at)}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => deleteThread(t.id)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity flex-shrink-0"
+                      aria-label="Delete conversation"
+                      title="Delete conversation"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
+              {threads.length === 0 && (
+                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  No conversations yet.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
+
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="p-6 border-b border-border bg-white">
@@ -1305,105 +1367,49 @@ export function AskExperience() {
         </div>
       </div>
 
-      {/* Right sidebar: mechanic tools + history or source preview */}
-      <div className={`hidden lg:block border-l border-border bg-white transition-all duration-200 ${activeCitation ? 'w-[40%]' : 'w-[320px]'}`}>
-        {activeCitation ? (
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-border flex items-center justify-between gap-2">
-              <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
-              <div className="flex items-center gap-3">
-                {(() => {
-                  const href = buildCitationHref(activeCitation)
-                  return href ? (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-                      style={{ fontWeight: 500 }}
-                    >
-                      <ExternalLink className="w-3 h-3" /> Open full page
-                    </a>
-                  ) : null
-                })()}
-                <button
-                  onClick={() => setActiveCitation(null)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <DocumentViewerBoundary
-                resetKey={`${activeCitation.documentId}:${activeCitation.chunkId}:${activeCitation.pageNumber}`}
+      {/* Right side: source preview, shown on demand when a citation is clicked.
+          Conversations moved to the left panel, so this panel is source-only and
+          only mounts while a citation is open. */}
+      {activeCitation && (
+        <div className="hidden lg:flex flex-col w-[40%] border-l border-border bg-white">
+          <div className="p-4 border-b border-border flex items-center justify-between gap-2">
+            <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
+            <div className="flex items-center gap-3">
+              {(() => {
+                const href = buildCitationHref(activeCitation)
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+                    style={{ fontWeight: 500 }}
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open full page
+                  </a>
+                ) : null
+              })()}
+              <button
+                onClick={() => setActiveCitation(null)}
+                className="text-[11px] text-muted-foreground hover:text-foreground"
               >
-                <DocumentViewer
-                  citation={activeCitation}
-                  documentId={activeCitation.documentId}
-                  onClose={() => setActiveCitation(null)}
-                />
-              </DocumentViewerBoundary>
+                Clear
+              </button>
             </div>
           </div>
-        ) : (
-          <div className="p-4 space-y-4">
-            {persona === 'shop' && (
-              <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
-                <button
-                  onClick={startNewConversation}
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-                  style={{ fontWeight: 600 }}
-                >
-                  <Plus className="w-3.5 h-3.5" /> New
-                </button>
-              </div>
-              <div className="space-y-2">
-                {threads.map((t) => {
-                  const isActive = t.id === threadId
-                  return (
-                    <div
-                      key={t.id}
-                      className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${isActive ? 'bg-primary/10' : 'bg-muted/30 hover:bg-muted/50'}`}
-                    >
-                      <button
-                        onClick={() => openThread(t.id)}
-                        className="flex-1 text-left min-w-0"
-                      >
-                        <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>
-                          {t.title || 'Conversation'}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Clock className="w-3 h-3" /> {formatDateTime(t.updated_at)}
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => deleteThread(t.id)}
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity flex-shrink-0"
-                        aria-label="Delete conversation"
-                        title="Delete conversation"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )
-                })}
-                {threads.length === 0 && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4" />
-                    No conversations yet.
-                  </div>
-                )}
-              </div>
-            </div>
+          <div className="flex-1 overflow-hidden">
+            <DocumentViewerBoundary
+              resetKey={`${activeCitation.documentId}:${activeCitation.chunkId}:${activeCitation.pageNumber}`}
+            >
+              <DocumentViewer
+                citation={activeCitation}
+                documentId={activeCitation.documentId}
+                onClose={() => setActiveCitation(null)}
+              />
+            </DocumentViewerBoundary>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

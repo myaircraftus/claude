@@ -4,6 +4,18 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-04 — Ask Logbook AI: chat-style layout (collapse nav, Conversations to a left panel)
+
+**Why.** Owner request: entering Ask Logbook AI should feel like a dedicated chat app — collapse the heavy app nav and move the Conversations list from the right to the left, beside the collapsed nav, with the chat taking the rest. This is the standard ChatGPT/Claude layout.
+
+**What.**
+- **AppLayout** ([AppLayout.tsx](apps/web/components/redesign/AppLayout.tsx)): on `/ask` and `/ask-logbook-ai`, auto-collapse the nav to its 68px icon rail (expands again when you leave); the sidebar persona switcher is also hidden there (the page has its own Owner/Mechanic toggle).
+- **AskExperience** ([ask-experience.tsx](apps/web/components/ask/ask-experience.tsx)): moved Conversations (+ shop Mechanic Tools) from the right into a new **left** panel, so the page reads **[icon nav] · [Conversations] · [chat]**. The right side is now **source-preview only** and mounts on demand when a citation is clicked. lg-only, so mobile is unchanged.
+
+**Verified.** `tsc --noEmit` clean on both changed files. Browser check was done by the owner on the live `:3000` dev server — the worktree that hosted the preview-harness verification was removed earlier, so agent screenshots weren't available this round. **Committed locally; not pushed.**
+
+---
+
 ## 2026-06-04 — Ask Logbook AI: Phases 1–4 implemented + browser-verified (voice, layout, answer polish, mechanic tools)
 
 **Why.** Continued executing the redesign proposal ([docs/ask-logbook-ai-redesign-proposal.md](docs/ask-logbook-ai-redesign-proposal.md)) past Phase 0 — the "broken wires" and the user-facing layout/answer improvements — verifying each in a real browser (Chrome via the preview harness, on the public `/demo/ask` surface which renders the **same `AskExperience` component** with sample data, so login isn't needed).
