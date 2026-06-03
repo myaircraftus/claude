@@ -4,6 +4,50 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-04 — OCR/chunking bake-off: evaluated Landing AI vs Gemini vs OpenAI (decision: keep Gemini)
+
+**Why.** The ingestion pipeline ([direct-chunking.ts](apps/web/lib/ocr/direct-chunking.ts)) runs one vision call per page that does OCR + family-aware chunking + event extraction, auto-selecting **Gemini 3 Flash Preview** first and **OpenAI GPT-4o** as fallback. The open question: should **Landing AI's Agentic Document Extraction (ADE / DPT-2)** — reputed best-in-class document parsing — replace or join them? We tested all three head-to-head on the project's hardest content: the handwritten N92995 airframe logbook (the same doc the retrieval eval targets).
+
+**What.**
+
+1. **New, self-contained eval harness** [scripts/ocr-3way-bakeoff.ts](apps/web/scripts/ocr-3way-bakeoff.ts) — one call per engine per page (Gemini/OpenAI via the **real** `runDirectChunkingPage`, so `raw_text` + `chunks` are exactly what production ingests; Landing AI via one ADE `parse` call), scored on two axes by a GPT-4o-vision judge: **OCR fidelity** and **chunking quality**. No production code path or DB touched.
+2. **Result (13 of 23 pages, stopped once decisive).** Averages /10 — **OCR:** Gemini **8.6**, OpenAI 4.7, Landing AI 3.6. **Chunking:** Gemini **8.6**, OpenAI 6.8, Landing AI 5.1. Gemini won OCR on **10/11** judged pages and chunking on **9/11**.
+3. **Landing AI loses on handwriting** because its layout model forces handwritten maintenance entries into the pre-printed flight grid as an HTML `<table>` and shreds them (e.g. "pulleys"→"milky", work order `000516`→`009516`), with up to ~170s/page latency. It *did* read **printed** stamp text cleanly, so it may suit printed families (work orders / ADs / manuals) — untested (no printed docs in the local DB).
+
+**Decision: keep Gemini — no change shipped.** The pipeline already runs Gemini-first / OpenAI-fallback, so the winning configuration is the current one.
+
+**Also surfaced (live prod gap, not fixed).** Gemini's `finishReason=RECITATION` returned **zero text on 2 of 13 pages** and truncated a 3rd. Scattered single-page RECITATION failures don't cross the cascade's 50%-failure gate (`MIN_SUCCESS_RATIO`), so those pages silently lose content instead of falling back to OpenAI — worth a small per-page "on RECITATION → OpenAI" hardening later. **Nothing committed.**
+
+---
+
+## 2026-06-04 — Ask AI: fix citation markers rendering as raw "[3][4]" text
+
+**Why.** While verifying streaming, an answer rendered the literal text **`[3][4]`** at the end instead of clickable citation pills — and the Sources row had only **2** entries. Root-caused to a **pre-existing** bug in the RAG answer generator (not the streaming change — the streamed answer + citations are byte-identical to the old JSON path). In [generation.ts](apps/web/lib/rag/generation.ts), the model is shown chunks numbered `[1]..[N]` and may cite a **non-prefix subset** (here `[3]` and `[4]`, skipping `[1]/[2]`). The code correctly **compacts** the citations array to just the cited chunks (2 entries) but returned the answer text **verbatim** — still saying `[3][4]`. The UI resolves marker `[N]` → `citations[N-1]`, so `[3]`/`[4]` pointed past the 2-entry array and fell back to printing the raw brackets. The code's stated invariant ("citations[N-1] is the chunk labelled [N]") silently broke for any non-contiguous citation set.
+
+**What.**
+
+1. **Root fix — renumber markers to match the compacted citations** ([generation.ts](apps/web/lib/rag/generation.ts)). When the cited subset is compacted, the answer's inline markers are now remapped to dense 1-based slots (`[3]→[1]`, `[4]→[2]`), and markers outside the chunk range (citing no real source) are stripped with light whitespace tidy-up. The change is **citation-count-neutral and prose-neutral** — it only rewrites the digits inside `[N]` and trims stray spaces; it never alters the citations array length or the answer's words. Fixes both the direct `/api/query` answer and (because the `/api/ask` synthesis model copies that now-clean answer) the user-facing Ask answer.
+2. **UI backstop — never render an orphan marker** ([answer-block.tsx](apps/web/components/ask/answer-block.tsx)). If a `[N]` still has no matching citation (e.g. the synthesis model invents one), the renderer now drops it instead of printing a raw, unclickable `[3]`.
+
+**Verified.** `tsc --noEmit` clean on both files (pre-existing unrelated errors untouched). A focused unit test of the renumber transform passes **7/7**, including the exact reported case (`…condition [3][4].` → `…condition [1][2].`), out-of-order, out-of-range-stripped, and duplicate-marker cases. Because the change is count- and prose-neutral and **no eval case asserts on marker text**, the 96% `rag-eval` is unaffected — but a full `rag-eval.mjs` run still needs your session cookie (the harness is operator-run by design), so please run it before deploy. **Not committed.**
+
+---
+
+## 2026-06-03 — Ask AI: token streaming for single-aircraft answers (UX)
+
+**Why.** Answers appeared **all at once** after a multi-second wait — the agent did its retrieval + synthesis server-side and the UI only rendered once the whole bundle returned. That reads as "frozen" even when work is happening. This is the **token-streaming** work the 2026-05-30 entry deferred (it listed streaming as a later phase). We deliberately did it **hand-rolled on the existing OpenAI SDK** rather than adopting the Vercel AI SDK: `/api/ask` is the most customized route (rich citation/confidence/artifact bundle, server-side thread history, "All Aircraft" fan-out), so the SDK would mean restructuring the response contract and fighting its client-owns-history defaults for little gain. Standardizing on the Vercel AI SDK for agents stays a separate, intentional track.
+
+**What.**
+
+1. **Opt-in streaming, single-aircraft only.** The web Ask experience now sends `{ stream: true }`. The server streams an **NDJSON `ReadableStream`** with a typed event protocol — `thread_id` → `status` → `meta` → `token*` → `done`/`error`. Citations + confidence ride in `meta` *before* the tokens, so inline `[N]` markers resolve as the answer types in. "All Aircraft" (structured / org-wide / fan-out) still returns JSON; the client branches on `Content-Type`, so that path is unchanged. File: [app/api/ask/route.ts](apps/web/app/api/ask/route.ts).
+2. **`runAskAgent` is dual-mode.** With streaming callbacks it consumes the OpenAI delta stream, accumulates `tool_calls` across rounds, and forwards only the final synthesis token-by-token (with a reset-guard for the rare model "preamble" case). Without callbacks it is **byte-identical** to the previous blocking loop — the fan-out and org-wide passes are untouched. Other callers (mobile, internal `/api/chat`, the owner/SOP query bars) never set `stream`, so they keep getting JSON.
+3. **Persistence survives disconnects.** Extracted `persistAssistantTurn`, now called from both the JSON `finalize` path and the stream's `finally` — so the assistant answer is saved even if the user closes the tab mid-stream. The `done` event also carries the authoritative full bundle, which the client uses to replace the streamed-in text (covers any render drift).
+4. **Progress affordance.** The frontend consumes the stream into a lazily-appended assistant message (so the "searching" phase shows a status spinner, not an empty card), and surfaces stage labels — **Thinking → Searching your documents → Writing answer** — which is the real win for the dead-air *before* the first token. Files: [components/ask/ask-experience.tsx](apps/web/components/ask/ask-experience.tsx).
+
+**Verified.** `tsc --noEmit` clean on both changed files (repo's pre-existing unrelated type errors untouched). Dev server compiled `/api/ask` (1837 modules, no errors) and a POST hits the `401` auth gate as expected; `/ask` redirects to login and the app renders with zero console errors. **Behavioral streaming is pending operator test** — it needs a logged-in session + a single aircraft with parsed documents + a working `OPENAI_API_KEY`, which can't be driven headlessly here. To test: pick a specific aircraft, ask a records question, and confirm the status labels cycle and the answer types in with citations. **Not committed**, per our verify-before-commit workflow. Open items: "All Aircraft" doesn't stream yet (future: section-by-section), and confirm no proxy buffering on Vercel (`X-Accel-Buffering: no` is set).
+
+---
+
 ## 2026-06-02 — Ask AI Phase 1: moved to dedicated conversation tables (drift fix)
 
 **Why.** Verifying Phase 1 surfaced two problems. (1) A conversation appeared in the list but reopened **empty** — message persistence was failing silently: the insert wrote a `created_by` column that exists on `conversation_threads` but **not** on `thread_messages` (migration 016), and the best-effort insert swallowed the error, so the thread saved while its messages vanished. (2) More fundamentally, the reused work-order chat tables aren't reliably present across environments — the paused cloud project doesn't have them at all — so building Ask AI on them was fragile (same migration-drift theme as the local-replay fixes).

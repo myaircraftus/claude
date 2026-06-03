@@ -107,6 +107,10 @@ export function AnswerBlock({
             </a>
           )
         }
+        // Orphan marker: references a citation we don't have (an answer can
+        // carry more [N] than there are sources). Drop it instead of printing
+        // a raw "[3]" the user can't click.
+        return null
       }
       return <span key={i}>{part}</span>
     })

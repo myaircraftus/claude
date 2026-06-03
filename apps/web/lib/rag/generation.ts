@@ -154,21 +154,23 @@ export async function generateAnswer(
     ? parsed.cited_chunk_ids
     : [];
 
-  // 6. Build AnswerCitation objects.
+  // 6. Build AnswerCitation objects + renumber the inline markers to match.
   //
   // CRITICAL for citation correctness: the context block presents chunks to
   // the model numbered [1]..[N] (chunks[i] is labelled [i+1]). The user sees
-  // those same [N] markers inline in the rendered answer, and the UI resolves
-  // marker [N] to citations[N-1]. Therefore the ONLY ordering that keeps a
-  // displayed [N] pointing at the chunk the model actually quoted is the
-  // inline-marker order.
+  // [N] markers inline in the answer, and the UI resolves marker [N] to
+  // citations[N-1]. We make the inline markers the source of truth for
+  // ordering — BUT the model rarely cites a clean [1][2]… prefix. When it
+  // cites a sparse / out-of-order subset (e.g. only [3] and [4]), we COMPACT
+  // the citations array down to just the cited chunks AND renumber the answer's
+  // markers to match ([3]→[1], [4]→[2]). Without the renumber, the text would
+  // say [3][4] while `citations` has length 2, so [3]/[4] resolve to nothing
+  // and the UI prints the raw brackets. Markers outside the chunk range cite no
+  // real source and are stripped.
   //
-  // The model is also asked to return UUIDs in cited_chunk_ids, but it
-  // controls that list's order/contents independently of the inline markers
-  // — so trusting cited_chunk_ids order would silently mis-map [N] to the
-  // wrong page/document. We therefore make the inline [N] markers the source
-  // of truth for citation ordering, and only fall back to UUIDs when the
-  // answer contains no usable markers at all.
+  // The model is also asked to return UUIDs in cited_chunk_ids, but it controls
+  // that list independently of the inline markers, so we only fall back to the
+  // UUID list when the answer has no usable markers at all.
   const citationMap = new Map<string, RetrievedChunk>(
     chunks.map((c) => [c.chunk_id, c])
   );
@@ -193,6 +195,20 @@ export async function generateAnswer(
     positionalIndices.length > 0
       ? positionalIndices.map((n) => chunks[n - 1])
       : uuidCitations;
+
+  // Original marker value → its dense 1-based slot in the compacted citation
+  // array, so the rewritten answer's [N] line up with citations[N-1].
+  const markerRemap = new Map<number, number>();
+  positionalIndices.forEach((original, i) => markerRemap.set(original, i + 1));
+
+  const renumberedAnswer = answerText
+    .replace(/\[(\d+)\]/g, (_full, d) => {
+      const mapped = markerRemap.get(parseInt(d, 10));
+      return mapped ? `[${mapped}]` : '';
+    })
+    // Tidy the whitespace any stripped (out-of-range) markers leave behind.
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([.,;:])/g, '$1');
 
   const citations: AnswerCitation[] = orderedChunks.map((chunk) =>
     buildAnswerCitationFromChunk(chunk)
@@ -225,7 +241,7 @@ export async function generateAnswer(
 
   // 8. Return complete AnswerResult
   return {
-    answer: parsed.answer ?? '',
+    answer: renumberedAnswer,
     confidence,
     confidenceScore,
     citations,
