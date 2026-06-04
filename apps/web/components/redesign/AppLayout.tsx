@@ -13,6 +13,7 @@ import {
   Calculator, Archive, RotateCcw, BarChart2, FolderOpen, Settings2, FileCheck,
   Calendar, Umbrella, LogIn, PieChart,
   BrainCircuit, CheckSquare, TrendingUp, Upload, BadgeCheck,
+  Menu, X,
 } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import Link, { useTenantRouter } from "@/components/shared/tenant-link";
@@ -315,6 +316,8 @@ function AppLayoutInner({
   const [activeOrgName, setActiveOrgName] = useState<string | null>(null);
 
   const [collapsed,         setCollapsed]         = useState(false);
+  // Below lg the sidebar is off-canvas; this toggles the slide-in nav drawer.
+  const [mobileNavOpen,     setMobileNavOpen]     = useState(false);
   // Default-expanded collapsible sections. Shop: "AIRCRAFT" + "PARTS &
   // INVENTORY" open on load ("EXPIRATION"/"WORK FORCE" start collapsed).
   // Owner: "AIRCRAFT" + "ECONOMICS" open on load ("EXPIRATION" collapsed).
@@ -331,8 +334,21 @@ function AppLayoutInner({
   // Conversations panel); expand it again elsewhere. A manual toggle on the
   // current page still wins until the next route change.
   useEffect(() => {
-    setCollapsed(isAskRoute);
+    // Only auto-collapse to the icon rail on DESKTOP. Below lg the sidebar is an
+    // off-canvas drawer (it doesn't steal layout width), so collapsing it there
+    // would just needlessly hide the nav labels.
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setCollapsed(isAskRoute && mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, [isAskRoute]);
+
+  // Close the mobile nav drawer whenever the route changes (a link was tapped).
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -704,13 +720,35 @@ function AppLayoutInner({
       className="h-screen flex bg-background overflow-hidden"
       style={layoutStyle}
     >
-      {/* ── Sidebar ── */}
-      <aside data-tour="sidebar" className={`${collapsed ? "w-[68px]" : "w-[240px]"} bg-sidebar flex flex-col transition-all duration-200 shrink-0`}>
+      {/* ── Mobile nav drawer backdrop (below lg the sidebar is off-canvas) ── */}
+      {mobileNavOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/40"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {/* ── Sidebar ──
+          Desktop: in-flow column. Below lg: fixed off-canvas drawer that slides
+          in from the left when mobileNavOpen, dimmed by the backdrop above. */}
+      <aside
+        data-tour="sidebar"
+        className={`${collapsed ? "w-[68px]" : "w-[240px]"} bg-sidebar flex flex-col transition-all duration-200 shrink-0 fixed inset-y-0 left-0 z-50 ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"} lg:static lg:translate-x-0 lg:z-auto`}
+      >
+        {/* Mobile-only close button (the rail toggle is the logo on desktop). */}
+        <button
+          onClick={() => setMobileNavOpen(false)}
+          className="lg:hidden absolute top-3 right-3 z-10 p-1 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          aria-label="Close menu"
+        >
+          <X className="w-5 h-5" />
+        </button>
 
         {/* Logo row */}
         <div
           data-tour="logo"
-          className="h-16 flex items-center px-3 border-b border-sidebar-border shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+          className={`h-16 flex items-center ${collapsed ? "justify-center px-1" : "px-3"} border-b border-sidebar-border shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden`}
           onClick={() => setCollapsed((c) => !c)}
         >
           <MyAircraftLogo variant="light" height={collapsed ? 11 : 26} />
@@ -1114,6 +1152,18 @@ function AppLayoutInner({
 
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile top bar — the sidebar is off-canvas below lg, so this hamburger
+            is the entry point to app navigation. Hidden on desktop. */}
+        <div className="lg:hidden flex items-center gap-2.5 h-12 px-3 border-b border-border bg-white shrink-0">
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+            className="-ml-1 p-1.5 rounded-lg text-foreground hover:bg-muted transition-colors"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <MyAircraftLogo variant="dark" height={18} />
+        </div>
         {/* Admin persona has no billing surface (they're staff). For owner
             and mechanic, billing banner + paywall apply normally — UNLESS
             the user is a platform admin (Phase 15.5 Task 6). Platform
@@ -1175,7 +1225,12 @@ function AppLayoutInner({
           once per consumer). Provider also pauses polling when the tab is
           hidden. */}
       <UnreadRollupProvider persona={persona === "shop" ? "shop" : "owner"}>
-        <UnifiedLauncher persona={persona === "shop" ? "shop" : persona === "owner" ? "owner" : "owner"} />
+        {/* The Ask surface IS the Ask feature, so the floating launcher is
+            redundant there — and on mobile its pill overlaps the composer.
+            Hide it on /ask routes; it stays on every other page. */}
+        {!isAskRoute && (
+          <UnifiedLauncher persona={persona === "shop" ? "shop" : persona === "owner" ? "owner" : "owner"} />
+        )}
 
         {/* ── Floating work-order chat bubble ──
             Visible on owner + mechanic personas. Admin doesn't need it.

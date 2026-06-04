@@ -4,6 +4,21 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-04 — Ask Logbook AI: floating composer, mobile-responsive shell, voice mic fix
+
+**Why.** Continuing the Ask Logbook AI UX pass: pull the scope controls to the point of action (a floating chat-style input), make the experience usable on phones/tablets (below 1024px it was desktop-only — no way to reach conversation history or start a new chat), and fix dictation, which was rejecting every recording before it reached transcription.
+
+**What.**
+- **Floating composer + inline controls** ([ask-experience.tsx](apps/web/components/ask/ask-experience.tsx)). The input is now an elevated rounded card with the **aircraft scope** dropdown and **Owner/Mechanic** toggle moved *inside* it (out of the header); header slimmed to the title. The aircraft selector shows a single clean chevron + truncated tail (it was rendering a double arrow and wrapping the make/model). The box opens at **~2 lines** and auto-grows to a cap — and a spurious scrollbar at the single-line height is gone.
+- **Thread list polish.** Conversations grouped by recency (Today / Yesterday / …) with relative timestamps, a per-thread aircraft chip, and an active-row accent; wider 300px rail.
+- **Mobile responsive** (was unusable below `lg`). History is reachable on phones/tablets via a **slide-over drawer**, with **history + New as compact icon buttons** in the Ask header; empty-state prompts stack to one column; padding tightens; composer controls wrap instead of overflowing; the desktop source-preview panel is width-capped so it can't crush the chat.
+- **App-shell mobile nav** ([AppLayout.tsx](apps/web/components/redesign/AppLayout.tsx)). Below `lg` the navy sidebar becomes an **off-canvas drawer** opened by a hamburger in a slim top bar — every page now gets full width on mobile instead of a permanent 68px rail. The redundant floating **"Ask · Help · Messages" launcher is hidden on Ask routes** (it overlapped the composer on phones). Auto-collapse is now desktop-only, and the wordmark is centered in the collapsed icon rail (it was clipping off the right edge).
+- **Voice dictation fix** ([voice/transcribe/route.ts](apps/web/app/api/voice/transcribe/route.ts)). The mic recorded fine but the server rejected the upload with *"Unsupported audio mime: audio/webm;codecs=opus"* — the allow-list exact-matched the full MIME, but browsers tag recordings with a codec parameter. It now strips the `;codecs=…` parameter before the check, so Chrome/Firefox Opus recordings reach Whisper.
+
+**Verified.** `tsc --noEmit` clean on every changed file (checked after each edit). Browser checks done by the owner on the live `:3000` dev server across desktop / tablet / phone widths. **Committed locally; not pushed.**
+
+---
+
 ## 2026-06-04 — Ask Logbook AI: chat-style layout (collapse nav, Conversations to a left panel)
 
 **Why.** Owner request: entering Ask Logbook AI should feel like a dedicated chat app — collapse the heavy app nav and move the Conversations list from the right to the left, beside the collapsed nav, with the chat taking the rest. This is the standard ChatGPT/Claude layout.

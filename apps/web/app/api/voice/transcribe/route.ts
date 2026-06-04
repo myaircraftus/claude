@@ -48,7 +48,12 @@ export async function POST(req: NextRequest) {
   const file = form.get('audio')
   if (!(file instanceof File)) return NextResponse.json({ error: 'audio file required' }, { status: 400 })
   if (file.size > MAX_BYTES) return NextResponse.json({ error: 'Audio too large (max 25MB)' }, { status: 413 })
-  if (file.type && !ALLOWED_MIME.has(file.type)) {
+  // Browsers tag the recording with codec params (e.g. "audio/webm;codecs=opus",
+  // "audio/ogg;codecs=opus"). The allow-list holds base types, so strip params
+  // before comparing — otherwise every Chrome/Firefox Opus recording 415s here
+  // before it ever reaches Whisper.
+  const baseMime = file.type.split(';')[0].trim().toLowerCase()
+  if (baseMime && !ALLOWED_MIME.has(baseMime)) {
     return NextResponse.json({ error: `Unsupported audio mime: ${file.type}` }, { status: 415 })
   }
 

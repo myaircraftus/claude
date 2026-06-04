@@ -3,17 +3,16 @@
 import dynamic from 'next/dynamic'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Send, Loader2, Plane, Clock, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X, Plus, Trash2, MessageSquare, Copy } from 'lucide-react'
+import { Send, Loader2, Plane, Sparkles, FileText, BookOpen, ChevronDown, ClipboardList, Package, ExternalLink, X, Plus, Trash2, MessageSquare, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { AnswerBlock, type PerAircraftAnswer } from '@/components/ask/answer-block'
 import { DocumentViewerBoundary } from '@/components/ask/document-viewer-boundary'
 import { MechanicToolsPanel } from '@/components/ask/mechanic-tools-panel'
 import { VoiceButton } from '@/components/voice/VoiceButton'
 import { useAppContext } from '@/components/redesign/AppContext'
 import { useTenantRouter } from '@/components/shared/tenant-link'
-import { formatDateTime } from '@/lib/utils'
 import type { Aircraft, AnswerCitation, QueryConfidence, OrgRole } from '@/types'
 
 // ── Artifact types (mirrors /api/ask Artifact interface) ──────────────────────
@@ -55,6 +54,47 @@ interface AskThreadSummary {
   aircraft_id: string | null
   persona: string | null
   updated_at: string
+}
+
+/** Compact relative time for the conversation list (e.g. "2h ago", "Yesterday"). */
+function relativeTime(dateStr: string): string {
+  const t = new Date(dateStr).getTime()
+  if (Number.isNaN(t)) return ''
+  const min = Math.floor((Date.now() - t) / 60000)
+  if (min < 1) return 'Just now'
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const day = Math.floor(hr / 24)
+  if (day === 1) return 'Yesterday'
+  if (day < 7) return `${day}d ago`
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+/** Bucket conversations into recency groups (most-recent first within each). */
+function groupThreadsByRecency(
+  threads: AskThreadSummary[],
+): Array<{ label: string; items: AskThreadSummary[] }> {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const DAY = 86_400_000
+  const groups = [
+    { label: 'Today', items: [] as AskThreadSummary[] },
+    { label: 'Yesterday', items: [] as AskThreadSummary[] },
+    { label: 'Previous 7 days', items: [] as AskThreadSummary[] },
+    { label: 'Older', items: [] as AskThreadSummary[] },
+  ]
+  const sorted = [...threads].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  )
+  for (const t of sorted) {
+    const ts = new Date(t.updated_at).getTime()
+    if (ts >= startOfToday) groups[0].items.push(t)
+    else if (ts >= startOfToday - DAY) groups[1].items.push(t)
+    else if (ts >= startOfToday - 7 * DAY) groups[2].items.push(t)
+    else groups[3].items.push(t)
+  }
+  return groups.filter((g) => g.items.length > 0)
 }
 
 function buildAircraftIdentityKey(option: AircraftOption) {
@@ -458,6 +498,9 @@ export function AskExperience() {
   // Persisted conversations + the active thread id (null = unsaved/new chat).
   const [threads, setThreads] = useState<AskThreadSummary[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
+  // Below lg the Conversations rail is hidden; this drives the slide-over
+  // drawer that gives phones + tablets access to history / new chat.
+  const [mobileConvOpen, setMobileConvOpen] = useState(false)
   // Per-aircraft uploaded-document counts — drives the "no documents
   // uploaded" empty state when a specific aircraft is selected.
   const [documentCounts, setDocumentCounts] = useState<Map<string, number>>(new Map())
@@ -599,7 +642,13 @@ export function AskExperience() {
     const el = inputRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`
+    const content = el.scrollHeight
+    // Floor at ~2 lines (68px) so the composer opens roomy, grows to 160px.
+    el.style.height = `${Math.min(Math.max(content, 68), 160)}px`
+    // Only show a scrollbar once we've actually hit the max height; at the
+    // floor, height == scrollHeight and the textarea's default overflow
+    // would otherwise render a spurious scrollbar.
+    el.style.overflowY = content > 160 ? 'auto' : 'hidden'
   }, [question])
 
   useEffect(() => {
@@ -841,6 +890,7 @@ export function AskExperience() {
   // Start a fresh, unsaved conversation (clears the in-view transcript; the
   // next message creates a new thread server-side).
   const startNewConversation = useCallback(() => {
+    setMobileConvOpen(false)
     setMessages([])
     setThreadId(null)
     setActiveCitation(null)
@@ -853,6 +903,7 @@ export function AskExperience() {
   // restore the thread's aircraft scope.
   const openThread = useCallback(async (id: string) => {
     if (isLoading) return
+    setMobileConvOpen(false)
     try {
       const res = await fetch(`/api/ask/threads/${id}`, { cache: 'no-store' })
       if (!res.ok) return
@@ -957,6 +1008,89 @@ export function AskExperience() {
     setPersona(next)
   }
 
+  // Conversation list shared by the desktop left rail and the mobile slide-over
+  // drawer — one source of truth so the two stay in sync.
+  const conversationsPanel = (
+    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {persona === 'shop' && (
+        <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
+          <button
+            onClick={startNewConversation}
+            className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
+            style={{ fontWeight: 600 }}
+          >
+            <Plus className="w-3.5 h-3.5" /> New
+          </button>
+        </div>
+        {threads.length === 0 ? (
+          <div className="text-xs text-muted-foreground/70 flex items-center gap-2 px-1 py-2">
+            <MessageSquare className="w-4 h-4" />
+            No conversations yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {groupThreadsByRecency(threads).map((group) => (
+              <div key={group.label}>
+                <div className="px-1 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                  {group.label}
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map((t) => {
+                    const isActive = t.id === threadId
+                    const scope = t.aircraft_id == null
+                      ? 'All aircraft'
+                      : (aircraft.find((a) => a.id === t.aircraft_id)?.tail_number ?? null)
+                    return (
+                      <div
+                        key={t.id}
+                        className={`group relative flex items-start gap-1.5 rounded-lg pl-3 pr-1.5 py-1.5 transition-colors ${isActive ? 'bg-primary/10' : 'hover:bg-muted/50'}`}
+                      >
+                        {isActive && (
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary" />
+                        )}
+                        <button
+                          onClick={() => openThread(t.id)}
+                          className="flex-1 text-left min-w-0"
+                        >
+                          <div className={`text-[12px] truncate ${isActive ? 'text-primary' : 'text-foreground'}`} style={{ fontWeight: 500 }}>
+                            {t.title || 'Conversation'}
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground min-w-0">
+                            {scope && (
+                              <span className="inline-flex items-center gap-0.5 min-w-0 shrink">
+                                <Plane className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">{scope}</span>
+                              </span>
+                            )}
+                            {scope && <span className="text-muted-foreground/40 shrink-0">·</span>}
+                            <span className="shrink-0">{relativeTime(t.updated_at)}</span>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => deleteThread(t.id)}
+                          className="mt-0.5 shrink-0 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                          aria-label="Delete conversation"
+                          title="Delete conversation"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div className="h-full flex">
       {/* ── Mobile citation modal (full-screen on small screens) ─────────────── */}
@@ -1000,129 +1134,70 @@ export function AskExperience() {
         </div>
       )}
 
-      {/* Left panel: Conversations (+ mechanic tools for shop). Moved from the
-          right so the Ask page reads [collapsed nav] · [Conversations] · [chat],
-          freeing the right side for the source preview. lg-only, matching the
-          old sidebar's breakpoint (mobile never showed it). */}
-      <aside className="hidden lg:flex flex-col w-[264px] border-r border-border bg-white shrink-0">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {persona === 'shop' && (
-            <MechanicToolsPanel userRole={currentUserRole} aircraft={aircraft} />
-          )}
-
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
+      {/* ── Mobile Conversations drawer (slide-over) ─────────────────────────
+          Below lg the left rail is hidden, so this drawer is the only way to
+          reach history / start a new chat on phones + tablets. Shares the same
+          `conversationsPanel` as the desktop rail. */}
+      {mobileConvOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 flex">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileConvOpen(false)}
+            aria-hidden
+          />
+          <aside className="relative flex flex-col w-[300px] max-w-[85%] bg-white border-r border-border shadow-xl">
+            <div className="flex items-center justify-end p-2 border-b border-border shrink-0">
               <button
-                onClick={startNewConversation}
-                className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-                style={{ fontWeight: 600 }}
+                onClick={() => setMobileConvOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                aria-label="Close conversations"
               >
-                <Plus className="w-3.5 h-3.5" /> New
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-2">
-              {threads.map((t) => {
-                const isActive = t.id === threadId
-                return (
-                  <div
-                    key={t.id}
-                    className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors ${isActive ? 'bg-primary/10' : 'bg-muted/30 hover:bg-muted/50'}`}
-                  >
-                    <button
-                      onClick={() => openThread(t.id)}
-                      className="flex-1 text-left min-w-0"
-                    >
-                      <div className="text-[12px] text-foreground truncate" style={{ fontWeight: 500 }}>
-                        {t.title || 'Conversation'}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Clock className="w-3 h-3" /> {formatDateTime(t.updated_at)}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => deleteThread(t.id)}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity flex-shrink-0"
-                      aria-label="Delete conversation"
-                      title="Delete conversation"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )
-              })}
-              {threads.length === 0 && (
-                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4" />
-                  No conversations yet.
-                </div>
-              )}
-            </div>
-          </div>
+            {conversationsPanel}
+          </aside>
         </div>
+      )}
+
+      {/* Left panel: Conversations (+ mechanic tools for shop). The Ask page
+          reads [collapsed nav] · [Conversations] · [chat], freeing the right
+          side for the source preview. lg-only; below lg the drawer above
+          surfaces the same list. */}
+      <aside className="hidden lg:flex flex-col w-[300px] border-r border-border bg-white shrink-0">
+        {conversationsPanel}
       </aside>
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-6 border-b border-border bg-white">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <div>
-                <h1 className="text-[18px] text-foreground" style={{ fontWeight: 700 }}>Ask Your Aircraft</h1>
-                <p className="text-[12px] text-muted-foreground">
-                  {persona === 'shop' ? 'Mechanic mode' : 'Owner mode'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 flex-wrap">
-              <div className="inline-flex items-center rounded-lg border border-border bg-muted/30 p-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={persona === 'owner' ? 'default' : 'ghost'}
-                  className="h-8 px-3 text-[12px]"
-                  onClick={() => requestPersonaSwitch('owner')}
-                >
-                  Owner
-                </Button>
-                {canUseMechanicPersona && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={persona === 'shop' ? 'default' : 'ghost'}
-                    className="h-8 px-3 text-[12px]"
-                    onClick={() => requestPersonaSwitch('shop')}
-                  >
-                    Mechanic
-                  </Button>
-                )}
-              </div>
-
-              <Select value={selectedAircraftId} onValueChange={handleAircraftChange}>
-                <SelectTrigger className="flex items-center gap-2 bg-muted/50 border border-border rounded-lg px-3 py-1.5 text-[13px] w-[220px]" style={{ fontWeight: 500 }}>
-                  <Plane className="w-4 h-4 text-primary" />
-                  <SelectValue placeholder="All aircraft" />
-                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Aircraft</SelectItem>
-                  {aircraft.map(ac => (
-                    <SelectItem key={ac.id} value={ac.id}>
-                      <div className="flex items-center gap-2">
-                        <Plane className="h-3.5 w-3.5" />
-                        <span className="font-mono text-sm">{ac.tail_number}</span>
-                        <span className="text-muted-foreground text-xs">{ac.make} {ac.model}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <div className="px-4 sm:px-6 py-3 sm:py-3.5 border-b border-border bg-white flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <Sparkles className="w-5 h-5 text-primary shrink-0" />
+            <h1 className="text-[15px] text-foreground truncate" style={{ fontWeight: 700 }}>Ask Your Aircraft</h1>
+          </div>
+          {/* Mobile/tablet: history + new chat as icon buttons on the right
+              (the desktop Conversations rail holds these on lg+). */}
+          <div className="lg:hidden flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setMobileConvOpen(true)}
+              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+              aria-label="Open conversations"
+              title="Conversations"
+            >
+              <MessageSquare className="w-5 h-5" />
+            </button>
+            <button
+              onClick={startNewConversation}
+              className="p-1.5 rounded-lg text-primary hover:bg-primary/5 transition-colors"
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
           {messages.length === 0 ? (
             <div className="max-w-2xl mx-auto text-center pt-16">
               {noDocumentsForAircraft ? (
@@ -1169,7 +1244,7 @@ export function AskExperience() {
                   <p className="text-[14px] text-muted-foreground mb-8">
                     {emptyStateDescription}
                   </p>
-                  <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg mx-auto">
                     {suggestedPrompts.map((prompt) => (
                       <button
                         key={prompt}
@@ -1306,8 +1381,10 @@ export function AskExperience() {
           )}
         </div>
 
-        {/* Input */}
-        <div className="p-4 border-t border-border bg-white">
+        {/* Floating composer — the input is an elevated rounded card (not a
+            bordered bottom bar), with the aircraft scope + persona toggle inline
+            (moved out of the header) so the controls sit at the point of action. */}
+        <div className="px-4 pb-4 pt-2 bg-background">
           {/* Phase 2 — keep a compact suggestion row reachable after the first
               message (the full prompt grid only shows on the empty state). */}
           {messages.length > 0 && (
@@ -1317,49 +1394,98 @@ export function AskExperience() {
                   key={p}
                   onClick={() => handleAsk(p)}
                   disabled={isLoading}
-                  className="shrink-0 text-[11px] text-muted-foreground bg-muted/40 border border-border rounded-full px-3 py-1 hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+                  className="shrink-0 text-[11px] text-muted-foreground bg-white border border-border rounded-full px-3 py-1 hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {p}
                 </button>
               ))}
             </div>
           )}
-          <div className="max-w-2xl mx-auto flex gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-muted/30 border border-border rounded-xl px-4 py-3">
-              <textarea
-                ref={inputRef}
-                value={question}
-                onChange={e => setQuestion(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={inputPlaceholder}
-                rows={1}
-                className="bg-transparent text-[13px] outline-none flex-1 border-0 shadow-none resize-none max-h-32 leading-relaxed focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground"
-                maxLength={2000}
-              />
-              {/* Phase 1 — dictate into the question box. The previous floating
-                  mic on this page recorded then discarded the transcript; the
-                  mic now lives in the composer and fills the input (the user
-                  reviews, then sends). */}
-              <VoiceButton
-                variant="inline"
-                classifyIntent={false}
-                onResult={({ transcript }) => {
-                  const t = (transcript ?? '').trim()
-                  if (!t) return
-                  setQuestion(prev => (prev.trim() ? `${prev.trim()} ${t}` : t))
-                  inputRef.current?.focus()
-                }}
-              />
+          <div className="max-w-2xl mx-auto rounded-2xl border border-border bg-white shadow-lg">
+            <textarea
+              ref={inputRef}
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={inputPlaceholder}
+              rows={1}
+              className="block w-full bg-transparent text-[14px] outline-none border-0 shadow-none resize-none overflow-hidden max-h-40 leading-relaxed px-4 pt-3.5 pb-2 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground"
+              maxLength={2000}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 pb-2.5">
+              {/* Scope + persona — moved out of the header to the point of action. */}
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Select value={selectedAircraftId} onValueChange={handleAircraftChange}>
+                  <SelectTrigger className="h-8 w-auto max-w-[180px] min-w-0 gap-1.5 bg-muted/50 border border-border rounded-lg px-2.5 text-[12px]" style={{ fontWeight: 500 }}>
+                    <Plane className="w-3.5 h-3.5 text-primary shrink-0" />
+                    {/* Compact trigger label — just the tail (or "All aircraft"); the
+                        rich make/model detail stays in the dropdown items. The
+                        SelectTrigger renders its own chevron, so we don't add one. */}
+                    <span className="truncate">
+                      {selectedAircraftId === 'all'
+                        ? 'All aircraft'
+                        : (aircraft.find((a) => a.id === selectedAircraftId)?.tail_number ?? 'Aircraft')}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Aircraft</SelectItem>
+                    {aircraft.map(ac => (
+                      <SelectItem key={ac.id} value={ac.id}>
+                        <div className="flex items-center gap-2">
+                          <Plane className="h-3.5 w-3.5" />
+                          <span className="font-mono text-sm">{ac.tail_number}</span>
+                          <span className="text-muted-foreground text-xs">{ac.make} {ac.model}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {canUseMechanicPersona && (
+                  <div className="inline-flex items-center rounded-lg border border-border bg-muted/30 p-0.5 shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={persona === 'owner' ? 'default' : 'ghost'}
+                      className="h-7 px-2.5 text-[11px]"
+                      onClick={() => requestPersonaSwitch('owner')}
+                    >
+                      Owner
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={persona === 'shop' ? 'default' : 'ghost'}
+                      className="h-7 px-2.5 text-[11px]"
+                      onClick={() => requestPersonaSwitch('shop')}
+                    >
+                      Mechanic
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0 ml-auto">
+                {/* Dictate into the box (fills the textarea; the user reviews, then sends). */}
+                <VoiceButton
+                  variant="inline"
+                  classifyIntent={false}
+                  onResult={({ transcript }) => {
+                    const t = (transcript ?? '').trim()
+                    if (!t) return
+                    setQuestion(prev => (prev.trim() ? `${prev.trim()} ${t}` : t))
+                    inputRef.current?.focus()
+                  }}
+                />
+                <button
+                  onClick={() => handleAsk()}
+                  disabled={!question.trim() || isLoading}
+                  aria-label={isLoading ? "Sending question…" : "Send question"}
+                  title={isLoading ? "Sending…" : "Send (Enter)"}
+                  className="bg-primary text-white h-8 w-8 flex items-center justify-center rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+                >
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => handleAsk()}
-              disabled={!question.trim() || isLoading}
-              aria-label={isLoading ? "Sending question…" : "Send question"}
-              title={isLoading ? "Sending…" : "Send (Enter)"}
-              className="bg-primary text-white px-4 rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
-            >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </button>
           </div>
           <p className="max-w-2xl mx-auto mt-2 text-[11px] text-muted-foreground/60 text-center">
             AI-generated from your records — not FAA compliance advice. Verify with a certified A&P or FSDO for airworthiness determinations.
@@ -1371,7 +1497,7 @@ export function AskExperience() {
           Conversations moved to the left panel, so this panel is source-only and
           only mounts while a citation is open. */}
       {activeCitation && (
-        <div className="hidden lg:flex flex-col w-[40%] border-l border-border bg-white">
+        <div className="hidden lg:flex flex-col w-[38%] min-w-[320px] max-w-[480px] border-l border-border bg-white">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2">
             <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Source Preview</h3>
             <div className="flex items-center gap-3">
