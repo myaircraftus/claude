@@ -485,8 +485,12 @@ export function AskExperience() {
   const aircraftParam = searchParams.get('aircraft')?.trim() ?? ''
   const initialQuestionFromQuery = searchParams.get('q')?.trim() ?? ''
   const [aircraft, setAircraft] = useState<AircraftOption[]>([])
+  // Initialize from SERVER-STABLE values only (query param, else 'all'). The
+  // persisted localStorage selection is restored in an effect after mount —
+  // reading localStorage in this initializer diverges from the server-rendered
+  // HTML and trips a hydration mismatch on the selector label.
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>(
-    aircraftParam || loadPersistedAircraftSelection() || 'all'
+    aircraftParam || 'all'
   )
   const [messages, setMessages] = useState<Message[]>([])
   const [question, setQuestion] = useState(initialQuestionFromQuery)
@@ -498,6 +502,12 @@ export function AskExperience() {
   // Persisted conversations + the active thread id (null = unsaved/new chat).
   const [threads, setThreads] = useState<AskThreadSummary[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
+  // True until the first conversations fetch resolves — drives the sidebar
+  // skeleton so we don't flash "No conversations yet" while loading.
+  const [threadsLoading, setThreadsLoading] = useState(true)
+  // True while a saved conversation's messages are being fetched — drives the
+  // chat-area skeleton when you open a thread.
+  const [threadOpening, setThreadOpening] = useState(false)
   // Below lg the Conversations rail is hidden; this drives the slide-over
   // drawer that gives phones + tablets access to history / new chat.
   const [mobileConvOpen, setMobileConvOpen] = useState(false)
@@ -507,6 +517,16 @@ export function AskExperience() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const autoAskedQueryRef = useRef<string | null>(null)
+
+  // Restore the persisted aircraft selection AFTER hydration (localStorage is
+  // client-only). Runs once on mount; an explicit ?aircraft= query param wins.
+  useEffect(() => {
+    if (aircraftParam) return
+    const persisted = loadPersistedAircraftSelection()
+    if (persisted) setSelectedAircraftId(persisted)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const canUseMechanicPersona = currentUserRole != null && MECHANIC_PERSONA_ROLES.includes(currentUserRole)
   const suggestedPrompts = persona === 'shop' ? MECHANIC_PROMPTS : OWNER_PROMPTS
   const emptyStateDescription = persona === 'shop'
@@ -669,6 +689,8 @@ export function AskExperience() {
       if (Array.isArray(data?.threads)) setThreads(data.threads as AskThreadSummary[])
     } catch {
       // non-fatal — the sidebar simply shows no history
+    } finally {
+      setThreadsLoading(false)
     }
   }, [])
 
@@ -904,6 +926,7 @@ export function AskExperience() {
   const openThread = useCallback(async (id: string) => {
     if (isLoading) return
     setMobileConvOpen(false)
+    setThreadOpening(true)
     try {
       const res = await fetch(`/api/ask/threads/${id}`, { cache: 'no-store' })
       if (!res.ok) return
@@ -935,6 +958,8 @@ export function AskExperience() {
       setSelectedAircraftId(typeof acId === 'string' && acId ? acId : 'all')
     } catch {
       // non-fatal — leave the current view untouched
+    } finally {
+      setThreadOpening(false)
     }
   }, [isLoading])
 
@@ -1017,17 +1042,28 @@ export function AskExperience() {
       )}
 
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
-          <button
-            onClick={startNewConversation}
-            className="inline-flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 transition-colors"
-            style={{ fontWeight: 600 }}
-          >
-            <Plus className="w-3.5 h-3.5" /> New
-          </button>
-        </div>
-        {threads.length === 0 ? (
+        {/* Full-width flat "New chat" button — reads clearly as the primary
+            action (the old inline text link looked like stray text). */}
+        <button
+          onClick={startNewConversation}
+          className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 py-2 mb-3 text-[13px] text-primary hover:bg-primary/10 hover:border-primary/30 transition-colors"
+          style={{ fontWeight: 600 }}
+        >
+          <Plus className="w-4 h-4" /> New chat
+        </button>
+        <h3 className="mb-2 text-[13px] text-foreground" style={{ fontWeight: 600 }}>Conversations</h3>
+        {threadsLoading ? (
+          /* Skeleton placeholder rows while the first fetch is in flight.
+             Deterministic widths (no Math.random) to stay hydration-safe. */
+          <div className="space-y-1" aria-hidden>
+            {['78%', '62%', '70%', '55%', '66%'].map((w, i) => (
+              <div key={i} className="px-3 py-1.5">
+                <div className="h-3 rounded bg-muted animate-pulse" style={{ width: w }} />
+                <div className="mt-1.5 h-2 w-1/3 rounded bg-muted/60 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        ) : threads.length === 0 ? (
           <div className="text-xs text-muted-foreground/70 flex items-center gap-2 px-1 py-2">
             <MessageSquare className="w-4 h-4" />
             No conversations yet.
@@ -1073,7 +1109,7 @@ export function AskExperience() {
                         </button>
                         <button
                           onClick={() => deleteThread(t.id)}
-                          className="mt-0.5 shrink-0 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                          className="self-center shrink-0 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                           aria-label="Delete conversation"
                           title="Delete conversation"
                         >
@@ -1198,7 +1234,28 @@ export function AskExperience() {
         </div>
 
         <div className="flex-1 overflow-auto p-4 sm:p-6">
-          {messages.length === 0 ? (
+          {threadOpening ? (
+            /* Skeleton while a saved conversation's messages are fetched —
+               mirrors the user-bubble + assistant-card layout. */
+            <div className="max-w-2xl mx-auto space-y-4" aria-hidden>
+              <div className="flex justify-end">
+                <div className="h-9 w-2/5 rounded-2xl rounded-br-md bg-muted animate-pulse" />
+              </div>
+              <div className="bg-white rounded-2xl rounded-bl-md border border-border p-5 space-y-3">
+                {['100%', '92%', '84%', '68%'].map((w, i) => (
+                  <div key={i} className="h-3 rounded bg-muted animate-pulse" style={{ width: w }} />
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <div className="h-9 w-1/3 rounded-2xl rounded-br-md bg-muted animate-pulse" />
+              </div>
+              <div className="bg-white rounded-2xl rounded-bl-md border border-border p-5 space-y-3">
+                {['96%', '88%', '60%'].map((w, i) => (
+                  <div key={i} className="h-3 rounded bg-muted animate-pulse" style={{ width: w }} />
+                ))}
+              </div>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="max-w-2xl mx-auto text-center pt-16">
               {noDocumentsForAircraft ? (
                 /* Selected aircraft has zero uploaded documents — the AI has
@@ -1261,7 +1318,12 @@ export function AskExperience() {
             </div>
           ) : (
             <div className="max-w-2xl mx-auto space-y-4" aria-live="polite">
-              {messages.map((msg) => (
+              {messages.map((msg, mi) => {
+                const isLast = mi === messages.length - 1
+                // While streaming, an assistant message with no text yet is
+                // represented by the composing bubble below — skip its empty card.
+                if (msg.role === 'assistant' && isLoading && isLast && !msg.content) return null
+                return (
                 <div key={msg.id}>
                   {msg.role === 'user' ? (
                     <div className="flex flex-col items-end gap-1">
@@ -1286,6 +1348,7 @@ export function AskExperience() {
                           perAircraft={msg.perAircraft}
                           onCitationClick={handleCitationSelect}
                           onFollowUp={handleAsk}
+                          streaming={isLoading && isLast}
                         />
                       </div>
                       {/* Artifact cards */}
@@ -1366,16 +1429,31 @@ export function AskExperience() {
                     </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
 
-              {isLoading && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">
-                    {(streamStatus && STREAM_STATUS_LABELS[streamStatus]) ?? 'Working on it…'}
-                  </span>
-                </div>
-              )}
+              {/* Composing bubble — shown while the assistant has no visible text
+                  yet (thinking / searching / before the first token). Replaces the
+                  old detached spinner; once tokens stream, the answer card with its
+                  blinking caret takes over. */}
+              {isLoading && (() => {
+                const last = messages[messages.length - 1]
+                if (last && last.role === 'assistant' && last.content) return null
+                return (
+                  <div className="flex">
+                    <div className="inline-flex items-center gap-2.5 bg-white rounded-2xl rounded-bl-md border border-border px-4 py-3">
+                      <span className="flex items-center gap-1" aria-hidden>
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" />
+                      </span>
+                      <span className="text-[13px] text-muted-foreground">
+                        {(streamStatus && STREAM_STATUS_LABELS[streamStatus]) ?? 'Working on it…'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
               <div ref={messagesEndRef} />
             </div>
           )}

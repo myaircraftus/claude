@@ -29,6 +29,8 @@ interface AnswerBlockProps {
    * single-aircraft and org-wide answers.
    */
   perAircraft?: PerAircraftAnswer[]
+  /** While true, append a blinking caret to the answer (token streaming). */
+  streaming?: boolean
 }
 
 const WARNING_LABELS: Record<string, string> = {
@@ -47,6 +49,7 @@ export function AnswerBlock({
   onCitationClick,
   onFollowUp,
   perAircraft,
+  streaming,
 }: AnswerBlockProps) {
   // Build the same deeplink the Sources pills use so cmd/ctrl-click
   // opens the full-page viewer at the exact cited entry. Returns null if the
@@ -176,7 +179,15 @@ export function AnswerBlock({
         </div>
       ) : (
         <div className="prose prose-sm max-w-none text-foreground leading-relaxed">
-          <p>{renderAnswerWithCitations(answer)}</p>
+          <p>
+            {renderAnswerWithCitations(answer)}
+            {streaming && (
+              <span
+                className="inline-block w-[2px] h-[1.05em] ml-0.5 -mb-[0.12em] rounded-sm bg-primary/70 animate-pulse"
+                aria-hidden
+              />
+            )}
+          </p>
         </div>
       )}
 

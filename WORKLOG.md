@@ -4,6 +4,20 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-05 — Ask Logbook AI: loading states + composing animation, hydration fix, sidebar polish
+
+**Why.** Tightening the Ask Logbook AI feedback loop: every data fetch on the page should show a real loading affordance (not a blank flash), answer generation should feel like the assistant is composing in place, and a hydration error surfaced by the new aircraft-selector label needed a proper fix — plus two small sidebar nits.
+
+**What.**
+- **Answer-generation "composing" UX** ([ask-experience.tsx](apps/web/components/ask/ask-experience.tsx), [answer-block.tsx](apps/web/components/ask/answer-block.tsx)). Replaced the detached bottom spinner with an assistant-style **composing bubble** — a 3-dot typing indicator + the live stage (Thinking → Searching your documents → Writing). When tokens start, the answer card takes over and streams in with a **blinking caret** (new optional `streaming` prop on `AnswerBlock`, off by default everywhere else). The brief empty-card flash between metadata and first token is suppressed.
+- **Skeleton loaders** for the page's data fetches ([ask-experience.tsx](apps/web/components/ask/ask-experience.tsx)). The **Conversations list** shimmers placeholder rows while threads load (it used to flash "No conversations yet"); **opening a saved conversation** shows a chat-area skeleton (user-bubble + answer-card placeholders) while its messages fetch. Both use deterministic widths so they're hydration-safe.
+- **Hydration error fixed.** The aircraft selector read the persisted selection from `localStorage` inside `useState` — the server defaulted to "All aircraft" while the client restored a saved tail, tripping a "Text content does not match" error. State now initializes from server-stable values (query param / `'all'`) and the persisted selection is restored in a post-mount effect.
+- **Sidebar polish.** The "New" action is now a proper **full-width flat "New chat" button** (it read as stray text before). The thread **delete (trash) icon** is vertically centered against the two-line row.
+
+**Verified.** `tsc --noEmit` clean on all changed files (checked after each change). Browser-checked by the owner on the live `:3000` dev server. **Committed locally; not pushed.**
+
+---
+
 ## 2026-06-04 — Ask Logbook AI: floating composer, mobile-responsive shell, voice mic fix
 
 **Why.** Continuing the Ask Logbook AI UX pass: pull the scope controls to the point of action (a floating chat-style input), make the experience usable on phones/tablets (below 1024px it was desktop-only — no way to reach conversation history or start a new chat), and fix dictation, which was rejecting every recording before it reached transcription.
