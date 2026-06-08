@@ -11,14 +11,17 @@
  * blocked. Results are cached for 24h; pass `regenerate: true` to bypass.
  */
 import { NextResponse, type NextRequest } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
 import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const dynamic = 'force-dynamic'
 
@@ -151,7 +154,6 @@ export async function POST(req: NextRequest) {
   let clusterDefs: Array<{ label: string; squawk_ids: string[]; recommendation?: string }> = []
 
   if (process.env.OPENAI_API_KEY) {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 })
     const squawkList = squawks
       .map((s) => {
         const text = [s.title, s.description].filter(Boolean).join(' — ').slice(0, 300)
@@ -159,36 +161,40 @@ export async function POST(req: NextRequest) {
       })
       .join('\n')
 
+    // Permissive schema — primitives only, every field nullish; the existing
+    // map + id validation below is unchanged (mirrors the prior JSON.parse).
+    const ClustersSchema = z.object({
+      clusters: z
+        .array(
+          z.object({
+            label: z.string().nullish(),
+            squawk_ids: z.array(z.string()).nullish(),
+            recommendation: z.string().nullish(),
+          }),
+        )
+        .nullish(),
+    })
+
     try {
-      const completion = await openai.chat.completions.create({
+      const { object: parsed } = await generateLlmObject({
         model: 'gpt-4o-mini',
+        schema: ClustersSchema,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(30000),
         temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an aircraft maintenance analyst. You are given a list of squawks ' +
-              '(discrepancies/complaints) for one aircraft. Cluster them by the underlying ' +
-              'mechanical system or root problem so that squawks describing the same recurring ' +
-              'issue land in the same group (e.g. "oil pressure", "left brake", "alternator", ' +
-              '"nose gear shimmy"). A squawk belongs to exactly one cluster. One-off, unrelated ' +
-              'squawks may be left out. For each cluster also write a short, plain-English ' +
-              'recommendation for the owner. Respond ONLY with JSON: ' +
-              '{"clusters":[{"label":"short lowercase phrase","squawk_ids":["id",...],' +
-              '"recommendation":"one or two sentences"}]}. Use the exact ids provided.',
-          },
-          {
-            role: 'user',
-            content: `Squawks (id<TAB>title — description):\n${squawkList}`,
-          },
-        ],
+        system:
+          'You are an aircraft maintenance analyst. You are given a list of squawks ' +
+          '(discrepancies/complaints) for one aircraft. Cluster them by the underlying ' +
+          'mechanical system or root problem so that squawks describing the same recurring ' +
+          'issue land in the same group (e.g. "oil pressure", "left brake", "alternator", ' +
+          '"nose gear shimmy"). A squawk belongs to exactly one cluster. One-off, unrelated ' +
+          'squawks may be left out. For each cluster also write a short, plain-English ' +
+          'recommendation for the owner. Respond ONLY with JSON: ' +
+          '{"clusters":[{"label":"short lowercase phrase","squawk_ids":["id",...],' +
+          '"recommendation":"one or two sentences"}]}. Use the exact ids provided.',
+        prompt: `Squawks (id<TAB>title — description):\n${squawkList}`,
       })
 
-      const raw = completion.choices[0]?.message?.content ?? '{}'
-      const parsed = JSON.parse(raw) as {
-        clusters?: Array<{ label?: unknown; squawk_ids?: unknown; recommendation?: unknown }>
-      }
       clusterDefs = (parsed.clusters ?? [])
         .map((c) => ({
           label: typeof c.label === 'string' ? c.label.trim() : '',

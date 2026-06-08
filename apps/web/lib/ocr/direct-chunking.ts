@@ -33,7 +33,9 @@
  *               handles printed-text manuals well at fractions of a cent per
  *               page, vs vision-model cost of ~$0.006/page).
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { PDFDocument } from 'pdf-lib'
 import { inferDocumentFamily, type DocumentFamily } from '@/lib/ocr/segments'
 import type {
@@ -852,6 +854,60 @@ function geminiSchemaToOpenAi(input: unknown): unknown {
   return out
 }
 
+/** Permissive Zod schema for the OpenAI (generateLlmObject) path.
+ *
+ *  Mirrors the JSON envelope shape that the family-specific Gemini-dialect
+ *  schemas describe, but intentionally LENIENT (no z.enum on chunk_kind /
+ *  page_classification, family_metadata as a free-form passthrough, every
+ *  field nullable/optional with safe defaults) so a slightly off-spec model
+ *  response coerces instead of throwing — the real validation + coercion
+ *  still happens in parsePageResponse / parseChunk / parseEvent below, which
+ *  are unchanged. The same permissive schema is used for every family because
+ *  the per-family distinctions (chunk_kind enum, family_metadata properties)
+ *  are still conveyed to the model via the family-specific prompt. */
+const DirectChunkingPageZodSchema = z.object({
+  page_classification: z.string().nullable().optional(),
+  raw_text: z.string().optional(),
+  overall_confidence: z.number().optional(),
+  tail_number_visible: z.string().nullable().optional(),
+  aircraft_make_visible: z.string().nullable().optional(),
+  aircraft_model_visible: z.string().nullable().optional(),
+  chunks: z
+    .array(
+      z.object({
+        chunk_index: z.number().optional(),
+        chunk_kind: z.string().optional(),
+        text: z.string().optional(),
+        section_title: z.string().nullable().optional(),
+        confidence: z.number().optional(),
+        is_canonical_candidate: z.boolean().optional(),
+        family_metadata: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .optional(),
+  events: z
+    .array(
+      z.object({
+        source_chunk_index: z.number().optional(),
+        event_type: z.string().nullable().optional(),
+        logbook_type: z.string().nullable().optional(),
+        event_date: z.string().nullable().optional(),
+        tach_time: z.string().nullable().optional(),
+        airframe_tt: z.string().nullable().optional(),
+        tsmoh: z.string().nullable().optional(),
+        work_description: z.string().nullable().optional(),
+        mechanic_name: z.string().nullable().optional(),
+        mechanic_cert_number: z.string().nullable().optional(),
+        ia_number: z.string().nullable().optional(),
+        ad_references: z.array(z.string()).optional(),
+        part_numbers: z.array(z.string()).optional(),
+        return_to_service: z.boolean().nullable().optional(),
+        confidence_overall: z.number().nullable().optional(),
+      }),
+    )
+    .optional(),
+})
+
 async function callGeminiForPage(args: {
   pageBase64: string
   prompt: string
@@ -859,71 +915,53 @@ async function callGeminiForPage(args: {
   timeoutMs: number
   model: string
 }): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error(
       'OCR_DIRECT_CHUNKING_PROVIDER=gemini requires GEMINI_API_KEY.',
     )
   }
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${args.model}` +
-    `:generateContent?key=${apiKey}`
-
-  const body = {
-    contents: [
+  // Migrated to the unified AI SDK layer (lib/ai/llm). Transport + Google auth
+  // (GEMINI_API_KEY) are handled by the wrapper; the hand-built Gemini-dialect
+  // responseSchema is replaced by the permissive DirectChunkingPageZodSchema
+  // (same as the OpenAI branch — parsePageResponse still does the real
+  // validation). The bake-off-tuned generationConfig (PROVIDER_DEFAULTS:
+  // temperature 0.4 / topP 0.9 / topK 40, MAX_OUTPUT_TOKENS, thinkingBudget 0)
+  // and the inline PDF page input are carried over verbatim.
+  const { object } = await generateLlmObject({
+    provider: 'google',
+    model: args.model,
+    schema: DirectChunkingPageZodSchema,
+    schemaName: 'direct_chunking_page',
+    temperature: PROVIDER_DEFAULTS.temperature,
+    topP: PROVIDER_DEFAULTS.topP,
+    topK: PROVIDER_DEFAULTS.topK,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
+    abortSignal: AbortSignal.timeout(args.timeoutMs),
+    messages: [
       {
-        parts: [
-          { text: args.prompt },
+        role: 'user',
+        content: [
+          { type: 'text', text: args.prompt },
           {
-            inline_data: {
-              mime_type: 'application/pdf',
-              data: args.pageBase64,
-            },
+            type: 'file',
+            data: args.pageBase64,
+            mediaType: 'application/pdf',
+            filename: 'page.pdf',
           },
         ],
       },
     ],
-    generationConfig: {
-      ...PROVIDER_DEFAULTS,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      thinkingConfig: { thinkingBudget: 0 },
-      responseMimeType: 'application/json',
-      responseSchema: args.schema,
-    },
-  }
+  })
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs)
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '(no body)')
-      throw new Error(
-        `direct-chunking gemini HTTP ${resp.status}: ${errText.slice(0, 400)}`,
-      )
-    }
-    const json = (await resp.json()) as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string }> }
-        finishReason?: string
-      }>
-    }
-    const finishReason = json?.candidates?.[0]?.finishReason
-    if (finishReason && finishReason !== 'STOP') {
-      console.warn(
-        `[direct-chunking] gemini non-STOP finishReason=${finishReason} — output may be truncated`,
-      )
-    }
-    return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-  } finally {
-    clearTimeout(timer)
-  }
+  // Re-serialize so the unchanged parsePageResponse (which JSON.parses this
+  // string) runs byte-identically on the Gemini and OpenAI paths. Truncation
+  // (the prior non-STOP finishReason warning) now surfaces as a thrown
+  // generateObject parse/validation error rather than a silent warning — the
+  // wrapper's LlmObjectResult doesn't expose finishReason, matching how the
+  // OpenAI branch was migrated.
+  return JSON.stringify(object)
 }
 
 async function callOpenAiForPage(args: {
@@ -939,67 +977,44 @@ async function callOpenAiForPage(args: {
     )
   }
 
-  // OpenAI strict-mode JSON Schema differs from Gemini's OpenAPI 3.0 subset.
-  // Convert at call time so the source-of-truth schemas can stay in one
-  // dialect (see geminiSchemaToOpenAi above for the rules).
-  const openAiSchema = geminiSchemaToOpenAi(args.schema) as Record<string, unknown>
-
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-  // input_file with file_data lets us pass the PDF inline (data URL) so we
-  // don't have to upload + delete via the Files API for every per-page call
-  // — same pattern Gemini uses with inline_data.
-  const dataUrl = `data:application/pdf;base64,${args.pageBase64}`
-
-  const response = await Promise.race([
-    client.responses.create({
-      model: args.model,
-      temperature: PROVIDER_DEFAULTS.temperature,
-      top_p: PROVIDER_DEFAULTS.topP,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'direct_chunking_page',
-          strict: true,
-          schema: openAiSchema,
-        },
+  // Migrated to the unified AI SDK layer (lib/ai/llm). The hand-built strict
+  // JSON Schema (geminiSchemaToOpenAi) is replaced by the permissive Zod
+  // schema; generateObject handles the structured-output constraint and parse.
+  // The PDF is still passed inline (a file part — the AI SDK's OpenAI provider
+  // emits the same input_file + file_data:application/pdf shape this code used
+  // before) so we avoid the Files API upload/delete per page, matching the
+  // Gemini inline_data pattern.
+  const { object } = await generateLlmObject({
+    provider: 'openai',
+    model: args.model,
+    schema: DirectChunkingPageZodSchema,
+    schemaName: 'direct_chunking_page',
+    temperature: PROVIDER_DEFAULTS.temperature,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    abortSignal: AbortSignal.timeout(args.timeoutMs),
+    system:
+      'You perform OCR + family-aware chunking + structured-event ' +
+      'extraction in ONE step. Return STRICT JSON matching the ' +
+      'supplied schema. Treat the attached PDF as the page to process.',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            data: args.pageBase64,
+            mediaType: 'application/pdf',
+            filename: 'page.pdf',
+          },
+          { type: 'text', text: args.prompt },
+        ],
       },
-      input: [
-        {
-          role: 'developer',
-          content: [
-            {
-              type: 'input_text',
-              text:
-                'You perform OCR + family-aware chunking + structured-event ' +
-                'extraction in ONE step. Return STRICT JSON matching the ' +
-                'supplied schema. Treat the attached PDF as the page to process.',
-            },
-          ],
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_file',
-              filename: 'page.pdf',
-              file_data: dataUrl,
-            } as unknown as { type: 'input_file' },
-            { type: 'input_text', text: args.prompt },
-          ],
-        },
-      ],
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`direct-chunking openai timeout ${args.timeoutMs}ms`)),
-        args.timeoutMs,
-      ),
-    ),
-  ])
+    ],
+  })
 
-  return response.output_text ?? ''
+  // Re-serialize so the unchanged parsePageResponse (which JSON.parses this
+  // string) runs byte-identically on the OpenAI and Gemini paths.
+  return JSON.stringify(object)
 }
 
 async function callProviderForPage(args: {

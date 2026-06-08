@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 
@@ -57,6 +58,19 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — the normalize* coercion below is unchanged.
+const OcrDraftSchema = z.object({
+  event_type: z.string().nullable(),
+  event_date: z.string().nullable(),
+  tach_time: z.string().nullable(),
+  work_description: z.string().nullable(),
+  mechanic_name: z.string().nullable(),
+  mechanic_cert_number: z.string().nullable(),
+  ad_references: z.array(z.string()).nullable(),
+  draft_notes: z.string().nullable(),
+})
+
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req.headers)
   const rl = rateLimit(`ocr-review-draft:${ip}`, { limit: 20, windowSeconds: 60 })
@@ -93,40 +107,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Select at least one keyword before using AI draft' }, { status: 400 })
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  const completion = await openai.chat.completions.create({
+  const { object: parsed } = await generateLlmObject({
     model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+    schema: OcrDraftSchema,
     temperature: 0.2,
-    max_tokens: 900,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          organization_id: orgContext.organizationId,
-          document_title: documentTitle,
-          page_classification: pageClassification,
-          selected_keywords: selectedKeywords,
-          candidate_keywords: candidateKeywords,
-          current_fields: currentFields,
-          raw_text: rawText,
-        }),
-      },
-    ],
+    maxOutputTokens: 900,
+    system: SYSTEM_PROMPT,
+    prompt: JSON.stringify({
+      organization_id: orgContext.organizationId,
+      document_title: documentTitle,
+      page_classification: pageClassification,
+      selected_keywords: selectedKeywords,
+      candidate_keywords: candidateKeywords,
+      current_fields: currentFields,
+      raw_text: rawText,
+    }),
   })
-
-  const content = completion.choices[0]?.message?.content
-  if (!content) {
-    return NextResponse.json({ error: 'No response from AI' }, { status: 502 })
-  }
-
-  let parsed: any
-  try {
-    parsed = JSON.parse(content)
-  } catch {
-    return NextResponse.json({ error: 'AI returned invalid JSON' }, { status: 502 })
-  }
 
   return NextResponse.json({
     draft: {

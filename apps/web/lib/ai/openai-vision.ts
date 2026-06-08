@@ -1,25 +1,17 @@
 /**
  * OpenAI Vision multimodal wrapper (Phase 8 Sprint 8.6).
  *
- * Parallel to lib/ai/anthropic.ts — does NOT touch /lib/ai/openai.ts
- * (which doesn't exist; existing routes import OpenAI directly).
- * This module is the single multimodal call surface for Phase 8's
- * vision-answer fallback.
+ * Migrated to the Vercel AI SDK (@ai-sdk/openai). The single multimodal call
+ * surface for Phase 8's vision-answer fallback; exported signature
+ * (callOpenAiVision / VisionCallArgs / VisionCallResult) is unchanged so
+ * lib/vision/openai-fallback.ts and other callers are unaffected. Images are
+ * passed as AI SDK `image` content parts (URLs) instead of OpenAI `image_url`
+ * blocks.
  *
- * Why a fresh wrapper rather than extending an existing helper:
- *   - lib/ai/anthropic.ts is Anthropic-specific (callAnthropic API)
- *   - existing routes that call OpenAI Vision (squawks/from-photo,
- *     work-orders/[id]/messages/upload) each roll their own; no
- *     shared helper to extend
- *   - Phase 8's vision fallback needs structured citation parsing
- *     and confidence-keyword extraction that's specific to the
- *     "answer from N pages of an aircraft document" task — putting
- *     it here keeps that logic testable in one place
- *
- * Cost-logging via the existing ai_activity_log shape (see
- * lib/ai/anthropic.ts:289 for the canonical insert).
+ * Cost-logging via the existing ai_activity_log shape (logVisionActivity).
  */
-import OpenAI from 'openai'
+import { generateText, type ModelMessage } from 'ai'
+import { createOpenAI, openai } from '@ai-sdk/openai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const DEFAULT_VISION_MODEL = 'gpt-4o'
@@ -73,7 +65,7 @@ function computeCostCents(model: string, inputTokens: number, outputTokens: numb
  * Single-shot OpenAI Vision call. Throws on hard error; the caller
  * decides whether to surface the error or treat as low-confidence.
  *
- * The image array maps to one user-message content block per image,
+ * The image array maps to one user-message image part per image,
  * followed by the prompt text. System prompt (if any) goes first.
  */
 export async function callOpenAiVision(args: VisionCallArgs): Promise<VisionCallResult> {
@@ -89,35 +81,34 @@ export async function callOpenAiVision(args: VisionCallArgs): Promise<VisionCall
   }
 
   const model = args.model ?? DEFAULT_VISION_MODEL
-  const client = new OpenAI({ apiKey })
+  // Honor the per-call apiKey override (used by tests); otherwise the default
+  // provider reads OPENAI_API_KEY from the environment.
+  const provider = args.apiKey ? createOpenAI({ apiKey: args.apiKey }) : openai
 
-  const userContent: Array<
-    | { type: 'text'; text: string }
-    | { type: 'image_url'; image_url: { url: string } }
-  > = []
+  const userParts: Array<{ type: 'image'; image: string } | { type: 'text'; text: string }> = []
   for (const img of args.images) {
-    userContent.push({ type: 'image_url', image_url: { url: img.url } })
+    userParts.push({ type: 'image', image: img.url })
   }
-  userContent.push({ type: 'text', text: args.prompt })
+  userParts.push({ type: 'text', text: args.prompt })
 
-  const messages: any[] = []
+  const messages: ModelMessage[] = []
   if (args.systemPrompt) {
     messages.push({ role: 'system', content: args.systemPrompt })
   }
-  messages.push({ role: 'user', content: userContent })
+  messages.push({ role: 'user', content: userParts })
 
   const t0 = Date.now()
-  const completion = await client.chat.completions.create({
-    model,
+  const completion = await generateText({
+    model: provider.chat(model),
     messages,
-    max_tokens: args.maxTokens ?? 800,
+    maxOutputTokens: args.maxTokens ?? 800,
     temperature: args.temperature ?? 0.2,
   })
   const durationMs = Date.now() - t0
 
-  const answer = completion.choices?.[0]?.message?.content ?? ''
-  const inputTokens = completion.usage?.prompt_tokens ?? 0
-  const outputTokens = completion.usage?.completion_tokens ?? 0
+  const answer = completion.text ?? ''
+  const inputTokens = completion.usage?.inputTokens ?? 0
+  const outputTokens = completion.usage?.outputTokens ?? 0
 
   return {
     answer: typeof answer === 'string' ? answer : '',
@@ -130,7 +121,7 @@ export async function callOpenAiVision(args: VisionCallArgs): Promise<VisionCall
   }
 }
 
-/** Mirrors the lib/ai/anthropic.ts:289 ai_activity_log shape. */
+/** Mirrors the lib/ai/anthropic.ts ai_activity_log shape. */
 export interface AiActivityLogRow {
   /** Real org id, or null for platform-level activity (substituted at
    *  write time with the Phase 17 system-org sentinel). */

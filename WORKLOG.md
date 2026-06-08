@@ -4,6 +4,64 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-07 — AI SDK migration: independent review + fix a release-blocking bug, then live-verify
+
+**Why.** Before trusting the provider-agnostic LLM migration (below), it needed a skeptical, independent review — the migration was typecheck-clean and unit-tested but had **never been run against a real provider**, and the unit tests use mock models that can't catch provider-API-level failures.
+
+**What.**
+- **Found a CRITICAL, release-blocking bug.** `generateLlmObject` (structured JSON) routes through OpenAI's `generateObject`, which defaults to **strict** JSON-schema mode. Strict mode rejects any schema whose `required` list omits a field — but the migration deliberately made schemas "permissive" (`.optional()` / `.nullish()` / `.catch()` / `.default()` / `z.record` / `.passthrough()`), so **16 of 36 OpenAI structured endpoints returned a 400 on every call**, including the core RAG answer generator behind **Ask Logbook AI** (`lib/rag/generation.ts` → `/api/query` → `/api/ask`) and the always-on logbook metadata extractor. The mock-based tests passed regardless because they never hit OpenAI. Confirmed against the live OpenAI API, not just by reading code.
+- **Fixed it** in [apps/web/lib/ai/llm/structured.ts](apps/web/lib/ai/llm/structured.ts): default `providerOptions.openai.strictJsonSchema = false` for the OpenAI provider, so the Zod parse stays the real validator (restoring the old `json_object` + `JSON.parse` leniency the schemas assume). Anthropic and Google are untouched — Gemini already tolerates these schemas.
+- **Cleared the rest of the migration.** Embeddings keep the same model + 1536 dims + order (no retrieval drift); the `/api/ask` streaming rebuild is byte-compatible with the existing client; the Anthropic wrapper signature/usage/timeout/retry are preserved; Gemini OCR's tuned params survive; multitenancy/auth/rate-limits intact. Secondary notes flagged: ingestion silently swallows the (now-fixed) error so quality would degrade invisibly; one OCR file has ~400 lines of now-dead schema-builder code; `squawks/transcribe` was left un-migrated.
+
+**Verified.** Built a temporary harness that drives the **real** `lib/ai/llm` layer against **real OpenAI + Gemini**: **17/17 pass** — all 7 previously-broken Zod patterns, 4 reconstructed real call-site schemas, embeddings (1536-dim, order preserved), plain-text + token/cost accounting, Gemini structured + a real-PDF OCR file-part with the tuned params, Whisper, and the `/api/ask` `streamText`+tool+`stepCountIs(3)` loop (tool dispatch, context `aircraft_id` injection, citation `[1]`, streamed tokens). `tsc` clean; `lib/ai/llm` unit tests green. Anthropic not live-tested (no local key — covered by `anthropic.test.ts`). Harness deleted after use. **Still needs before deploy:** a live Anthropic call where the key exists, full HTTP-route end-to-end (auth + DB), and a `rag-eval` pass. **Not committed — pending owner verification.**
+
+---
+
+## 2026-06-08 — Vercel AI SDK migration: live verification + production-readiness
+
+**Why.** Before pushing the AI SDK migration, confirm the *actual* provider calls work — not just typecheck/mocks.
+
+**Verified.** Added a key-gated live smoke suite (`lib/ai/llm/live-smoke.test.ts`) that calls real providers, and ran it against the live **OpenAI** API: **5/5 pass** — `generateLlmText`, `generateLlmObject`, `embedTexts` (1536-dim), **vision image part**, and **PDF file part** (the OCR-fallback shape). With Ask AI already working end-to-end (streaming + tools), the **entire OpenAI surface is runtime-proven**. Anthropic + Gemini cases **skipped** — those keys aren't available yet (client to provide).
+
+**Production-readiness.** Safe to ship **while prod holds only `OPENAI_API_KEY`** (current state): Anthropic paths are dormant (`callAnthropic` throws without a key — identical to pre-migration behavior, i.e. no regression), and Gemini OCR **falls back to OpenAI** (the proven PDF path). So every path that actually executes in prod is OpenAI and is verified.
+
+**HANDOFF — required before relying on Anthropic/Gemini features:** when the client provides `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`, run `RUN_LIVE_LLM_TESTS=1 … vitest run lib/ai/llm/live-smoke.test.ts` (it will then exercise those providers) and manually trigger one document extraction / vision scan / OCR upload. Those rewritten paths are typecheck + mock-verified but have never run against the live providers. Whisper transcription (voice) is OpenAI but wasn't live-tested — do one voice-memo check.
+
+---
+
+## 2026-06-07 — Local dev: move Supabase off Windows-reserved ports (5432x → 4432x)
+
+**Why.** `next dev` flooded with `ECONNREFUSED 127.0.0.1:54321` and the app couldn't reach Supabase. Root cause was NOT the app: Windows/WinNAT had dynamically reserved the TCP range `54224–54423` (which covers Supabase's default `54321–54327`), so Docker couldn't bind those ports on the host (`supabase start` → *"An attempt was made to access a socket in a way forbidden by its access permissions"*). Containers ran healthy but were unreachable from the host loopback.
+
+**What.** Moved the whole local Supabase stack below Windows' dynamic port range (49152), where WinNAT can't reserve it — survives reboots.
+- `supabase/config.toml`: api 54321→44321, db 54322→44322, shadow 54320→44320, studio 54323→44323; pinned inbucket 44324 + analytics 44327 (they were using reserved CLI defaults).
+- `apps/web/.env.local`: `NEXT_PUBLIC_SUPABASE_URL`→44321, `DATABASE_URL`→44322.
+- `apps/web/next.config.mjs`: dev-only CSP `connect-src` updated to allow 44321 (http + ws) so the browser isn't CSP-blocked client-side.
+
+**Verified.** `supabase start` came up clean on the new ports; host reachability confirmed (`curl 127.0.0.1:44321/auth/v1/health` → GoTrue 200; Kong root → 404 = connected). New local URLs: Studio http://127.0.0.1:44323, Mailpit http://127.0.0.1:44324. Unrelated to the Vercel AI SDK migration. **Requires a `pnpm dev` restart to load the new env/config.**
+
+---
+
+## 2026-06-05 — Route all LLM calls through the Vercel AI SDK (provider-agnostic layer)
+
+**Why.** Every LLM call talked to a provider directly — the raw `openai` SDK scattered across ~50 files, hand-rolled `fetch` wrappers for Anthropic and Gemini, no central client, and cost/usage logging (`ai_activity_log`) applied consistently only on the Anthropic path (most OpenAI calls were invisible to spend tracking). Introducing one unified library — the **Vercel AI SDK** (`ai` v6 + `@ai-sdk/openai|anthropic|google`) — makes future capabilities (provider fallback, streaming, structured output, the AI Gateway, telemetry) available everywhere and standardizes cost logging. Full plan + inventory: [docs/vercel-ai-sdk-migration-plan.md](docs/vercel-ai-sdk-migration-plan.md).
+
+**What.**
+- **New unified layer** `apps/web/lib/ai/llm/*` — provider registry + `generateLlmText` / `generateLlmObject` (Zod) / `embedTexts` / `transcribeAudio`, with normalized token usage → cost (`ai_activity_log`), `maxRetries` / `abortSignal`, and `providerOptions` / `topP` / `topK` passthrough. Logging is opt-in so agents (which log via the runner) and offline callers aren't forced to thread a Supabase client.
+- **Embeddings** now use the SDK's `embedMany` (auto-batched), pinned to 1536 dims to match the pgvector column; the old hand-rolled batching/backoff is gone.
+- **~40 structured-JSON + plain-text callers migrated** — agents (inbox/support/ux/rag), API routes (owner & sop ask, ai-plan, squawks, reminders, ocr-review, intelligence, suggest-\*, generate-\*, …), and libs (rag generation/aggregation/hyde/contextual, parts, economics, documents, aircraft, intelligence reports). `response_format:json_object` + `JSON.parse` → `generateObject` + **permissive** Zod schemas (transport-swap only; each file's existing validation/coercion preserved, so output behavior is unchanged).
+- **Anthropic wrapper** (`lib/ai/anthropic.ts`) reimplemented on `@ai-sdk/anthropic` — exported `callAnthropic` signature unchanged, so its ~8 callers + tests are untouched.
+- **Vision/OCR** — OpenAI vision wrapper, page re-transcription, `direct-chunking`, and **Gemini OCR** (`native-pdf` + `direct-chunking`) moved to SDK message parts; Gemini's bake-off-tuned params (`thinkingConfig.thinkingBudget:0`, topP/topK) preserved via `providerOptions`.
+- **Whisper transcription** (voice + work-order uploads) → SDK `experimental_transcribe`.
+- **`/api/ask`** tool-calling + token-streaming loop rebuilt on `streamText` + `tool()` + `stopWhen(stepCountIs(3))`, mapping `fullStream` parts onto the **existing NDJSON event protocol** so the client and wire format are unchanged.
+- Added deps: `ai@^6`, `@ai-sdk/openai|anthropic|google`.
+
+**Deferred (flagged, not done):** `native-pdf` OpenAI **vision-batch** OCR (Responses+Files API — a naive swap re-sends the PDF per batch; needs per-batch splitting); `ops/assistant` Anthropic **tool-loop** (custom `tool_use` contract); **Cohere** rerank (no AI SDK primitive); offline `scripts/*` + the `trigger/` ingest job (separate package). The raw `openai` dep stays until these are done.
+
+**Verified.** `tsc --noEmit` clean — no new errors over the project's pre-existing baseline (24) — after every batch. Test suite: **698 pass, 8 fail (all pre-existing**, in unrelated persona/nav/vision-index-mock tests; the migration added zero failures). ⚠️ **NOT runtime-verified** — the streaming Ask route, the Gemini/OpenAI vision OCR paths, and transcription need a live run + a `rag-eval` pass before trusting (a typecheck can't validate streaming/tool/OCR behavior). **Not committed — pending owner verification.**
+
+---
+
 ## 2026-06-05 — Ask Logbook AI: loading states + composing animation, hydration fix, sidebar polish
 
 **Why.** Tightening the Ask Logbook AI feedback loop: every data fetch on the page should show a real loading affordance (not a blank flash), answer generation should feel like the assistant is composing in place, and a hydration error surfaced by the new aircraft-selector label needed a proper fix — plus two small sidebar nits.

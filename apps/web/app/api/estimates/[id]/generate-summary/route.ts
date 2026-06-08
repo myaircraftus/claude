@@ -3,7 +3,9 @@ import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
-import OpenAI from 'openai'
+import { generateLlmText } from '@/lib/ai/llm'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
@@ -109,18 +111,15 @@ Write 2-3 short paragraphs that:
 3. State the total with a brief justification and close with next steps: customer approval leads to scheduling`
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const completion = await openai.chat.completions.create({
+    const { text } = await generateLlmText({
       model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+      system: systemPrompt,
+      prompt: userPrompt,
       temperature: 0.4,
-      max_tokens: 600,
+      maxOutputTokens: 600,
     })
 
-    const summary = completion.choices[0].message.content?.trim() ?? ''
+    const summary = text?.trim() ?? ''
 
     // Persist to estimate
     await supabase

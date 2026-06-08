@@ -15,8 +15,11 @@
  * Emits 'bug_repro_drafted' recommendation. Founder reviews on
  * /admin/agents and clicks "File issue" to push to Linear / GitHub.
  */
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { guardPromptInjection } from './safety-prompt-injection-guard'
 
 /** Cap body size before sending to the LLM. Keeps prompts bounded AND
@@ -35,6 +38,19 @@ export interface BugRepro {
   severity: 'low' | 'medium' | 'high' | 'critical'
   source: 'llm' | 'heuristic'
 }
+
+/** Permissive schema — primitives + nullable; the post-parse coercion below
+ *  narrows persona/severity and defaults the rest, mirroring the prior
+ *  JSON.parse path. */
+const BugReproSchema = z.object({
+  browser: z.string().nullable(),
+  route: z.string().nullable(),
+  persona: z.string().nullable(),
+  action: z.string().nullable(),
+  expected: z.string().nullable(),
+  actual: z.string().nullable(),
+  severity: z.string().nullable(),
+})
 
 const URL_RE = /https?:\/\/[^\s]+/i
 const ROUTE_RE = /\/(app|admin|api|owner|mechanic|aircraft|inbox|documents|work-orders)[/A-Za-z0-9_\-]*/i
@@ -116,46 +132,18 @@ export async function triageBugTicket(args: {
       }
       try {
         logger.recordModel('openai', 'gpt-4o-mini')
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            temperature: 0,
-            max_tokens: 400,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'Extract a structured bug reproduction from a user support ticket. Output STRICT JSON: {"browser":"...|null","route":"/path|null","persona":"owner|mechanic|admin|unknown","action":"...","expected":"...|null","actual":"...|null","severity":"low|medium|high|critical"}. Do not invent details — use null when unknown. Severity: low=cosmetic, medium=feature impaired, high=user blocked, critical=data loss / cross-tenant.',
-              },
-              {
-                role: 'user',
-                content: `SUBJECT:\n${cappedSubject}\n\nBODY:\n${cappedBody}`,
-              },
-            ],
-            response_format: { type: 'json_object' },
-          }),
-          signal: AbortSignal.timeout(5000),
+        const result = await generateLlmObject({
+          model: 'gpt-4o-mini',
+          schema: BugReproSchema,
+          temperature: 0,
+          maxOutputTokens: 400,
+          system:
+            'Extract a structured bug reproduction from a user support ticket. Output STRICT JSON: {"browser":"...|null","route":"/path|null","persona":"owner|mechanic|admin|unknown","action":"...","expected":"...|null","actual":"...|null","severity":"low|medium|high|critical"}. Do not invent details — use null when unknown. Severity: low=cosmetic, medium=feature impaired, high=user blocked, critical=data loss / cross-tenant.',
+          prompt: `SUBJECT:\n${cappedSubject}\n\nBODY:\n${cappedBody}`,
+          abortSignal: AbortSignal.timeout(5000),
         })
-        if (!res.ok) {
-          const fallback = heuristic(args.ticketId, cappedSubject, cappedBody)
-          return {
-            output: fallback,
-            needsHuman: true,
-            recommendation: { kind: 'bug_repro_drafted', repro: fallback, source: 'heuristic' },
-          }
-        }
-        const j = (await res.json()) as {
-          choices?: Array<{ message?: { content?: string } }>
-          usage?: { prompt_tokens?: number; completion_tokens?: number }
-        }
-        logger.recordTokens(j.usage?.prompt_tokens ?? 0, j.usage?.completion_tokens ?? 0)
-        const raw = j.choices?.[0]?.message?.content ?? '{}'
-        const parsed = JSON.parse(raw) as Partial<BugRepro>
+        logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+        const parsed = result.object as Partial<BugRepro>
         const persona: BugRepro['persona'] =
           parsed.persona === 'owner' ||
           parsed.persona === 'mechanic' ||

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
-import OpenAI from 'openai'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import { getOperationTypeLabels, normalizeOperationTypes } from '@/lib/aircraft/operations'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const maxDuration = 30
 
@@ -15,10 +18,6 @@ const OPERATION_TYPE_LABELS: Record<string, string> = {
   part_133: 'Part 133 — Rotorcraft external load operations',
   experimental: 'Experimental / amateur-built',
   unknown: 'General / unknown',
-}
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 }
 
 export async function POST(
@@ -68,30 +67,22 @@ export async function POST(
 
   const aircraftDesc = [aircraft.year, aircraft.make, aircraft.model].filter(Boolean).join(' ')
 
-  const completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      {
-        role: 'system',
-        content: `You are an aviation records expert with deep knowledge of FAA regulations and document requirements. Given an aircraft and its operation type, list the document categories the owner/operator should maintain for regulatory compliance and best practice. Return ONLY a valid JSON object with a single key "categories" containing an array of strings. Each string is a category label (e.g. "Engine Logbook", "ETOPS Records", "Part 135 Operations Manual"). Be specific to this aircraft type and operation. Include 8-15 categories.`,
-      },
-      {
-        role: 'user',
-        content: `Aircraft: ${aircraftDesc}\nOperation type: ${operationLabel}\n\nList the document categories this operator should maintain.`,
-      },
-    ],
-    response_format: { type: 'json_object' },
-    max_tokens: 800,
+  // Permissive schema — coerce a malformed array to [] instead of throwing,
+  // mirroring the prior loose JSON.parse + try/catch fallback. The model call
+  // stays unguarded so an API/transport error still propagates as a 500, as
+  // before (only the prior JSON.parse was wrapped, not the request itself).
+  const CategoriesSchema = z.object({
+    categories: z.array(z.string()).catch([]),
   })
 
-  let categories: string[] = []
-  try {
-    const parsed = JSON.parse(completion.choices[0].message.content ?? '{"categories":[]}')
-    categories = Array.isArray(parsed.categories) ? parsed.categories : []
-  } catch {
-    console.error('[suggest-categories] parse error')
-    categories = []
-  }
+  const { object: parsed } = await generateLlmObject({
+    model: 'gpt-4o',
+    schema: CategoriesSchema,
+    system: `You are an aviation records expert with deep knowledge of FAA regulations and document requirements. Given an aircraft and its operation type, list the document categories the owner/operator should maintain for regulatory compliance and best practice. Return ONLY a valid JSON object with a single key "categories" containing an array of strings. Each string is a category label (e.g. "Engine Logbook", "ETOPS Records", "Part 135 Operations Manual"). Be specific to this aircraft type and operation. Include 8-15 categories.`,
+    prompt: `Aircraft: ${aircraftDesc}\nOperation type: ${operationLabel}\n\nList the document categories this operator should maintain.`,
+    maxOutputTokens: 800,
+  })
+  const categories: string[] = Array.isArray(parsed.categories) ? parsed.categories : []
 
   // Save to aircraft record if we have a valid operation_type
   const updatePayload: Record<string, unknown> = {

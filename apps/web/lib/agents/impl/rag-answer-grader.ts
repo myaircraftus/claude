@@ -20,8 +20,11 @@
  *
  * Stores the grade in agent_runs.output for the /admin dashboards.
  */
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface AnswerGrade {
   ask_log_id: string | null
@@ -38,6 +41,13 @@ interface GraderInput {
   answer: string
   citations: Array<{ chunk_id?: string; preview?: string }>
 }
+
+/** Permissive schema — the post-parse clamp/round below enforces the 0-5
+ *  range, mirroring the prior JSON.parse path. */
+const GradeSchema = z.object({
+  grade: z.number().nullable(),
+  rationale: z.string().nullable(),
+})
 
 function heuristicFastPath(args: GraderInput): AnswerGrade | null {
   const a = args.answer.trim()
@@ -111,49 +121,18 @@ export async function gradeAnswer(args: GraderInput): Promise<{
 
       try {
         logger.recordModel('openai', 'gpt-4o-mini')
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            temperature: 0,
-            max_tokens: 250,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You grade aviation-maintenance answers for faithfulness to the retrieved sources. Output JSON: {"grade": 0-5, "rationale": "..."}. 5 = every factual claim is supported by the sources; 0 = hallucinated. Only assess support, not style.',
-              },
-              {
-                role: 'user',
-                content: `QUESTION:\n${args.question}\n\nANSWER:\n${args.answer}\n\nSOURCES:\n${citationPreview || '(none)'}`,
-              },
-            ],
-            response_format: { type: 'json_object' },
-          }),
-          signal: AbortSignal.timeout(4000),
+        const result = await generateLlmObject({
+          model: 'gpt-4o-mini',
+          schema: GradeSchema,
+          temperature: 0,
+          maxOutputTokens: 250,
+          system:
+            'You grade aviation-maintenance answers for faithfulness to the retrieved sources. Output JSON: {"grade": 0-5, "rationale": "..."}. 5 = every factual claim is supported by the sources; 0 = hallucinated. Only assess support, not style.',
+          prompt: `QUESTION:\n${args.question}\n\nANSWER:\n${args.answer}\n\nSOURCES:\n${citationPreview || '(none)'}`,
+          abortSignal: AbortSignal.timeout(4000),
         })
-        if (!res.ok) {
-          return {
-            output: {
-              ask_log_id: args.askLogId ?? null,
-              grade: 3,
-              rationale: `Grader HTTP ${res.status}; defaulted to neutral.`,
-              flagged: false,
-              used_llm: false,
-            },
-          }
-        }
-        const j = (await res.json()) as {
-          choices?: Array<{ message?: { content?: string } }>
-          usage?: { prompt_tokens?: number; completion_tokens?: number }
-        }
-        logger.recordTokens(j.usage?.prompt_tokens ?? 0, j.usage?.completion_tokens ?? 0)
-        const raw = j.choices?.[0]?.message?.content ?? '{}'
-        const parsed = JSON.parse(raw) as { grade?: number; rationale?: string }
+        logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+        const parsed = result.object as { grade?: number | null; rationale?: string | null }
         const grade = Math.max(0, Math.min(5, Math.round(parsed.grade ?? 3)))
         const rationale = (parsed.rationale ?? '').slice(0, 500)
         const flagged = grade < 3

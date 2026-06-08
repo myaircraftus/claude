@@ -15,14 +15,17 @@
  * Owner/admin only — the shop persona is 403'd. Results are cached 24h.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
 import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const dynamic = 'force-dynamic'
 
@@ -70,31 +73,31 @@ async function extractAds(answer: string): Promise<ExtractedAd[]> {
   if (!answer.trim() || !process.env.OPENAI_API_KEY) return []
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 20000, maxRetries: 1 })
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You extract Airworthiness Directive (AD) records from an aircraft maintenance ' +
-            'summary. Respond ONLY with JSON of the form {"ads":[{...}]}. Each AD object has: ' +
-            '"ad_number" (string, e.g. "2019-12-04"), "type" ("one-time" or "recurring"), ' +
-            '"last_compliance_date" (ISO date "YYYY-MM-DD" or null if no date is documented), ' +
-            '"recurring_interval_months" (integer months for recurring ADs, else null), ' +
-            '"evidence_excerpt" (short quote from the records documenting compliance, or ""). ' +
-            'Only include ADs explicitly mentioned in the text. Never invent ADs or dates. ' +
-            'If no ADs are present, return {"ads":[]}.',
-        },
-        { role: 'user', content: `Maintenance records AD summary:\n\n${answer}` },
-      ],
+    // Permissive schema — ads is a loose passthrough array; the per-item
+    // coercion below is unchanged (mirrors the prior loose JSON.parse).
+    const AdsSchema = z.object({
+      ads: z.array(z.record(z.unknown())).nullish(),
     })
 
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    const parsed = JSON.parse(raw) as unknown
-    const list = (parsed as { ads?: unknown })?.ads
+    const { object: parsed } = await generateLlmObject({
+      model: 'gpt-4o-mini',
+      schema: AdsSchema,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(20000),
+      temperature: 0,
+      system:
+        'You extract Airworthiness Directive (AD) records from an aircraft maintenance ' +
+        'summary. Respond ONLY with JSON of the form {"ads":[{...}]}. Each AD object has: ' +
+        '"ad_number" (string, e.g. "2019-12-04"), "type" ("one-time" or "recurring"), ' +
+        '"last_compliance_date" (ISO date "YYYY-MM-DD" or null if no date is documented), ' +
+        '"recurring_interval_months" (integer months for recurring ADs, else null), ' +
+        '"evidence_excerpt" (short quote from the records documenting compliance, or ""). ' +
+        'Only include ADs explicitly mentioned in the text. Never invent ADs or dates. ' +
+        'If no ADs are present, return {"ads":[]}.',
+      prompt: `Maintenance records AD summary:\n\n${answer}`,
+    })
+
+    const list = parsed.ads
     if (!Array.isArray(list)) return []
 
     const out: ExtractedAd[] = []

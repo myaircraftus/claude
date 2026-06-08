@@ -21,7 +21,9 @@
  * question so repeat questions never re-classify. This function never throws.
  */
 
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export type AskQuestionKind = 'per_aircraft' | 'org_wide'
 
@@ -111,6 +113,12 @@ function classifyByKeywords(lowered: string): AskQuestionKind | null {
   return null
 }
 
+/** Permissive schema — the post-parse equality check below decides the bucket
+ *  and degrades to org_wide on anything off-spec, exactly as before. */
+const ClassifySchema = z.object({
+  kind: z.string().nullable().optional(),
+})
+
 /**
  * Single gpt-4o-mini disambiguation call. Mirrors the OpenAI client setup used
  * elsewhere in the codebase (e.g. app/api/intelligence/squawk-patterns/route.ts):
@@ -121,16 +129,12 @@ async function classifyByLlm(question: string): Promise<AskQuestionKind> {
   if (!process.env.OPENAI_API_KEY) return 'org_wide'
 
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 15000,
-      maxRetries: 1,
-    })
-
-    const completion = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o-mini',
+      schema: ClassifySchema,
       temperature: 0,
-      response_format: { type: 'json_object' },
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(15000),
       messages: [
         {
           role: 'system',
@@ -151,8 +155,6 @@ async function classifyByLlm(question: string): Promise<AskQuestionKind> {
       ],
     })
 
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    const parsed = JSON.parse(raw) as { kind?: unknown }
     return parsed.kind === 'per_aircraft' ? 'per_aircraft' : 'org_wide'
   } catch {
     // No key, network error, bad JSON — degrade to the safe single-pass option.

@@ -4,9 +4,11 @@
  * Same OpenAI client pattern as lib/parts/ai-resolve.ts (bounded timeout
  * + single retry). Returns a plain-text sectioned report, or null on any
  * failure so the route can surface a clean error state.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm).
  */
 
-import OpenAI from 'openai'
+import { generateLlmText } from '@/lib/ai/llm'
 
 export interface IntelLogbookEntry {
   date: string | null
@@ -112,23 +114,18 @@ export async function generateAircraftIntelligence(
     return null
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const model = process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o'
 
   try {
-    const completion = await openai.chat.completions.create(
-      {
-        model,
-        temperature: 0.3,
-        max_tokens: 1400,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildIntelligenceUserMessage(input) },
-        ],
-      },
-      { timeout: 20000, maxRetries: 1 },
-    )
-    const raw = completion.choices[0]?.message?.content
+    const { text: raw } = await generateLlmText({
+      model,
+      temperature: 0.3,
+      maxOutputTokens: 1400,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(20000),
+      system: SYSTEM_PROMPT,
+      prompt: buildIntelligenceUserMessage(input),
+    })
     return raw && raw.trim() ? raw.trim() : null
   } catch (err) {
     console.error('[intelligence-ai] error:', err instanceof Error ? err.message : err)

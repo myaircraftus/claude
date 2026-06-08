@@ -18,11 +18,14 @@
  *   { items: Array<{ title: string, description: string, required: boolean, reference?: string }> }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import type { OrgRole } from '@/types'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 const VALID_SCOPES = ['annual', '100hr', 'AD', 'SB', 'custom'] as const
 type Scope = (typeof VALID_SCOPES)[number]
@@ -175,25 +178,31 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join('\n')
 
+  // Permissive schema — primitives only, items nullish; the post-parse map +
+  // coercion below is unchanged (mirrors the prior loose JSON.parse).
+  const ChecklistSchema = z.object({
+    items: z
+      .array(
+        z.object({
+          title: z.string().nullish(),
+          description: z.string().nullish(),
+          required: z.union([z.boolean(), z.string()]).nullish(),
+          reference: z.string().nullish(),
+        }),
+      )
+      .nullish(),
+  })
+
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const completion = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o',
+      schema: ChecklistSchema,
       temperature: 0.3,
-      max_tokens: 1800,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+      maxOutputTokens: 1800,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
     })
 
-    const content = completion.choices[0]?.message?.content
-    if (!content) {
-      return NextResponse.json({ error: 'No response from AI' }, { status: 502 })
-    }
-
-    const parsed = JSON.parse(content)
     const rawItems = Array.isArray(parsed?.items) ? parsed.items : []
 
     const items = rawItems

@@ -1,11 +1,8 @@
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { generateLlmText } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { renderReportToPDF } from './pdfRenderer'
 import { systemPromptForType, userPromptForType } from './prompts'
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
 
 export async function generateAnnualInspectionSummary(
   aircraftId: string,
@@ -49,16 +46,12 @@ export async function generateAnnualInspectionSummary(
     recentMaintenance: annualEvents?.map(e => ({ date: e.event_date, type: e.event_type, summary: e.description })) ?? [],
   }
 
-  const completion = await getOpenAI().chat.completions.create({
+  const { text: narrative } = await generateLlmText({
     model: 'gpt-4o',
-    messages: [
-      { role: 'system', content: systemPromptForType('annual_inspection_summary') },
-      { role: 'user', content: userPromptForType('annual_inspection_summary', ctx) },
-    ],
-    max_tokens: 700,
+    system: systemPromptForType('annual_inspection_summary'),
+    prompt: userPromptForType('annual_inspection_summary', ctx),
+    maxOutputTokens: 700,
   })
-
-  const narrative = completion.choices[0].message.content ?? ''
 
   const reportData = {
     reportType: 'Annual Inspection Summary',

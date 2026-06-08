@@ -13,10 +13,16 @@
  *
  * Cheap model (gpt-4o-mini) — schema is small, audit log handles the
  * rest of the bookkeeping.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm). Transport swapped from
+ * raw `openai.chat.completions.create({ response_format: json_object })` to
+ * `generateLlmObject`; the permissive schema + existing VALID_* coercion keep
+ * the output behavior identical (invalid fields fall back, never throw).
  */
-import OpenAI from 'openai'
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export type InboxCategory =
   | 'receipt'
@@ -49,6 +55,14 @@ const VALID_CONFIDENCE: ReadonlySet<ClassifyConfidence> = new Set([
   'low',
   'refused',
 ])
+
+/** Permissive schema — model guidance comes from the prompt; the VALID_* sets
+ *  below coerce anything off-spec, exactly as the prior JSON.parse path did. */
+const ClassifySchema = z.object({
+  category: z.string(),
+  confidence: z.string(),
+  rationale: z.string(),
+})
 
 const SYSTEM_PROMPT = `You are myaircraft.us's inbox classifier. You read one email or SMS and pick exactly one category:
 
@@ -118,8 +132,8 @@ export async function classifyInboxMessage(args: {
         return { output: out }
       }
 
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-      logger.recordModel('openai', 'gpt-4o-mini')
+      const model = process.env.OPENAI_INBOX_CLASSIFIER_MODEL || 'gpt-4o-mini'
+      logger.recordModel('openai', model)
       const userPrompt = [
         `From: ${args.from}`,
         `Subject: ${args.subject ?? '(no subject)'}`,
@@ -131,25 +145,16 @@ export async function classifyInboxMessage(args: {
         'Return JSON.',
       ].join('\n')
 
-      const completion = await openai.chat.completions.create({
-        model: process.env.OPENAI_INBOX_CLASSIFIER_MODEL || 'gpt-4o-mini',
+      const { object: parsed, usage } = await generateLlmObject({
+        model,
+        schema: ClassifySchema,
         temperature: 0,
-        max_tokens: 200,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
+        maxOutputTokens: 200,
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt,
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+      logger.recordTokens(usage.inputTokens, usage.outputTokens)
 
-      let parsed: Partial<InboxClassifyOutput>
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as Partial<InboxClassifyOutput>
-      } catch {
-        parsed = {}
-      }
       const out: InboxClassifyOutput = {
         category: VALID_CATEGORIES.has(parsed.category as InboxCategory)
           ? (parsed.category as InboxCategory)

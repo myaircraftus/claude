@@ -20,8 +20,11 @@
  * Returns { original, expanded[] } so the caller can run retrieval on
  * each variant and union/rerank the chunks.
  */
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 interface AliasPair {
   pattern: RegExp
@@ -52,6 +55,12 @@ export interface QueryRewriteOutput {
   aircraft_prefix: string | null
   used_llm: boolean
 }
+
+/** Permissive schema — the post-parse loop below filters non-strings/empties,
+ *  mirroring the prior JSON.parse path. */
+const ParaphraseSchema = z.object({
+  paraphrases: z.array(z.string()).nullable(),
+})
 
 function expandDeterministic(q: string): string {
   let out = q
@@ -104,43 +113,24 @@ export async function rewriteQuery(args: {
       if (apiKey && wordCount >= 6 && expansions.size < 4) {
         try {
           logger.recordModel('openai', 'gpt-4o-mini')
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              temperature: 0.2,
-              max_tokens: 200,
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    'Rewrite the user question in 2 alternative phrasings for an aviation maintenance knowledge base. Keep specifics (tail numbers, dates, part numbers) verbatim. Output JSON: {"paraphrases":["...","..."]}.',
-                },
-                { role: 'user', content: args.question },
-              ],
-              response_format: { type: 'json_object' },
-            }),
-            signal: AbortSignal.timeout(2500),
+          const result = await generateLlmObject({
+            model: 'gpt-4o-mini',
+            schema: ParaphraseSchema,
+            temperature: 0.2,
+            maxOutputTokens: 200,
+            system:
+              'Rewrite the user question in 2 alternative phrasings for an aviation maintenance knowledge base. Keep specifics (tail numbers, dates, part numbers) verbatim. Output JSON: {"paraphrases":["...","..."]}.',
+            prompt: args.question,
+            abortSignal: AbortSignal.timeout(2500),
           })
-          if (res.ok) {
-            const j = (await res.json()) as {
-              choices?: Array<{ message?: { content?: string } }>
-              usage?: { prompt_tokens?: number; completion_tokens?: number }
+          logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+          const parsed = result.object as { paraphrases?: string[] | null }
+          for (const p of parsed.paraphrases ?? []) {
+            if (typeof p === 'string' && p.trim().length > 0) {
+              expansions.add(p.trim())
             }
-            logger.recordTokens(j.usage?.prompt_tokens ?? 0, j.usage?.completion_tokens ?? 0)
-            const raw = j.choices?.[0]?.message?.content ?? '{}'
-            const parsed = JSON.parse(raw) as { paraphrases?: string[] }
-            for (const p of parsed.paraphrases ?? []) {
-              if (typeof p === 'string' && p.trim().length > 0) {
-                expansions.add(p.trim())
-              }
-            }
-            usedLlm = true
           }
+          usedLlm = true
         } catch (err) {
           // Best-effort — fall through with deterministic expansion only.
           console.warn('[rag.query-rewriter] llm rewrite failed:', (err as Error).message)

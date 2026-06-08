@@ -2,6 +2,8 @@ import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textr
 import { GoogleAuth } from 'google-auth-library'
 import OpenAI, { toFile } from 'openai'
 import { PDFDocument } from 'pdf-lib'
+import { z } from 'zod'
+import { generateLlmObject, generateLlmText } from '@/lib/ai/llm'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -1124,6 +1126,37 @@ function normalizeExtractedEvents(
   return fallback ? [fallback] : []
 }
 
+/** Permissive Zod mirror of the prior json_schema 'ocr_page_annotations'.
+ *  page_classification stays a free-form nullable string (NOT z.enum) so a
+ *  slightly off-spec classification coerces instead of failing the call —
+ *  normalizeClassification below already constrains it to the valid set. */
+const OcrAnnotationsSchema = z.object({
+  pages: z.array(
+    z.object({
+      page_number: z.number().int(),
+      page_classification: z.string().nullable(),
+      extracted_events: z.array(
+        z.object({
+          event_type: z.string().nullable(),
+          logbook_type: z.string().nullable(),
+          event_date: z.string().nullable(),
+          tach_time: z.string().nullable(),
+          airframe_tt: z.string().nullable(),
+          tsmoh: z.string().nullable(),
+          work_description: z.string().nullable(),
+          mechanic_name: z.string().nullable(),
+          mechanic_cert_number: z.string().nullable(),
+          ia_number: z.string().nullable(),
+          ad_references: z.array(z.string()),
+          part_numbers: z.array(z.string()),
+          return_to_service: z.boolean().nullable(),
+          confidence_overall: z.number().nullable(),
+        }),
+      ),
+    }),
+  ),
+})
+
 export async function annotateOcrPagesWithOpenAI(args: {
   pages: NativeParsedPage[]
   docType: string
@@ -1160,134 +1193,42 @@ export async function annotateOcrPagesWithOpenAI(args: {
     // required for RAG. If a batch fails, we log and continue with the
     // un-annotated pages; later we still return the pages with default
     // classifications so the doc completes successfully.
-    let response: Awaited<ReturnType<ReturnType<typeof getOpenAI>['responses']['create']>> | null = null
+    // Migrated to the unified AI SDK layer (lib/ai/llm). The text-only
+    // Responses call + strict json_schema is now generateLlmObject with the
+    // permissive OcrAnnotationsSchema; the developer role becomes `system`,
+    // the batch text becomes `prompt`. Tuning (temperature 0,
+    // OCR_MAX_OUTPUT_TOKENS) and the best-effort try/catch…continue are
+    // preserved.
+    let object: z.infer<typeof OcrAnnotationsSchema> | null = null
     try {
-      response = await withTimeout(getOpenAI().responses.create({
-      model: process.env.OPENAI_OCR_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-      temperature: 0,
-      max_output_tokens: OCR_MAX_OUTPUT_TOKENS,
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'ocr_page_annotations',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              pages: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    page_number: { type: 'integer' },
-                    page_classification: {
-                      type: ['string', 'null'],
-                      enum: [
-                        'engine_log',
-                        'airframe_log',
-                        'prop_log',
-                        'maintenance_entry',
-                        'work_order',
-                        'ad_compliance',
-                        'cover',
-                        'blank',
-                        'unknown',
-                        null,
-                      ],
-                    },
-                    extracted_events: {
-                      type: 'array',
-                      items: {
-                        type: 'object',
-                        additionalProperties: false,
-                        properties: {
-                          event_type: { type: ['string', 'null'] },
-                          logbook_type: { type: ['string', 'null'] },
-                          event_date: { type: ['string', 'null'] },
-                          tach_time: { type: ['string', 'null'] },
-                          airframe_tt: { type: ['string', 'null'] },
-                          tsmoh: { type: ['string', 'null'] },
-                          work_description: { type: ['string', 'null'] },
-                          mechanic_name: { type: ['string', 'null'] },
-                          mechanic_cert_number: { type: ['string', 'null'] },
-                          ia_number: { type: ['string', 'null'] },
-                          ad_references: {
-                            type: 'array',
-                            items: { type: 'string' },
-                          },
-                          part_numbers: {
-                            type: 'array',
-                            items: { type: 'string' },
-                          },
-                          return_to_service: { type: ['boolean', 'null'] },
-                          confidence_overall: { type: ['number', 'null'] },
-                        },
-                        required: [
-                          'event_type',
-                          'logbook_type',
-                          'event_date',
-                          'tach_time',
-                          'airframe_tt',
-                          'tsmoh',
-                          'work_description',
-                          'mechanic_name',
-                          'mechanic_cert_number',
-                          'ia_number',
-                          'ad_references',
-                          'part_numbers',
-                          'return_to_service',
-                          'confidence_overall',
-                        ],
-                      },
-                    },
-                  },
-                  required: ['page_number', 'page_classification', 'extracted_events'],
-                },
-              },
-            },
-            required: ['pages'],
-          },
-        },
-      },
-      input: [
-        {
-          role: 'developer',
-          content: [
-            {
-              type: 'input_text',
-              text:
-                'You classify OCR text from aviation documents and extract structured maintenance fields. ' +
-                'A SINGLE OCR PAGE COMMONLY CONTAINS MULTIPLE DISTINCT MAINTENANCE ENTRIES. ' +
-                'Pre-printed logbook pages (e.g. ASA-SP-L, Jeppesen propeller/engine/airframe logs) typically have a 4-up grid of independent entries — ' +
-                'each cell has its OWN date, tach/airframe time, work description, and mechanic signature. ' +
-                'Shop work-order printouts and signoff sheets can stack several distinct entries vertically. ' +
-                'Return ONE item in extracted_events per real maintenance event found on the page — never merge fields from different entries into one item, ' +
-                'and never invent an entry by mixing fields across cells. If you see two dates with two different mechanic signatures, that is two events, not one. ' +
-                'If the page contains no real maintenance entries (cover, blank, generic form, page of "Notes" only), return an empty extracted_events array. ' +
-                'Use only the OCR text provided. Do not invent facts. ' +
-                'Use page_classification values from: engine_log, airframe_log, prop_log, maintenance_entry, work_order, ad_compliance, cover, blank, unknown.',
-            },
-          ],
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text:
-                `Document title: ${args.title}\n` +
-                `Aircraft context: ${aircraftContext}\n` +
-                `Document type: ${args.docType}\n\n` +
-                `Classify and extract these OCR pages. Remember: one page may contain MULTIPLE entries — list each one separately in extracted_events.\n\n${batchPrompt}`,
-            },
-          ],
-        },
-      ],
-    }),
-    OCR_TEXT_ENRICH_TIMEOUT_MS,
-    `OpenAI OCR annotation timed out after ${Math.round(OCR_TEXT_ENRICH_TIMEOUT_MS / 1000)}s`)
+      const result = await withTimeout(
+        generateLlmObject({
+          model: process.env.OPENAI_OCR_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+          temperature: 0,
+          maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+          schema: OcrAnnotationsSchema,
+          schemaName: 'ocr_page_annotations',
+          system:
+            'You classify OCR text from aviation documents and extract structured maintenance fields. ' +
+            'A SINGLE OCR PAGE COMMONLY CONTAINS MULTIPLE DISTINCT MAINTENANCE ENTRIES. ' +
+            'Pre-printed logbook pages (e.g. ASA-SP-L, Jeppesen propeller/engine/airframe logs) typically have a 4-up grid of independent entries — ' +
+            'each cell has its OWN date, tach/airframe time, work description, and mechanic signature. ' +
+            'Shop work-order printouts and signoff sheets can stack several distinct entries vertically. ' +
+            'Return ONE item in extracted_events per real maintenance event found on the page — never merge fields from different entries into one item, ' +
+            'and never invent an entry by mixing fields across cells. If you see two dates with two different mechanic signatures, that is two events, not one. ' +
+            'If the page contains no real maintenance entries (cover, blank, generic form, page of "Notes" only), return an empty extracted_events array. ' +
+            'Use only the OCR text provided. Do not invent facts. ' +
+            'Use page_classification values from: engine_log, airframe_log, prop_log, maintenance_entry, work_order, ad_compliance, cover, blank, unknown.',
+          prompt:
+            `Document title: ${args.title}\n` +
+            `Aircraft context: ${aircraftContext}\n` +
+            `Document type: ${args.docType}\n\n` +
+            `Classify and extract these OCR pages. Remember: one page may contain MULTIPLE entries — list each one separately in extracted_events.\n\n${batchPrompt}`,
+        }),
+        OCR_TEXT_ENRICH_TIMEOUT_MS,
+        `OpenAI OCR annotation timed out after ${Math.round(OCR_TEXT_ENRICH_TIMEOUT_MS / 1000)}s`,
+      )
+      object = result.object
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.warn(
@@ -1299,22 +1240,9 @@ export async function annotateOcrPagesWithOpenAI(args: {
       continue
     }
 
-    if (!response) continue
-    const raw = response.output_text?.trim()
-    if (!raw) continue
-
-    try {
-      const parsed = parseOpenAiJsonOutput<{ pages?: OcrTextAnnotationPage[] }>(raw)
-      for (const entry of parsed.pages ?? []) {
-        annotations.set(entry.page_number, entry)
-      }
-    } catch (err) {
-      // JSON parse failure on the LLM's response — also non-fatal, just
-      // skip this batch's annotations.
-      console.warn(
-        `[ingestion] OCR annotation JSON parse failed (continuing without enrichment):`,
-        err instanceof Error ? err.message : err,
-      )
+    if (!object) continue
+    for (const entry of object.pages) {
+      annotations.set(entry.page_number, entry as OcrTextAnnotationPage)
     }
   }
 
@@ -2321,45 +2249,34 @@ async function runScannedOcrPageGemini(args: {
   const singleBytes = await singleDoc.save()
   const base64 = Buffer.from(singleBytes).toString('base64')
 
-  const apiKey = process.env.GEMINI_API_KEY!
-  const model = process.env.GEMINI_OCR_MODEL || 'gemini-3-flash-preview'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-
-  const resp = await withTimeout(
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: getGeminiOcrPrompt(args.docType) },
-              { inline_data: { mime_type: 'application/pdf', data: base64 } },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.4,
-          topP: 0.9,
-          topK: 40,
-          maxOutputTokens: 8192,
-          thinkingConfig: { thinkingBudget: 0 },
+  // Migrated to the unified AI SDK layer (lib/ai/llm). Transport + Google auth
+  // (GEMINI_API_KEY) are handled by the wrapper; the bake-off-tuned generation
+  // config (temperature/topP/topK/maxOutputTokens + thinkingBudget 0) and the
+  // inline 1-page PDF input are carried over verbatim.
+  const { text: rawText } = await withTimeout(
+    generateLlmText({
+      provider: 'google',
+      model: process.env.GEMINI_OCR_MODEL || 'gemini-3-flash-preview',
+      temperature: 0.4,
+      topP: 0.9,
+      topK: 40,
+      maxOutputTokens: 8192,
+      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: getGeminiOcrPrompt(args.docType) },
+            { type: 'file', data: base64, mediaType: 'application/pdf' },
+          ],
         },
-      }),
+      ],
     }),
     GEMINI_OCR_TIMEOUT_MS,
     `Gemini OCR timed out after ${Math.round(GEMINI_OCR_TIMEOUT_MS / 1000)}s for page ${args.pageNumber}`,
   )
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '(no body)')
-    throw new Error(`Gemini OCR HTTP ${resp.status}: ${errText.slice(0, 400)}`)
-  }
-
-  const json = (await resp.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  }
-  const text = (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim()
+  const text = (rawText || '').trim()
 
   return {
     page_number: args.pageNumber,
@@ -2603,6 +2520,49 @@ function inferMetadataCategory(docType: string) {
   return null
 }
 
+/**
+ * Permissive schema for inline metadata extraction. Every field is optional —
+ * the prompt asks for one of three category-specific shapes (logbook / poh_afm
+ * / ad_sb), so a single all-optional union must validate any of them. The
+ * defensive `Array.isArray(...)` / `typeof ... === 'string'` coercion below is
+ * unchanged and remains the source of truth for the returned shape; this schema
+ * only replaces the prior loose `JSON.parse` while keeping `generateObject`
+ * tolerant of missing/extra keys (mirrors the old behavior).
+ */
+const InlineMetadataEventSchema = z
+  .object({
+    date: z.string().optional(),
+    type: z.string().optional(),
+    description: z.string().optional(),
+    mechanic: z.string().optional(),
+    airframe_tt: z.string().optional(),
+    ad_reference: z.string().optional(),
+  })
+  .passthrough()
+
+const InlineMetadataSchema = z
+  .object({
+    // logbook
+    maintenance_events: z.array(InlineMetadataEventSchema).optional(),
+    tail_numbers: z.array(z.string()).optional(),
+    serial_numbers: z.array(z.string()).optional(),
+    engine_serial_numbers: z.array(z.string()).optional(),
+    // poh_afm
+    revision: z.string().nullish(),
+    aircraft_models_applicable: z.array(z.string()).optional(),
+    faa_approval_number: z.string().nullish(),
+    // ad_sb
+    ad_number: z.string().nullish(),
+    sb_number: z.string().nullish(),
+    subject: z.string().nullish(),
+    compliance_date: z.string().nullish(),
+    affected_models: z.array(z.string()).optional(),
+    compliance_method: z.string().nullish(),
+    // shared between poh_afm + ad_sb
+    effective_date: z.string().nullish(),
+  })
+  .passthrough()
+
 export async function extractMetadataInline(args: {
   docType: string
   make?: string | null
@@ -2645,30 +2605,17 @@ export async function extractMetadataInline(args: {
   }
 
   try {
-    const completion = await getOpenAI().chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model,
+      schema: InlineMetadataSchema,
       temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You extract structured aviation document metadata from provided text excerpts. Return only valid JSON. Do not invent facts not grounded in the excerpts. Use null or empty arrays when unknown.',
-        },
-        {
-          role: 'user',
-          content:
-            `Document type: ${args.docType}\nAircraft context: ${aircraftContext}\n` +
-            `Return a JSON object that matches this shape exactly: ${schemaDescription}\n\n` +
-            `Use only the evidence below:\n\n${excerpts}`,
-        },
-      ],
+      system:
+        'You extract structured aviation document metadata from provided text excerpts. Return only valid JSON. Do not invent facts not grounded in the excerpts. Use null or empty arrays when unknown.',
+      prompt:
+        `Document type: ${args.docType}\nAircraft context: ${aircraftContext}\n` +
+        `Return a JSON object that matches this shape exactly: ${schemaDescription}\n\n` +
+        `Use only the evidence below:\n\n${excerpts}`,
     })
-
-    const raw = completion.choices[0]?.message?.content?.trim()
-    if (!raw) return null
-
-    const parsed = JSON.parse(raw)
 
     if (category === 'logbook') {
       return {

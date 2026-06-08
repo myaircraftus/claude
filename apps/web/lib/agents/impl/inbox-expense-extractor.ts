@@ -13,10 +13,13 @@
  *
  * No attachment / OCR fails / low confidence → still creates a
  * stub cost_entries row with the body_text and asks for human review.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm).
  */
-import OpenAI from 'openai'
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface ExpenseExtractOutput {
   vendor: string | null
@@ -56,6 +59,20 @@ const VALID_CATEGORIES = new Set([
   'other',
 ])
 const VALID_BUCKETS = new Set(['direct', 'indirect', 'overhead'])
+
+/** Permissive schema — model guidance comes from the prompt; the VALID_* sets
+ *  + coercion below normalize anything off-spec, exactly as the prior
+ *  JSON.parse path did (invalid fields fall back, never throw). */
+const ExpenseSchema = z.object({
+  vendor: z.string().nullable(),
+  amount: z.number().nullable(),
+  currency: z.string(),
+  cost_date: z.string().nullable(),
+  category: z.string(),
+  bucket: z.string(),
+  description: z.string(),
+  confidence: z.string(),
+})
 
 export async function extractExpenseFromInbox(args: {
   supabase: SupabaseClient
@@ -99,38 +116,26 @@ export async function extractExpenseFromInbox(args: {
         }
       }
 
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o')
-      const completion = await openai.chat.completions.create({
+      const result = await generateLlmObject({
         model: process.env.OPENAI_INBOX_EXTRACTOR_MODEL || 'gpt-4o',
+        schema: ExpenseSchema,
         temperature: 0,
-        max_tokens: 500,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              `From: ${args.from}`,
-              `Subject: ${args.subject ?? '(no subject)'}`,
-              '',
-              'Body:',
-              (args.body ?? '').slice(0, 6000),
-              '',
-              'Return JSON.',
-            ].join('\n'),
-          },
-        ],
+        maxOutputTokens: 500,
+        system: SYSTEM_PROMPT,
+        prompt: [
+          `From: ${args.from}`,
+          `Subject: ${args.subject ?? '(no subject)'}`,
+          '',
+          'Body:',
+          (args.body ?? '').slice(0, 6000),
+          '',
+          'Return JSON.',
+        ].join('\n'),
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+      logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
 
-      let parsed: Partial<ExpenseExtractOutput>
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as Partial<ExpenseExtractOutput>
-      } catch {
-        parsed = {}
-      }
+      const parsed = result.object as Partial<ExpenseExtractOutput>
 
       const out: ExpenseExtractOutput = {
         vendor: parsed.vendor ?? null,

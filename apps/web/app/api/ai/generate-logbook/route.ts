@@ -24,11 +24,14 @@
  *   }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 import type { OrgRole } from '@/types'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 const VALID_ENTRY_TYPES = [
   'maintenance',
@@ -293,25 +296,44 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join('\n')
 
+  // Permissive schema — primitives only, every field nullish; all post-parse
+  // coercion (coerceReferences/coercePartsUsed/coerceAdNumbers/normalizeEntryType)
+  // below is unchanged (mirrors the prior loose JSON.parse).
+  const LogbookSchema = z.object({
+    description: z.string().nullish(),
+    entry_type: z.string().nullish(),
+    parts_used: z
+      .array(
+        z.object({
+          part_number: z.string().nullish(),
+          description: z.string().nullish(),
+          quantity: z.number().nullish(),
+        }),
+      )
+      .nullish(),
+    references_used: z
+      .array(
+        z.object({
+          type: z.string().nullish(),
+          reference: z.string().nullish(),
+          note: z.string().nullish(),
+        }),
+      )
+      .nullish(),
+    ad_numbers: z.array(z.string()).nullish(),
+    suggested_total_time_note: z.string().nullish(),
+  })
+
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const completion = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o',
+      schema: LogbookSchema,
       temperature: 0.3,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+      maxOutputTokens: 1200,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
     })
 
-    const content = completion.choices[0]?.message?.content
-    if (!content) {
-      return NextResponse.json({ error: 'No response from AI' }, { status: 502 })
-    }
-
-    const parsed = JSON.parse(content)
     const references_used = coerceReferences(parsed?.references_used)
     const parts_used = coercePartsUsed(parsed?.parts_used)
     const ad_numbers = coerceAdNumbers(parsed?.ad_numbers, references_used)

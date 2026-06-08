@@ -14,9 +14,12 @@
  * is an enhancement only: callers treat any non-200 as "no suggestion".
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { generateLlmObject } from '@/lib/ai/llm'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const dynamic = 'force-dynamic'
 
@@ -50,40 +53,32 @@ export async function POST(req: NextRequest) {
     .map((j) => `${j.jasc_code}\t${j.title}\t(ATA ${j.ata_code} ${ataByCode.get(j.ata_code) ?? ''})`)
     .join('\n')
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 12000, maxRetries: 1 })
+  // Permissive schema — primitives only; the jasc_code is re-validated against
+  // the DB below, so no strict enum here (mirrors the prior loose JSON.parse).
+  const SuggestSchema = z.object({
+    jasc_code: z.string().nullish(),
+    confidence: z.string().nullish(),
+    rationale: z.string().nullish(),
+  })
 
   try {
-    const completion = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o-mini',
+      schema: SuggestSchema,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(12000),
       temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are an aircraft maintenance classifier. Given a maintenance discrepancy or task ' +
-            'description, pick the single best-matching FAA JASC code from the provided list. ' +
-            'Respond ONLY with JSON: {"jasc_code":"NNNN","confidence":"high"|"medium"|"low","rationale":"one short sentence"}. ' +
-            'The jasc_code MUST be exactly one of the four-digit codes in the list. If nothing fits ' +
-            'well, choose the closest and use "low" confidence.',
-        },
-        {
-          role: 'user',
-          content:
-            `Maintenance description: ${description}\n` +
-            (context ? `Additional context: ${context}\n` : '') +
-            `\nValid JASC codes (code<TAB>title<TAB>ATA chapter):\n${candidateList}`,
-        },
-      ],
+      system:
+        'You are an aircraft maintenance classifier. Given a maintenance discrepancy or task ' +
+        'description, pick the single best-matching FAA JASC code from the provided list. ' +
+        'Respond ONLY with JSON: {"jasc_code":"NNNN","confidence":"high"|"medium"|"low","rationale":"one short sentence"}. ' +
+        'The jasc_code MUST be exactly one of the four-digit codes in the list. If nothing fits ' +
+        'well, choose the closest and use "low" confidence.',
+      prompt:
+        `Maintenance description: ${description}\n` +
+        (context ? `Additional context: ${context}\n` : '') +
+        `\nValid JASC codes (code<TAB>title<TAB>ATA chapter):\n${candidateList}`,
     })
-
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    let parsed: any = {}
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      return NextResponse.json({ error: 'AI response was not valid JSON' }, { status: 502 })
-    }
 
     const jascCode = String(parsed.jasc_code ?? '').trim()
     const match = (jascRows as any[]).find((j) => j.jasc_code === jascCode)

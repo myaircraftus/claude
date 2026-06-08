@@ -1,11 +1,8 @@
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { generateLlmText } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { renderReportToPDF } from './pdfRenderer'
 import { systemPromptForType, userPromptForType } from './prompts'
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
 
 export async function generateComplianceAdReport(
   aircraftId: string,
@@ -50,16 +47,12 @@ export async function generateComplianceAdReport(
     recentMaintenance: recentEvents?.map(e => ({ date: e.event_date, type: e.event_type, summary: e.description })) ?? [],
   }
 
-  const completion = await getOpenAI().chat.completions.create({
+  const { text: narrative } = await generateLlmText({
     model: 'gpt-4o',
-    messages: [
-      { role: 'system', content: systemPromptForType('compliance_ad_report') },
-      { role: 'user', content: userPromptForType('compliance_ad_report', ctx) },
-    ],
-    max_tokens: 700,
+    system: systemPromptForType('compliance_ad_report'),
+    prompt: userPromptForType('compliance_ad_report', ctx),
+    maxOutputTokens: 700,
   })
-
-  const narrative = completion.choices[0].message.content ?? ''
 
   const openAds = adRecords?.filter(a => a.compliance_status === 'open') ?? []
   const compliedAds = adRecords?.filter(a => a.compliance_status === 'complied') ?? []

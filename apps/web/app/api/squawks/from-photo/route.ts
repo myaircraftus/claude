@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+import { generateLlmText } from '@/lib/ai/llm'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export async function POST(req: NextRequest) {
   // GPT-4 Vision costs real money per request — rate-limit per IP (security-audit §5.8).
@@ -43,12 +45,9 @@ export async function POST(req: NextRequest) {
     const mimeType = imageBlob.type || 'image/jpeg'
     const dataUrl = `data:${mimeType};base64,${base64}`
 
-    const openai = new (await import('openai')).default({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
-
-    const response = await openai.chat.completions.create({
+    const { text } = await generateLlmText({
       model: 'gpt-4o',
+      maxOutputTokens: 1024,
       messages: [
         {
           role: 'user',
@@ -58,16 +57,15 @@ export async function POST(req: NextRequest) {
               text: 'Extract any maintenance squawks, discrepancies, or issues described in this image. Return a JSON array of objects with \'title\' and \'description\' fields for each squawk found. Return ONLY valid JSON, no markdown fences or extra text.',
             },
             {
-              type: 'image_url',
-              image_url: { url: dataUrl },
+              type: 'image',
+              image: dataUrl,
             },
           ],
         },
       ],
-      max_tokens: 1024,
     })
 
-    const content = response.choices[0]?.message?.content?.trim() ?? '[]'
+    const content = (text ?? '[]').trim()
 
     // Parse JSON from the response, stripping markdown fences if present
     let squawks: { title: string; description: string }[]

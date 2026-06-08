@@ -9,12 +9,17 @@
  *
  * Always uses service-role to bypass RLS. Read-mostly: reads chunks, writes
  * a single UPDATE on the documents row.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm). Transport swapped to
+ * `generateLlmObject` with a permissive schema; the VALID_DOC_TYPES coercion
+ * below is unchanged, and the call stays best-effort (any failure → null).
  */
 
-import OpenAI from 'openai'
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DocType } from '@/types'
 import { inferLegacyClassification } from '@/lib/documents/taxonomy'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 const VALID_DOC_TYPES: ReadonlyArray<DocType> = [
   'logbook',
@@ -60,6 +65,13 @@ Respond as strict JSON: { "doc_type": "...", "subtype": "..." | null,
 "reasoning": "1 short sentence" }
 No extra text.`
 
+/** Permissive schema — coercion against VALID_DOC_TYPES happens below. */
+const ClassifySchema = z.object({
+  doc_type: z.string(),
+  subtype: z.string().nullable(),
+  reasoning: z.string().nullable(),
+})
+
 export interface ClassifyResult {
   doc_type: DocType
   subtype: LogbookSubtype | null
@@ -95,24 +107,17 @@ export async function autoClassifyDocument(
   }
   if (!combined) return null
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-  let parsed: { doc_type?: string; subtype?: string | null; reasoning?: string }
+  let parsed: { doc_type?: string; subtype?: string | null; reasoning?: string | null }
   try {
-    const completion = await openai.chat.completions.create({
+    const { object } = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-      response_format: { type: 'json_object' },
+      schema: ClassifySchema,
       temperature: 0.1,
-      max_tokens: 200,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `TITLE: ${doc.title ?? doc.file_name ?? '(untitled)'}\nFILENAME: ${doc.file_name ?? ''}\n\nSAMPLE TEXT:\n${combined}`,
-        },
-      ],
+      maxOutputTokens: 200,
+      system: SYSTEM_PROMPT,
+      prompt: `TITLE: ${doc.title ?? doc.file_name ?? '(untitled)'}\nFILENAME: ${doc.file_name ?? ''}\n\nSAMPLE TEXT:\n${combined}`,
     })
-    parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}')
+    parsed = object
   } catch (err) {
     // 429 / network / parse failures are non-fatal — leave the row alone.
     console.warn(`[auto-classify] LLM call failed for ${documentId}:`, err)

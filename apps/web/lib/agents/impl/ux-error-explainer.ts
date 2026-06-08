@@ -11,15 +11,25 @@
  * missing or the error matches a well-known pattern (5xx → "We hit
  * a hiccup on our side. Try again in a moment.").
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface ErrorExplainOutput {
   user_message: string
   suggestion: string
   retry_safe: boolean
 }
+
+/** Permissive schema — primitives only; the post-parse defaulting/clamping
+ *  below keeps behavior identical to the prior JSON.parse path. */
+const ErrorExplainSchema = z.object({
+  user_message: z.string().nullable(),
+  suggestion: z.string().nullable(),
+  retry_safe: z.boolean().nullable(),
+})
 
 const FALLBACKS: Array<{ pattern: RegExp; out: ErrorExplainOutput }> = [
   {
@@ -105,34 +115,26 @@ export async function explainError(args: {
           },
         }
       }
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o-mini')
-      const completion = await openai.chat.completions.create({
+      const result = await generateLlmObject({
         model: process.env.OPENAI_ERROR_EXPLAINER_MODEL || 'gpt-4o-mini',
+        schema: ErrorExplainSchema,
         temperature: 0.1,
-        max_tokens: 200,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              `HTTP status: ${args.status ?? '(none)'}`,
-              `Path: ${args.path ?? '(unknown)'}`,
-              `Message: ${args.message.slice(0, 800)}`,
-              '',
-              'Return JSON.',
-            ].join('\n'),
-          },
-        ],
+        maxOutputTokens: 200,
+        system: SYSTEM_PROMPT,
+        prompt: [
+          `HTTP status: ${args.status ?? '(none)'}`,
+          `Path: ${args.path ?? '(unknown)'}`,
+          `Message: ${args.message.slice(0, 800)}`,
+          '',
+          'Return JSON.',
+        ].join('\n'),
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
-      let parsed: Partial<ErrorExplainOutput> = {}
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}')
-      } catch {
-        /* ignore */
+      logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+      const parsed: Partial<ErrorExplainOutput> = {
+        user_message: result.object.user_message ?? undefined,
+        suggestion: result.object.suggestion ?? undefined,
+        retry_safe: result.object.retry_safe ?? undefined,
       }
       return {
         output: {

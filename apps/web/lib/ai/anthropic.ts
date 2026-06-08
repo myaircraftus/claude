@@ -5,21 +5,20 @@
  * server-only env var; same security model as RAPIDAPI_ADSB_EXCHANGE_KEY
  * from sprint 4.3.
  *
- * Uses fetch() against the Messages API directly to avoid pulling in
- * @anthropic-ai/sdk (saves bundle, keeps deploy clean). The shape is
- * intentionally narrow — callers pass system + user prompts, get back
- * a structured result with token counts. Retry-on-429-or-5xx with
- * exponential backoff. AbortSignal.timeout caps every call.
+ * Migrated to the Vercel AI SDK (@ai-sdk/anthropic). The exported surface —
+ * callAnthropic / AnthropicCallArgs / AnthropicCallResult / logCapExceeded /
+ * DEFAULT_MODEL / SYSTEM_ORG_ID / ActivityLogScope — is UNCHANGED, so the ~8
+ * callers (extractors, predictors, support triage, voice/vision routes) and
+ * ai-triage.test.ts keep working as-is. Retries + timeout are now handled by
+ * the SDK (maxRetries + abortSignal) instead of the hand-rolled backoff loop.
  *
- * Every call writes a row to ai_activity_log so we have cost +
- * observability from day one. This is the FIRST production LLM use; the
- * activity-log path is the foundation other 5.x sprints reuse.
+ * Every call writes a row to ai_activity_log so we have cost + observability.
  */
 
+import { anthropic } from '@ai-sdk/anthropic'
+import { generateText, type ModelMessage } from 'ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const API_URL = 'https://api.anthropic.com/v1/messages'
-const ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_TIMEOUT_MS = 30_000
 const MAX_ATTEMPTS = 3
 
@@ -34,9 +33,9 @@ export const DEFAULT_MODEL = 'claude-sonnet-4-5'
  * "—" for cost on unknown models.
  */
 const PRICING_PER_M_TOKENS: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-5':            { input: 15.00, output: 75.00 },
-  'claude-sonnet-4-5':          { input:  3.00, output: 15.00 },
-  'claude-3-5-haiku-latest':    { input:  0.80, output:  4.00 },
+  'claude-opus-4-5': { input: 15.0, output: 75.0 },
+  'claude-sonnet-4-5': { input: 3.0, output: 15.0 },
+  'claude-3-5-haiku-latest': { input: 0.8, output: 4.0 },
 }
 
 /**
@@ -123,7 +122,7 @@ export async function callAnthropic(
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error(
-      'ANTHROPIC_API_KEY is not set — server-only env var, never reaches client'
+      'ANTHROPIC_API_KEY is not set — server-only env var, never reaches client',
     )
   }
 
@@ -133,145 +132,91 @@ export async function callAnthropic(
   const timeout_ms = args.timeout_ms ?? DEFAULT_TIMEOUT_MS
   const started = Date.now()
 
-  let lastErr: unknown = null
-  for (let attempt = 1; attempt <= max_attempts; attempt++) {
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens,
-          temperature: args.temperature,
-          system: args.system,
-          messages: [{ role: 'user', content: buildMessageContent(args) }],
-        }),
-        signal: AbortSignal.timeout(timeout_ms),
-      })
+  try {
+    const res = await generateText({
+      model: anthropic(model),
+      system: args.system,
+      messages: [{ role: 'user', content: buildUserContent(args) }] as ModelMessage[],
+      maxOutputTokens: max_tokens,
+      temperature: args.temperature,
+      // SDK retries (total attempts = maxRetries + 1) replace the old loop.
+      maxRetries: Math.max(0, max_attempts - 1),
+      abortSignal: AbortSignal.timeout(timeout_ms),
+    })
 
-      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-        // Retryable. Exponential backoff with jitter.
-        const wait = baseBackoffMs(attempt)
-        await sleep(wait)
-        lastErr = new Error(`anthropic ${res.status}`)
-        continue
-      }
+    const input_tokens = res.usage?.inputTokens ?? 0
+    const output_tokens = res.usage?.outputTokens ?? 0
+    const cost_usd_cents = estimateCostCents(model, input_tokens, output_tokens)
+    const duration_ms = Date.now() - started
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(`anthropic ${res.status}: ${body.slice(0, 240)}`)
-      }
+    await writeActivityLog(supabase, {
+      ...log,
+      model,
+      status: 'success',
+      input_tokens,
+      output_tokens,
+      cost_usd_cents,
+      duration_ms,
+    })
 
-      const json = (await res.json()) as AnthropicMessageResponse
-      const text = extractText(json)
-      const input_tokens = json.usage?.input_tokens ?? 0
-      const output_tokens = json.usage?.output_tokens ?? 0
-      const cost_usd_cents = estimateCostCents(model, input_tokens, output_tokens)
-      const duration_ms = Date.now() - started
+    return { text: res.text, model, input_tokens, output_tokens, duration_ms, cost_usd_cents }
+  } catch (e: unknown) {
+    const duration_ms = Date.now() - started
+    const message = e instanceof Error ? e.message : String(e)
+    const isTimeout =
+      (e instanceof DOMException && e.name === 'TimeoutError') || /timeout|aborted/i.test(message)
+    const status: 'failure' | 'rate-limited' | 'timeout' = isTimeout
+      ? 'timeout'
+      : /\b429\b|rate[- ]?limit/i.test(message)
+        ? 'rate-limited'
+        : 'failure'
 
-      await writeActivityLog(supabase, {
-        ...log,
-        model,
-        status: 'success',
-        input_tokens,
-        output_tokens,
-        cost_usd_cents,
-        duration_ms,
-      })
+    await writeActivityLog(supabase, {
+      ...log,
+      model,
+      status,
+      duration_ms,
+      error_message: message.slice(0, 500),
+    }).catch(() => {
+      /* don't mask the original error */
+    })
 
-      return { text, model, input_tokens, output_tokens, duration_ms, cost_usd_cents }
-    } catch (e: unknown) {
-      lastErr = e
-      const isTimeout = e instanceof DOMException && e.name === 'TimeoutError'
-      // Timeout once = retry once; second timeout = bail out.
-      if (isTimeout && attempt < max_attempts) {
-        continue
-      }
-      // Non-retryable → break.
-      if (!isRetryable(e)) break
-    }
+    throw e instanceof Error ? e : new Error(message)
   }
-
-  const duration_ms = Date.now() - started
-  const message = lastErr instanceof Error ? lastErr.message : String(lastErr)
-  const status: 'failure' | 'rate-limited' | 'timeout' =
-    lastErr instanceof DOMException && lastErr.name === 'TimeoutError'  ? 'timeout'
-    : /\b429\b/.test(message)                                            ? 'rate-limited'
-    :                                                                       'failure'
-
-  await writeActivityLog(supabase, {
-    ...log,
-    model,
-    status,
-    duration_ms,
-    error_message: message.slice(0, 500),
-  }).catch(() => { /* don't mask the original error */ })
-
-  throw lastErr instanceof Error ? lastErr : new Error(message)
 }
 
 /* ─── Helpers ────────────────────────────────────────────────────────── */
 
 /**
- * Build the Messages API `content` field. When no attachments are present,
- * the content is the simple string user prompt (matches the original
- * shape from sprint 5.6). When attachments ARE present, content becomes
- * an array with one text block + one block per attachment — required
- * shape for Claude Vision.
+ * Build the AI SDK user-message `content`. With no attachments it's the plain
+ * string user prompt (matches the original shape). With attachments it becomes
+ * an array of content parts — one per attachment (image / file) plus the text
+ * block — the shape Claude Vision (Spec 7.3) requires.
  *
- * Source format: `data` (base64) takes precedence over `url`. Caller
- * passes one or the other; in 7.3 we use base64 because the storage
- * bucket is private and signed URLs add latency + a network hop.
+ * Source format: `data` (base64) takes precedence over `url`. For images we
+ * build a data URL; for documents (PDF) we pass base64/URL via a file part.
  */
-function buildMessageContent(args: AnthropicCallArgs): unknown {
+type UserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; image: string }
+  | { type: 'file'; data: string; mediaType: string }
+
+function buildUserContent(args: AnthropicCallArgs): string | UserContentPart[] {
   if (!args.attachments || args.attachments.length === 0) return args.user
 
-  const blocks: Array<Record<string, unknown>> = []
+  const parts: UserContentPart[] = []
   for (const a of args.attachments) {
-    const source = a.data
-      ? { type: 'base64', media_type: a.media_type, data: a.data }
-      : a.url
-        ? { type: 'url', url: a.url }
-        : null
-    if (!source) continue
-    blocks.push({ type: a.kind, source })
+    if (a.kind === 'image') {
+      const image = a.data ? `data:${a.media_type};base64,${a.data}` : a.url
+      if (image) parts.push({ type: 'image', image })
+    } else {
+      // document (PDF) → file part
+      const data = a.data ?? a.url
+      if (data) parts.push({ type: 'file', data, mediaType: a.media_type })
+    }
   }
-  blocks.push({ type: 'text', text: args.user })
-  return blocks
-}
-
-function baseBackoffMs(attempt: number): number {
-  const base = 250 * Math.pow(2, attempt - 1)
-  return base + Math.floor(Math.random() * base / 2)
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-function isRetryable(e: unknown): boolean {
-  if (e instanceof DOMException && e.name === 'TimeoutError') return true
-  if (e instanceof Error && /429|5\d\d/.test(e.message)) return true
-  return false
-}
-
-interface AnthropicMessageResponse {
-  content?: Array<{ type: string; text?: string }>
-  usage?: { input_tokens?: number; output_tokens?: number }
-  stop_reason?: string
-}
-
-function extractText(json: AnthropicMessageResponse): string {
-  const blocks = json.content ?? []
-  return blocks
-    .filter((b) => b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text!)
-    .join('\n')
-    .trim()
+  parts.push({ type: 'text', text: args.user })
+  return parts
 }
 
 function estimateCostCents(

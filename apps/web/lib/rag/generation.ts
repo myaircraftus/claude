@@ -1,10 +1,21 @@
-import OpenAI from 'openai';
+import { z } from 'zod';
+import type { ModelMessage } from 'ai';
 import type { RetrievedChunk, AnswerCitation, AnswerResult, QueryConfidence } from '@/types';
 import { buildAnswerCitationFromChunk } from '@/lib/rag/citation-anchors'
+import { generateLlmObject } from '@/lib/ai/llm'
 
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
+// Migrated to the unified AI SDK layer (lib/ai/llm). Permissive schema — the
+// defensive post-processing below (Array.isArray / typeof / ?? fallbacks) is
+// preserved exactly, so an off-spec model response degrades the same way the
+// old response_format:json_object + JSON.parse path did.
+const AnswerSchema = z.object({
+  answer: z.string().nullable().optional(),
+  confidence: z.string().nullable().optional(),
+  confidence_score: z.number().nullable().optional(),
+  cited_chunk_ids: z.array(z.string()).nullable().optional(),
+  warning_flags: z.array(z.string()).nullable().optional(),
+  follow_up_questions: z.array(z.string()).nullable().optional(),
+});
 
 // ─── System Prompt ─────────────────────────────────────────────────────────────
 
@@ -102,9 +113,7 @@ export async function generateAnswer(
   const contextBlock = contextLines.join('\n');
 
   // 3. Build message array
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-  ];
+  const messages: ModelMessage[] = [];
 
   // Include prior conversation turns for context
   if (conversationHistory && conversationHistory.length > 0) {
@@ -123,25 +132,17 @@ export async function generateAnswer(
   //    choice across runs, so the same chunks could produce visibly
   //    different phrasing / citation indices on each refresh. With temp 0
   //    a stable retrieval set produces a stable answer.
-  const completion = await getOpenAI().chat.completions.create({
+  const { object: parsed, usage } = await generateLlmObject({
     model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+    schema: AnswerSchema,
+    system: SYSTEM_PROMPT,
     messages,
-    response_format: { type: 'json_object' },
     temperature: 0,
-    max_tokens: 2048,
+    maxOutputTokens: 2048,
   });
 
-  const rawContent = completion.choices[0]?.message?.content ?? '{}';
-  const tokensPrompt = completion.usage?.prompt_tokens ?? 0;
-  const tokensCompletion = completion.usage?.completion_tokens ?? 0;
-
-  // 5. Parse JSON response
-  let parsed: LLMResponse;
-  try {
-    parsed = JSON.parse(rawContent) as LLMResponse;
-  } catch {
-    throw new Error(`Failed to parse LLM JSON response: ${rawContent}`);
-  }
+  const tokensPrompt = usage.inputTokens;
+  const tokensCompletion = usage.outputTokens;
 
   // Normalise warning_flags and follow_up_questions to arrays
   const warningFlags: string[] = Array.isArray(parsed.warning_flags)
@@ -230,7 +231,7 @@ export async function generateAnswer(
       ? Math.min(1, Math.max(0, rawScore))
       : 0;
 
-  let confidence: QueryConfidence = parsed.confidence ?? 'low';
+  let confidence: QueryConfidence = (parsed.confidence ?? 'low') as QueryConfidence;
 
   if (citations.length === 0) {
     if (confidence === 'high' || confidence === 'medium') {

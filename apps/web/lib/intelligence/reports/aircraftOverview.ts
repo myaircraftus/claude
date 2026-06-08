@@ -1,10 +1,7 @@
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { generateLlmText } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { renderReportToPDF } from '@/lib/intelligence/reports/pdfRenderer'
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
 
 export async function generateAircraftOverviewReport(
   aircraftId: string,
@@ -39,13 +36,11 @@ Write a concise 2-3 paragraph executive summary of this aircraft's maintenance s
 Be factual. Note the overall health, key dates, and any significant concerns.
 Write for an aircraft owner or buyer — not a mechanic.
 `
-  const completion = await getOpenAI().chat.completions.create({
+  const { text: narrative } = await generateLlmText({
     model: 'gpt-4o',
-    messages: [{ role: 'user', content: narrativePrompt }],
-    max_tokens: 500,
+    prompt: narrativePrompt,
+    maxOutputTokens: 500,
   })
-
-  const narrative = completion.choices[0].message.content ?? ''
 
   // Assemble report data structure
   const reportData = {

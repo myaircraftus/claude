@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-import OpenAI from 'openai'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   // OpenAI cost — rate-limit per IP (security-audit §5.8).
@@ -73,16 +76,37 @@ ${squawkList ? `Linked Squawks:\n${squawkList}` : 'No linked squawks.'}
 
 ${partsContext ? `Available parts in inventory (reference):\n${partsContext}` : ''}`
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  // Permissive schema — mirrors the prior loose JSON.parse (no strict enums;
+  // every field nullish so a sparse-but-valid response coerces, not throws).
+  const PlanSchema = z.object({
+    plan_summary: z.string().nullish(),
+    steps: z
+      .array(
+        z.object({
+          description: z.string().nullish(),
+          estimated_hours: z.number().nullish(),
+          category: z.string().nullish(),
+          suggested_parts: z
+            .array(
+              z.object({
+                part_number: z.string().nullish(),
+                title: z.string().nullish(),
+                estimated_price: z.number().nullish(),
+              }),
+            )
+            .nullish(),
+        }),
+      )
+      .nullish(),
+    total_estimated_hours: z.number().nullish(),
+    notes: z.string().nullish(),
+  })
 
   try {
-    const completion = await openai.chat.completions.create({
+    const { object: plan } = await generateLlmObject({
       model: 'gpt-4o',
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert A&P mechanic and IA (Inspection Authorization holder). Given the aircraft details and reported squawks/discrepancies, create a detailed work plan.
+      schema: PlanSchema,
+      system: `You are an expert A&P mechanic and IA (Inspection Authorization holder). Given the aircraft details and reported squawks/discrepancies, create a detailed work plan.
 
 Return JSON with this exact structure:
 {
@@ -106,19 +130,11 @@ Return JSON with this exact structure:
 }
 
 Be thorough and practical. Include inspection steps, actual repair/replacement steps, and testing/verification. Use industry standard practices and reference common maintenance procedures.`,
-        },
-        { role: 'user', content: prompt },
-      ],
+      prompt,
       temperature: 0.4,
-      max_tokens: 3000,
+      maxOutputTokens: 3000,
     })
 
-    const content = completion.choices[0]?.message?.content
-    if (!content) {
-      return NextResponse.json({ error: 'No response from AI' }, { status: 500 })
-    }
-
-    const plan = JSON.parse(content)
     return NextResponse.json(plan)
   } catch (err: any) {
     console.error('AI plan generation error:', err)

@@ -33,7 +33,8 @@
  * hybridRetrieve with an owner-scoped filter.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -121,6 +122,22 @@ Strict rules:
 - Use markdown for clarity (bold for key facts, lists for multi-item answers).
 
 You will receive the user's question and a JSON-shaped context with their aircraft, recent logbook entries (signed only), estimates, invoices, and work orders. Use only those records.`
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — the citation validation below (validIds filter) is the
+// security-critical last line of defense and is unchanged.
+const OwnerAnswerSchema = z.object({
+  answer: z.string().nullable(),
+  citations: z
+    .array(
+      z.object({
+        kind: z.string().optional(),
+        id: z.string().optional(),
+        label: z.string().optional(),
+      }),
+    )
+    .nullable(),
+})
 
 export async function POST(req: NextRequest) {
   const supabase = createServerSupabase()
@@ -336,20 +353,17 @@ Respond as a JSON object: { "answer": "...", "citations": [{"kind":"...","id":".
 The "citations" must reference records that appear in the context; use the same id you see in context. Add "label" with a short human-friendly name (e.g., "Logbook entry 2026-04-12", "Invoice INV-2026-0042", "N401LP"). Cite at most 6 records.`
 
   // ── Step 5: call the LLM with the strict system prompt ────────────
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  let parsed: { answer?: string; citations?: Array<{ kind?: string; id?: string; label?: string }> }
+  let parsed: z.infer<typeof OwnerAnswerSchema>
   try {
-    const completion = await openai.chat.completions.create({
+    const result = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+      schema: OwnerAnswerSchema,
       temperature: 0, // deterministic — owners get the same answer
-      max_tokens: 700,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+      maxOutputTokens: 700,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
     })
-    parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}')
+    parsed = result.object
   } catch (err) {
     console.error('[api/owner/ask] LLM call failed:', err)
     return NextResponse.json(

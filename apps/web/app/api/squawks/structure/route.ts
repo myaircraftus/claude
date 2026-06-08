@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — post-parse severity validation + field coercion below.
+const SquawkStructureSchema = z.object({
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  system: z.string().nullable(),
+  severity: z.string(),
+  grounded: z.boolean().nullable(),
+})
 
 type StructuredSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
 
@@ -104,32 +116,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const response = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o-mini',
+      schema: SquawkStructureSchema,
       temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You structure aircraft discrepancy reports into maintenance squawks. Return only valid JSON with keys: title, description, category, system, severity, grounded. Severity must be one of Low, Medium, High, Critical.',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            text,
-            grounded,
-            aircraft: body?.aircraft ?? null,
-            tail_number: body?.tail_number ?? null,
-          }),
-        },
-      ],
-      max_tokens: 300,
+      system:
+        'You structure aircraft discrepancy reports into maintenance squawks. Return only valid JSON with keys: title, description, category, system, severity, grounded. Severity must be one of Low, Medium, High, Critical.',
+      prompt: JSON.stringify({
+        text,
+        grounded,
+        aircraft: body?.aircraft ?? null,
+        tail_number: body?.tail_number ?? null,
+      }),
+      maxOutputTokens: 300,
     })
 
-    const content = response.choices[0]?.message?.content?.trim() ?? ''
-    const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-    const parsed = JSON.parse(cleaned)
     const severity = ['Low', 'Medium', 'High', 'Critical'].includes(parsed?.severity)
       ? parsed.severity
       : fallback.severity

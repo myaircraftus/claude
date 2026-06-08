@@ -11,8 +11,10 @@
  * On any failure (missing OPENAI_API_KEY, network error, bad response) it
  * silently returns the original question unchanged, so the caller falls back
  * to embedding the real query — exactly the pre-HyDE behavior.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm).
  */
-import OpenAI from 'openai'
+import { generateLlmText } from '@/lib/ai/llm'
 
 /** Module-level memo — keyed by trimmed+lowercased question. */
 const hypotheticalCache = new Map<string, string>()
@@ -39,36 +41,24 @@ export async function generateHypotheticalDocument(
   }
 
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 15000,
-      maxRetries: 1,
-    })
-
-    const completion = await openai.chat.completions.create({
+    const { text: raw } = await generateLlmText({
       model: 'gpt-4o-mini',
       temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are an FAA aircraft logbook entry. Write the exact logbook ' +
-            'entry, maintenance record, or inspection note that would directly ' +
-            'answer the question the user provides. Rules: use authentic FAA ' +
-            'logbook language and abbreviations; include realistic placeholders ' +
-            '([DATE], [N-NUMBER], [CERT#], [HRS]); include relevant FAR ' +
-            'references if applicable (e.g. 91.409, 43.9); 2-4 sentences max, ' +
-            'logbook style not prose; if the question is about a count or ' +
-            'history, write one representative entry from that history.',
-        },
-        {
-          role: 'user',
-          content: question,
-        },
-      ],
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(15000),
+      system:
+        'You are an FAA aircraft logbook entry. Write the exact logbook ' +
+        'entry, maintenance record, or inspection note that would directly ' +
+        'answer the question the user provides. Rules: use authentic FAA ' +
+        'logbook language and abbreviations; include realistic placeholders ' +
+        '([DATE], [N-NUMBER], [CERT#], [HRS]); include relevant FAR ' +
+        'references if applicable (e.g. 91.409, 43.9); 2-4 sentences max, ' +
+        'logbook style not prose; if the question is about a count or ' +
+        'history, write one representative entry from that history.',
+      prompt: question,
     })
 
-    const text = completion.choices[0]?.message?.content?.trim()
+    const text = raw?.trim()
     if (!text) {
       return question
     }

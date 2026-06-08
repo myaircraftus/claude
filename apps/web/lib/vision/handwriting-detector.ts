@@ -21,6 +21,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PROCESSING_RULES } from '@/lib/billing/pricing-config'
+import { generateLlmText } from '@/lib/ai/llm'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export interface HandwritingResult {
   /** Fraction in [0, 1]. 0 = entirely printed; 1 = entirely handwritten. */
@@ -86,7 +88,7 @@ export async function detectHandwriting(
   }
 
   try {
-    const userContent: Array<Record<string, unknown>> = [
+    const userParts: Array<{ type: 'text'; text: string } | { type: 'image'; image: string }> = [
       {
         type: 'text',
         text:
@@ -97,32 +99,17 @@ export async function detectHandwriting(
       },
     ]
     for (const url of signedUrls) {
-      userContent.push({
-        type: 'image',
-        source: { type: 'url', url },
-      })
+      userParts.push({ type: 'image', image: url })
     }
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 16,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-      signal: AbortSignal.timeout(60_000),
+    const { text: raw } = await generateLlmText({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      maxOutputTokens: 16,
+      messages: [{ role: 'user', content: userParts }],
+      abortSignal: AbortSignal.timeout(60_000),
     })
-    if (!res.ok) {
-      console.warn('[handwriting-detector] anthropic error', res.status)
-      return null
-    }
-    const body = (await res.json()) as { content?: Array<{ type: string; text?: string }> }
-    const text = body.content?.find((c) => c.type === 'text')?.text?.trim() ?? ''
+    const text = (raw ?? '').trim()
     const pct = parseHandwritingPercent(text)
     if (pct === null) {
       console.warn('[handwriting-detector] could not parse model response:', text.slice(0, 60))

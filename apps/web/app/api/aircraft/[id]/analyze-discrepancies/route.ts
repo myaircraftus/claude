@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
-import OpenAI from 'openai'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export async function POST(
   req: NextRequest,
@@ -33,24 +32,32 @@ export async function POST(
     `${e.event_date} | ${e.event_type} | TTAF: ${e.airframe_tt ?? 'N/A'} | Cert: ${e.mechanic_cert ?? 'N/A'} | "${e.description?.substring(0, 100)}"`
   ).join('\n')
 
-  const completion = await getOpenAI().chat.completions.create({
+  // Permissive schema — primitives only, every field nullish so an off-spec
+  // response coerces instead of failing (mirrors the prior loose JSON.parse).
+  const FindingsSchema = z.object({
+    findings: z
+      .array(
+        z.object({
+          type: z.string().nullish(),
+          severity: z.string().nullish(),
+          title: z.string().nullish(),
+          description: z.string().nullish(),
+        }),
+      )
+      .nullish(),
+  })
+
+  const { object: result } = await generateLlmObject({
     model: 'gpt-4o',
-    messages: [{
-      role: 'system',
-      content: `You are an aviation records analyst with expertise in FAA regulations and aircraft logbook standards.
+    schema: FindingsSchema,
+    system: `You are an aviation records analyst with expertise in FAA regulations and aircraft logbook standards.
       Analyze the following aircraft maintenance log entries for discrepancies, inconsistencies, or red flags.
       Focus on: time anomalies, missing signatures, conflicting information, regulatory compliance gaps, and anything unusual.
       Return a JSON array of findings with fields: type, severity (critical/warning/info), title, description.
-      Be specific and cite the dates/times involved.`
-    }, {
-      role: 'user',
-      content: `Analyze these maintenance log entries for discrepancies:\n\n${eventSummary}`
-    }],
-    response_format: { type: 'json_object' },
-    max_tokens: 1500,
+      Be specific and cite the dates/times involved.`,
+    prompt: `Analyze these maintenance log entries for discrepancies:\n\n${eventSummary}`,
+    maxOutputTokens: 1500,
   })
-
-  const result = JSON.parse(completion.choices[0].message.content ?? '{"findings":[]}')
 
   return NextResponse.json({ discrepancies: result.findings ?? [] })
 }

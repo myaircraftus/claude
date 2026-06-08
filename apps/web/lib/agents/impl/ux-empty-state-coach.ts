@@ -11,9 +11,11 @@
  * suggests "Add your first aircraft" + "Upload a logbook PDF" rather
  * than the generic "Get started" copy.
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export type EmptyPersona = 'owner' | 'shop' | 'admin' | 'mechanic'
 
@@ -25,6 +27,20 @@ export interface EmptySuggestion {
 export interface EmptyStateOutput {
   suggestions: EmptySuggestion[]
 }
+
+/** Permissive schema — the post-parse filter/slice/clamp below enforces the
+ *  real shape, mirroring the prior JSON.parse path. */
+const EmptyStateSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        label: z.string(),
+        href: z.string(),
+        reason: z.string().nullable(),
+      }),
+    )
+    .nullable(),
+})
 
 const SYSTEM_PROMPT = `You are myaircraft.us's empty-state coach. The user is staring at a blank page in the app. Suggest 2-3 next actions they could take RIGHT NOW.
 
@@ -75,28 +91,20 @@ export async function suggestEmptyStateActions(args: {
       if (!process.env.OPENAI_API_KEY) {
         return { output: heuristicByPath[args.pathname] ?? { suggestions: [] } }
       }
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o-mini')
-      const completion = await openai.chat.completions.create({
+      const result = await generateLlmObject({
         model: process.env.OPENAI_EMPTY_STATE_MODEL || 'gpt-4o-mini',
+        schema: EmptyStateSchema,
         temperature: 0.2,
-        max_tokens: 220,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: `Persona: ${args.persona}\nPath: ${args.pathname}\nResource: ${args.resource ?? '(none)'}\n\nReturn JSON.`,
-          },
-        ],
+        maxOutputTokens: 220,
+        system: SYSTEM_PROMPT,
+        prompt: `Persona: ${args.persona}\nPath: ${args.pathname}\nResource: ${args.resource ?? '(none)'}\n\nReturn JSON.`,
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
-      let parsed: Partial<EmptyStateOutput> = {}
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}')
-      } catch {
-        /* ignore */
+      logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+      const parsed: Partial<EmptyStateOutput> = {
+        suggestions: (result.object.suggestions ?? undefined) as
+          | EmptySuggestion[]
+          | undefined,
       }
       const suggestions = Array.isArray(parsed.suggestions)
         ? parsed.suggestions

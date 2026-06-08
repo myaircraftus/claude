@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+import { transcribeAudio } from '@/lib/ai/llm'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -58,27 +59,16 @@ export async function POST(req: NextRequest) {
   }
 
   const started = Date.now()
-  const fd = new FormData()
-  fd.append('file', file, file.name || 'audio.webm')
-  fd.append('model', 'whisper-1')
-  fd.append('response_format', 'json')
 
   const service = createServiceSupabase()
   try {
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${apiKey}` },
-      body: fd,
-      signal: AbortSignal.timeout(45_000),
+    // Migrated to the unified AI SDK layer (lib/ai/llm).
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const { text: rawText } = await transcribeAudio(bytes, {
+      model: 'whisper-1',
+      abortSignal: AbortSignal.timeout(45_000),
     })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      const msg = `whisper ${res.status}: ${body.slice(0, 240)}`
-      await logActivity(service, membership.organization_id, user.id, 'failed', null, started, null, null, msg)
-      return NextResponse.json({ error: msg }, { status: 500 })
-    }
-    const json = (await res.json()) as { text?: string }
-    const text = (json.text ?? '').trim()
+    const text = (rawText ?? '').trim()
     await logActivity(service, membership.organization_id, user.id, 'success', 'whisper-1', started, file.size, text.length, null)
     return NextResponse.json({ text, duration_ms: Date.now() - started })
   } catch (e) {

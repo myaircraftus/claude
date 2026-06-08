@@ -6,10 +6,13 @@
  * Same pattern as the expense + estimate extractors: cheap-LLM
  * extraction, never auto-paid, always lands as draft with a
  * recommendation for human review.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm).
  */
-import OpenAI from 'openai'
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface InvoiceExtractOutput {
   vendor: string | null
@@ -37,6 +40,20 @@ Return STRICT JSON:
 }
 
 If you can't read it clearly return confidence="low" and leave the fields null. Never invent.`
+
+/** Permissive schema — model guidance comes from the prompt; the coercion
+ *  below normalizes anything off-spec, exactly as the prior JSON.parse path
+ *  did (invalid fields fall back, never throw). */
+const InvoiceSchema = z.object({
+  vendor: z.string().nullable(),
+  total: z.number().nullable(),
+  currency: z.string(),
+  invoice_date: z.string().nullable(),
+  due_date: z.string().nullable(),
+  invoice_number: z.string().nullable(),
+  description: z.string(),
+  confidence: z.string(),
+})
 
 export async function importInvoiceFromInbox(args: {
   supabase: SupabaseClient
@@ -74,38 +91,26 @@ export async function importInvoiceFromInbox(args: {
         }
       }
 
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o')
-      const completion = await openai.chat.completions.create({
+      const result = await generateLlmObject({
         model: process.env.OPENAI_INBOX_EXTRACTOR_MODEL || 'gpt-4o',
+        schema: InvoiceSchema,
         temperature: 0,
-        max_tokens: 500,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              `From: ${args.from}`,
-              `Subject: ${args.subject ?? '(no subject)'}`,
-              '',
-              'Body:',
-              (args.body ?? '').slice(0, 6000),
-              '',
-              'Return JSON.',
-            ].join('\n'),
-          },
-        ],
+        maxOutputTokens: 500,
+        system: SYSTEM_PROMPT,
+        prompt: [
+          `From: ${args.from}`,
+          `Subject: ${args.subject ?? '(no subject)'}`,
+          '',
+          'Body:',
+          (args.body ?? '').slice(0, 6000),
+          '',
+          'Return JSON.',
+        ].join('\n'),
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+      logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
 
-      let parsed: Partial<InvoiceExtractOutput>
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as Partial<InvoiceExtractOutput>
-      } catch {
-        parsed = {}
-      }
+      const parsed = result.object as Partial<InvoiceExtractOutput>
       const out: InvoiceExtractOutput = {
         vendor: parsed.vendor ?? null,
         total: typeof parsed.total === 'number' && parsed.total > 0 ? parsed.total : null,

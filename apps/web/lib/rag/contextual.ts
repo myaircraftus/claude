@@ -21,9 +21,16 @@
  * runs inside the Next.js ingestion path.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { generateEmbeddings } from '@/lib/openai/embeddings'
 import { DIRECT_CHUNKING_SOURCE_TAG } from '@/lib/ocr/direct-chunking'
+import { generateLlmObject } from '@/lib/ai/llm'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+const ContextSchema = z.object({
+  context: z.string().nullable().optional(),
+  identifiers: z.string().nullable().optional(),
+})
 
 const CTX_MODEL = process.env.WAVE2_CTX_MODEL || 'gpt-4o-mini'
 const LLM_CONCURRENCY = 12
@@ -174,7 +181,6 @@ function extractStructuredIdentifiers(chunk: CanonChunk): string {
 }
 
 async function generateContext(
-  openai: OpenAI,
   group: CanonChunk[],
   idx: number,
   detLine: string,
@@ -193,37 +199,28 @@ async function generateContext(
   let summary = ''
   let identifiers = ''
   try {
-    const resp = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: CTX_MODEL,
+      schema: ContextSchema,
       temperature: 0,
-      max_tokens: 240,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You situate an excerpt within its aircraft-maintenance document so it ' +
-            'can be retrieved on its own (logbooks, manuals, ADs, SBs, work orders). ' +
-            'When <extracted_fields> are present, weave the date and mechanic/signer ' +
-            'into your context sentence using natural English ("Month Day, Year") so ' +
-            'date-anchored queries match. ' +
-            'Reply with strict JSON: {"context": "<1-2 plain sentences situating this ' +
-            'chunk — include any extracted date and mechanic name>", ' +
-            '"identifiers": "<comma-separated AD/SB/STC numbers, part numbers, serial ' +
-            'numbers, dates, tach/Hobbs times from the chunk or <extracted_fields>; ' +
-            'empty string if none>"}. Never invent facts.',
-        },
-        {
-          role: 'user',
-          content:
-            `<document>${detLine}</document>\n\n` +
-            `<surrounding_excerpts>\n${window || '(none)'}\n</surrounding_excerpts>\n\n` +
-            `<extracted_fields>\n${structuredIdents || '(none)'}\n</extracted_fields>\n\n` +
-            `<chunk>\n${(chunk.chunk_text || '').slice(0, 4000)}\n</chunk>`,
-        },
-      ],
+      maxOutputTokens: 240,
+      system:
+        'You situate an excerpt within its aircraft-maintenance document so it ' +
+        'can be retrieved on its own (logbooks, manuals, ADs, SBs, work orders). ' +
+        'When <extracted_fields> are present, weave the date and mechanic/signer ' +
+        'into your context sentence using natural English ("Month Day, Year") so ' +
+        'date-anchored queries match. ' +
+        'Reply with strict JSON: {"context": "<1-2 plain sentences situating this ' +
+        'chunk — include any extracted date and mechanic name>", ' +
+        '"identifiers": "<comma-separated AD/SB/STC numbers, part numbers, serial ' +
+        'numbers, dates, tach/Hobbs times from the chunk or <extracted_fields>; ' +
+        'empty string if none>"}. Never invent facts.',
+      prompt:
+        `<document>${detLine}</document>\n\n` +
+        `<surrounding_excerpts>\n${window || '(none)'}\n</surrounding_excerpts>\n\n` +
+        `<extracted_fields>\n${structuredIdents || '(none)'}\n</extracted_fields>\n\n` +
+        `<chunk>\n${(chunk.chunk_text || '').slice(0, 4000)}\n</chunk>`,
     })
-    const parsed = JSON.parse(resp.choices?.[0]?.message?.content || '{}')
     if (typeof parsed.context === 'string') summary = parsed.context.trim()
     if (typeof parsed.identifiers === 'string') identifiers = parsed.identifiers.trim()
   } catch {
@@ -284,12 +281,11 @@ export async function contextualizeCanonicalDocument(
       ac = (acRow as { tail_number?: string; make?: string; model?: string } | null) ?? undefined
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large'
 
     // 1. Generate context for every chunk.
     const contexts = await runPool(group, LLM_CONCURRENCY, (chunk, i) =>
-      generateContext(openai, group, i, deterministicLine(chunk, doc, ac)),
+      generateContext(group, i, deterministicLine(chunk, doc, ac)),
     )
 
     // 2. Re-embed (context || chunk_text), upsert embeddings, then write

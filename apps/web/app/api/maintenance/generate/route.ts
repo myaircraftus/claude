@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
-import OpenAI from 'openai'
+import { generateLlmObject } from '@/lib/ai/llm'
 import {
   extractChecklistTemplateReferenceLibrary,
   getChecklistTemplateLabel,
   inferChecklistTemplateKey,
   normalizeChecklistTemplateKey,
 } from '@/lib/work-orders/checklists'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 type AircraftContext = {
   id: string
@@ -28,10 +31,6 @@ type WorkOrderChecklistItem = {
   required: boolean
   completed: boolean
   sort_order: number
-}
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 }
 
 function isUuid(value: unknown): value is string {
@@ -262,19 +261,25 @@ Respond with a JSON object:
   "notes": "any additional notes for the mechanic"
 }`
 
+  // Permissive schema — primitives only; structured_fields is a free-form
+  // passthrough record (spread verbatim into the response) and every field is
+  // nullish so an off-spec response coerces, mirroring the prior JSON.parse.
+  const GenerateSchema = z.object({
+    formatted_entry: z.string().nullish(),
+    structured_fields: z.record(z.unknown()).nullish(),
+    warnings: z.array(z.string()).nullish(),
+    notes: z.string().nullish(),
+  })
+
   try {
-    const completion = await getOpenAI().chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt.trim() },
-      ],
-      response_format: { type: 'json_object' },
+      schema: GenerateSchema,
+      system: systemPrompt,
+      prompt: prompt.trim(),
       temperature: 0.3,
     })
 
-    const rawResult = completion.choices[0].message.content ?? '{}'
-    const parsed = JSON.parse(rawResult)
     const structuredFields =
       parsed?.structured_fields && typeof parsed.structured_fields === 'object'
         ? parsed.structured_fields as Record<string, unknown>

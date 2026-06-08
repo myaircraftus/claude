@@ -1,12 +1,9 @@
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { generateLlmText } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { documentMatchesClassification } from '@/lib/documents/classification'
 import { renderReportToPDF } from './pdfRenderer'
 import type { DocType, Document } from '@/types'
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
 
 export type PacketAudience = 'prebuy_packet' | 'lender_packet' | 'insurer_packet'
 
@@ -73,12 +70,11 @@ Write a concise 3-4 paragraph executive summary for this aircraft. Be specific, 
 Flag the most important issues in the first paragraph.
 `
 
-  const completion = await getOpenAI().chat.completions.create({
+  const { text: executiveSummary } = await generateLlmText({
     model: 'gpt-4o',
-    messages: [{ role: 'user', content: executiveSummaryPrompt }],
-    max_tokens: 600,
+    prompt: executiveSummaryPrompt,
+    maxOutputTokens: 600,
   })
-  const executiveSummary = completion.choices[0].message.content ?? ''
 
   // Risk rating
   const criticalCount = findings?.filter(f => f.severity === 'critical').length ?? 0

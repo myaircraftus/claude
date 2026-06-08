@@ -10,8 +10,11 @@
  *
  * Best-effort: on any failure (or for the first turn / an already-standalone
  * question) it returns the original question unchanged.
+ *
+ * Migrated to the unified AI SDK layer (lib/ai/llm): no longer takes an OpenAI
+ * client — it calls `generateLlmText` directly.
  */
-import type OpenAI from 'openai'
+import { generateLlmText } from '@/lib/ai/llm'
 
 const CONDENSE_SYSTEM = `You rewrite a follow-up message in a conversation into a STANDALONE search query for an aircraft maintenance-records assistant.
 
@@ -23,7 +26,6 @@ Rules:
 - Output ONLY the rewritten question text — no preamble, no quotes, no explanation.`
 
 export async function condenseFollowUp(
-  openai: OpenAI,
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   question: string,
 ): Promise<string> {
@@ -36,20 +38,15 @@ export async function condenseFollowUp(
       .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1000)}`)
       .join('\n')
 
-    const resp = await openai.chat.completions.create({
+    const { text } = await generateLlmText({
       model: process.env.OPENAI_CONDENSE_MODEL || 'gpt-4o-mini',
       temperature: 0,
-      max_tokens: 200,
-      messages: [
-        { role: 'system', content: CONDENSE_SYSTEM },
-        {
-          role: 'user',
-          content: `Conversation so far:\n${transcript}\n\nFollow-up message: ${trimmed}\n\nStandalone question:`,
-        },
-      ],
+      maxOutputTokens: 200,
+      system: CONDENSE_SYSTEM,
+      prompt: `Conversation so far:\n${transcript}\n\nFollow-up message: ${trimmed}\n\nStandalone question:`,
     })
 
-    const out = resp.choices[0]?.message?.content?.trim()
+    const out = text?.trim()
     if (!out) return question
     // Guard against a runaway rewrite — fall back to the user's words.
     return out.length <= 1000 ? out : question

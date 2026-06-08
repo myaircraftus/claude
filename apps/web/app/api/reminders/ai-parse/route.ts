@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { buildOperationProfile } from '@/lib/aircraft/operations'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
@@ -17,17 +18,16 @@ const VALID_TYPES = new Set([
 
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'critical'])
 
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
-
-function safeJsonParse(content: string) {
-  const cleaned = content
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim()
-  return JSON.parse(cleaned)
-}
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — post-parse validation + coercion below is unchanged.
+const ReminderParseSchema = z.object({
+  reminder_type: z.string(),
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  due_date: z.string().nullable(),
+  due_hours: z.union([z.number(), z.string()]).nullable(),
+  priority: z.string(),
+})
 
 export async function POST(req: NextRequest) {
   // OpenAI cost — rate-limit per IP (security-audit §5.8).
@@ -85,31 +85,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const completion = await getOpenAI().chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+      schema: ReminderParseSchema,
       temperature: 0.1,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You convert plain-English aircraft maintenance reminder requests into structured JSON. Return only valid JSON with keys: reminder_type, title, description, due_date, due_hours, priority. Use reminder_type one of annual, 100hr, transponder, elt, static_pitot, vor, ad_compliance, custom. Use priority one of low, normal, high, critical. due_date must be YYYY-MM-DD if provided. due_hours must be a number if provided. When the user asks for a reminder that cannot be mapped precisely, use custom.',
-        },
-        {
-          role: 'user',
-          content: [
-            `Today is ${new Date().toISOString().slice(0, 10)}.`,
-            aircraftContext ? `Aircraft context:\n${aircraftContext}` : null,
-            `User request:\n${prompt}`,
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
-        },
-      ],
-      max_tokens: 300,
+      system:
+        'You convert plain-English aircraft maintenance reminder requests into structured JSON. Return only valid JSON with keys: reminder_type, title, description, due_date, due_hours, priority. Use reminder_type one of annual, 100hr, transponder, elt, static_pitot, vor, ad_compliance, custom. Use priority one of low, normal, high, critical. due_date must be YYYY-MM-DD if provided. due_hours must be a number if provided. When the user asks for a reminder that cannot be mapped precisely, use custom.',
+      prompt: [
+        `Today is ${new Date().toISOString().slice(0, 10)}.`,
+        aircraftContext ? `Aircraft context:\n${aircraftContext}` : null,
+        `User request:\n${prompt}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      maxOutputTokens: 300,
     })
-
-    const content = completion.choices[0]?.message?.content?.trim() ?? '{}'
-    const parsed = safeJsonParse(content)
 
     const reminder_type = VALID_TYPES.has(parsed.reminder_type) ? parsed.reminder_type : 'custom'
     const priority = VALID_PRIORITIES.has(parsed.priority) ? parsed.priority : 'normal'

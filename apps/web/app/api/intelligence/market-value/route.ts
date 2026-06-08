@@ -13,14 +13,17 @@
  * change to either re-POSTs and re-runs the estimate.
  */
 import { NextResponse, type NextRequest } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
 import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const dynamic = 'force-dynamic'
 
@@ -238,45 +241,37 @@ export async function POST(req: NextRequest) {
     'This estimate is based on training data and may not reflect the current market.'
 
   if (process.env.OPENAI_API_KEY && (ac.make || ac.model)) {
+    // Permissive schema — primitives only, every field nullish; the Number()
+    // coercion + range validation below is unchanged (mirrors the prior
+    // JSON.parse).
+    const BaseValueSchema = z.object({
+      base_low: z.number().nullish(),
+      base_high: z.number().nullish(),
+      comps_note: z.string().nullish(),
+    })
+
     try {
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-        timeout: 15000,
-        maxRetries: 1,
-      })
-      const completion = await openai.chat.completions.create({
+      const { object: parsed } = await generateLlmObject({
         model: 'gpt-4o-mini',
+        schema: BaseValueSchema,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(15000),
         temperature: 0.2,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an aircraft valuation analyst. Given an aircraft ' +
-              'make, model, and year, estimate a typical retail value RANGE ' +
-              'in US dollars for a mid-time, average-condition example. ' +
-              'Respond ONLY with JSON: {"base_low":NUMBER,"base_high":NUMBER,' +
-              '"comps_note":"STRING"}. base_low and base_high are whole ' +
-              'dollar amounts (base_high > base_low). comps_note MUST be ' +
-              'one or two sentences and MUST state that the estimate is ' +
-              'based on training data and may not reflect the current market.',
-          },
-          {
-            role: 'user',
-            content:
-              `Make: ${ac.make ?? 'Unknown'}\n` +
-              `Model: ${ac.model ?? 'Unknown'}\n` +
-              `Year: ${ac.year ?? 'Unknown'}\n` +
-              (engine ? `Engine: ${engine}\n` : ''),
-          },
-        ],
+        system:
+          'You are an aircraft valuation analyst. Given an aircraft ' +
+          'make, model, and year, estimate a typical retail value RANGE ' +
+          'in US dollars for a mid-time, average-condition example. ' +
+          'Respond ONLY with JSON: {"base_low":NUMBER,"base_high":NUMBER,' +
+          '"comps_note":"STRING"}. base_low and base_high are whole ' +
+          'dollar amounts (base_high > base_low). comps_note MUST be ' +
+          'one or two sentences and MUST state that the estimate is ' +
+          'based on training data and may not reflect the current market.',
+        prompt:
+          `Make: ${ac.make ?? 'Unknown'}\n` +
+          `Model: ${ac.model ?? 'Unknown'}\n` +
+          `Year: ${ac.year ?? 'Unknown'}\n` +
+          (engine ? `Engine: ${engine}\n` : ''),
       })
-      const raw = completion.choices[0]?.message?.content ?? '{}'
-      const parsed = JSON.parse(raw) as {
-        base_low?: unknown
-        base_high?: unknown
-        comps_note?: unknown
-      }
       const lo = Number(parsed.base_low)
       const hi = Number(parsed.base_high)
       if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo && lo > 0) {

@@ -20,8 +20,9 @@
  * OCR text untouched and never blocks ingestion. Forward-only: it runs
  * during ingestion of new uploads, never against existing data.
  */
-import OpenAI from 'openai'
 import { PDFDocument } from 'pdf-lib'
+import { generateLlmText } from '@/lib/ai/llm'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 /** Minimal page shape — structurally satisfied by the ingestion ParsedPage. */
 export interface RetranscribePage {
@@ -130,7 +131,6 @@ const TRANSCRIBE_PROMPT =
 
 /** Re-transcribe one page with GPT-4o. Returns clean text, or null on failure. */
 async function retranscribeOnePage(
-  openai: OpenAI,
   srcPdf: PDFDocument,
   pageIndex: number,
 ): Promise<string | null> {
@@ -146,22 +146,22 @@ async function retranscribeOnePage(
   }
   const dataUri = `data:application/pdf;base64,${Buffer.from(onePagePdf).toString('base64')}`
   try {
-    const completion = await openai.chat.completions.create({
+    const { text } = await generateLlmText({
       model: 'gpt-4o',
       temperature: 0,
-      max_tokens: 1800,
+      maxOutputTokens: 1800,
       messages: [
         {
           role: 'user',
           content: [
             { type: 'text', text: TRANSCRIBE_PROMPT },
-            { type: 'file', file: { filename: `page_${pageIndex}.pdf`, file_data: dataUri } },
+            { type: 'file', data: dataUri, mediaType: 'application/pdf' },
           ],
         },
-      ] as unknown as OpenAI.Chat.ChatCompletionMessageParam[],
+      ],
     })
-    const text = (completion.choices?.[0]?.message?.content ?? '').trim()
-    return text.length >= 20 ? text : null
+    const out = (text ?? '').trim()
+    return out.length >= 20 ? out : null
   } catch (err) {
     console.warn(`[vision-retranscribe] page ${pageIndex} GPT-4o call failed:`, err)
     return null
@@ -224,14 +224,13 @@ export async function retranscribeGarbledPages(
     )
   }
 
-  const openai = new OpenAI({ apiKey })
   const pageNumbers: number[] = []
   let cursor = 0
 
   async function worker(): Promise<void> {
     while (cursor < capped.length) {
       const page = capped[cursor++]
-      const clean = await retranscribeOnePage(openai, srcPdf, page.page_number)
+      const clean = await retranscribeOnePage(srcPdf, page.page_number)
       if (clean) {
         page.text = clean
         page.ocr_confidence = RETRANSCRIBED_CONFIDENCE

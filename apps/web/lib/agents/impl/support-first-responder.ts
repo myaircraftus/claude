@@ -21,9 +21,12 @@
  *
  * Output is logged via the runner.
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import type { ModelMessage } from 'ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface SupportTurn {
   role: 'user' | 'assistant'
@@ -69,6 +72,18 @@ Response format — STRICT JSON:
   "needs_human": false,
   "follow_ups": ["suggested next question", ...]
 }`
+
+/** Permissive schema — built from primitives so a slightly off-spec model
+ *  response coerces rather than throwing, mirroring the prior JSON.parse path.
+ *  Fields that may be absent/null are nullable; downstream code defaults them. */
+const SupportAnswerSchema = z.object({
+  answer: z.string(),
+  confidence: z.string(),
+  cited_kb_ids: z.array(z.string()).nullable(),
+  category: z.string(),
+  needs_human: z.boolean().nullable(),
+  follow_ups: z.array(z.string()).nullable(),
+})
 
 export async function answerSupportQuestion(args: {
   supabase: SupabaseClient
@@ -131,34 +146,38 @@ export async function answerSupportQuestion(args: {
         }
       }
 
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o')
       const t0 = Date.now()
-      const completion = await openai.chat.completions.create({
-        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-        temperature: 0,
-        max_tokens: 700,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...(args.priorTurns ?? []).map((t) => ({
-            role: t.role as 'user' | 'assistant',
-            content: t.content,
-          })),
-          {
-            role: 'user',
-            content: `User persona: ${args.persona}\n\nKnowledge-base context:\n${kbContext || '(no KB entries matched)'}\n\nUser question: ${args.question}`,
-          },
-        ],
-      })
-      const ms = Date.now() - t0
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
-      void ms
-
+      const messages: ModelMessage[] = [
+        ...(args.priorTurns ?? []).map((t) => ({
+          role: t.role as 'user' | 'assistant',
+          content: t.content,
+        })),
+        {
+          role: 'user' as const,
+          content: `User persona: ${args.persona}\n\nKnowledge-base context:\n${kbContext || '(no KB entries matched)'}\n\nUser question: ${args.question}`,
+        },
+      ]
       let parsed: SupportAnswer
       try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as SupportAnswer
+        const result = await generateLlmObject({
+          model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+          schema: SupportAnswerSchema,
+          temperature: 0,
+          maxOutputTokens: 700,
+          system: SYSTEM_PROMPT,
+          messages,
+        })
+        logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
+        const obj = result.object
+        parsed = {
+          answer: obj.answer,
+          confidence: obj.confidence as SupportAnswer['confidence'],
+          cited_kb_ids: obj.cited_kb_ids ?? [],
+          category: obj.category as SupportAnswer['category'],
+          needs_human: obj.needs_human ?? false,
+          follow_ups: obj.follow_ups ?? undefined,
+        }
       } catch {
         parsed = {
           answer: 'I had trouble parsing my own response. A human will follow up.',
@@ -168,6 +187,8 @@ export async function answerSupportQuestion(args: {
           needs_human: true,
         }
       }
+      const ms = Date.now() - t0
+      void ms
 
       // Validate cited_kb_ids
       const validKbIds = new Set((kbRows ?? []).map((r: any) => r.id))

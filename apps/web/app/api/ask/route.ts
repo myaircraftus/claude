@@ -22,10 +22,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { openai } from '@ai-sdk/openai'
+import { streamText, generateText, tool, stepCountIs, type ModelMessage } from 'ai'
+import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
-import { AI_TOOLS, type AiToolName } from '@/lib/ai/tools'
+import { type AiToolName } from '@/lib/ai/tools'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { classifyAskQuestion } from '@/lib/ask/question-classifier'
 import { tryFleetAggregation } from '@/lib/ask/fleet-aggregation'
@@ -430,9 +432,9 @@ Owner mode is "find me this in the book" — like searching a paper logbook.
 - Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode. If the user asks for one, briefly explain they should switch to mechanic mode.`
 }
 
-function toolsForPersona(persona: AskPersona): OpenAI.Chat.ChatCompletionTool[] {
-  const allowed = new Set(persona === 'shop' ? MECHANIC_TOOL_NAMES : OWNER_TOOL_NAMES)
-  return AI_TOOLS.filter((tool) => allowed.has(tool.function.name as AiToolName)) as OpenAI.Chat.ChatCompletionTool[]
+/** The tool names available to a persona — owner gets search_documents only. */
+function toolNamesForPersona(persona: AskPersona): Set<AiToolName> {
+  return new Set(persona === 'shop' ? MECHANIC_TOOL_NAMES : OWNER_TOOL_NAMES)
 }
 
 // ── Agent runner ─────────────────────────────────────────────────────────────────
@@ -471,7 +473,6 @@ const TOOL_STATUS: Record<string, string> = {
  */
 async function runAskAgent(
   req: NextRequest,
-  openai: OpenAI,
   opts: {
     question: string
     persona: AskPersona
@@ -496,13 +497,13 @@ async function runAskAgent(
   },
 ): Promise<AskAgentResult> {
   const { question, persona, aircraftId, conversationHistory } = opts
-  const personaTools = toolsForPersona(persona)
+  const allowedToolNames = toolNamesForPersona(persona)
 
-  // Build initial messages
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: buildSystemPrompt(persona) },
+  // Build the conversation. The system prompt is passed to the SDK via the
+  // dedicated `system` field; `messages` carries prior turns + this question.
+  const messages: ModelMessage[] = [
     ...conversationHistory.map(
-      (m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam),
+      (m) => ({ role: m.role, content: m.content } as ModelMessage),
     ),
     {
       role: 'user',
@@ -520,160 +521,243 @@ async function runAskAgent(
   const collectedFollowUps: string[] = []
   let ragConfidence: string | undefined
 
-  const streaming = typeof opts.onToken === 'function'
-
-  // ── Tool-calling loop (max 3 rounds) ───────────────────────────────────────
-  let round = 0
-  while (round < 3) {
-    round++
-
-    // One assistant turn. We normalize both modes down to `assistantText` (the
-    // round's prose) + `dispatchList` (its tool calls), so the dispatch logic
-    // below is shared. Blocking mode stays byte-identical to the original.
-    let assistantText = ''
-    let dispatchList: Array<{ id: string; name: string; args: string }> = []
-
-    if (streaming) {
-      const stream = await openai.chat.completions.create({
-        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-        temperature: 0.3,
-        max_tokens: 1500,
-        tools: personaTools,
-        tool_choice: 'auto',
-        messages,
-        stream: true,
-      })
-
-      const toolAcc: Array<{ id: string; name: string; args: string }> = []
-      let sawToolCall = false
-      let startedAnswer = false
-
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta
-        if (!delta) continue
-
-        if (delta.tool_calls) {
-          sawToolCall = true
-          for (const tcd of delta.tool_calls) {
-            const idx = tcd.index ?? 0
-            if (!toolAcc[idx]) toolAcc[idx] = { id: '', name: '', args: '' }
-            if (tcd.id) toolAcc[idx].id = tcd.id
-            if (tcd.function?.name) toolAcc[idx].name = tcd.function.name
-            if (tcd.function?.arguments) toolAcc[idx].args += tcd.function.arguments
-          }
-        }
-
-        if (typeof delta.content === 'string' && delta.content.length > 0) {
-          assistantText += delta.content
-          // Only forward tokens for a pure-answer round. If this round ALSO
-          // makes tool calls (a rare model "preamble"), the streamed text is not
-          // the final answer — we emit onReset() below and let a later round
-          // stream the real answer.
-          if (!sawToolCall) {
-            if (!startedAnswer) {
-              startedAnswer = true
-              opts.onStatus?.('writing')
-            }
-            opts.onToken?.(delta.content)
-          }
-        }
-      }
-
-      dispatchList = toolAcc.filter(Boolean)
-
-      if (dispatchList.length > 0) {
-        if (startedAnswer) opts.onReset?.()
-        messages.push({
-          role: 'assistant',
-          content: assistantText || null,
-          tool_calls: dispatchList.map((t) => ({
-            id: t.id,
-            type: 'function' as const,
-            function: { name: t.name, arguments: t.args },
-          })),
-        } as OpenAI.Chat.ChatCompletionMessageParam)
-      } else {
-        messages.push({ role: 'assistant', content: assistantText } as OpenAI.Chat.ChatCompletionMessageParam)
-      }
-    } else {
-      const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-        temperature: 0.3,
-        max_tokens: 1500,
-        tools: personaTools,
-        tool_choice: 'auto',
-        messages,
-      })
-
-      const msg = response.choices[0].message
-      // Add assistant message to history (preserve exact original shape).
-      messages.push(msg as OpenAI.Chat.ChatCompletionMessageParam)
-      assistantText = msg.content ?? ''
-      dispatchList = (msg.tool_calls ?? []).map((tc) => ({
-        id: tc.id,
-        name: tc.function.name,
-        args: tc.function.arguments,
-      }))
+  // ── AI SDK tool set ────────────────────────────────────────────────────────
+  // Each tool's `execute` reuses the EXISTING dispatchTool (single source of
+  // truth for tool logic), injects aircraft_id from context when the model
+  // omits it (preserving the old loop's behavior), pushes any artifact /
+  // citations / follow-ups / confidence into the outer collectors, and returns
+  // the raw `result` object back to the model.
+  //
+  // aircraft_id is `.optional()` on every schema even though the OpenAI tool
+  // defs marked it required for some tools: the SDK enforces the Zod schema
+  // BEFORE execute runs, so a required aircraft_id would reject the call and
+  // skip the context-injection fallback. OpenAI's function calling never hard-
+  // enforced required-ness, so making it optional preserves the prior runtime
+  // behavior (call still runs; aircraft_id is injected from context).
+  const runTool = async (name: AiToolName, rawArgs: Record<string, unknown>) => {
+    const args: Record<string, unknown> = { ...rawArgs }
+    // Inject aircraft_id from context if not provided.
+    if (!args.aircraft_id && aircraftId) {
+      args.aircraft_id = aircraftId
     }
-
-    // If no tool calls → final answer
-    if (dispatchList.length === 0) {
-      return {
-        answer: assistantText,
-        artifacts,
-        // Confidence reflects RAG evidence only — never hard-code 'high' just
-        // because a non-RAG tool produced an artifact (audit fix: an artifact
-        // is not evidence of answer accuracy).
-        confidence: ragConfidence,
-        citations: collectedCitations,
-        followUps: collectedFollowUps,
-        toolCalls: toolCallsMade,
-      }
-    }
-
-    // Dispatch each tool call
-    const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = []
-    for (const tc of dispatchList) {
-      let args: Record<string, unknown> = {}
-      try { args = JSON.parse(tc.args) } catch { /* ignore */ }
-
-      // Inject aircraft_id from context if not provided
-      if (!args.aircraft_id && aircraftId) {
-        args.aircraft_id = aircraftId
-      }
-
-      toolCallsMade.push(tc.name)
-      opts.onStatus?.(TOOL_STATUS[tc.name] ?? 'working')
-      const { result, artifact, citations: newCites, followUps, confidence } = await dispatchTool(req, tc.name, args, conversationHistory)
-      if (artifact) artifacts.push(artifact)
-      if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
-      if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
-      if (confidence) ragConfidence = confidence
-
-      toolResults.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: JSON.stringify(result),
-      })
-    }
-
-    // Citations / confidence / follow-ups are now known for this round. Push
-    // them to the client BEFORE the answer streams so inline [N] markers resolve
-    // against a populated citation list as the tokens arrive.
-    opts.onMeta?.({
-      citations: [...collectedCitations],
-      confidence: ragConfidence,
-      followUps: [...collectedFollowUps],
-      artifacts: [...artifacts],
-    })
-
-    // Add tool results to messages and loop
-    messages.push(...toolResults)
+    toolCallsMade.push(name)
+    const { result, artifact, citations: newCites, followUps, confidence } =
+      await dispatchTool(req, name, args, conversationHistory)
+    if (artifact) artifacts.push(artifact)
+    if (newCites && newCites.length > 0) collectedCitations.push(...newCites)
+    if (followUps && followUps.length > 0) collectedFollowUps.push(...followUps)
+    if (confidence) ragConfidence = confidence
+    // Return the tool result object to the model (was JSON.stringify'd into the
+    // tool message in the old loop; the SDK serializes it for us).
+    return result
   }
 
-  // Exhausted rounds — return what we have.
+  const allTools = {
+    search_documents: tool({
+      description:
+        'Semantic search over uploaded aircraft documents (logbooks, POH, manuals, ADs, SBs). Use for Q&A about aircraft records.',
+      inputSchema: z.object({
+        query: z.string().describe('The question or search text'),
+        aircraft_id: z
+          .string()
+          .optional()
+          .describe('UUID of the aircraft (optional — omit to search all aircraft)'),
+      }),
+      execute: async (args) => runTool('search_documents', args),
+    }),
+    search_logbook: tool({
+      description:
+        'Search logbook entries for an aircraft. Use when user asks to find or look up past logbook entries, maintenance history, or repair records.',
+      inputSchema: z.object({
+        query: z.string().describe('Search keyword (e.g. magneto, annual, oil change)'),
+        aircraft_id: z.string().optional().describe('UUID of the aircraft'),
+      }),
+      execute: async (args) => runTool('search_logbook', args),
+    }),
+    search_parts: tool({
+      description:
+        'Search the parts catalog / marketplace for a specific part for an aircraft. Use when user asks to find, search, or look up parts.',
+      inputSchema: z.object({
+        query: z.string().describe('Part description, part number, or keyword'),
+        aircraft_id: z.string().optional().describe('UUID of the aircraft for context'),
+      }),
+      execute: async (args) => runTool('search_parts', args),
+    }),
+    create_logbook_entry: tool({
+      description:
+        'Draft a maintenance logbook entry for the mechanic to review and sign. Use when the user asks to create, generate, or draft a logbook entry.',
+      inputSchema: z.object({
+        aircraft_id: z.string().optional().describe('UUID of the aircraft'),
+        entry_type: z
+          .enum([
+            '100hr',
+            'annual',
+            'oil_change',
+            'ad_compliance',
+            'repair',
+            'maintenance',
+            'discrepancy',
+            'sb_compliance',
+            'component_replacement',
+            'return_to_service',
+            'major_repair',
+            'major_alteration',
+            'owner_preventive',
+          ])
+          .optional(),
+        description: z.string().describe('Plain-language description of the work done'),
+      }),
+      execute: async (args) => runTool('create_logbook_entry', args),
+    }),
+    generate_checklist: tool({
+      description:
+        'Generate a work order / inspection checklist. Use when user asks to create a checklist for an annual, 100hr, AD, or other maintenance task.',
+      inputSchema: z.object({
+        scope: z.enum(['annual', '100hr', 'AD', 'SB', 'custom']).describe('Type of checklist'),
+        aircraft_id: z.string().optional().describe('UUID of the aircraft'),
+        reference: z
+          .string()
+          .optional()
+          .describe('AD or SB reference number if scope is AD or SB'),
+        prompt: z.string().optional().describe('Free-text description if scope is custom'),
+      }),
+      execute: async (args) => runTool('generate_checklist', args),
+    }),
+  } as const
+
+  // Filter to the persona's allowed tools (owner → search_documents only).
+  const tools = Object.fromEntries(
+    Object.entries(allTools).filter(([name]) => allowedToolNames.has(name as AiToolName)),
+  )
+
+  const model = openai.chat(process.env.OPENAI_CHAT_MODEL || 'gpt-4o')
+  const system = buildSystemPrompt(persona)
+  // stepCountIs(3) preserves the old "max 3 rounds" tool-calling budget.
+  const stopWhen = stepCountIs(3)
+  const streaming = typeof opts.onToken === 'function'
+
+  if (streaming) {
+    const result = streamText({
+      model,
+      system,
+      messages,
+      tools,
+      stopWhen,
+      temperature: 0.3,
+      maxOutputTokens: 1500,
+    })
+
+    // Track, PER STEP, whether we've streamed any answer tokens yet — needed to
+    // replicate the old onReset() "preamble" behavior: if a step streamed prose
+    // and THEN issues tool calls, that prose is not the final answer, so we
+    // reset the client's accumulated answer and let a later step stream the
+    // real one. Reset the flag at each step boundary.
+    let stepStreamedText = false
+    let startedAnswer = false
+    // Whether any tool ran in the current step — gates onMeta emission so we
+    // only push citations/confidence/artifacts after a step that actually
+    // called tools (matching the old per-round onMeta), before the next step's
+    // answer tokens stream.
+    let stepHadToolCall = false
+
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case 'start-step': {
+          stepStreamedText = false
+          stepHadToolCall = false
+          break
+        }
+        case 'text-delta': {
+          // text-delta on the public stream carries the chunk in `.text`.
+          if (part.text.length === 0) break
+          stepStreamedText = true
+          if (!startedAnswer) {
+            startedAnswer = true
+            opts.onStatus?.('writing')
+          }
+          opts.onToken?.(part.text)
+          break
+        }
+        case 'tool-call': {
+          // The model issued a tool call this step. If we already streamed
+          // answer prose this step, it was a preamble — discard it client-side.
+          if (stepStreamedText && startedAnswer) {
+            opts.onReset?.()
+            startedAnswer = false
+            stepStreamedText = false
+          }
+          stepHadToolCall = true
+          opts.onStatus?.(TOOL_STATUS[part.toolName] ?? 'working')
+          break
+        }
+        case 'finish-step': {
+          // All tool results for this step have resolved (their `execute`
+          // populated the collectors). Push citations/confidence/follow-ups/
+          // artifacts to the client BEFORE the next step's answer tokens so
+          // inline [N] markers resolve against a populated list as they arrive.
+          if (stepHadToolCall) {
+            opts.onMeta?.({
+              citations: [...collectedCitations],
+              confidence: ragConfidence,
+              followUps: [...collectedFollowUps],
+              artifacts: [...artifacts],
+            })
+          }
+          break
+        }
+        case 'error': {
+          // Surface to the caller's try/catch so the route emits an error event.
+          throw part.error
+        }
+        default:
+          break
+      }
+    }
+
+    // Final answer = the text generated in the last step. If the step budget
+    // was exhausted while still calling tools, the last step produces no prose
+    // — fall back to the same canned line the old loop returned on exhaustion.
+    const finalText = await result.text
+    const answer = finalText.trim().length > 0
+      ? finalText
+      : toolCallsMade.length > 0
+        ? 'I gathered some results for you. See the cards below.'
+        : finalText
+
+    return {
+      answer,
+      artifacts,
+      // Confidence reflects RAG evidence only — never hard-code 'high' just
+      // because a non-RAG tool produced an artifact (audit fix: an artifact is
+      // not evidence of answer accuracy).
+      confidence: ragConfidence,
+      citations: collectedCitations,
+      followUps: collectedFollowUps,
+      toolCalls: toolCallsMade,
+    }
+  }
+
+  // ── Blocking mode (no onToken) — "All Aircraft" fan-out + org-wide passes. ──
+  const result = await generateText({
+    model,
+    system,
+    messages,
+    tools,
+    stopWhen,
+    temperature: 0.3,
+    maxOutputTokens: 1500,
+  })
+
+  // Same exhaustion fallback as streaming mode (old loop returned this canned
+  // line when the 3-round budget ran out with tool calls still pending).
+  const answer = result.text.trim().length > 0
+    ? result.text
+    : toolCallsMade.length > 0
+      ? 'I gathered some results for you. See the cards below.'
+      : result.text
+
   return {
-    answer: 'I gathered some results for you. See the cards below.',
+    answer,
     artifacts,
     confidence: ragConfidence,
     citations: collectedCitations,
@@ -783,7 +867,8 @@ export async function POST(req: NextRequest) {
   // getting the JSON response unchanged.
   const wantsStream = body.stream === true
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  // The @ai-sdk/openai provider reads OPENAI_API_KEY from the environment
+  // automatically (guarded above), so there's no client to construct here.
   const orgId = orgContext.organizationId
   const userId = orgContext.user.id
 
@@ -848,7 +933,7 @@ export async function POST(req: NextRequest) {
   // Rewrite a context-dependent follow-up ("who signed it?") into a
   // standalone query so retrieval doesn't drift to an unrelated document.
   // No-op for the first turn or an already-standalone question.
-  const searchQuestion = await condenseFollowUp(openai, history, question)
+  const searchQuestion = await condenseFollowUp(history, question)
 
   // Persist the assistant answer + advance the thread, then respond. Every
   // success path funnels through here so persistence lives in exactly one
@@ -909,7 +994,7 @@ export async function POST(req: NextRequest) {
             send({ type: 'thread_id', thread_id: threadId })
             send({ type: 'status', stage: 'thinking' })
 
-            const result = await runAskAgent(req, openai, {
+            const result = await runAskAgent(req, {
               question: searchQuestion,
               persona,
               aircraftId: aircraftForAgent,
@@ -991,7 +1076,7 @@ export async function POST(req: NextRequest) {
     // ── Single-aircraft path: aircraft_id is set ───────────────────────────────
     // Behavior is byte-identical to the pre-refactor inline loop.
     if (scopeAircraftId) {
-      const result = await runAskAgent(req, openai, {
+      const result = await runAskAgent(req, {
         question: searchQuestion,
         persona,
         aircraftId: resolvedAircraftId ?? scopeAircraftId,
@@ -1051,7 +1136,7 @@ export async function POST(req: NextRequest) {
 
     // org_wide → existing single org-wide pass (aircraftId undefined). Unchanged.
     if (kind === 'org_wide') {
-      const result = await runAskAgent(req, openai, {
+      const result = await runAskAgent(req, {
         question: searchQuestion,
         persona,
         aircraftId: undefined,
@@ -1088,7 +1173,7 @@ export async function POST(req: NextRequest) {
 
     // No aircraft to fan out over — degrade gracefully to a single org-wide pass.
     if (fleet.length === 0) {
-      const result = await runAskAgent(req, openai, {
+      const result = await runAskAgent(req, {
         question: searchQuestion,
         persona,
         aircraftId: undefined,
@@ -1110,7 +1195,7 @@ export async function POST(req: NextRequest) {
     // degrades to a "no records found" line, never an uncaught throw.
     const perAircraft = await runWithConcurrency(fleet, 10, async (ac) => {
       try {
-        const result = await runAskAgent(req, openai, {
+        const result = await runAskAgent(req, {
           question: searchQuestion,
           persona,
           aircraftId: ac.id,

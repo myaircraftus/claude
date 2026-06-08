@@ -14,7 +14,8 @@
  * gating as /sop-library itself.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { listSops } from '@/lib/sop/parser'
 
@@ -35,6 +36,21 @@ interface AskResponse {
   answer: string
   citations: SopCitation[]
 }
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — citation sanitization below is unchanged.
+const AskSchema = z.object({
+  answer: z.string().nullable(),
+  citations: z
+    .array(
+      z.object({
+        sopSlug: z.string().nullable(),
+        sopTitle: z.string().nullable(),
+        section: z.string().nullable(),
+      }),
+    )
+    .nullable(),
+})
 
 const SYSTEM_PROMPT = `You are a myaircraft.us product expert answering questions about platform procedures.
 
@@ -105,25 +121,17 @@ export async function POST(req: NextRequest) {
     })
     .join('\n\n')
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-  let parsed: AskResponse
+  let parsed: z.infer<typeof AskSchema>
   try {
-    const completion = await openai.chat.completions.create({
+    const result = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+      schema: AskSchema,
       temperature: 0,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `SOPs:\n${context}\n\nUser question: ${question}`,
-        },
-      ],
+      maxOutputTokens: 1200,
+      system: SYSTEM_PROMPT,
+      prompt: `SOPs:\n${context}\n\nUser question: ${question}`,
     })
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    parsed = JSON.parse(raw) as AskResponse
+    parsed = result.object
   } catch (err) {
     console.error('[api/sop/ask] LLM call failed:', err)
     return NextResponse.json(

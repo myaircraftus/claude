@@ -4,11 +4,9 @@
 // Example: "oil filter" + Cessna 152 / Lycoming O-235
 //   → { partNumbers: ["CH48110-1"], searchQuery: "CH48110-1 oil filter", ... }
 
-import OpenAI from 'openai'
-
-function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-}
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface AircraftContext {
   tailNumber: string
@@ -81,6 +79,18 @@ Respond ONLY with valid JSON matching this schema:
   "reasoning": "brief explanation of how you determined the P/N"
 }`
 
+/** Permissive schema — the strict coercion (Array.isArray / typeof / confidence
+ *  allow-list) happens in the post-parse block below, unchanged. */
+const PartResolutionSchema = z.object({
+  partNumbers: z.array(z.string()).nullable(),
+  searchQuery: z.string().nullable(),
+  description: z.string().nullable(),
+  system: z.string().nullable(),
+  alternates: z.array(z.string()).nullable(),
+  confidence: z.string().nullable(),
+  reasoning: z.string().nullable(),
+})
+
 export async function resolvePartWithAI(
   userQuery: string,
   aircraft: AircraftContext,
@@ -91,7 +101,6 @@ export async function resolvePartWithAI(
     return null
   }
 
-  const openai = getOpenAI()
   const model = process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o'
 
   // Build aircraft context string
@@ -123,24 +132,17 @@ Resolve this to the exact part number(s) for this specific aircraft. If the airc
     // killed mid-response, and the browser fetch rejects with "Failed to
     // fetch". On timeout this throws → the catch below returns null → the
     // search still runs with the raw query (just no AI optimization).
-    const completion = await openai.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model,
+      schema: PartResolutionSchema,
       temperature: 0.1,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
-    }, { timeout: 12000, maxRetries: 1 })
+      maxOutputTokens: 500,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(12000),
+      system: SYSTEM_PROMPT,
+      prompt: userMessage,
+    })
 
-    const raw = completion.choices[0]?.message?.content
-    if (!raw) {
-      console.error('[ai-resolve] Empty response from OpenAI')
-      return null
-    }
-
-    const parsed = JSON.parse(raw)
     const elapsed = Date.now() - start
     console.log(`[ai-resolve] "${userQuery}" → ${JSON.stringify(parsed.partNumbers)} (${parsed.confidence}, ${elapsed}ms)`)
 
@@ -150,7 +152,9 @@ Resolve this to the exact part number(s) for this specific aircraft. If the airc
       description: parsed.description ?? '',
       system: parsed.system ?? 'other',
       alternates: Array.isArray(parsed.alternates) ? parsed.alternates : [],
-      confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
+      confidence: ['high', 'medium', 'low'].includes(parsed.confidence as PartResolution['confidence'])
+        ? (parsed.confidence as PartResolution['confidence'])
+        : 'low',
       reasoning: parsed.reasoning ?? '',
     }
   } catch (err: any) {

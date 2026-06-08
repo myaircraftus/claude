@@ -22,7 +22,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { generateLlmText } from '@/lib/ai/llm'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { MECHANIC_AND_ABOVE } from '@/lib/roles'
@@ -176,18 +177,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ─── LLM call ──────────────────────────────────────────────────
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const completion = await openai.chat.completions.create({
+    const { text } = await generateLlmText({
       model: process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o',
       temperature: 0.3,
-      max_tokens: 600,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+      maxOutputTokens: 600,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
     })
 
-    const summary = (completion.choices[0]?.message?.content ?? '').trim()
+    const summary = (text ?? '').trim()
     if (!summary) {
       return NextResponse.json({ error: 'AI returned empty summary' }, { status: 502 })
     }

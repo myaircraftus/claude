@@ -18,7 +18,8 @@
  * Output is plain markdown (no citations panel — the chat UI handles that).
  */
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { createServerSupabase } from '@/lib/supabase/server'
 import { listSops } from '@/lib/sop/parser'
 import { appendTurn, createSession } from '@/lib/sop/sessions'
@@ -328,6 +329,14 @@ interface SimulatorResponse {
   completedCriteria: string[]
 }
 
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+// Permissive schema — post-parse coercion below is unchanged.
+const SimulatorSchema = z.object({
+  assistant: z.string().nullable(),
+  scenarioComplete: z.boolean().nullable(),
+  completedCriteria: z.array(z.string()).nullable(),
+})
+
 function getSystemPrompt(scenario: SimulatorScenario, sopExcerpts: string): string {
   return `You are an aviation maintenance trainer using the myaircraft.us platform. Your job is to guide the user through a realistic workflow scenario, asking them what they'd do next and giving them feedback grounded in the platform's actual SOPs and procedures.
 
@@ -429,24 +438,17 @@ export async function POST(req: NextRequest) {
     })
     .join('\n\n')
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-  const chatMessages = [
-    { role: 'system' as const, content: getSystemPrompt(scenario, sopExcerpts) },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ]
-
-  let parsed: SimulatorResponse
+  let parsed: z.infer<typeof SimulatorSchema>
   try {
-    const completion = await openai.chat.completions.create({
+    const result = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
+      schema: SimulatorSchema,
       temperature: 0.2, // a little warmth for the coaching voice
-      max_tokens: 800,
-      response_format: { type: 'json_object' },
-      messages: chatMessages,
+      maxOutputTokens: 800,
+      system: getSystemPrompt(scenario, sopExcerpts),
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
     })
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    parsed = JSON.parse(raw) as SimulatorResponse
+    parsed = result.object
   } catch (err) {
     console.error('[api/sop/simulator] LLM call failed:', err)
     return NextResponse.json(

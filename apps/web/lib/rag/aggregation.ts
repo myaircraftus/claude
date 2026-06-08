@@ -12,7 +12,9 @@
  * This module is best-effort: `extractAggregationEvents` throws on a hard LLM
  * failure so the caller can fall back to the normal answer path.
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import type { RetrievedChunk } from '@/types'
 
 /** One discrete maintenance event extracted from the logbook excerpts. */
@@ -23,6 +25,22 @@ export interface AggregationEvent {
   mechanic: string | null
   source_chunk_id: string | null
 }
+
+/** Permissive extraction schema — the strict coercion/validation happens in the
+ *  post-parse .map() below, exactly as the prior JSON.parse path did. */
+const AggregationExtractionSchema = z.object({
+  events: z
+    .array(
+      z.object({
+        date: z.string().nullable(),
+        description: z.string().nullable(),
+        part_number: z.string().nullable(),
+        mechanic: z.string().nullable(),
+        source_chunk_id: z.string().nullable(),
+      }),
+    )
+    .default([]),
+})
 
 // ─── Normalized similarity for dedup ────────────────────────────────────────
 
@@ -90,12 +108,6 @@ export async function extractAggregationEvents(
     throw new Error('extractAggregationEvents: OPENAI_API_KEY not configured')
   }
 
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 30000,
-    maxRetries: 1,
-  })
-
   // Label each chunk with its id so the model can fill source_chunk_id.
   const validChunkIds = new Set(chunks.map((c) => c.chunk_id))
   const excerpts = chunks
@@ -105,10 +117,12 @@ export async function extractAggregationEvents(
     )
     .join('\n\n')
 
-  const completion = await openai.chat.completions.create({
+  const { object: parsed } = await generateLlmObject({
     model: 'gpt-4o-mini',
+    schema: AggregationExtractionSchema,
     temperature: 0,
-    response_format: { type: 'json_object' },
+    maxRetries: 1,
+    abortSignal: AbortSignal.timeout(30000),
     messages: [
       {
         role: 'system',
@@ -127,8 +141,6 @@ export async function extractAggregationEvents(
     ],
   })
 
-  const raw = completion.choices[0]?.message?.content ?? '{}'
-  const parsed = JSON.parse(raw) as { events?: unknown }
   const rawEvents = Array.isArray(parsed.events) ? parsed.events : []
 
   const events: AggregationEvent[] = rawEvents

@@ -13,9 +13,11 @@
  * already on the table. Triage is best-effort: if the agent throws, the
  * ticket just keeps whatever defaults were set on insert (other / P3).
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export type TriageCategory =
   | 'billing'
@@ -58,6 +60,15 @@ const VALID_CATEGORIES: ReadonlySet<TriageCategory> = new Set([
 ])
 const VALID_SEVERITIES: ReadonlySet<TriageSeverity> = new Set(['P0', 'P1', 'P2', 'P3'])
 
+/** Permissive schema — model guidance comes from the prompt; the VALID_*
+ *  sets below coerce anything off-spec, exactly as the prior JSON.parse path
+ *  did. */
+const TriageSchema = z.object({
+  category: z.string(),
+  severity: z.string(),
+  rationale: z.string(),
+})
+
 export async function triageTicket(args: {
   supabase: SupabaseClient
   triggeredBy?: string | null
@@ -88,34 +99,22 @@ export async function triageTicket(args: {
         return { output: out }
       }
 
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o-mini')
-      const completion = await openai.chat.completions.create({
+      const result = await generateLlmObject({
         model: process.env.OPENAI_TRIAGE_MODEL || 'gpt-4o-mini',
+        schema: TriageSchema,
         temperature: 0,
-        max_tokens: 200,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: `Ticket message:\n${args.question}\n\n${
-              args.aiAnswer
-                ? `Our AI first-responder said:\n${args.aiAnswer.slice(0, 1000)}\n`
-                : ''
-            }Return JSON.`,
-          },
-        ],
+        maxOutputTokens: 200,
+        system: SYSTEM_PROMPT,
+        prompt: `Ticket message:\n${args.question}\n\n${
+          args.aiAnswer
+            ? `Our AI first-responder said:\n${args.aiAnswer.slice(0, 1000)}\n`
+            : ''
+        }Return JSON.`,
       })
-      const usage = completion.usage
-      if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+      logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
 
-      let parsed: Partial<TriageOutput>
-      try {
-        parsed = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as Partial<TriageOutput>
-      } catch {
-        parsed = {}
-      }
+      const parsed: Partial<TriageOutput> = result.object as Partial<TriageOutput>
 
       const out: TriageOutput = {
         category: VALID_CATEGORIES.has(parsed.category as TriageCategory)

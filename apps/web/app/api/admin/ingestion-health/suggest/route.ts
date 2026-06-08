@@ -26,10 +26,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { z } from 'zod'
 import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 import { classifyIngestionFailure } from '@/lib/ingestion/failure-classifier'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
+
+// Migrated to the unified AI SDK layer (lib/ai/llm).
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -367,7 +370,6 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     )
   }
-  const client = new OpenAI({ apiKey })
   const userPrompt = [
     `Failure message:`,
     '```',
@@ -378,24 +380,27 @@ export async function POST(req: NextRequest) {
     'Return JSON with: classification, classifier_tag, regex_pattern, rationale, needs_code_change, code_change_summary.',
   ].join('\n')
 
+  // Permissive schema — primitives only, every field nullish; the post-parse
+  // coercion below validates classification/tags (mirrors the prior JSON.parse).
+  const SuggestionSchema = z.object({
+    classification: z.string().nullish(),
+    classifier_tag: z.string().nullish(),
+    regex_pattern: z.string().nullish(),
+    rationale: z.string().nullish(),
+    needs_code_change: z.boolean().nullish(),
+    code_change_summary: z.string().nullish(),
+  })
+
   try {
-    const response = await client.chat.completions.create({
+    const { object: parsed } = await generateLlmObject({
       model: process.env.OPENAI_CHAT_MODEL || 'gpt-4o',
-      response_format: { type: 'json_object' },
+      schema: SuggestionSchema,
       temperature: 0.1,
-      max_tokens: 600,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+      maxOutputTokens: 600,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
     })
 
-    const raw = response.choices[0]?.message?.content?.trim()
-    if (!raw) {
-      return NextResponse.json({ error: 'LLM returned empty response' }, { status: 502 })
-    }
-
-    const parsed = JSON.parse(raw) as Partial<AISuggestion>
     const suggestion: AISuggestion = {
       classification:
         parsed.classification === 'transient' ||

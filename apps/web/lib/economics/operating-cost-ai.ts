@@ -9,7 +9,9 @@
  * an empty form.
  */
 
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface AircraftForCostAI {
   year?: number | null
@@ -60,6 +62,26 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(x) ? x : null
 }
 
+/** Permissive schema — numbers may arrive as strings/null; the toNum() +
+ *  ai_confidence/ai_notes coercion below normalizes everything, unchanged. */
+const num = z.union([z.number(), z.string()]).nullable()
+const OperatingCostSchema = z.object({
+  fuel_burn_gph: num,
+  fuel_price_per_gal: num,
+  oil_burn_qph: num,
+  oil_price_per_qt: num,
+  engine_reserve_per_hr: num,
+  prop_reserve_per_hr: num,
+  scheduled_maint_per_hr: num,
+  unscheduled_maint_per_hr: num,
+  insurance_per_year: num,
+  annual_fixed_cost: num,
+  tiedown_per_month: num,
+  expected_annual_hours: num,
+  ai_confidence: z.string().nullable(),
+  ai_notes: z.string().nullable(),
+})
+
 export async function suggestOperatingCost(
   aircraft: AircraftForCostAI,
 ): Promise<OperatingCostSuggestion | null> {
@@ -68,7 +90,6 @@ export async function suggestOperatingCost(
     return null
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const model = process.env.OPENAI_CHAT_MODEL ?? 'gpt-4o'
 
   const label = [aircraft.year, aircraft.make, aircraft.model]
@@ -96,27 +117,17 @@ Return JSON with these exact fields (all numeric, USD):
 }`
 
   try {
-    const completion = await openai.chat.completions.create(
-      {
-        model,
-        temperature: 0.2,
-        max_tokens: 700,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-      },
-      { timeout: 15000, maxRetries: 1 },
-    )
+    const { object: parsed } = await generateLlmObject({
+      model,
+      schema: OperatingCostSchema,
+      temperature: 0.2,
+      maxOutputTokens: 700,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(15000),
+      system: SYSTEM_PROMPT,
+      prompt: userMessage,
+    })
 
-    const raw = completion.choices[0]?.message?.content
-    if (!raw) {
-      console.error('[operating-cost-ai] empty response from OpenAI')
-      return null
-    }
-
-    const parsed = JSON.parse(raw) as Record<string, unknown>
     const out = {} as OperatingCostSuggestion
     for (const field of NUMERIC_FIELDS) {
       out[field] = toNum(parsed[field])

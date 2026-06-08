@@ -11,7 +11,8 @@
  * structurally complete tree with derived (non-AI) labels — it never throws on
  * a missing key or a failed AI call.
  */
-import OpenAI from 'openai'
+import { z } from 'zod'
+import { generateLlmObject } from '@/lib/ai/llm'
 import { createServiceSupabase } from '@/lib/supabase/server'
 import {
   makeNode,
@@ -27,6 +28,15 @@ type ChunkGroup = { key: string; label: string; chunks: TreeChunk[] }
 const AI_MODEL = 'gpt-4o-mini'
 /** Cap chunk text fed to the model so a huge doc can't blow the context. */
 const SUMMARY_INPUT_CHARS = 1800
+
+// Migrated to the unified AI SDK layer (lib/ai/llm). Permissive schema; the
+// existing per-summary validation loop below is preserved.
+const TreeSummarySchema = z.object({
+  summaries: z
+    .array(z.object({ id: z.string().nullable().optional(), summary: z.string().nullable().optional() }))
+    .nullable()
+    .optional(),
+})
 
 /**
  * Build (or rebuild) the page-index tree for a single document.
@@ -465,8 +475,6 @@ async function summarizeNodes(nodes: PageNode[], chunks: TreeChunk[]): Promise<v
     return
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 20000, maxRetries: 1 })
-
   // Only summarize content-bearing nodes via AI; pre-fill the rest.
   const targets = nodes.filter((n) => n.chunk_ids.length > 0)
   for (const n of nodes) n.summary = derived(n)
@@ -489,28 +497,20 @@ async function summarizeNodes(nodes: PageNode[], chunks: TreeChunk[]): Promise<v
   for (let i = 0; i < items.length; i += BATCH) {
     const slice = items.slice(i, i + BATCH)
     try {
-      const completion = await openai.chat.completions.create({
+      const { object: parsed } = await generateLlmObject({
         model: AI_MODEL,
+        schema: TreeSummarySchema,
         temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You summarize sections of aircraft maintenance documents for a search index. ' +
-              'For each item, write a factual 1-2 sentence summary of what that section covers. ' +
-              'Respond ONLY with JSON of the form ' +
-              '{"summaries":[{"id":"<id>","summary":"<text>"}]}. ' +
-              'Keep each summary under 240 characters. Do not invent facts not in the text.',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({ items: slice }),
-          },
-        ],
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(20000),
+        system:
+          'You summarize sections of aircraft maintenance documents for a search index. ' +
+          'For each item, write a factual 1-2 sentence summary of what that section covers. ' +
+          'Respond ONLY with JSON of the form ' +
+          '{"summaries":[{"id":"<id>","summary":"<text>"}]}. ' +
+          'Keep each summary under 240 characters. Do not invent facts not in the text.',
+        prompt: JSON.stringify({ items: slice }),
       })
-      const raw = completion.choices[0]?.message?.content ?? '{}'
-      const parsed = JSON.parse(raw) as { summaries?: { id?: string; summary?: string }[] }
       const byId = new Map(nodes.map((n) => [n.id, n]))
       for (const s of parsed.summaries ?? []) {
         if (s.id && typeof s.summary === 'string' && s.summary.trim()) {

@@ -12,6 +12,9 @@
     "seed:taxonomy": "tsx scripts/import-jasc-ata.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.81",
+    "@ai-sdk/google": "^3.0.80",
+    "@ai-sdk/openai": "^3.0.68",
     "@aws-sdk/client-textract": "^3.1027.0",
     "@hookform/resolvers": "^3.6.0",
     "@radix-ui/react-accordion": "^1.1.2",
@@ -54,6 +57,7 @@
     "@types/crypto-js": "^4.2.2",
     "@vercel/functions": "^3.5.0",
     "@vercel/sandbox": "^2.0.0",
+    "ai": "^6.0.197",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "1.1.1",

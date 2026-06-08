@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { createServerSupabase } from '@/lib/supabase/server'
-import OpenAI from 'openai'
+import { transcribeAudio } from '@/lib/ai/llm'
 import { rateLimit, getClientIp, rateLimitResponse } from '@/lib/rate-limit'
 
 function inferKind(mimeType: string): 'image' | 'audio' | 'video' | 'file' {
@@ -74,12 +74,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Transcribe audio files with Whisper
   if (kind === 'audio' && process.env.OPENAI_API_KEY) {
     try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-      const audioFile = new File([buffer], file.name, { type: file.type })
-      const transcription = await openai.audio.transcriptions.create({
-        model: 'whisper-1',
-        file: audioFile,
-      })
+      // Migrated to the unified AI SDK layer (lib/ai/llm).
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const transcription = await transcribeAudio(bytes, { model: 'whisper-1' })
       result.transcript = transcription.text
     } catch (err) {
       // Transcription is best-effort; don't fail the upload

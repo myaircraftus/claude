@@ -14,9 +14,11 @@
  * Runs through the standard agent runner — every invocation gets an
  * audit row in agent_runs.
  */
-import OpenAI from 'openai'
+// Migrated to the unified AI SDK layer (lib/ai/llm).
+import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runAgent } from '../runner'
+import { generateLlmObject } from '@/lib/ai/llm'
 
 export interface KbCuratorReport {
   scanned: number
@@ -42,6 +44,16 @@ Return STRICT JSON:
   "keywords": ["..."],
   "skip_reason": null | "..."
 }`
+
+/** Permissive schema — primitives only; nullable where the model may emit
+ *  null. The post-parse checks below (skip_reason / title / body_md) keep the
+ *  drafting behavior identical to the prior JSON.parse path. */
+const KbDraftSchema = z.object({
+  title: z.string().nullable(),
+  body_md: z.string().nullable(),
+  keywords: z.array(z.string()).nullable(),
+  skip_reason: z.string().nullable(),
+})
 
 export async function curateKbDrafts(args: {
   supabase: SupabaseClient
@@ -129,42 +141,29 @@ export async function curateKbDrafts(args: {
       }
 
       // 3. For each cluster, draft a KB entry.
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       logger.recordModel('openai', 'gpt-4o-mini')
 
       for (const cluster of clusters) {
         try {
-          const completion = await openai.chat.completions.create({
+          const result = await generateLlmObject({
             model: process.env.OPENAI_CURATOR_MODEL || 'gpt-4o-mini',
+            schema: KbDraftSchema,
             temperature: 0.2,
-            max_tokens: 600,
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              {
-                role: 'user',
-                content: `Category: ${cluster.category}\n\nQuestions:\n${cluster.items
-                  .slice(0, 10)
-                  .map((c, i) => `${i + 1}. ${c.question}`)
-                  .join('\n')}\n\nReturn JSON.`,
-              },
-            ],
+            maxOutputTokens: 600,
+            system: SYSTEM_PROMPT,
+            prompt: `Category: ${cluster.category}\n\nQuestions:\n${cluster.items
+              .slice(0, 10)
+              .map((c, i) => `${i + 1}. ${c.question}`)
+              .join('\n')}\n\nReturn JSON.`,
           })
-          const usage = completion.usage
-          if (usage) logger.recordTokens(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0)
+          logger.recordTokens(result.usage.inputTokens, result.usage.outputTokens)
 
-          const raw = completion.choices[0]?.message?.content ?? '{}'
-          let draft: {
-            title?: string
-            body_md?: string
-            keywords?: string[]
+          const draft: {
+            title?: string | null
+            body_md?: string | null
+            keywords?: string[] | null
             skip_reason?: string | null
-          } = {}
-          try {
-            draft = JSON.parse(raw)
-          } catch {
-            continue
-          }
+          } = result.object
           if (draft.skip_reason) continue
           if (!draft.title || !draft.body_md) continue
 
