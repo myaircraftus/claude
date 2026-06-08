@@ -1,16 +1,16 @@
 [api]
-port = 54321
+port = 44321
 schemas = ["public", "storage", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 44322
+shadow_port = 44320
 major_version = 15
 
 [studio]
-port = 54323
+port = 44323
 api_url = "http://localhost"
 
 [auth]
@@ -31,3 +31,12 @@ enabled = false
 client_id = "env(GOOGLE_CLIENT_ID)"
 secret = "env(GOOGLE_CLIENT_SECRET)"
 redirect_uri = ""
+
+# Ports moved below Windows' dynamic range start (49152) so WinNAT can't
+# reserve them and block Docker from binding (the default 5432x range was
+# inside a reserved range → "socket access forbidden"). See WORKLOG 2026-06-07.
+[inbucket]
+port = 44324
+
+[analytics]
+port = 44327

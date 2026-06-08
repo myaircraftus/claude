@@ -90,11 +90,13 @@ const nextConfig = {
     // Local-dev only: allow the local Supabase stack (REST/auth/storage over
     // http + realtime over ws) in connect-src. The production CSP only permits
     // https://*.supabase.co, which blocks the browser from reaching
-    // http://127.0.0.1:54321 when running against `supabase start` — it
+    // http://127.0.0.1:44321 when running against `supabase start` — it
     // surfaces as "Failed to fetch" on signup/login. Production CSP unchanged.
+    // (Ports moved off the default 5432x range — Windows/WinNAT reserved it and
+    //  blocked Docker from binding. See WORKLOG 2026-06-07 / supabase/config.toml.)
     const devConnectSrc =
       process.env.NODE_ENV !== 'production'
-        ? ' http://127.0.0.1:54321 http://localhost:54321 ws://127.0.0.1:54321 ws://localhost:54321'
+        ? ' http://127.0.0.1:44321 http://localhost:44321 ws://127.0.0.1:44321 ws://localhost:44321'
         : ''
     const csp = [
       "default-src 'self'",
