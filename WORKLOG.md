@@ -4,6 +4,154 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-15 — Fix: Work order Sign-off tab crashed after generating a logbook draft
+
+**Gap.** On a work order's **Sign-off** tab, after clicking "Generate draft" once, the tab showed "Something went wrong — we hit an unexpected error" every time after, for that work order only. Other work orders were fine. The mechanic was locked out of the sign-off step for that job.
+
+**Why this happened.** Generating a draft creates a logbook entry, which switches on a pre-sign "return-to-service" preflight check. That check returns its blockers and warnings as little **objects** (`{ kind, detail }`) — but the Sign-off UI tried to print each one directly as text. React refuses to render a raw object as content ("Objects are not valid as a React child"), so the whole tab crashed into the error boundary. It only surfaced after a draft existed (no draft → the preflight never runs → nothing to mis-render), and only on work orders with something to flag — this one had 4 unchecked required checklist items, so the blocker list was non-empty and hit the bad render.
+
+**Fix.** Render each blocker/warning's `.detail` text instead of the object. Added a shared [rts.ts](apps/web/lib/work-orders/rts.ts) helper (`rtsIssueText`) that tolerates **both** shapes — the API's `{kind, detail}` objects and the plain-string fallback the client pushes when the check can't run — so a raw object can never reach JSX again. Applied it in both the redesigned detail ([work-order-detail-client-v2.tsx](apps/web/components/work-orders/redesign/work-order-detail-client-v2.tsx), the default UI the client hit) and the legacy detail ([work-order-detail-client.tsx](apps/web/app/(app)/work-orders/[id]/work-order-detail-client.tsx)), which had the identical latent bug. Also corrected the `blockers`/`warnings` TypeScript types in both (they were declared `string[]` but were really objects — which is why the compiler never caught it).
+
+**Files changed.** 3 — new `lib/work-orders/rts.ts`; v2 detail + legacy detail (render `.detail`, fix types).
+
+**Verified.** `tsc` clean (24 preexisting errors unchanged). Reproduced and fixed live on WO-2026-0001 (the affected order, which has 4 open required checklist items): Sign-off tab now renders with **no error boundary**, the Logbook card shows, and the four blockers display as full readable sentences (e.g. *"Required checklist item \"Inspect brakes, tires, and wheel bearings\" is not completed."*) — no `[object Object]`, and the "Sign as RTS" button is present. **Not committed — pending owner verification.**
+
+**Commit.** pending.
+
+---
+
+## 2026-06-15 — Parts: AI part search was failing to save (wrong column name)
+
+**Symptom.** Running an AI parts search errored out with *"Failed to persist search: Could not find the 'search_query' column of 'parts_searches' in the schema cache."* The search itself ran, but the moment it tried to record the search in the database it failed, so the user got nothing back.
+
+**Cause.** The save step was writing to a column called `search_query`, but that column doesn't exist on the `parts_searches` table — the actual column (created back when the table was first added) is simply **`query`**. So every save was rejected. There was also a second, hidden problem waiting behind it: `query` is a *required* column, and the code wasn't filling it in at all — so even after removing the bad name, the save would still have failed until `query` was supplied.
+
+**Fix.** One line in [search.ts](apps/web/lib/parts/search.ts:170): the save now writes the search text into the correct, required `query` column. This clears the error and fills the required field in a single change. (The neighbouring `normalized_query` column is real and was already correct.)
+
+**Files changed.** 1 — `apps/web/lib/parts/search.ts`.
+
+**Verified.** Confirmed against the live database the app connects to: `parts_searches` has a `query` column (required, `NOT NULL`) and **no** `search_query` column — exactly the mismatch behind the error. Traced the table's full history across the migrations (created in `016`, extended in `021`, referenced in the `2026-05-14` source-of-truth migration) — `search_query` was never a column on this table; every other `search_query` in the codebase belongs to the unrelated Vision feature. **Not committed — pending owner verification.**
+
+**Commit.** pending.
+
+---
+
+## 2026-06-13 — Work Orders: detail now opens beside the list (true master-detail)
+
+**Gap.** On the redesigned work-orders page, the right pane reads "Select a work order" — which sets the expectation of a two-pane layout (list on the left, detail on the right). But clicking a work order **hid the list entirely** and gave the detail the whole page, so it felt like jumping to a separate screen instead of filling that right pane. Inconsistent and a little disorienting.
+
+**Why this happened.** Carried over from the original design, which deliberately let a selected work order "own the full content area." That made sense for a 15-tab page, but it clashes with the redesign's two-pane empty state.
+
+**Fix.** Made it a real master-detail in [work-orders-shell-v2.tsx](apps/web/components/work-orders/redesign/work-orders-shell-v2.tsx): on desktop the list now **stays pinned on the left (380px) and the detail swaps into the right pane in place** — clicking between work orders just updates the right side, with the selected row highlighted (and no full reload, since both share the layout). On phones and small tablets it still drills in full-screen (a persistent 380px list + a dense detail won't both fit), with the existing "Work orders" back button to return.
+- Because the detail pane is now narrower on desktop (it shares the row with the list), the detail's 280px "Ready to close?" side-rail now appears at ≥1280px; between 1024–1280px it collapses into the compact "Ready to close?" bar that already existed for tablets, so it never gets cramped. ([work-order-detail-client-v2.tsx](apps/web/components/work-orders/redesign/work-order-detail-client-v2.tsx))
+
+**Files changed.** 2 — `work-orders-shell-v2.tsx` (list persists beside detail; responsive panes), `work-order-detail-client-v2.tsx` (rail breakpoint lg→xl + matching bar).
+
+**Verified.** `tsc` clean (24 preexisting errors unchanged). Browser-checked live at three widths: 1280px → app sidebar + list (380px, selected row highlighted) + detail + side-rail, all visible together (screenshot captured); 1100px → list + detail + compact close-out bar (rail correctly hidden, no cramping); 375px → list hidden, detail full-screen with back button, no new horizontal overflow (only the pre-existing app-shell topbar). Legacy UI untouched. **Not committed — pending owner verification.**
+
+**Commit.** pending.
+
+---
+
+## 2026-06-13 — Work Orders: made the redesign the default, old UI behind ?ui=legacy
+
+**Why.** The redesign is ready to show the client. They wanted it to be what loads by default, with the old UI kept one switch away so they can compare — and revert cleanly if the client doesn't like it.
+
+**What.** Flipped the default and inverted the flag, centrally so there's a single revert switch:
+- New [ui-mode.ts](apps/web/lib/work-orders/ui-mode.ts) holds `DEFAULT_WO_UI = 'v2'`, a `resolveWoUi()` (treats `?ui=legacy` / `v1` / `old` as the old UI, everything else as the redesign), and a `woHref()` link builder that only appends a `ui` param when the mode differs from the default — so whichever UI is the default always gets clean URLs.
+- `/work-orders` (and `/work-orders/[id]`) now render the **redesign by default**; the old UI is reachable at **`/work-orders?ui=legacy`**. Updated the list layout, the detail page, and the index empty-state to resolve the mode through the helper (the empty state also now matches the active UI — previously the v2 list always showed the legacy empty state).
+- Made the flag sticky in both directions: redesign links are clean (`/work-orders/<id>`), old-UI links carry `?ui=legacy` (list rows, pagination, create redirect, detail breadcrumb) so a comparison session stays in whichever UI you opened.
+- **To revert:** change the one line `DEFAULT_WO_UI` to `'legacy'` — that flips the default everywhere and automatically makes the redesign the flagged one (`?ui=v2`). No other edit needed.
+
+**Files changed.** 8 — new `ui-mode.ts`; `work-orders/layout.tsx`, `work-orders/page.tsx`, `work-orders/[id]/page.tsx` (resolve mode); `work-orders-shell-v2.tsx`, `work-order-detail-client-v2.tsx`, `create-work-order-modal-v2.tsx` (clean links); legacy `work-orders-shell.tsx`, `work-order-detail-client.tsx` (carry `?ui=legacy`).
+
+**Verified.** `tsc` clean (24 preexisting errors unchanged). Browser-checked all four paths live against local Supabase: (1) `/work-orders` no flag → redesign list, row links clean; (2) clean WO URL → redesign detail (5 tabs + "Ready to close?"); (3) `/work-orders?ui=legacy` → old list, rows carry `?ui=legacy`; (4) old-UI WO → old detail (Overview/Tasks/Checklist/Line Items tabs), breadcrumb "Work Orders" returns to `/work-orders?ui=legacy` (stays in old UI). Screenshot of the new default list captured. **Not committed — pending owner verification.**
+
+---
+
+## 2026-06-12 — Work Orders v2: Create flow rebuilt around how shops actually open a WO
+
+**Why.** The 8-step create wizard was the weakest surface. Rather than guess, I researched the real persona — who opens a work order in a GA/Part 145 shop (owner-operator A&P, shop foreman, service writer), and what they actually have in hand at the counter — and checked it against the backend. The finding was decisive: the wizard inverts the real workflow.
+
+**What the research showed.** At intake the creator has three things: which aircraft, what's wrong (the customer's squawk/complaint), and roughly what kind of job. Everything else — task breakdown, AD/SB findings, the estimate, the checklist — accrues *during* the job, not at the counter. The backend confirmed it: of the old 8 steps, **only Aircraft + Complaint produce required data**, the customer is auto-derived from the aircraft, the checklist auto-seeds from work type, and **two steps (Tasks, AD/SB) persisted nothing on create** — Tasks was written to a notes field as plain text and AD/SB was read-only. Industry tools (Quantum MX, Veryon/Flightdocs, EBIS) all model a WO as a container that starts near-empty and fills over its life.
+
+**Fix.** New [create-work-order-modal-v2.tsx](apps/web/components/work-orders/redesign/create-work-order-modal-v2.tsx) — a **single-screen "digital squawk sheet"** used only by the v2 shell (legacy wizard untouched):
+- Fast path: **aircraft + complaint (with voice dictation) + work-type chips** → one "Create work order" button. Picking an aircraft shows a live situation strip (open squawks, AD/SB to review, estimates on file) for reassurance, not as steps.
+- A collapsed **"Set up the job · optional"** disclosure keeps the planner's tools one tap away — link open squawks (pre-checked, since they came in with the plane), attach an existing estimate, choose the checklist source — without taxing the 90% case.
+- Everything else now happens on the (redesigned) detail page, with a footer line saying so.
+- **Fixed a latent bug**: the old modal sent the work-type *label* ("Annual Inspection") where the API wants the *key* ("annual_inspection"), so checklist seeding only worked by accidental text-match. v2 sends the key — verified below. Also dropped the two non-persisting steps and the PRD-speak.
+- Wired into [work-orders-shell-v2.tsx](apps/web/components/work-orders/redesign/work-orders-shell-v2.tsx) only; the 8-step modal stays the default everywhere else.
+
+**Files changed.** 3 — new `create-work-order-modal-v2.tsx`; `work-orders-shell-v2.tsx` (swap the modal); `create-work-order-modal.tsx` (export the shared `SERVICE_TYPES` list).
+
+**Verified.** `tsc` clean (repo's 24 preexisting errors unchanged). Ran the flow live against local Supabase: opened the modal on `/work-orders?ui=v2`, picked N92995 (situation strip loaded "1 open squawk / 0 AD/SB"), typed a complaint, tapped Annual Inspection, created — landed on the new WO's v2 detail page. DB confirms **WO-2026-0002** persisted with `service_type=annual_inspection` (the **key** — bug fix proven), `status=open`, the typed complaint, **8 checklist items auto-seeded** from the annual template, and the linked squawk flipped to `in_work_order`. Mobile (375px): renders as a full-width bottom-sheet, zero horizontal overflow, chips wrap cleanly. Screenshots captured desktop + mobile. **Not committed — pending owner verification.** (Left WO-2026-0002 in the local seed as the test artifact.)
+
+**Next.** Promote v2 to default and retire the legacy list/detail/create once you've eyeballed it. Still owed from the original audit: server-side persona enforcement on WO mutation routes + the rts-check IDOR.
+
+Sources for the persona research: [Quantum MX](https://www.quantum-mx.com/), [Veryon work orders](https://veryon.com/solutions/business-and-general-aviation/work-orders), [Smart145 MRO work-order guide](https://smart145.com/blog/work-order-management-for-mro-guide/).
+
+---
+
+## 2026-06-12 — Work Orders v2: full punch-list fix + a persona-corruption bug found en route
+
+**Why.** Yesterday's audit ended with "keep v2, but it isn't done" and a concrete defect list. The client asked to fix all of it and make the screen feel professionally built.
+
+**What.**
+- **All 8 audit findings fixed in the v2 surfaces:**
+  - Tabs now always open at the top ([work-order-detail-client-v2.tsx](apps/web/components/work-orders/redesign/work-order-detail-client-v2.tsx) — the shared scroller resets on tab change).
+  - The **"Ready to close?" gates are now buttons** — each jumps to the tab where that gate gets resolved (checklist → Work, labor/parts/invoice → Parts & costs, logbook → Sign-off). The rail stopped being a status display and became the workflow spine.
+  - Below 1024px the rail no longer disappears: a **compact expandable "Ready to close?" bar** (progress + the same clickable gates + the close CTA) sits above the content on tablet/phone.
+  - **Owner view decided by persona, not org role** — `[id]/page.tsx` now resolves `getCurrentPersona()` and passes it; a shop user who happens to own the org no longer gets the customer view.
+  - Owner read-only view stops leaking actions: chat quick-actions (Start Timer / Add Part / Add Labor) and "Add tool" hide via new `readOnly` props on the shared [chat timeline](apps/web/components/work-orders/wo-chat-timeline.tsx) and [tools panel](apps/web/components/work-orders/wo-tools-panel.tsx); owners can still send messages.
+  - Raw enum labels humanized ("annual_inspection" → "Annual inspection"); lifecycle stepper scrolls instead of wrapping mid-sequence on phones; owner summary card stacks to one column at 375px.
+- **List upgraded from restyle to tool** ([work-orders-shell-v2.tsx](apps/web/components/work-orders/redesign/work-orders-shell-v2.tsx)): the stat chips are now **one-tap status filters** (with pressed state), every card shows an **age badge** ("2d", amber past a week, only while the WO is active), and the mobile clipping is gone — the list takes the full width on phones (the empty right pane only renders ≥768px). The shared ops tab strip now fits four-up on a phone.
+- **Copy pass**: all 8 create-wizard step descriptions rewritten in customer language (was PRD-speak like "the aircraft stays locked unless the user explicitly changes entry path").
+- **Found and fixed a real persona-corruption bug** while verifying: the Ask page had an effect that, while the team-roster fetch was still in flight, concluded the user "can't be shop" and **silently persisted persona='owner' to their membership row in the DB** on mount. This is the likely cause of the owner/shop flip-flopping the app has shown. Fixed in [ask-experience.tsx](apps/web/components/ask/ask-experience.tsx) (demote only after the role has actually loaded); restored this account's persona to shop via the app's own switch endpoint.
+
+**Verified.** `tsc` clean for every touched file (the repo's 24 preexisting errors in 5 unrelated files are unchanged). Behavior verified live in the controlled preview against local Supabase via DOM assertions: scroll reset (400px → 0 on tab switch), gate clicks landing on the right tabs, rail→bar swap at <1024px, single-line scrollable stepper at 375px, full-width un-clipped mobile list (card right edge 362px ≤ 375), working chip filters (0-result + clear states), age badge rendering, owner-preview hiding all shop actions while keeping chat enabled, and the legacy page still rendering untouched. Screenshot capture in the preview tool was broken today (timed out on a pristine server before any page interaction), so visual confirmation is by the assertions above — the client can eyeball `/work-orders?ui=v2` directly. **Not committed — pending owner verification.**
+
+**Next.** Create flow v2 (collapse the 8-step wizard), then promote v2 to default and delete the legacy page. The audit P0s (server-side persona enforcement on WO mutation routes, rts-check IDOR) remain owed.
+
+---
+
+## 2026-06-11 — Work Orders: old vs new UI compared in-browser; verdict + punch list
+
+**Why.** With both UIs live side-by-side (`/work-orders` = old, `/work-orders?ui=v2` = new), the client asked for an expert UX verdict: which one to keep, and what it takes to make the screen feel professionally designed.
+
+**What.** Drove both UIs in a real browser (desktop 1440/1024 + mobile 375, logged in against local Supabase, demo WO-2026-0001) and measured rather than eyeballed:
+- **Old detail page:** 405px of fixed header (title, 6 info tiles, action row) before any content — on a 768px laptop screen the actual work area is a 331px window scrolling ~1,900px of content (43% of the screen). 15 tabs scroll off-screen horizontally; chat gets ~280px with floating buttons covering the composer; on mobile the entire first screen is header. Spec-language leaks into user copy ("the current schema stores the durable facts…"), and raw enum values show up as labels (`annual_inspection`).
+- **New (v2) detail page:** header is ~140px (compact title + lifecycle stepper), 5 tabs, persistent "Ready to close?" gate rail, full-height chat — content gets 71% of the same screen. Clear keep.
+- **Verdict: keep v2, retire the old page** — but v2 isn't done. Found and noted concrete v2 gaps: switching tabs keeps the previous tab's scroll position; the close-out rail disappears entirely below 1024px (old UI at least showed gates inline); the list pane is fixed-width so mobile clips the price/status column (inherited from old); owner read-only view still shows action buttons ("Add tool", chat's "Start Timer / Add Part / Add Labor"); and the page decides "owner view" from the **org role** instead of the **persona**, so a shop user who owns the org gets the customer view. The "New" wizard is 8 steps — confirmed as the next redesign target.
+
+**Files changed.** None this session (review only). The v2 detail surface itself ([work-order-detail-client-v2.tsx](apps/web/components/work-orders/redesign/work-order-detail-client-v2.tsx) + `?ui=v2` wiring in [page.tsx](apps/web/app/(app)/work-orders/[id]/page.tsx)), built in the prior session, is what was put under test here — still uncommitted.
+
+**Verified.** All findings observed live in the controlled preview (screenshots + DOM measurements), not inferred from code; each v2 bug was then traced to its source line.
+
+**Commit.** n/a (no code change).
+
+---
+
+## 2026-06-10 — Work Orders: end-to-end audit + start of the UI redesign (new list)
+
+**Why.** The client flagged the Work Orders feature as "meshed up" and wasn't sure it was production-ready, and wants the UI to feel smooth/minimal and "users only" (owners read-only). So: audit it honestly first, then begin a cleaner UI.
+
+**What.**
+- **Audited the whole feature end-to-end** (intake, the ~2,700-line detail page, every API route, the access-control boundary, and the data model), verifying the headline findings against source. Key issues:
+  - **Owner "users only" is not enforced on the server** — every work-order mutation endpoint checks org membership but does **no persona check**; the purpose-built guard `requirePersonaApi` exists but is never called, and `work_order_lines` has no owner RLS. An owner can edit/close/add-lines via direct API calls. *(P0 — the client's core ask.)*
+  - **Labor lines total $0** — `line_total` is generated from `quantity × unit_price`, but the labor form collects Hours × Rate with unit price defaulting to 0, so labor (and any invoice built from it) comes out $0. *(P0 money bug.)*
+  - **Cross-tenant data leak** — `GET …/rts-check` only checks you're logged in, then queries with the service client and no org filter → any user can read another shop's work-order data by id. *(P0.)*
+  - Plus: no status state-machine (any status → any status), several **stubbed tabs** (Media, the duplicate Activity chat, a fake checklist timer, "coming soon" parts actions), tax dropped from totals, squawks stuck "in work order", soft-deleted WOs still editable/visible, and **almost no tests**. Full prioritized P0/P1/P2 roadmap delivered in-session.
+- **Started the UI redesign** (direction approved via a mockup: collapse the detail page's **15 tabs → 5** — Summary / Work / Parts & costs / Sign-off / Activity — with a persistent next-action + lifecycle progress and a "Ready to close?" gate rail; "Owner View" becomes a read-only "Preview as owner" toggle). Built the first surface — the **list** — as **non-destructive** new components, live only at `/work-orders?ui=v2`:
+  - new [wo-status.ts](apps/web/components/work-orders/redesign/wo-status.ts) (shared status labels/pills/dots + lifecycle, reused by the coming detail/create screens) and [work-orders-shell-v2.tsx](apps/web/components/work-orders/redesign/work-orders-shell-v2.tsx) (calmer card-based list — same data, search, filters, stats, create modal, pagination).
+  - a one-line `?ui=v2` branch in [work-orders/layout.tsx](apps/web/app/(app)/work-orders/layout.tsx); the default route is untouched so old vs new compare side-by-side.
+- Seeded a demo work order locally (`WO-2026-0001`, org `jeet`) to exercise the screens.
+
+**Verified.** `tsc` clean for the new redesign files (24 preexisting type errors elsewhere in the repo, none in this change). Browser verification **pending** — port 3001 is the running dev server, so the controlled preview couldn't attach; view the new list at `/work-orders?ui=v2`. **Not committed.**
+
+**Next.** Detail page v2 (the centerpiece mockup), then the create flow; the audit's P0 fixes (server-side persona enforcement, labor totals, the rts-check IDOR) get folded into those rebuilt save/close flows.
+
+---
+
 ## 2026-06-07 — AI SDK migration: independent review + fix a release-blocking bug, then live-verify
 
 **Why.** Before trusting the provider-agnostic LLM migration (below), it needed a skeptical, independent review — the migration was typecheck-clean and unit-tested but had **never been run against a real provider**, and the unit tests use mock models that can't catch provider-API-level failures.

@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { cn, formatDate } from '@/lib/utils'
+import { rtsIssueText, type RtsIssue } from '@/lib/work-orders/rts'
 import {
   Plus, Trash2, Loader2, Save, Plane,
   Wrench, Package, ExternalLink, ChevronDown, FileText,
@@ -35,6 +36,7 @@ import { CameraButton } from '@/components/camera/CameraButton'
 import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import { ADSBManagerPanel } from '@/components/aircraft/ad-sb-manager'
 import { WoToolsPanel } from '@/components/work-orders/wo-tools-panel'
+import { woHref } from '@/lib/work-orders/ui-mode'
 import type { WorkOrder, WorkOrderLine, WorkOrderLineType, WorkOrderStatus } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -200,8 +202,8 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
     loading: boolean
     ran: boolean
     ok: boolean
-    blockers: string[]
-    warnings: string[]
+    blockers: Array<RtsIssue | string>
+    warnings: Array<RtsIssue | string>
     run_id: string | null
   }
   const [rtsCheck, setRtsCheck] = useState<RtsCheck>({
@@ -843,7 +845,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 space-y-2">
               <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                <button onClick={() => router.push('/work-orders')} className="text-primary hover:underline">Work Orders</button>
+                <button onClick={() => router.push(woHref('/work-orders', 'legacy'))} className="text-primary hover:underline">Work Orders</button>
                 <span>/</span>
                 <span className="font-mono">{wo.work_order_number}</span>
               </div>
@@ -2067,7 +2069,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                             </div>
                             <ul className="list-disc ml-5 space-y-0.5 text-[13px]">
                               {rtsCheck.blockers.map((b, i) => (
-                                <li key={i}>{b}</li>
+                                <li key={i}>{rtsIssueText(b)}</li>
                               ))}
                             </ul>
                             <label className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-red-700">
@@ -2089,7 +2091,7 @@ export function WorkOrderDetailClient({ workOrder, aircraft: _aircraft, userRole
                             </div>
                             <ul className="list-disc ml-5 space-y-0.5">
                               {rtsCheck.warnings.map((w, i) => (
-                                <li key={i}>{w}</li>
+                                <li key={i}>{rtsIssueText(w)}</li>
                               ))}
                             </ul>
                           </div>

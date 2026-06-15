@@ -32,15 +32,16 @@ export function OpsTabStrip({ active }: { active: OpsTab }) {
             key={t.id}
             href={t.href}
             className={cn(
-              'flex items-center justify-center gap-1.5 py-3 text-[12px] transition-colors border-b-2',
+              'flex items-center justify-center gap-1.5 py-3 px-1 text-[12px] transition-colors border-b-2 min-w-0',
               isActive
                 ? 'text-primary border-primary bg-white'
                 : 'text-muted-foreground border-transparent hover:bg-white hover:text-foreground',
             )}
             style={{ fontWeight: isActive ? 600 : 500 }}
           >
-            <Icon className="h-4 w-4" />
-            {t.label}
+            {/* Icons don't fit four-up at 375px — labels win on phones. */}
+            <Icon className="h-4 w-4 hidden sm:block shrink-0" />
+            <span className="truncate">{t.label}</span>
           </Link>
         )
       })}

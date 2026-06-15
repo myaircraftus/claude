@@ -34,7 +34,7 @@ import { Label } from '@/components/ui/label'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { cn } from '@/lib/utils'
 
-const SERVICE_TYPES: Array<{
+export const SERVICE_TYPES: Array<{
   key: string
   label: string
   description: string
@@ -500,7 +500,7 @@ export function CreateWorkOrderModal({
     if (step === 'aircraft') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Aircraft context" body="Start with the aircraft. When launched from an aircraft page, the aircraft stays locked unless the user explicitly changes entry path." />
+          <StepHeading title="Aircraft" body="Pick the aircraft this work is for. If you opened this from an aircraft page, it's already filled in." />
           {lockedAircraft && selectedAircraft ? (
             <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-center gap-3">
               <Plane className="h-5 w-5 text-primary" />
@@ -546,7 +546,7 @@ export function CreateWorkOrderModal({
     if (step === 'type') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Work type" body="Each work type seeds the task plan, checklist, logbook draft, and close gates." />
+          <StepHeading title="Work type" body="What kind of job is this? It decides which checklist, tasks, and logbook draft you start from." />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SERVICE_TYPES.map((type) => {
               const active = type.key === serviceTypeKey
@@ -576,7 +576,7 @@ export function CreateWorkOrderModal({
     if (step === 'scope') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Scope and squawks" body="Capture the complaint, findings to investigate, and linked open squawks. Squawks are linked as child records, not copied as loose text." />
+          <StepHeading title="Scope and squawks" body="Describe what the customer reported, and pull in any open squawks — they stay linked to this work order." />
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <Label>Work scope</Label>
@@ -659,7 +659,7 @@ export function CreateWorkOrderModal({
     if (step === 'adsb') {
       return (
         <section className="space-y-4">
-          <StepHeading title="AD / SB applicability review" body="Applicability is reviewed before task generation. Unknown or overdue rows become IA-review tasks and required checklist items." />
+          <StepHeading title="AD / SB review" body="Check which ADs and service bulletins apply. Anything unknown or overdue becomes a required checklist item to resolve." />
           {loadingContext ? (
             <InlineLoading label="Loading AD/SB context" />
           ) : ads.length === 0 ? (
@@ -696,7 +696,7 @@ export function CreateWorkOrderModal({
     if (step === 'tasks') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Tasks and assignees" body="Tasks are assignment cards. The work order can still run in parallel; gates and dependencies control closeout." />
+          <StepHeading title="Tasks and assignees" body="Break the job into tasks and assign your mechanics. You can add, reassign, or reorder them any time." />
           <div className="space-y-2">
             {plannedTasks.map((task) => (
               <div key={task.id} className="rounded-lg border border-border bg-white p-3">
@@ -732,7 +732,7 @@ export function CreateWorkOrderModal({
     if (step === 'estimate') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Estimate and line planning" body="Attach an estimate, create a new estimate later, or intentionally skip. Existing estimate lines are copied as planned work-order line items." />
+          <StepHeading title="Estimate" body="Attach an existing estimate to pre-fill the line items, or skip this and add costs as the work happens." />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {[
               { id: 'existing' as const, title: 'Use existing', body: `${estimates.length} estimate${estimates.length === 1 ? '' : 's'} found`, icon: Receipt },
@@ -813,7 +813,7 @@ export function CreateWorkOrderModal({
     if (step === 'checklist') {
       return (
         <section className="space-y-4">
-          <StepHeading title="Checklist plan" body="Shop-approved templates win. AI may only fill gaps or draft supplemental items; mechanics/IA verify generated content." />
+          <StepHeading title="Checklist" body="Starts from your shop's template. AI can suggest extra items, but your mechanics verify everything before sign-off." />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {[
               { value: 'template' as const, title: 'Shop template', body: 'Use approved checklist only', icon: ClipboardCheck },
@@ -848,7 +848,7 @@ export function CreateWorkOrderModal({
 
     return (
       <section className="space-y-4">
-        <StepHeading title="Review and create" body="Confirm the workflow before opening the work order. You can refine tasks, line items, checklist, owner view, AI summary, logbook, and invoice after creation." />
+        <StepHeading title="Review and create" body="Look it over, then open the work order. Everything here can still be changed afterwards." />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <ReviewBlock label="Aircraft" value={selectedAircraft ? `${selectedAircraft.tail_number} ${[selectedAircraft.make, selectedAircraft.model].filter(Boolean).join(' ')}` : 'None'} />
           <ReviewBlock label="Work type" value={selectedServiceType.label} />

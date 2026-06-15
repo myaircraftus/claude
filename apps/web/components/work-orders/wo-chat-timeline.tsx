@@ -50,6 +50,10 @@ interface Props {
    *  inline quick-create menu (+ button) that POSTs lines directly. */
   onAddPart?: () => void
   onAddLabor?: () => void
+  /** Hides the shop quick actions (timer, add part/labor) and makes the
+   *  checklist quick-view display-only. Messaging itself stays enabled —
+   *  owners can chat, they just can't log work. */
+  readOnly?: boolean
 }
 
 interface ChecklistRow {
@@ -68,6 +72,7 @@ export function WoChatTimeline({
   className,
   onAddPart,
   onAddLabor,
+  readOnly = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
@@ -150,7 +155,7 @@ export function WoChatTimeline({
   }, [checklist])
 
   async function toggleChecklistItem(item: ChecklistRow) {
-    if (togglingId) return
+    if (readOnly || togglingId) return
     setTogglingId(item.id)
     // Optimistic flip
     setChecklist((prev) =>
@@ -534,8 +539,11 @@ export function WoChatTimeline({
                   key={item.id}
                   type="button"
                   onClick={() => toggleChecklistItem(item)}
-                  disabled={togglingId === item.id}
-                  className="w-full flex items-start gap-2.5 px-4 py-2 text-left hover:bg-muted/30 transition-colors border-b border-border/50 disabled:opacity-50"
+                  disabled={readOnly || togglingId === item.id}
+                  className={cn(
+                    'w-full flex items-start gap-2.5 px-4 py-2 text-left transition-colors border-b border-border/50',
+                    readOnly ? 'cursor-default disabled:opacity-100' : 'hover:bg-muted/30 disabled:opacity-50',
+                  )}
                 >
                   {item.completed ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
@@ -676,7 +684,8 @@ export function WoChatTimeline({
 
       {/* Composer */}
       <div className="border-t border-border px-4 py-3 space-y-2">
-        {/* Chip buttons */}
+        {/* Chip buttons — shop work-logging actions, hidden in read-only view */}
+        {!readOnly && (
         <div className="flex items-center gap-2 flex-wrap">
           {/* Timer chip — flips between Start / Stop. While running shows
               the live elapsed time so the mechanic can see what'll be logged. */}
@@ -726,6 +735,7 @@ export function WoChatTimeline({
             Add Labor
           </button>
         </div>
+        )}
 
         {/* Inline quick-create forms — fold open under the chips */}
         {quickPartOpen && (

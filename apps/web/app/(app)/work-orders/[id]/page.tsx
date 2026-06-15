@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
+import { resolveWoUi } from '@/lib/work-orders/ui-mode'
 import { WorkOrderDetailClient } from './work-order-detail-client'
+import { WorkOrderDetailClientV2 } from '@/components/work-orders/redesign/work-order-detail-client-v2'
 import type { WorkOrder } from '@/types'
 
 // NOTE: Phase 18 Sprint 18.4 — the shop/admin persona guard is enforced by
@@ -36,9 +39,16 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 // Right pane of the master-detail layout. The page chrome (Topbar + WO list
 // panel) is owned by app/(app)/work-orders/layout.tsx — this component
 // just renders the WO detail itself.
-export default async function WorkOrderDetailPage({ params }: { params: { id: string } }) {
+export default async function WorkOrderDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string }
+  searchParams: { [key: string]: string | string[] | undefined }
+}) {
   const { supabase, profile, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
+  const useRedesign = resolveWoUi(searchParams?.ui) === 'v2'
 
   const { data: wo } = await supabase
     .from('work_orders')
@@ -68,6 +78,21 @@ export default async function WorkOrderDetailPage({ params }: { params: { id: st
     .eq('organization_id', orgId)
     .eq('is_archived', false)
     .order('tail_number')
+
+  if (useRedesign) {
+    // The v2 client gates the read-only owner view on persona, not org role —
+    // membership.role === 'owner' means "owns the org", not "aircraft owner".
+    const { persona } = await getCurrentPersona()
+    return (
+      <WorkOrderDetailClientV2
+        workOrder={wo as WorkOrder}
+        aircraft={aircraft ?? []}
+        userRole={membership.role}
+        persona={persona}
+        profile={profile as any}
+      />
+    )
+  }
 
   return (
     <WorkOrderDetailClient

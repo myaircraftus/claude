@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { CreateWorkOrderModal } from '@/components/work-orders/create-work-order-modal'
+import { woHref } from '@/lib/work-orders/ui-mode'
 import type { WorkOrderStatus } from '@/types'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -207,7 +208,7 @@ export function WorkOrdersShell({
                   {filtered.map((wo) => (
                     <Link
                       key={wo.id}
-                      href={`/work-orders/${wo.id}`}
+                      href={woHref(`/work-orders/${wo.id}`, 'legacy')}
                       className={cn(
                         'block px-4 py-3 transition-colors hover:bg-muted/40 border-l-2',
                         selectedId === wo.id
@@ -258,7 +259,7 @@ export function WorkOrdersShell({
             {totalPages > 1 && (
               <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border">
                 <Link
-                  href={`/work-orders?page=${page - 1}`}
+                  href={woHref('/work-orders', 'legacy', { page: page - 1 })}
                   aria-disabled={page <= 1}
                   className={cn(
                     'h-7 px-2.5 rounded-md border border-border text-xs flex items-center transition-colors',
@@ -273,7 +274,7 @@ export function WorkOrdersShell({
                   Page {page} of {totalPages}
                 </span>
                 <Link
-                  href={`/work-orders?page=${page + 1}`}
+                  href={woHref('/work-orders', 'legacy', { page: page + 1 })}
                   aria-disabled={page >= totalPages}
                   className={cn(
                     'h-7 px-2.5 rounded-md border border-border text-xs flex items-center transition-colors',
@@ -302,7 +303,7 @@ export function WorkOrdersShell({
           onClose={() => setShowCreate(false)}
           onCreated={(id) => {
             setShowCreate(false)
-            router.push(`/work-orders/${id}`)
+            router.push(woHref(`/work-orders/${id}`, 'legacy'))
           }}
         />
       )}

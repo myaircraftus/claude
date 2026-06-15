@@ -18,7 +18,7 @@ type UseRow = WorkOrderToolUse & {
   tools?: { id: string; name: string; serial_number: string; category: string; status: string; next_calibration_date: string | null } | null
 }
 
-export function WoToolsPanel({ workOrderId }: { workOrderId: string }) {
+export function WoToolsPanel({ workOrderId, readOnly = false }: { workOrderId: string; readOnly?: boolean }) {
   const [uses, setUses] = useState<UseRow[]>([])
   const [available, setAvailable] = useState<Tool[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -91,9 +91,11 @@ export function WoToolsPanel({ workOrderId }: { workOrderId: string }) {
           <h3 className="text-[13px] text-foreground" style={{ fontWeight: 700 }}>Tools used</h3>
           <span className="text-[11px] text-muted-foreground">{uses.length}</span>
         </div>
-        <Button size="sm" onClick={() => setPickerOpen((o) => !o)}>
-          <Plus className="h-3 w-3 mr-1" /> {pickerOpen ? 'Cancel' : 'Add tool'}
-        </Button>
+        {!readOnly && (
+          <Button size="sm" onClick={() => setPickerOpen((o) => !o)}>
+            <Plus className="h-3 w-3 mr-1" /> {pickerOpen ? 'Cancel' : 'Add tool'}
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -117,10 +119,12 @@ export function WoToolsPanel({ workOrderId }: { workOrderId: string }) {
                     {!u.was_overdue && overdue && <span className="ml-2 text-amber-700">Now overdue (was current at use)</span>}
                   </div>
                 </div>
-                <button onClick={() => removeTool(u.id)} disabled={busyId === u.id}
-                  className="text-muted-foreground hover:text-red-600 p-1 rounded">
-                  <X className="h-3.5 w-3.5" />
-                </button>
+                {!readOnly && (
+                  <button onClick={() => removeTool(u.id)} disabled={busyId === u.id}
+                    className="text-muted-foreground hover:text-red-600 p-1 rounded">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </li>
             )
           })}

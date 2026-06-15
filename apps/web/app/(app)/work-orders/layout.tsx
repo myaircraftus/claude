@@ -5,6 +5,8 @@ import { requirePersona } from '@/lib/persona/route-guard'
 import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import { WorkOrdersShell, type WorkOrderListItem, type ShellAircraft } from './work-orders-shell'
+import { WorkOrdersShellV2 } from '@/components/work-orders/redesign/work-orders-shell-v2'
+import { resolveWoUi } from '@/lib/work-orders/ui-mode'
 
 // Server-side pagination: 25 work orders/page via ?page=. The list
 // previously loaded up to 300 rows for the org on every render.
@@ -35,8 +37,11 @@ export default async function WorkOrdersLayout({
   // Next.js does not pass `searchParams` to layouts, so read ?page= from the
   // raw query string the middleware forwards via the x-request-search header.
   const rawSearch = headers().get('x-request-search') ?? ''
-  const pageParam = new URLSearchParams(rawSearch).get('page')
+  const searchParams = new URLSearchParams(rawSearch)
+  const pageParam = searchParams.get('page')
   const page = Math.max(1, parseInt(pageParam ?? '1', 10))
+  // The redesign is the default; /work-orders?ui=legacy renders the old shell.
+  const useRedesign = resolveWoUi(searchParams.get('ui')) === 'v2'
   const offset = (page - 1) * PAGE_SIZE
 
   const [woRes, acRes] = await Promise.all([
@@ -87,15 +92,27 @@ export default async function WorkOrdersLayout({
     <div className="flex flex-col h-full overflow-hidden">
       <Topbar profile={profile} breadcrumbs={[{ label: 'Work Orders' }]} />
       <main className="flex-1 overflow-hidden">
-        <WorkOrdersShell
-          workOrders={workOrders}
-          aircraft={aircraft}
-          isOwner={isOwner}
-          page={page}
-          totalPages={totalPages}
-        >
-          {children}
-        </WorkOrdersShell>
+        {useRedesign ? (
+          <WorkOrdersShellV2
+            workOrders={workOrders}
+            aircraft={aircraft}
+            isOwner={isOwner}
+            page={page}
+            totalPages={totalPages}
+          >
+            {children}
+          </WorkOrdersShellV2>
+        ) : (
+          <WorkOrdersShell
+            workOrders={workOrders}
+            aircraft={aircraft}
+            isOwner={isOwner}
+            page={page}
+            totalPages={totalPages}
+          >
+            {children}
+          </WorkOrdersShell>
+        )}
       </main>
     </div>
   )

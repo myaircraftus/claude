@@ -167,7 +167,7 @@ export async function searchParts(
       organization_id: input.organizationId,
       aircraft_id: input.aircraftId ?? null,
       maintenance_draft_id: input.maintenanceDraftId ?? null,
-      search_query: normalized,
+      query: normalized,
       normalized_query: normalized,
       search_mode: effectiveMode,
       provider_summary: providerSummary,

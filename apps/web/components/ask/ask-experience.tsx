@@ -647,10 +647,16 @@ export function AskExperience() {
   }, [])
 
   useEffect(() => {
-    if (!canUseMechanicPersona && persona === 'shop') {
+    // Demote to owner ONLY once the role has actually loaded and is genuinely
+    // not mechanic-capable. `currentUserRole` is null while /api/team is in
+    // flight (or when it fails) — treating that as "not allowed" made this
+    // effect race the fetch and silently PERSIST persona='owner' to the
+    // membership row (setPersona POSTs /api/me/persona) on every Ask mount.
+    // That was the source of the owner/shop persona flip-flapping.
+    if (currentUserRole != null && !MECHANIC_PERSONA_ROLES.includes(currentUserRole) && persona === 'shop') {
       setPersona('owner')
     }
-  }, [canUseMechanicPersona, persona, setPersona])
+  }, [currentUserRole, persona, setPersona])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
