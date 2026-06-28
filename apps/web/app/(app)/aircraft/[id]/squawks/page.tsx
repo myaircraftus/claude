@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { Topbar } from '@/components/shared/topbar'
 import type { UserProfile } from '@/types'
 import { SquawksWorkspace } from '@/components/squawks/squawks-workspace'
@@ -25,6 +26,8 @@ export default async function SquawksPage({ params }: { params: { id: string } }
   const membership = membershipRes.data
   if (!membership) redirect('/onboarding')
 
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
   const orgId = membership.organization_id
 
   // Fetch aircraft
@@ -37,8 +40,8 @@ export default async function SquawksPage({ params }: { params: { id: string } }
 
   if (acError || !aircraft) notFound()
 
-  // Fetch squawks for this aircraft
-  const { data: squawks } = await supabase
+  // Fetch squawks for this aircraft (owners see only owner-visible rows)
+  let squawksQuery = supabase
     .from('squawks')
     .select(`
       id, organization_id, aircraft_id, title, description, category, severity, status, source,
@@ -57,8 +60,10 @@ export default async function SquawksPage({ params }: { params: { id: string } }
     `)
     .eq('aircraft_id', params.id)
     .eq('organization_id', orgId)
-    .order('created_at', { ascending: false })
-    .limit(100)
+
+  if (isOwner) squawksQuery = squawksQuery.eq('owner_visible', true)
+
+  const { data: squawks } = await squawksQuery.order('created_at', { ascending: false }).limit(100)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -71,18 +76,17 @@ export default async function SquawksPage({ params }: { params: { id: string } }
         ]}
       />
 
-      <main className="flex-1 overflow-y-auto p-6">
-        <div className="-m-6">
-          <SquawksWorkspace
-            mode="aircraft"
-            lockedAircraft={aircraft as any}
-            aircraftOptions={[aircraft as any]}
-            initialSquawks={(squawks ?? []).map((s: any) => ({
-              ...s,
-              reporter: Array.isArray(s.reporter) ? s.reporter[0] ?? null : s.reporter ?? null,
-            }))}
-          />
-        </div>
+      <main className="flex-1 overflow-hidden">
+        <SquawksWorkspace
+          mode="aircraft"
+          isOwner={isOwner}
+          lockedAircraft={aircraft as any}
+          aircraftOptions={[aircraft as any]}
+          initialSquawks={(squawks ?? []).map((s: any) => ({
+            ...s,
+            reporter: Array.isArray(s.reporter) ? s.reporter[0] ?? null : s.reporter ?? null,
+          }))}
+        />
       </main>
     </div>
   )

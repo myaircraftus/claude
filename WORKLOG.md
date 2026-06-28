@@ -4,6 +4,25 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-29 — Squawks: persona-aware redesign (owner reports/tracks · shop triages) + persona-leak fix + responsive
+
+**Why.** Squawks was the audit's "needs redesign" module and shipped a real correctness bug: it had no persona awareness, so aircraft **owners saw the shop's internal triage controls** (edit, route, classify, close) — directly contradicting the page's own "owners cannot close or reassign" rule — and it only became a two-pane layout at `xl`, breaking on tablet/phone. Squawks is the most persona-split screen in the app: owners *report and track*; the shop *adjudicates, classifies, routes, and signs off* (an airworthiness call is a certificated act — Part 43 / §91.417).
+
+**What.** Built two experiences off one data set, gated by persona:
+- **Owner view** (mobile-first): a clean list of *their* squawks + a **read-only** detail/timeline ("what you reported" → shop status → corrective action) with an airworthiness reassurance line, and a fast **"Report a squawk"** capture — aircraft + "what did you notice?" + three plain-language severity buttons (Looks unsafe / Should be fixed soon / Minor). No ATA/JASC, routing, or close. Owners only load owner-visible squawks (the page query narrows by `owner_visible`).
+- **Shop view**: a responsive triage worklist — tap-to-filter stat chips (Open / Grounded / Deferred / All), AOG-first sort, search + filter pills — with a two-column detail (**As reported** vs **Shop work**), ATA/JASC classify, and route to work order / estimate / owner-approval / defer / resolve / duplicate. Cut the decorative 6-step lifecycle strip and the dead Photo/File buttons; swapped the hardcoded slate palette for design tokens; rebuilt on the shared `StatusBadge` + a responsive master-detail (list pinned beside detail on desktop, full-screen drill-in on mobile).
+- Both `/squawks` and `/aircraft/[id]/squawks` now resolve persona and pass it through.
+
+**Files changed.** `apps/web/components/squawks/squawks-workspace.tsx` (rewrite), `apps/web/app/(app)/squawks/page.tsx`, `apps/web/app/(app)/aircraft/[id]/squawks/page.tsx`.
+
+**Verified.** `tsc` clean (24 preexisting, 0 new). Browser-checked live against local Supabase at 1280px and 375px for **both personas** (seeded 4 squawks — 3 owner-visible, 1 internal): owner sees only the 3 owner-visible, has the Report flow, and has **zero edit/route/triage controls**; shop sees all 4 (incl. the internal one), the triage actions, and the two-column detail; **0 real horizontal overflow** in every view (the shop filter pills scroll within their row, document overflow = 0); detail drill-in + back work on mobile; no console or server errors. Left a `TEST:` squawk set in the local org for review. **Not committed — pending owner verification.**
+
+**Still owed (separate P0).** Owner gating is enforced in the UI + the read query (`owner_visible`); the squawk **mutation** routes (create / route / patch) still don't enforce persona **server-side** — same gap as the WO routes.
+
+**Commit.** pending.
+
+---
+
 ## 2026-06-28 — Aircraft submenu: shared responsive list pattern (Estimates, Invoices, Logbook, Due List)
 
 **Why.** Picking the project back up before launch, we audited every module under the Aircraft submenu against the Work Orders v2 redesign (the production-grade bar) to get them user-ready. The audit surfaced one systemic, launch-blocking problem: the record lists were wide multi-column HTML tables with **no mobile handling** — Due List, Estimates, and Logbook broke at phone widths; Invoices scrolled sideways. Loading/error states were also missing (a failed fetch looked identical to "empty"), and status colors were re-declared (and drifting) in each module.
