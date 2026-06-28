@@ -125,12 +125,13 @@ export function ClockInWidget() {
       <button
         onClick={clockIn}
         disabled={busy}
+        aria-label="Clock in"
         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors"
         style={{ fontWeight: 600 }}
         title="Start your workday"
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-        Clock In
+        <span className="hidden lg:inline">Clock In</span>
       </button>
     )
   }

@@ -102,6 +102,7 @@ export default async function InvoicesRoute({
         isOwner={isOwner}
         page={page}
         totalPages={totalPages}
+        loadError={!!invoicesRes.error}
       />
     </div>
   )

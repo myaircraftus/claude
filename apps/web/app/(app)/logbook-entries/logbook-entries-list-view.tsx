@@ -4,32 +4,36 @@
  * Logbook Entries — clean list view.
  *
  * Replaces the inline 7-step LogbookWorkflowBoard documentation. Shows
- * only the entries table. "New Entry" opens a focused create modal
+ * only the entries list. "New Entry" opens a focused create modal
  * (aircraft → entry type → component logbook → notes) that posts a draft
  * entry; signing happens on the entry detail page.
  *
+ * The list uses the shared RecordList primitive — a clean table on desktop,
+ * stacked cards on mobile (was a 7-column table that broke on phones).
  * Entry display: type + date + tail — never raw UUIDs (prior fix preserved).
  */
 
-import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useTenantRouter } from '@/components/shared/tenant-link'
 import { toast } from 'sonner'
-import { BookOpen, Plus, Search, Plane, CheckCircle2, X, Loader2 } from 'lucide-react'
+import { BookOpen, Plus, Search, Plane, X, Loader2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { RecordList, type RecordColumn } from '@/components/shared/record-list'
+import { StatusBadge, type StatusMap } from '@/components/shared/status-badge'
 import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
 import { type AtaJascValue, EMPTY_ATA_JASC, hasAtaJasc } from '@/lib/aviation/ata-jasc'
 
-const STATUS_COLOR: Record<string, string> = {
-  draft: 'bg-amber-50 text-amber-700 border-amber-200',
-  ready_for_review: 'bg-amber-50 text-amber-700 border-amber-200',
-  signed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  printed_unsigned: 'bg-blue-50 text-blue-700 border-blue-200',
+/** Single source of truth for logbook status labels + colors on the list. */
+const LOGBOOK_STATUS: StatusMap = {
+  draft: { label: 'Draft', pill: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  ready_for_review: { label: 'Ready for review', pill: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  signed: { label: 'Signed', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  approved: { label: 'Approved', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  printed_unsigned: { label: 'Printed (unsigned)', pill: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
   // Historical: OCR-transcribed records from the owner's paper logbooks.
-  historical: 'bg-slate-50 text-slate-600 border-slate-200',
-  void: 'bg-slate-100 text-slate-600 border-slate-200',
+  historical: { label: 'Historical', pill: 'bg-slate-50 text-slate-600', dot: 'bg-slate-400' },
+  void: { label: 'Void', pill: 'bg-slate-100 text-slate-600', dot: 'bg-slate-300' },
 }
 
 interface LogbookItem {
@@ -68,14 +72,24 @@ const ENTRY_TYPES = [
 
 const TARGETS = ['airframe', 'engine', 'propeller', 'avionics', 'appliance'] as const
 
+function hobbsTach(e: LogbookItem): string {
+  const parts: string[] = []
+  if (e.hobbs_in != null) parts.push(`H ${Number(e.hobbs_in).toFixed(1)}`)
+  if (e.tach_time != null) parts.push(`T ${Number(e.tach_time).toFixed(1)}`)
+  return parts.length ? parts.join(' / ') : '—'
+}
+
 export function LogbookEntriesListView({
   entries,
   aircraft = [],
   isOwner = false,
+  loadError = false,
 }: {
   entries: LogbookItem[]
   aircraft?: AircraftOption[]
   isOwner?: boolean
+  /** True when the server query failed — show an error state, not "empty". */
+  loadError?: boolean
 }) {
   const router = useTenantRouter()
   const [q, setQ] = useState('')
@@ -108,50 +122,58 @@ export function LogbookEntriesListView({
     })
   }, [entries, q])
 
-  async function createEntry() {
-    if (!form.aircraft_id) {
-      toast.error('Pick an aircraft')
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch('/api/logbook-entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aircraft_id: form.aircraft_id,
-          entry_type: form.entry_type,
-          entry_date: new Date().toISOString().slice(0, 10),
-          target_logbook: form.target,
-          logbook_type: form.target === 'propeller' ? 'prop' : form.target,
-          status: 'draft',
-          source_type: 'logbook_module',
-          description: form.description || undefined,
-          ata_code: ataJasc.ata_code,
-          jasc_code: ataJasc.jasc_code,
-          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
-          classification_status: hasAtaJasc(ataJasc) ? 'classified' : 'unclassified',
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        toast.error(data?.error ?? `Create failed (${res.status})`)
-        return
-      }
-      closeCreate()
-      toast.success('Draft logbook entry created')
-      if (data?.id) router.push(`/logbook-entries/${data.id}`)
-      else router.refresh()
-    } catch {
-      toast.error('Network error creating entry')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const columns: RecordColumn<LogbookItem>[] = [
+    {
+      key: 'aircraft',
+      header: 'Aircraft',
+      primary: true,
+      cell: (e) => (
+        <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-foreground">
+          <Plane className="h-3 w-3 text-muted-foreground" />
+          {e.aircraft?.tail_number ?? '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      cell: (e) => <span className="text-[12px] capitalize text-foreground">{(e.entry_type ?? '').replace(/_/g, ' ') || '—'}</span>,
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      cell: (e) => <span className="text-[12px] text-muted-foreground">{e.entry_date ? formatDate(e.entry_date) : formatDate(e.created_at)}</span>,
+    },
+    {
+      key: 'hobbs_tach',
+      header: 'Hobbs / Tach',
+      cell: (e) => <span className="text-[11px] tabular-nums text-muted-foreground">{hobbsTach(e)}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      badge: true,
+      cell: (e) => <StatusBadge map={LOGBOOK_STATUS} status={e.status} />,
+    },
+    {
+      key: 'linked_wo',
+      header: 'Linked WO',
+      cell: (e) => (
+        <span className="text-[12px] tabular-nums text-muted-foreground">{e.work_order?.work_order_number ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      hideOnMobile: true,
+      className: 'max-w-[280px]',
+      cell: (e) => <span className="block truncate text-[12px] text-muted-foreground">{e.description ?? '—'}</span>,
+    },
+  ]
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
-      <div className="px-6 py-4 border-b border-border bg-white flex items-center justify-between gap-3 shrink-0">
+      <div className="px-4 sm:px-6 py-4 border-b border-border bg-background flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-2 flex-1 max-w-md">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
@@ -170,93 +192,19 @@ export function LogbookEntriesListView({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
-              <BookOpen className="h-7 w-7 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium text-foreground">No logbook entries yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Generate one from a closed work order or write directly from an aircraft.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white border border-border rounded-xl overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-muted/30 border-b border-border">
-                <tr>
-                  {['Aircraft', 'Type', 'Date', 'Hobbs / Tach', 'Status', 'Linked WO', 'Description'].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[11px] text-muted-foreground uppercase tracking-wider whitespace-nowrap" style={{ fontWeight: 600 }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((e) => (
-                  <tr
-                    key={e.id}
-                    className="hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/logbook-entries/${e.id}`)}
-                  >
-                    <td className="px-4 py-3">
-                      <span className="flex items-center gap-1 text-[13px] text-foreground" style={{ fontWeight: 600 }}>
-                        <Plane className="h-3 w-3 text-muted-foreground" />
-                        {e.aircraft?.tail_number ?? '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[12px] text-foreground capitalize">
-                        {(e.entry_type ?? '').replace(/_/g, ' ') || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[12px] text-muted-foreground">
-                        {e.entry_date ? formatDate(e.entry_date) : formatDate(e.created_at)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] text-muted-foreground tabular-nums">
-                        {e.hobbs_in != null ? `H ${Number(e.hobbs_in).toFixed(1)}` : ''}
-                        {e.hobbs_in != null && e.tach_time != null ? ' / ' : ''}
-                        {e.tach_time != null ? `T ${Number(e.tach_time).toFixed(1)}` : ''}
-                        {e.hobbs_in == null && e.tach_time == null ? '—' : ''}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border',
-                        STATUS_COLOR[e.status] ?? STATUS_COLOR.draft,
-                      )} style={{ fontWeight: 600 }}>
-                        {e.status === 'signed' && <CheckCircle2 className="h-2.5 w-2.5" />}
-                        {(e.status ?? 'draft').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {e.work_order ? (
-                        <Link
-                          href={`/work-orders/${e.work_order.id}`}
-                          onClick={(ev) => ev.stopPropagation()}
-                          className="text-[12px] text-primary hover:underline tabular-nums"
-                        >
-                          {e.work_order.work_order_number}
-                        </Link>
-                      ) : (
-                        <span className="text-[12px] text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[12px] text-muted-foreground line-clamp-1 max-w-[280px]">
-                        {e.description ?? '—'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <RecordList
+          items={filtered}
+          columns={columns}
+          getRowKey={(e) => e.id}
+          getRowHref={(e) => `/logbook-entries/${e.id}`}
+          error={loadError}
+          emptyIcon={<BookOpen className="h-7 w-7" />}
+          emptyTitle={q ? 'No matching entries' : 'No logbook entries yet'}
+          emptyDescription={
+            q ? 'No entries on this page match your search.' : 'Generate one from a closed work order or write directly from an aircraft.'
+          }
+        />
       </div>
 
       {/* Create entry modal */}
@@ -359,4 +307,45 @@ export function LogbookEntriesListView({
       )}
     </div>
   )
+
+  async function createEntry() {
+    if (!form.aircraft_id) {
+      toast.error('Pick an aircraft')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/logbook-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft_id: form.aircraft_id,
+          entry_type: form.entry_type,
+          entry_date: new Date().toISOString().slice(0, 10),
+          target_logbook: form.target,
+          logbook_type: form.target === 'propeller' ? 'prop' : form.target,
+          status: 'draft',
+          source_type: 'logbook_module',
+          description: form.description || undefined,
+          ata_code: ataJasc.ata_code,
+          jasc_code: ataJasc.jasc_code,
+          classification_source: hasAtaJasc(ataJasc) ? ataJascSource : null,
+          classification_status: hasAtaJasc(ataJasc) ? 'classified' : 'unclassified',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data?.error ?? `Create failed (${res.status})`)
+        return
+      }
+      closeCreate()
+      toast.success('Draft logbook entry created')
+      if (data?.id) router.push(`/logbook-entries/${data.id}`)
+      else router.refresh()
+    } catch {
+      toast.error('Network error creating entry')
+    } finally {
+      setSaving(false)
+    }
+  }
 }

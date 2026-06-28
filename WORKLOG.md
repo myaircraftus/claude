@@ -4,6 +4,25 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-06-28 — Aircraft submenu: shared responsive list pattern (Estimates, Invoices, Logbook, Due List)
+
+**Why.** Picking the project back up before launch, we audited every module under the Aircraft submenu against the Work Orders v2 redesign (the production-grade bar) to get them user-ready. The audit surfaced one systemic, launch-blocking problem: the record lists were wide multi-column HTML tables with **no mobile handling** — Due List, Estimates, and Logbook broke at phone widths; Invoices scrolled sideways. Loading/error states were also missing (a failed fetch looked identical to "empty"), and status colors were re-declared (and drifting) in each module.
+
+**What.** Built a small shared UI layer and rolled it across four list surfaces:
+- New [skeleton.tsx](apps/web/components/ui/skeleton.tsx) (the kit had no Skeleton), [status-badge.tsx](apps/web/components/shared/status-badge.tsx) (`StatusBadge` driven by a per-module status map — one source of truth for labels + colors), and [record-list.tsx](apps/web/components/shared/record-list.tsx) (`RecordList`: one column definition renders a **clean table on desktop and stacked cards on mobile**, with built-in skeleton / empty / error states and SPA row navigation).
+- **Estimates**, **Invoices**, and **Logbook Entry** now use `RecordList`; each server page surfaces a real query error instead of rendering an empty list. Folded in along the way: SPA row navigation (Estimates was doing a full page reload), an owner-gated + desktop-only invoice delete, and a computed "Overdue" badge.
+- **Due List** keeps its in-page selection panel + bulk checkboxes (RecordList's route-nav model doesn't fit), so it got the same responsive table↔cards treatment inline, plus the shared `StatusBadge` (replacing the old emoji pills).
+
+**Files changed.** 3 new shared (`skeleton.tsx`, `status-badge.tsx`, `record-list.tsx`); 4 list views + 3 server pages (estimates, invoices, logbook-entries, due-list).
+
+**Verified.** `tsc --noEmit` clean (the repo's 24 preexisting errors unchanged, 0 new). Browser-checked each module live against local Supabase at desktop (1280px) and phone (375px) via DOM assertions (screenshots are unreliable on this preview instance): every list shows a full table ≥768px and stacked cards <768px with **0px horizontal overflow**; row-click navigates (Estimates/Invoices/Logbook) and a Due List card opens its compliance panel full-width on mobile; computed Overdue badge and owner-gating confirmed; no console or hydration warnings. Seeded throwaway `*-TEST-*` rows locally to exercise the lists with data. **Not committed — pending owner verification.**
+
+**Flagged separately (not fixed here).** Due List has several non-persisting actions (Create Compliance, Add Compliance Item, bulk Create Work Order, Attach File) — spun off as its own task. Persona/authorization gaps (Squawks shop actions visible to owners; ungated Invoice-detail writes; Approvals owner dead-end) and the rts-check IDOR remain owed from the audit.
+
+**Commit.** pending.
+
+---
+
 ## 2026-06-15 — Fix: Work order Sign-off tab crashed after generating a logbook draft
 
 **Gap.** On a work order's **Sign-off** tab, after clicking "Generate draft" once, the tab showed "Something went wrong — we hit an unexpected error" every time after, for that work order only. Other work orders were fine. The mechanic was locked out of the sign-off step for that job.

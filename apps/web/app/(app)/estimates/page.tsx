@@ -26,7 +26,7 @@ export default async function EstimatesPage({
   const page = Math.max(1, parseInt(searchParams.page ?? '1', 10))
   const offset = (page - 1) * PAGE_SIZE
 
-  const { data: estimates, count } = await supabase
+  const { data: estimates, count, error } = await supabase
     .from('estimates')
     .select(`
       id, estimate_number, status, total, valid_until, service_type, deposit_required, deposit_amount, approval_status, created_at, updated_at,
@@ -50,6 +50,7 @@ export default async function EstimatesPage({
             isOwner={isOwner}
             page={page}
             totalPages={totalPages}
+            loadError={!!error}
           />
         </div>
       </main>

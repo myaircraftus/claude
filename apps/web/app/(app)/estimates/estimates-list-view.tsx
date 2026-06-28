@@ -3,22 +3,25 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { FileText, Plus, Search, Plane } from 'lucide-react'
-import { cn, formatDate } from '@/lib/utils'
+import { formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { RecordList, type RecordColumn } from '@/components/shared/record-list'
+import { StatusBadge, type StatusMap } from '@/components/shared/status-badge'
 
-const STATUS_COLOR: Record<string, string> = {
-  draft:    'bg-slate-100 text-slate-600 border-slate-200',
-  sent:     'bg-blue-50 text-blue-700 border-blue-200',
-  ready_to_send: 'bg-blue-50 text-blue-700 border-blue-200',
-  awaiting_approval: 'bg-purple-50 text-purple-700 border-purple-200',
-  awaiting_deposit: 'bg-amber-50 text-amber-700 border-amber-200',
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  deposit_paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
-  declined: 'bg-red-50 text-red-700 border-red-200',
-  expired:  'bg-amber-50 text-amber-700 border-amber-200',
-  converted: 'bg-violet-50 text-violet-700 border-violet-200',
-  converted_to_work_order: 'bg-violet-50 text-violet-700 border-violet-200',
+/** Single source of truth for estimate status labels + colors on the list. */
+const ESTIMATE_STATUS: StatusMap = {
+  draft: { label: 'Draft', pill: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
+  sent: { label: 'Sent', pill: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+  ready_to_send: { label: 'Ready to send', pill: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+  awaiting_approval: { label: 'Awaiting approval', pill: 'bg-purple-50 text-purple-700', dot: 'bg-purple-500' },
+  awaiting_deposit: { label: 'Awaiting deposit', pill: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  approved: { label: 'Approved', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  deposit_paid: { label: 'Deposit paid', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  rejected: { label: 'Rejected', pill: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
+  declined: { label: 'Declined', pill: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
+  expired: { label: 'Expired', pill: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  converted: { label: 'Converted', pill: 'bg-violet-50 text-violet-700', dot: 'bg-violet-500' },
+  converted_to_work_order: { label: 'Converted to WO', pill: 'bg-violet-50 text-violet-700', dot: 'bg-violet-500' },
 }
 
 interface EstimateItem {
@@ -38,6 +41,7 @@ export function EstimatesListView({
   isOwner = false,
   page = 1,
   totalPages = 1,
+  loadError = false,
 }: {
   estimates: EstimateItem[]
   /** Owner persona — read-only: the create-estimate control is hidden.
@@ -47,6 +51,8 @@ export function EstimatesListView({
   /** Server-side pagination — current page (1-based) and total page count. */
   page?: number
   totalPages?: number
+  /** True when the server query failed — show an error state, not "empty". */
+  loadError?: boolean
 }) {
   const [q, setQ] = useState('')
   const filtered = useMemo(() => {
@@ -61,9 +67,61 @@ export function EstimatesListView({
     })
   }, [estimates, q])
 
+  const columns: RecordColumn<EstimateItem>[] = [
+    {
+      key: 'estimate_number',
+      header: 'Estimate #',
+      primary: true,
+      cell: (e) => <span className="text-[13px] font-semibold tabular-nums text-foreground">{e.estimate_number}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      badge: true,
+      cell: (e) => <StatusBadge map={ESTIMATE_STATUS} status={e.status} />,
+    },
+    {
+      key: 'aircraft',
+      header: 'Aircraft',
+      cell: (e) =>
+        e.aircraft ? (
+          <span className="inline-flex items-center gap-1 text-[13px] text-foreground">
+            <Plane className="h-3 w-3 text-muted-foreground" />
+            {e.aircraft.tail_number}
+          </span>
+        ) : (
+          <span className="text-[12px] text-muted-foreground">—</span>
+        ),
+    },
+    {
+      key: 'customer',
+      header: 'Customer',
+      cell: (e) => <span className="text-[13px] text-foreground">{e.customer?.name ?? '—'}</span>,
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      align: 'right',
+      cell: (e) => (
+        <span className="text-[13px] font-medium tabular-nums text-foreground">${Number(e.total ?? 0).toFixed(2)}</span>
+      ),
+    },
+    {
+      key: 'valid_until',
+      header: 'Valid until',
+      cell: (e) => <span className="text-[12px] text-muted-foreground">{e.valid_until ? formatDate(e.valid_until) : '—'}</span>,
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      hideOnMobile: true,
+      cell: (e) => <span className="text-[12px] text-muted-foreground">{formatDate(e.created_at)}</span>,
+    },
+  ]
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
-      <div className="px-6 py-4 border-b border-border bg-white flex items-center justify-between gap-3 shrink-0">
+      <div className="px-4 sm:px-6 py-4 border-b border-border bg-background flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-2 flex-1 max-w-md">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
@@ -85,81 +143,19 @@ export function EstimatesListView({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
-              <FileText className="h-7 w-7 text-muted-foreground" />
-            </div>
-            <p className="text-sm font-medium text-foreground">No estimates yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Create one from a work order or directly from an aircraft.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white border border-border rounded-xl overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-muted/30 border-b border-border">
-                <tr>
-                  {['Estimate #', 'Status', 'Aircraft', 'Customer', 'Total', 'Valid Until', 'Created'].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[11px] text-muted-foreground uppercase tracking-wider whitespace-nowrap" style={{ fontWeight: 600 }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((e) => (
-                  <tr
-                    key={e.id}
-                    className="hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => (window.location.href = `/estimates/${e.id}`)}
-                  >
-                    <td className="px-4 py-3">
-                      <Link href={`/estimates/${e.id}`} className="text-[13px] text-primary tabular-nums" style={{ fontWeight: 700 }}>
-                        {e.estimate_number}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        'inline-flex items-center px-2 py-0.5 rounded text-[10px] border',
-                        STATUS_COLOR[e.status] ?? STATUS_COLOR.draft,
-                      )} style={{ fontWeight: 600 }}>
-                        {e.status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {e.aircraft ? (
-                        <span className="flex items-center gap-1 text-[13px] text-foreground">
-                          <Plane className="h-3 w-3 text-muted-foreground" />
-                          {e.aircraft.tail_number}
-                        </span>
-                      ) : (
-                        <span className="text-[12px] text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[12px] text-foreground">{e.customer?.name ?? '—'}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-[13px] text-foreground tabular-nums" style={{ fontWeight: 600 }}>
-                        ${Number(e.total ?? 0).toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] text-muted-foreground">
-                        {e.valid_until ? formatDate(e.valid_until) : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] text-muted-foreground">{formatDate(e.created_at)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <RecordList
+          items={filtered}
+          columns={columns}
+          getRowKey={(e) => e.id}
+          getRowHref={(e) => `/estimates/${e.id}`}
+          error={loadError}
+          emptyIcon={<FileText className="h-7 w-7" />}
+          emptyTitle={q ? 'No matching estimates' : 'No estimates yet'}
+          emptyDescription={
+            q ? 'No estimates on this page match your search.' : 'Create one from a work order or directly from an aircraft.'
+          }
+        />
 
         {/* Pagination — server-side, ?page= param. The search box above
             filters only the current page; use Previous/Next for the rest. */}

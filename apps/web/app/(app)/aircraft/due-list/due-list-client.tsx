@@ -3,9 +3,13 @@
 /**
  * Due List — compliance / inspection tracking.
  *
- * Clean table of compliance_items joined with aircraft. Status tabs +
+ * Clean list of compliance_items joined with aircraft. Status tabs +
  * aircraft filter, row checkboxes for bulk "Create Work Order", and a
  * row-click right-side panel (Compliance / Child Tasks / Work Completed).
+ *
+ * Responsive: a table on desktop (md+), stacked cards on mobile — the list
+ * was previously a 9-column table with no mobile handling. Status shown via
+ * the shared StatusBadge so it matches the rest of the app.
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
@@ -15,6 +19,7 @@ import {
   X, ClipboardList, FileText, Plane, Loader2, Wrench, ArrowRight, Paperclip,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { StatusBadge, type StatusMap } from '@/components/shared/status-badge'
 import { AtaJascSelector } from '@/components/aviation/AtaJascSelector'
 import { shortAtaJasc, type AtaJascValue } from '@/lib/aviation/ata-jasc'
 
@@ -46,11 +51,12 @@ interface AircraftOpt {
   model: string | null
 }
 
-const STATUS_META: Record<string, { label: string; badge: string; cls: string }> = {
-  overdue: { label: 'Overdue', badge: '⚠ Overdue', cls: 'bg-red-100 text-red-800 border-red-300' },
-  'due-soon': { label: 'Next Due', badge: '! Next Due', cls: 'bg-amber-100 text-amber-800 border-amber-300' },
-  current: { label: 'On Time', badge: '✓ On Time', cls: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
-  deferred: { label: 'Deferred', badge: 'Deferred', cls: 'bg-slate-100 text-slate-700 border-slate-300' },
+/** Shared status pills (replaces the old emoji badges; consistent with the app). */
+const DUE_STATUS: StatusMap = {
+  overdue: { label: 'Overdue', pill: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
+  'due-soon': { label: 'Next due', pill: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
+  current: { label: 'On time', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  deferred: { label: 'Deferred', pill: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
 }
 
 const STATUS_TABS = [
@@ -73,6 +79,13 @@ function monthsUntil(d: string | null): string {
   const months = Math.round(ms / (30 * 24 * 3600 * 1000))
   if (months < 0) return `${Math.abs(months)}M past`
   return `${months}M`
+}
+
+function intervalText(it: DueItem): string {
+  const parts: string[] = []
+  if (it.interval_calendar_months) parts.push(`${it.interval_calendar_months}M`)
+  if (it.interval_hours) parts.push(`${it.interval_hours}H`)
+  return parts.length ? parts.join(' / ') : '—'
 }
 
 interface PanelForm {
@@ -233,9 +246,9 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-white shrink-0 flex items-center justify-between gap-3 flex-wrap">
+      <div className="px-4 sm:px-6 py-4 border-b border-border bg-background shrink-0 flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-[20px] tracking-tight text-foreground" style={{ fontWeight: 700 }}>Due List</h1>
+          <h1 className="text-[20px] font-bold tracking-tight text-foreground">Due List</h1>
           <p className="text-[12px] text-muted-foreground mt-0.5">
             Inspection &amp; component compliance across the fleet.
           </p>
@@ -263,15 +276,15 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
       </div>
 
       {/* Status tabs */}
-      <div className="px-6 pt-3 bg-white border-b border-border shrink-0">
-        <div className="flex gap-1">
+      <div className="px-4 sm:px-6 pt-3 bg-background border-b border-border shrink-0">
+        <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
           {STATUS_TABS.map((t) => {
             const count = t.key === 'all' ? items.length : items.filter((i) => i.status === t.key).length
             return (
               <button
                 key={t.key}
                 onClick={() => setStatusFilter(t.key)}
-                className={`px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
+                className={`px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors whitespace-nowrap ${
                   statusFilter === t.key
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -285,28 +298,28 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
         </div>
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* List */}
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-sm text-muted-foreground">
             No items in this view.
           </div>
         ) : (
-          <div className="bg-white border border-border rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30 border-b border-border">
-                <tr>
-                  {['', 'Tail No.', 'Source / Ref', 'Type / Description', 'ATA / JASC', 'Compliance', 'Interval', 'Next Due', 'Remaining'].map((h, i) => (
-                    <th key={i} className="text-left px-3 py-2.5 text-[10.5px] uppercase tracking-wider text-muted-foreground" style={{ fontWeight: 600 }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((it) => {
-                  const meta = STATUS_META[it.status] ?? STATUS_META.current
-                  return (
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block bg-background border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 border-b border-border">
+                  <tr>
+                    {['', 'Tail No.', 'Source / Ref', 'Type / Description', 'ATA / JASC', 'Compliance', 'Interval', 'Next Due', 'Status'].map((h, i) => (
+                      <th key={i} className="text-left px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((it) => (
                     <tr
                       key={it.id}
                       onClick={() => openPanel(it)}
@@ -321,7 +334,7 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                         />
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>
+                        <div className="text-[13px] font-semibold text-foreground">
                           {it.aircraft?.tail_number ?? '—'}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
@@ -345,27 +358,77 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                         </div>
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-muted-foreground tabular-nums">
-                        {it.interval_calendar_months ? `${it.interval_calendar_months}M` : ''}
-                        {it.interval_calendar_months && it.interval_hours ? ' / ' : ''}
-                        {it.interval_hours ? `${it.interval_hours}H` : ''}
-                        {!it.interval_calendar_months && !it.interval_hours ? '—' : ''}
+                        {intervalText(it)}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-muted-foreground tabular-nums">
                         <div>{fmtDate(it.next_due_date)}</div>
                         <div>{it.next_due_hours != null ? `${it.next_due_hours}H` : ''}</div>
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] border ${meta.cls}`} style={{ fontWeight: 700 }}>
-                          {meta.badge}
-                        </span>
-                        <div className="text-[10.5px] text-muted-foreground mt-0.5">{monthsUntil(it.next_due_date)}</div>
+                        <StatusBadge map={DUE_STATUS} status={it.status} />
+                        <div className="text-[10.5px] text-muted-foreground mt-0.5" suppressHydrationWarning>{monthsUntil(it.next_due_date)}</div>
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-2.5">
+              {filtered.map((it) => (
+                <div
+                  key={it.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openPanel(it)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openPanel(it)
+                    }
+                  }}
+                  className="rounded-xl border border-border bg-background p-3.5 cursor-pointer transition-all hover:border-foreground/20 hover:shadow-sm active:bg-muted/30"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(it.id)}
+                        onChange={() => toggleRow(it.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-0.5 h-4 w-4 rounded border-input shrink-0"
+                        aria-label={`Select ${it.title}`}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-semibold text-foreground truncate">{it.aircraft?.tail_number ?? '—'}</div>
+                        <div className="text-[12.5px] text-foreground truncate">{it.title}</div>
+                      </div>
+                    </div>
+                    <StatusBadge map={DUE_STATUS} status={it.status} className="shrink-0" />
+                  </div>
+                  <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2">
+                    <div className="min-w-0">
+                      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground/80">Next due</dt>
+                      <dd className="text-[12.5px] tabular-nums text-foreground">{fmtDate(it.next_due_date)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground/80">Remaining</dt>
+                      <dd className="text-[12.5px] tabular-nums text-foreground" suppressHydrationWarning>{monthsUntil(it.next_due_date) || '—'}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground/80">Source / Ref</dt>
+                      <dd className="text-[12.5px] text-foreground truncate">{it.source_reference ?? it.source ?? '—'}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground/80">ATA / JASC</dt>
+                      <dd className="text-[12.5px] tabular-nums text-foreground truncate">{shortAtaJasc(getClass(it)) || '—'}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -381,9 +444,7 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
                   {panelItem.source_reference ?? panelItem.source ?? 'Compliance'}
                 </div>
                 <div className="text-[15px] text-foreground" style={{ fontWeight: 700 }}>{panelItem.title}</div>
-                <span className={`inline-flex mt-1 items-center px-2 py-0.5 rounded-full text-[10px] border ${(STATUS_META[panelItem.status] ?? STATUS_META.current).cls}`} style={{ fontWeight: 700 }}>
-                  {(STATUS_META[panelItem.status] ?? STATUS_META.current).badge}
-                </span>
+                <StatusBadge map={DUE_STATUS} status={panelItem.status} className="mt-1" />
               </div>
               <button onClick={() => setPanelId(null)} className="p-1 rounded hover:bg-muted shrink-0">
                 <X className="h-4 w-4" />
@@ -485,18 +546,19 @@ export function DueListClient({ items, aircraft }: { items: DueItem[]; aircraft:
               )}
             </div>
 
-            {/* Panel footer */}
-            <div className="px-5 py-4 border-t border-border flex gap-2 shrink-0">
+            {/* Panel footer — stacks on mobile so neither button overflows the
+                full-width panel; side-by-side from sm: up. */}
+            <div className="px-5 py-4 border-t border-border flex flex-col sm:flex-row gap-2 shrink-0">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="w-full sm:flex-1"
                 onClick={() => toast.success('Compliance record saved')}
               >
                 <FileText className="h-4 w-4 mr-1.5" />
                 Create Compliance
               </Button>
               <Button
-                className="flex-1"
+                className="w-full sm:flex-1"
                 onClick={() => router.push(`/logbook-entries?aircraft=${panelItem.aircraft?.id ?? ''}`)}
               >
                 <Plane className="h-4 w-4 mr-1.5" />

@@ -60,6 +60,7 @@ export default async function LogbookEntriesPage() {
             entries={entries}
             aircraft={(aircraftRes.data ?? []) as any[]}
             isOwner={isOwner}
+            loadError={!!entriesRes.error}
           />
         </div>
       </main>
