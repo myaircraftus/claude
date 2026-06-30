@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { AircraftWorkspaceDetail } from '@/components/aircraft/aircraft-workspace-detail'
 import { createServerSupabase } from '@/lib/supabase/server'
+import { getCurrentPersona } from '@/lib/persona/server'
 import { isUUID } from '@/lib/utils'
 
 export const metadata = { title: 'Aircraft Workspace' }
@@ -21,5 +22,11 @@ export default async function AircraftDetailPage({
 
   if (!user) redirect('/login')
 
-  return <AircraftWorkspaceDetail aircraftId={params.id} />
+  // Persona drives which actions/tabs render. Owners get a read-mostly
+  // workspace (report + track); shop keeps the full operational toolset.
+  // Resolved server-side so the persona is known at first paint (no flash).
+  const { persona } = await getCurrentPersona()
+  const isOwner = persona === 'owner'
+
+  return <AircraftWorkspaceDetail aircraftId={params.id} isOwner={isOwner} />
 }

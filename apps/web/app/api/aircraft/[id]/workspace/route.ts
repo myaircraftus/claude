@@ -69,6 +69,17 @@ export async function GET(
   const ownerId = aircraft.owner_customer_id as string | null
   const payerId = (aircraft.maintenance_payer_customer_id ?? aircraft.owner_customer_id) as string | null
 
+  // Owner-visibility gate for squawks — owners only see squawks the shop has
+  // marked owner-visible; internal squawks stay shop-only. Mirrors the
+  // owner_visible filter on the /squawks pages (squawks has no RLS gate, so the
+  // app layer is the boundary).
+  let squawksQuery = supabase
+    .from('squawks')
+    .select('id, title, description, severity, status, owner_visible, reported_at, assigned_work_order_id, suggested_ata_code, suggested_jasc_code, confirmed_ata_code, confirmed_jasc_code, classification_status')
+    .eq('organization_id', ctx.organizationId)
+    .eq('aircraft_id', params.id)
+  if (persona === 'owner') squawksQuery = squawksQuery.eq('owner_visible', true)
+
   const [
     ownerRes,
     payerRes,
@@ -139,11 +150,7 @@ export async function GET(
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(50),
-    supabase
-      .from('squawks')
-      .select('id, title, description, severity, status, reported_at, assigned_work_order_id, suggested_ata_code, suggested_jasc_code, confirmed_ata_code, confirmed_jasc_code, classification_status')
-      .eq('organization_id', ctx.organizationId)
-      .eq('aircraft_id', params.id)
+    squawksQuery
       .order('reported_at', { ascending: false })
       .limit(50),
     supabase
