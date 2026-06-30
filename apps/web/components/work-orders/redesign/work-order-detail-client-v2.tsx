@@ -41,6 +41,7 @@ import { AIPlanDrawer } from '@/components/work-orders/ai-plan-drawer'
 import { VoiceButton } from '@/components/voice/VoiceButton'
 import { CameraButton } from '@/components/camera/CameraButton'
 import { WO_LIFECYCLE, woStatusLabel, woStatusPill, woStatusDot } from './wo-status'
+import { AssignMechanic } from './assign-mechanic'
 import { woHref } from '@/lib/work-orders/ui-mode'
 import { rtsIssueText, type RtsIssue } from '@/lib/work-orders/rts'
 import type { WorkOrder, WorkOrderLine, WorkOrderLineType, WorkOrderStatus } from '@/types'
@@ -554,6 +555,13 @@ export function WorkOrderDetailClientV2({ workOrder, userRole, persona, profile 
           <span className="text-[13px] text-muted-foreground flex items-center gap-1.5">
             <Plane className="h-3.5 w-3.5" /> {aircraftTail} · {aircraftModel}
           </span>
+          {!isOwnerView && (
+            <AssignMechanic
+              workOrderId={wo.id}
+              value={(wo as any).assigned_mechanic_id ?? null}
+              onChange={(id) => setWo((prev) => ({ ...prev, assigned_mechanic_id: id }) as typeof prev)}
+            />
+          )}
           <div className="flex-1" />
 
           {!isActualOwner && !previewAsOwner && (

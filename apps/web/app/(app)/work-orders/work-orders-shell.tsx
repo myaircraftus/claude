@@ -68,6 +68,7 @@ export interface WorkOrderListItem {
     model?: string | null
   } | null
   aircraft_id?: string | null
+  assigned_mechanic_id?: string | null
 }
 
 export interface ShellAircraft {

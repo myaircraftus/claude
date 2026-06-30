@@ -34,6 +34,7 @@ interface WorkOrderListItem {
   updated_at?: string | null
   aircraft?: { id: string; tail_number: string; make?: string | null; model?: string | null } | null
   aircraft_id?: string | null
+  assigned_mechanic_id?: string | null
 }
 
 interface ShellAircraft {
@@ -46,6 +47,7 @@ export function WorkOrdersShellV2({
   aircraft,
   children,
   isOwner = false,
+  currentUserId = null,
   page = 1,
   totalPages = 1,
 }: {
@@ -53,6 +55,7 @@ export function WorkOrdersShellV2({
   aircraft: ShellAircraft[]
   children: React.ReactNode
   isOwner?: boolean
+  currentUserId?: string | null
   page?: number
   totalPages?: number
 }) {
@@ -60,6 +63,7 @@ export function WorkOrdersShellV2({
   const router = useTenantRouter()
   const [searchQ, setSearchQ] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [mineOnly, setMineOnly] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
 
   const selectedId = useMemo(() => {
@@ -71,6 +75,7 @@ export function WorkOrdersShellV2({
   const filtered = useMemo(() => {
     const q = searchQ.trim().toLowerCase()
     return workOrders.filter((wo) => {
+      if (mineOnly && wo.assigned_mechanic_id !== currentUserId) return false
       if (statusFilter && wo.status !== statusFilter) return false
       if (!q) return true
       return (
@@ -79,7 +84,7 @@ export function WorkOrdersShellV2({
         (wo.customer_complaint ?? '').toLowerCase().includes(q)
       )
     })
-  }, [workOrders, searchQ, statusFilter])
+  }, [workOrders, searchQ, statusFilter, mineOnly, currentUserId])
 
   const stats = useMemo(() => ({
     open: workOrders.filter((wo) => wo.status === 'open').length,
@@ -151,6 +156,30 @@ export function WorkOrdersShellV2({
               </div>
             </div>
 
+            {/* Assigned-to-me toggle — a mechanic's "my work" view */}
+            {!isOwner && currentUserId && (
+              <div className="px-5 pb-3">
+                <div className="inline-flex rounded-lg border border-border p-0.5 text-[12px]">
+                  <button
+                    type="button"
+                    onClick={() => setMineOnly(false)}
+                    aria-pressed={!mineOnly}
+                    className={cn('rounded-md px-2.5 py-1 transition-colors', !mineOnly ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                  >
+                    All work
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMineOnly(true)}
+                    aria-pressed={mineOnly}
+                    className={cn('rounded-md px-2.5 py-1 transition-colors', mineOnly ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                  >
+                    Assigned to me
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Search + filter */}
             <div className="px-5 pb-3 space-y-2">
               <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
@@ -184,11 +213,13 @@ export function WorkOrdersShellV2({
                   </div>
                   <p className="text-sm font-medium text-foreground">No work orders</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {searchQ || statusFilter
-                      ? 'Try adjusting your filters.'
-                      : isOwner
-                        ? 'Work orders from your shop will show up here.'
-                        : 'Click “New” to create one.'}
+                    {mineOnly
+                      ? 'Nothing is assigned to you on this page.'
+                      : searchQ || statusFilter
+                        ? 'Try adjusting your filters.'
+                        : isOwner
+                          ? 'Work orders from your shop will show up here.'
+                          : 'Click “New” to create one.'}
                   </p>
                 </div>
               ) : (

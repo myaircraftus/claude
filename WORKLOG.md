@@ -4,6 +4,25 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-01 — Mechanic: work-order assignment loop (assign → My Assignments → "Assigned to me")
+
+**Why.** Audited the whole mechanic experience in three parallel passes — work-order detail, time/workforce, and "how a mechanic finds their work." The finding reframed the ask: the mechanic's *tools* are deep and functional (the WO detail does checklist → labor/parts → return-to-service sign-off → logbook → chat → AI assist with no placeholders; time/workforce has daily + per-WO clocking, timesheets, payroll export). The gap is the *workflow* connecting them — and the worst case was that **a mechanic had no way to see their own work.** The dashboard "My Assignments" widget claimed "personalized to the logged-in mechanic" but rendered **all** active work orders (a placeholder that lied), there was **no UI to assign a work order to a mechanic** (the `assigned_mechanic_id` column + a workflow-board filter existed but nothing ever set them), and the WO list had no "my work" view.
+
+**What.** Built the assignment loop end-to-end:
+- **Assign on the work order** — a new `AssignMechanic` picker in the WO detail header (shop view only) lists the team and PATCHes `assigned_mechanic_id` (the route already whitelisted the field, so no API change).
+- **Dashboard "My Assignments" → truthful** — now filters to work orders actually assigned to the logged-in user (was unfiltered); honest empty state with a "Browse all work orders" link.
+- **WO list "Assigned to me" filter** — a one-tap *All work / Assigned to me* toggle on the work-order list (shop only); plumbed `assigned_mechanic_id` + the current user id through the layout and both shells.
+
+**Files.** New `apps/web/components/work-orders/redesign/assign-mechanic.tsx`; edited the WO detail v2, `components/redesign/Dashboard.tsx`, `app/(app)/work-orders/layout.tsx`, `app/(app)/work-orders/work-orders-shell.tsx`, and `components/work-orders/redesign/work-orders-shell-v2.tsx`.
+
+**Verified.** `tsc` 0-new. Browser-verified the full loop on local Supabase: assigned WO-2026-0002 via the picker → it persisted → it appeared in dashboard "My Assignments" (which now correctly **excludes** the unassigned WO-2026-0003 — the old code showed it) → the list "Assigned to me" toggle shows only my WOs (0001, 0002) and "All work" restores 0003; toggle renders + 0 overflow at 375px. (Aside: hit a client/server persona-cache mismatch when switching persona via the API instead of the sidebar — the `ui_persona` cookie the WO-list layout reads lagged the DB; aligning the cookie fixed it. Not a product bug.) Account restored to owner after testing. **Not committed — pending owner verification.**
+
+**Audit follow-ups (P2 / P3, not built).** Unify the two clock systems (daily punch vs per-WO `time_entries`) into one "today" summary; embed the WO time-clock instead of a separate `/time-clock` sub-route; add a squawks panel on the WO; a parts request→approve→consume / inventory flow.
+
+**Commit.** pending.
+
+---
+
 ## 2026-06-30 — Aircraft workspace (`/aircraft/[id]`): status-first dashboard redesign + persona-aware + internal-squawk leak fix + responsive
 
 **Design pass (research-driven).** After the persona/responsive fixes below, the owner asked for the page to be *designed* around how the people who use it actually behave, for desktop and mobile both. Researched the field (Veryon, Traxxall, JSSI AviatorMX, CAMP, Coflyt, FlightDeck, Pilot Partner): every aircraft view leads with the same three things, so the page now does too — (1) an **airworthiness status banner** (color-coded, with the reason: grounded / grounding-squawk / overdue → red; due-soon / in-maintenance → amber; else green), (2) a **vitals strip** of the four numbers each product surfaces first (owner: next due · total time · open squawks · balance due; shop: …· active work), and (3) a **coming-due forecast** that merges `aircraft_due_items` + `compliance_items` into one urgency-ranked, color-coded list with plain countdowns (`overdue 61d`, `due today`, a date, or `at X hrs · N to go`). The photo is demoted into an "Aircraft details" card; the Overview body is forecast + live work + your-squawks + times + details + (owner) billing / (shop) AI insights. Empty states everywhere so a sparse aircraft never looks broken. Mocked the direction first, owner approved, then built. Verified live for both personas at 1280 + 375: banner reasoning correct (the seed aircraft's grounding squawk drives a red "attention needed"), forecast sorts overdue-first with correct countdowns, owner sees balance `$5,800` / shop sees `4` open squawks incl. the internal one + active-work vital, vitals 4-col on desktop → 2×2 on mobile, scroll + 0 overflow, `tsc` 0-new.

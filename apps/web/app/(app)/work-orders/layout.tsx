@@ -57,6 +57,7 @@ export default async function WorkOrdersLayout({
         created_at,
         updated_at,
         aircraft_id,
+        assigned_mechanic_id,
         aircraft:aircraft_id (id, tail_number, make, model)
       `, { count: 'exact' })
       .eq('organization_id', orgId)
@@ -84,6 +85,7 @@ export default async function WorkOrdersLayout({
     created_at: wo.created_at,
     updated_at: wo.updated_at,
     aircraft_id: wo.aircraft_id,
+    assigned_mechanic_id: wo.assigned_mechanic_id ?? null,
     aircraft: Array.isArray(wo.aircraft) ? wo.aircraft[0] : wo.aircraft,
   }))
   const aircraft = (acRes.data ?? []) as ShellAircraft[]
@@ -97,6 +99,7 @@ export default async function WorkOrdersLayout({
             workOrders={workOrders}
             aircraft={aircraft}
             isOwner={isOwner}
+            currentUserId={profile.id}
             page={page}
             totalPages={totalPages}
           >

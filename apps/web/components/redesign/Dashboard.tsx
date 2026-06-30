@@ -27,6 +27,7 @@ import {
   type LogbookEntry,
   type WorkOrder,
 } from "./workspace/DataStore";
+import { useAppContext } from "./AppContext";
 
 type BadgeTone = "blue" | "green" | "amber" | "red" | "purple" | "slate";
 type CreateKind =
@@ -265,6 +266,7 @@ const PERSONA_COPY: Record<DashboardPersona, { title: string; subhead: string }>
 export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
   const router = useTenantRouter();
   const { aircraft, workOrders, invoices, estimates, logbookEntries } = useDataStore();
+  const { activeMechanic } = useAppContext();
   const [createOpen, setCreateOpen] = useState(false);
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -365,7 +367,7 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
   }, [estimates, invoices, billableWorkOrders, readyInvoiceTotal]);
 
   const assignmentRows = useMemo(() => {
-    const work = activeWorkOrders.slice(0, 4).map((wo) => ({
+    const toRow = (wo: WorkOrder) => ({
       id: wo.id,
       task: wo.squawk || wo.serviceType || "Continue work order",
       record: wo.woNumber || wo.id.slice(0, 8).toUpperCase(),
@@ -373,18 +375,28 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
       status: normalizeStatus(wo.status),
       tone: statusTone(wo.status),
       href: `/work-orders/${wo.id}`,
-    }));
-    if (work.length > 0) return work;
-    return waitingEstimates.slice(0, 4).map((estimate) => ({
-      id: estimate.id,
-      task: "Owner reply",
-      record: estimate.estimateNumber || estimate.id.slice(0, 8).toUpperCase(),
-      aircraft: estimate.aircraft || "Unassigned",
-      status: estimate.status,
-      tone: statusTone(estimate.status),
-      href: `/estimates/${estimate.id}`,
-    }));
-  }, [activeWorkOrders, waitingEstimates]);
+    });
+    // Owner: open work on the aircraft they own (fall back to estimates awaiting reply).
+    if (persona === "owner") {
+      const work = activeWorkOrders.slice(0, 4).map(toRow);
+      if (work.length > 0) return work;
+      return waitingEstimates.slice(0, 4).map((estimate) => ({
+        id: estimate.id,
+        task: "Owner reply",
+        record: estimate.estimateNumber || estimate.id.slice(0, 8).toUpperCase(),
+        aircraft: estimate.aircraft || "Unassigned",
+        status: estimate.status,
+        tone: statusTone(estimate.status),
+        href: `/estimates/${estimate.id}`,
+      }));
+    }
+    // Shop / mechanic: the work actually ASSIGNED to the logged-in user — the
+    // "My Assignments" promise. (Previously showed all active WOs unfiltered.)
+    return activeWorkOrders
+      .filter((wo) => wo.assignedMechanicId && wo.assignedMechanicId === activeMechanic.id)
+      .slice(0, 6)
+      .map(toRow);
+  }, [persona, activeWorkOrders, waitingEstimates, activeMechanic.id]);
 
   function handleCreate(action: CreateAction) {
     setCreateOpen(false);
@@ -571,9 +583,16 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
             <div className="space-y-2">
               {assignmentRows.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 px-5 py-9 text-center text-sm text-slate-400">
-                  {persona === "owner"
-                    ? "No active work on your aircraft right now."
-                    : "No assigned shop work is waiting."}
+                  {persona === "owner" ? (
+                    "No active work on your aircraft right now."
+                  ) : (
+                    <>
+                      Nothing assigned to you yet.{" "}
+                      <Link href="/work-orders" className="font-semibold text-blue-600 hover:underline">
+                        Browse all work orders
+                      </Link>
+                    </>
+                  )}
                 </div>
               ) : (
                 assignmentRows.map((row) => (
