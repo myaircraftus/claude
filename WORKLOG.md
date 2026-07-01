@@ -4,6 +4,27 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-02 — AI Part Search: edge-case test pass (+ extracted filter/sort for unit testing)
+
+**Why.** Client asked to verify AI Part Search end-to-end the same way as AD/SB. One structural reality shapes it: locally **all three vendor providers return zero offers** (SerpAPI + eBay keys are unset; the "curated" provider is a stub), so the entire *offer-processing* half — ranking, condition/price/shipping/vendor/brand/PN filters, sorting, dedup, click-out, library matches — is unreachable end-to-end. That half is exactly what unit tests are for (the analog of the AD/SB `classifyAd` branches live data couldn't reach).
+
+**What.** (1) **Extracted** the filter/sort/validation logic out of `search.ts` + the route into `apps/web/lib/parts/filter-sort.ts` (`parseFilters`, `applyFilters`, `applySort`, `offerEffectivePrice`, `offerShippingDays`) so it's testable without the provider/AI/supabase imports; both callers now import it (behavior-preserving). (2) Added **42 vitest cases** across three files: `normalize.test.ts` (query normalization, search-mode classification incl. the exact-part-vs-contextual heuristics, part-number extraction, provider-query building with context), `ranking.test.ts` (scoring, aviation-vendor bucketing incl. name-based detection on google.com aggregator URLs, PMA→trusted, dedup keep-richer, bucket-then-score ordering), and `filter-sort.test.ts` (filter whitelisting/normalization, every condition/price/shipping/vendor/brand/PN filter, all five sort modes, shipping-label→days parsing).
+
+**Verified — end-to-end (real API + browser) + unit:**
+- **Auth/input:** unauthenticated → **401**; missing / whitespace query → **400** "Query is required"; >200-char query → **400** "Query too long".
+- **AI resolution:** with the Cessna 152 selected, "oil filter" resolves to **CH48110-1** (high confidence); an `aircraft_context` passthrough (no aircraft_id) resolves "spark plugs" for a Lycoming O-320 to **REM40E/REM38E**; a query that is *already a part number* correctly **skips** AI resolution; a search with **no** aircraft context correctly returns `aiResolution: null`.
+- **Filters & persistence:** a request mixing valid + invalid filters is accepted (invalid dropped) without error; every search persists a `parts_searches` row with the right `search_mode`.
+- **UI/gating:** owners are **redirected** off the shop-only page; under the shop persona the page renders, and a live search shows the **AI Part Identification card** (CH48110-1, high confidence), transparent **provider status chips**, and the **"No results"** empty state.
+- **Unit:** 42/42 pass; `tsc` 0-new.
+
+**Not exercised (blocked by the missing vendor keys — config, not code):** actual **offer cards, click-out ordering, library-match surfacing, ranking display, and the filter/sort *effects*** all require real offers. The logic is unit-tested; proving the offer *flow* end-to-end needs a `SERPAPI_KEY` (and optionally `EBAY_APP_ID`/`EBAY_CERT_ID`) added locally, or a run against production where those keys exist.
+
+**Files.** New `apps/web/lib/parts/filter-sort.ts` + three `*.test.ts` (`normalize`, `ranking`, `filter-sort`); `apps/web/lib/parts/search.ts` and `apps/web/app/api/parts/search/route.ts` now import the module. **Not committed — pending your go-ahead.**
+
+**Commit.** pending.
+
+---
+
 ## 2026-07-02 — AD/SB Traceability: full edge-case test pass (+ extracted the classification logic for unit testing)
 
 **Why.** After fixing the fabricated-date bug, the client asked to verify *all* the edge cases end-to-end — appropriate rigor for a compliance surface.
