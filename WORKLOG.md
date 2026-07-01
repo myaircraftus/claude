@@ -19,9 +19,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 **Not exercised (blocked by the missing vendor keys — config, not code):** actual **offer cards, click-out ordering, library-match surfacing, ranking display, and the filter/sort *effects*** all require real offers. The logic is unit-tested; proving the offer *flow* end-to-end needs a `SERPAPI_KEY` (and optionally `EBAY_APP_ID`/`EBAY_CERT_ID`) added locally, or a run against production where those keys exist.
 
-**Files.** New `apps/web/lib/parts/filter-sort.ts` + three `*.test.ts` (`normalize`, `ranking`, `filter-sort`); `apps/web/lib/parts/search.ts` and `apps/web/app/api/parts/search/route.ts` now import the module. **Not committed — pending your go-ahead.**
+**Files.** New `apps/web/lib/parts/filter-sort.ts` + three `*.test.ts` (`normalize`, `ranking`, `filter-sort`); `apps/web/lib/parts/search.ts` and `apps/web/app/api/parts/search/route.ts` now import the module. Committed & pushed in `fa017272`.
 
-**Commit.** pending.
+**Commit.** `fa017272`.
 
 ---
 
