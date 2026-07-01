@@ -20,9 +20,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 **Not exercised (documented gaps, all data-dependent):** the "no ADs found in the records" state (would need a document that contains no ADs — the seed logbook has them); the "No ADs match this filter" message (every filter had ≥1 row with this data); the **overdue** *red badge* rendered in the UI (no recurring AD in the seed data has a real past date+interval — the overdue *classification* is unit-tested, just never rendered as a live badge); and Export‑PDF (`window.print`, a browser dialog).
 
-**Files.** New `apps/web/lib/intelligence/ad-classify.ts` + `apps/web/lib/intelligence/ad-classify.test.ts`; `apps/web/app/api/intelligence/ad-traceability/route.ts` (now imports the module). **Not committed — pending your go-ahead.**
+**Files.** New `apps/web/lib/intelligence/ad-classify.ts` + `apps/web/lib/intelligence/ad-classify.test.ts`; `apps/web/app/api/intelligence/ad-traceability/route.ts` (now imports the module). Committed & pushed in `2a911e41`.
 
-**Commit.** pending.
+**Commit.** `2a911e41`.
 
 ---
 
@@ -37,9 +37,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 **Files.** `apps/web/app/api/intelligence/ad-traceability/route.ts`, `apps/web/app/(app)/aircraft/[id]/intelligence/ad-traceability/ad-traceability-client.tsx`.
 
-**Verified.** `tsc` 0-new on both files. Regenerated the report live in the browser (owner, N92995): `POST …/ad-traceability 200`, and the table now reads — 84‑26‑02 **Complied · Not recorded**, 81‑05‑02 **Complied · Not recorded**, 93‑2066 **Complied · Oct 21, 1996** (real date preserved), 87‑20‑03 **Recurring** (was wrongly "No Evidence"), 82‑53‑06 **No Evidence Found**. No "Jun 20, 2001" / "YYYY" anywhere. **Not committed — pending your go-ahead.**
+**Verified.** `tsc` 0-new on both files. Regenerated the report live in the browser (owner, N92995): `POST …/ad-traceability 200`, and the table now reads — 84‑26‑02 **Complied · Not recorded**, 81‑05‑02 **Complied · Not recorded**, 93‑2066 **Complied · Oct 21, 1996** (real date preserved), 87‑20‑03 **Recurring** (was wrongly "No Evidence"), 82‑53‑06 **No Evidence Found**. No "Jun 20, 2001" / "YYYY" anywhere. Committed & pushed in `2a911e41`.
 
-**Commit.** pending.
+**Commit.** `2a911e41`.
 
 ---
 
