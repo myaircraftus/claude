@@ -24,6 +24,12 @@ import { runIntelligenceQuery } from '@/lib/rag/intelligence-query'
 import { readIntelligenceCache, writeIntelligenceCache } from '@/lib/intelligence/cache'
 import { scoreIntelligenceReport } from '@/lib/intelligence/quality-score'
 import type { IntelligenceCitation, IntelligenceReport } from '@/lib/intelligence/types'
+import {
+  type ExtractedAd,
+  type TraceabilityAd,
+  classifyAd,
+  coerceExtractedAd,
+} from '@/lib/intelligence/ad-classify'
 
 // Migrated to the unified AI SDK layer (lib/ai/llm).
 
@@ -32,38 +38,9 @@ export const dynamic = 'force-dynamic'
 const DISCLAIMER =
   'Based on uploaded maintenance records. Does not substitute for an official FAA AD compliance review.'
 
-type AdType = 'one-time' | 'recurring'
-type AdStatus = 'complied' | 'recurring' | 'overdue' | 'no-evidence'
-
-/** One structured AD extracted from the step-1 RAG answer. */
-interface ExtractedAd {
-  ad_number: string
-  type: AdType
-  last_compliance_date: string | null
-  recurring_interval_months: number | null
-  evidence_excerpt: string
-}
-
-/** The final shape rendered by the client. */
-interface TraceabilityAd {
-  ad_number: string
-  type: AdType
-  last_compliance_date: string | null
-  next_due: string | null
-  evidence_excerpt: string
-  status: AdStatus
-}
-
-/** Add a whole number of months to an ISO date, clamping day overflow. */
-function addMonths(isoDate: string, months: number): string | null {
-  const d = new Date(isoDate)
-  if (Number.isNaN(d.getTime())) return null
-  const day = d.getUTCDate()
-  d.setUTCMonth(d.getUTCMonth() + months)
-  // Clamp Feb-30 style overflow back to the last day of the target month.
-  if (d.getUTCDate() < day) d.setUTCDate(0)
-  return d.toISOString().slice(0, 10)
-}
+// AD types + the pure classification / date-validation logic now live in
+// @/lib/intelligence/ad-classify (imported above) so they can be unit-tested
+// without pulling in this route's server dependencies.
 
 /**
  * Second LLM pass: turn the free-text AD summary into a structured array.
@@ -89,7 +66,11 @@ async function extractAds(answer: string): Promise<ExtractedAd[]> {
         'You extract Airworthiness Directive (AD) records from an aircraft maintenance ' +
         'summary. Respond ONLY with JSON of the form {"ads":[{...}]}. Each AD object has: ' +
         '"ad_number" (string, e.g. "2019-12-04"), "type" ("one-time" or "recurring"), ' +
-        '"last_compliance_date" (ISO date "YYYY-MM-DD" or null if no date is documented), ' +
+        '"complied" (boolean — true only when the records show this AD was actually complied ' +
+        'with; false if the records indicate it was not complied with or compliance is unclear), ' +
+        '"last_compliance_date" (a real calendar date as "YYYY-MM-DD" with a full 4-digit year; ' +
+        'use null when the year is not documented — NEVER output a placeholder such as ' +
+        '"YYYY-06-20" and never guess or invent a year), ' +
         '"recurring_interval_months" (integer months for recurring ADs, else null), ' +
         '"evidence_excerpt" (short quote from the records documenting compliance, or ""). ' +
         'Only include ADs explicitly mentioned in the text. Never invent ADs or dates. ' +
@@ -103,56 +84,13 @@ async function extractAds(answer: string): Promise<ExtractedAd[]> {
     const out: ExtractedAd[] = []
     for (const item of list) {
       if (!item || typeof item !== 'object') continue
-      const row = item as Record<string, unknown>
-      const adNumber = typeof row.ad_number === 'string' ? row.ad_number.trim() : ''
-      if (!adNumber) continue
-      const type: AdType = row.type === 'recurring' ? 'recurring' : 'one-time'
-      const lastDate =
-        typeof row.last_compliance_date === 'string' && row.last_compliance_date.trim()
-          ? row.last_compliance_date.trim()
-          : null
-      const intervalRaw = Number(row.recurring_interval_months)
-      const interval =
-        Number.isFinite(intervalRaw) && intervalRaw > 0 ? Math.round(intervalRaw) : null
-      out.push({
-        ad_number: adNumber,
-        type,
-        last_compliance_date: lastDate,
-        recurring_interval_months: interval,
-        evidence_excerpt:
-          typeof row.evidence_excerpt === 'string' ? row.evidence_excerpt.slice(0, 600) : '',
-      })
+      const ad = coerceExtractedAd(item as Record<string, unknown>)
+      if (ad) out.push(ad)
     }
     return out
   } catch (err) {
     console.error('[ad-traceability] AD extraction failed:', err)
     return []
-  }
-}
-
-/** Compute next_due + status for one extracted AD. */
-function classifyAd(ad: ExtractedAd): TraceabilityAd {
-  let nextDue: string | null = null
-  let status: AdStatus
-
-  if (!ad.last_compliance_date) {
-    status = 'no-evidence'
-  } else if (ad.type === 'recurring' && ad.recurring_interval_months) {
-    nextDue = addMonths(ad.last_compliance_date, ad.recurring_interval_months)
-    const isPast = nextDue != null && new Date(nextDue).getTime() < Date.now()
-    status = isPast ? 'overdue' : 'recurring'
-  } else {
-    // one-time AD with a documented compliance date, or recurring w/o interval.
-    status = ad.type === 'recurring' ? 'recurring' : 'complied'
-  }
-
-  return {
-    ad_number: ad.ad_number,
-    type: ad.type,
-    last_compliance_date: ad.last_compliance_date,
-    next_due: nextDue,
-    evidence_excerpt: ad.evidence_excerpt,
-    status,
   }
 }
 

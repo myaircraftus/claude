@@ -4,6 +4,63 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-02 — AD/SB Traceability: full edge-case test pass (+ extracted the classification logic for unit testing)
+
+**Why.** After fixing the fabricated-date bug, the client asked to verify *all* the edge cases end-to-end — appropriate rigor for a compliance surface.
+
+**What.** (1) **Extracted** the pure classification/date logic out of the route handler into `apps/web/lib/intelligence/ad-classify.ts` (`isValidIsoDate`, `addMonths`, `coerceExtractedAd`, `classifyAd`) so it has no server dependencies and can be unit-tested; the route now imports it (behavior-preserving refactor). (2) Added `ad-classify.test.ts` — **18 vitest cases** covering the branches real data can't reach: date validation (real dates, the `YYYY-06-20` placeholder, impossible dates like Feb-30 / non-leap Feb-29 / month-13 / June-31, and malformed formats), `addMonths` end-of-month clamping, the loose-row coercion (interval/type/evidence normalization, the "a real date implies complied" rule, strict-boolean `complied`), and every `classifyAd` status branch including **overdue** (past next-due) and future-recurring.
+
+**Verified — end-to-end (real API + browser) + unit:**
+- **Auth/gating:** unauthenticated → **401**; shop persona → **403** (API) and the **owner-only lock screen** (page, no Generate button); owner → allowed.
+- **Input/tenancy:** missing `aircraft_id` → **400**; aircraft in another org → **404**; bogus aircraft id (page) → **redirect to /aircraft**.
+- **Empty data:** aircraft with no documents → `empty:true` (API) and the **"No documents uploaded yet"** empty state (UI).
+- **Cache:** cached read returns `cached:true`; regenerate returns `cached:false` and — the refactor re-verified live — **5 ADs with 0 fabricated dates** (84‑26‑02/81‑05‑02 = complied·no date, 93‑2066 keeps Oct 21 1996, 87‑20‑03 recurring, 82‑53‑06 no-evidence).
+- **UI interactions:** filter chips All/Complied/Recurring/Flagged = 5/3/1/1 and each shows exactly the right rows; evidence rows expand (grounded quote) and collapse.
+- **Unit:** 18/18 pass; `tsc` 0-new.
+
+**Not exercised (documented gaps, all data-dependent):** the "no ADs found in the records" state (would need a document that contains no ADs — the seed logbook has them); the "No ADs match this filter" message (every filter had ≥1 row with this data); the **overdue** *red badge* rendered in the UI (no recurring AD in the seed data has a real past date+interval — the overdue *classification* is unit-tested, just never rendered as a live badge); and Export‑PDF (`window.print`, a browser dialog).
+
+**Files.** New `apps/web/lib/intelligence/ad-classify.ts` + `apps/web/lib/intelligence/ad-classify.test.ts`; `apps/web/app/api/intelligence/ad-traceability/route.ts` (now imports the module). **Not committed — pending your go-ahead.**
+
+**Commit.** pending.
+
+---
+
+## 2026-07-01 — Fix: AD/SB Traceability was displaying a fabricated compliance date
+
+**Why.** The verification below surfaced a real data-integrity bug on the AD/SB compliance screen. For AD 84‑26‑02 and 81‑05‑02 the logbook only says "**20 June**" — no year. The AI extractor filled the gap with a placeholder (`"YYYY-06-20"`), the backend accepted it as a real date, and the client's `new Date("YYYY-06-20")` — which is *not* flagged invalid — silently rendered it as "**Jun 20, 2001**". So the screen asserted a specific compliance date that appears nowhere in the records, under a green "Complied" badge. On an airworthiness tool that's misleading.
+
+**What.** Fixed it at the source and hardened the display, and separated "complied" from "has a date" so real compliance isn't lost:
+- **Validate the date** (`route.ts`, new `isValidIsoDate`): only a strict `YYYY-MM-DD` with a real 4‑digit year is accepted; the `"YYYY-06-20"` placeholder (and impossible dates like `2001-02-30`) become `null`. The extraction prompt now also explicitly forbids placeholder/guessed years.
+- **Explicit `complied` flag**: the extractor now returns whether the records show the AD was *actually* complied with, independent of whether a date was legible. `classifyAd` keys off that (plus: a real date always counts as complied). This stops a documented-but-undated AD from wrongly flipping to "No Evidence Found" — and, as a bonus, fixed the recurring AD 87‑20‑03 which *was* mislabeled "No Evidence" despite its pages recording compliance.
+- **Client**: `fmtDate` now renders only a strict ISO date (anything else → "—", so no fabricated date can ever slip through); the Last‑Compliance cell shows an italic "**Not recorded**" for a complied AD with no legible year; and a recurring AD with no computed due date no longer reads "due —".
+
+**Files.** `apps/web/app/api/intelligence/ad-traceability/route.ts`, `apps/web/app/(app)/aircraft/[id]/intelligence/ad-traceability/ad-traceability-client.tsx`.
+
+**Verified.** `tsc` 0-new on both files. Regenerated the report live in the browser (owner, N92995): `POST …/ad-traceability 200`, and the table now reads — 84‑26‑02 **Complied · Not recorded**, 81‑05‑02 **Complied · Not recorded**, 93‑2066 **Complied · Oct 21, 1996** (real date preserved), 87‑20‑03 **Recurring** (was wrongly "No Evidence"), 82‑53‑06 **No Evidence Found**. No "Jun 20, 2001" / "YYYY" anywhere. **Not committed — pending your go-ahead.**
+
+**Commit.** pending.
+
+---
+
+## 2026-07-01 — QA: end-to-end verification of AD/SB Traceability + AI Part Search (browser)
+
+**Why.** Client asked for a straight answer — do these two features actually work end-to-end, in a browser, against real data? So I logged into the running app on local Supabase (org `jeet`, as the owner/Jeet) and drove both features through the UI, confirming each step against the API response, the server logs, and the database.
+
+**AD/SB Traceability — WORKS.** Ran it on **N92995 (Cessna 152)** — the only aircraft in the database with an uploaded, OCR'd logbook ("first logbook", 23 pages). Generated the report (owner-only feature; the shop persona correctly sees a lock screen): the pipeline pulled the records, ran the AI extraction, and returned **5 Airworthiness Directives in ~21s** — 3 marked *Complied* (with compliance dates), 2 *Flagged* as "No Evidence Found". Every AD is backed by a real quote from the logbook with the exact page number (pages 12/14/15/17/18) — I spot-checked the citations and they are genuinely from the document, not invented. Filters, the expandable evidence rows, the disclaimer banner, and the quality badge all render.
+- **One real bug to fix:** two ADs show a compliance date of **"Jun 20, 2001"** that is *not* in the logbook — the logbook line only says "20 June" with no year, so the AI emitted a placeholder year and the screen turned it into a real-looking date. On a compliance tool that's misleading; it should show "—" (or "date not recorded") when the year is unknown. Low-risk fix (validate the date before display + have the extractor return null on unknown year).
+- **Caveat:** the recurring AD 87-20-03 is shown as "No Evidence Found" even though its cited pages *do* record compliance — the extractor missed the date. Expected for messy handwritten logbooks (the feature self-rates its own confidence "low" here), but worth knowing the numbers aren't perfect on hand-scrawled books.
+
+**AI Part Search — the AI works; the shopping results don't (locally).** This is a shop-side tool (owners are redirected away — the two features are gated to opposite personas). Searched **"oil filter"** with the Cessna 152 selected: the AI correctly identified the exact part — **Champion CH48110-1** (plus the alternate CH48110), *high confidence*, and it even inferred the right engine (Lycoming O-235) on its own. That half is excellent. **But it returned zero parts to actually buy** — because the two live vendor sources are switched off in this environment: SerpAPI (Google Shopping) and eBay have **no API keys** in `.env.local`, and the third "curated vendor" source is still an empty placeholder. So the screen shows the AI's answer and an honest "No results" with each provider's status. This is a **configuration gap, not a code defect** — the code comment notes the SerpAPI key already exists on the Vercel/production side, so live results should appear there. (A "tyre" search from 2026-06-15 in the database shows the same 0-results pattern, so this has been the local state for a while.)
+
+**Bottom line.** AD/SB Traceability is working end-to-end (fix the placeholder-date display). AI Part Search's intelligence is working end-to-end; to get real purchasable results you need to add `SERPAPI_KEY` (and optionally `EBAY_APP_ID`/`EBAY_CERT_ID`) to the environment being tested — confirm they're set on the deployment the client is using.
+
+**Changes.** None to code. Test-only, local: set the seed user's password for login and toggled the jeet persona owner↔shop to reach each feature (left at shop, as found).
+
+**Commit.** n/a (verification only).
+
+---
+
 ## 2026-07-01 — Mechanic: work-order assignment loop (assign → My Assignments → "Assigned to me")
 
 **Why.** Audited the whole mechanic experience in three parallel passes — work-order detail, time/workforce, and "how a mechanic finds their work." The finding reframed the ask: the mechanic's *tools* are deep and functional (the WO detail does checklist → labor/parts → return-to-service sign-off → logbook → chat → AI assist with no placeholders; time/workforce has daily + per-WO clocking, timesheets, payroll export). The gap is the *workflow* connecting them — and the worst case was that **a mechanic had no way to see their own work.** The dashboard "My Assignments" widget claimed "personalized to the logged-in mechanic" but rendered **all** active work orders (a placeholder that lied), there was **no UI to assign a work order to a mechanic** (the `assigned_mechanic_id` column + a workflow-board filter existed but nothing ever set them), and the WO list had no "my work" view.

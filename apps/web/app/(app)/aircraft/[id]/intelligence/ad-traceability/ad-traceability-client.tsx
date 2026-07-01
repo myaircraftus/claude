@@ -66,11 +66,13 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: 'flagged', label: 'Flagged' },
 ]
 
-/** Human-friendly date, falling back to the raw string. */
+/** Human-friendly date. Renders ONLY a strict "YYYY-MM-DD" value; anything else
+ *  — null, or a placeholder like "YYYY-06-20" that Date() would coerce into a
+ *  real-but-fabricated day — shows an em dash instead. */
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
+  if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
@@ -103,7 +105,8 @@ function StatusBadge({ ad }: { ad: TraceabilityAd }) {
   if (ad.status === 'recurring') {
     return (
       <span className={`${base} bg-blue-50 text-blue-700`} style={{ fontWeight: 600 }}>
-        <RotateCw className="h-3 w-3" /> Recurring — due {fmtDate(ad.next_due)}
+        <RotateCw className="h-3 w-3" />{' '}
+        {ad.next_due ? `Recurring — due ${fmtDate(ad.next_due)}` : 'Recurring'}
       </span>
     )
   }
@@ -399,7 +402,13 @@ export function AdTraceabilityClient({
                               {ad.type}
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">
-                              {fmtDate(ad.last_compliance_date)}
+                              {ad.last_compliance_date ? (
+                                fmtDate(ad.last_compliance_date)
+                              ) : ad.status === 'complied' || ad.status === 'recurring' ? (
+                                <span className="italic text-muted-foreground/80">Not recorded</span>
+                              ) : (
+                                '—'
+                              )}
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">
                               {fmtDate(ad.next_due)}
