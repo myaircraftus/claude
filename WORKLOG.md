@@ -20,7 +20,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 9. **Owner read-only fields looked editable** — the WO v2 `Field` component renders flat text (whitespace-preserved, "—" when empty) when readOnly instead of a bordered textarea that ignores keystrokes.
 10. **Archived-aircraft leaks + feedback toast** — owner dashboard count/cards and the create-WO picker exclude `aircraft_workspace_status='archived'`; the "How are we doing?" toast moved bottom-right above the launcher (it sat on the sidebar footer).
 
-**Verified — live browser, both personas:** sidebar reads "Messages"; phantom dropdown gone; provider chips say "vendor search not configured"; /messages shows **jeetadeshara@myaircraft.us**; intelligence defaults to **N92995**; owner dashboard "My Aircraft: 1" with no N9299 card; owner WO view has **zero textareas** (flat text confirmed); admin open errors 49→5. Code-verified (mechanism, not visually caught): create/assign `router.refresh()`, persona SSR seed, toast position. `tsc` — no new errors. **Uncommitted** pending sign-off.
+**Verified — live browser, both personas:** sidebar reads "Messages"; phantom dropdown gone; provider chips say "vendor search not configured"; /messages shows **jeetadeshara@myaircraft.us**; intelligence defaults to **N92995**; owner dashboard "My Aircraft: 1" with no N9299 card; owner WO view has **zero textareas** (flat text confirmed); admin open errors 49→5. Code-verified (mechanism, not visually caught): create/assign `router.refresh()`, persona SSR seed, toast position. `tsc` — no new errors.
+
+**Commit.** `77581129`.
 
 ---
 
