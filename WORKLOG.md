@@ -4,6 +4,34 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-02 — Fix: owner estimate approval 500 (RLS blocked the WO insert)
+
+**Why.** P0 from today's QA sweep: an owner clicking "Approve & Create WO" on an estimate got a 500 — the approval route ran every write with the caller's session client, and the owner-persona read-only RLS policies (`20260515130000_owner_rls_readonly.sql`) blocked the `work_orders` INSERT (and would also have blocked the `estimates` UPDATE via `estimates_owner_no_update`; the unchecked `owner_approvals`/`audit_logs` INSERTs were being silently dropped for owner users). The raw RLS error text leaked into the toast.
+
+**What.** In `apps/web/app/api/estimates/[id]/approval/route.ts`, all **writes** now use the **service-role client** (`createServiceSupabase()`), following the pattern the RLS migration itself documents (restrictive policies are the backstop for direct user-token calls; sanctioned server flows authorize at the route and write with the service client). The route's existing guards are unchanged and remain the authorization: valid session, org membership, `ADMIN_AND_ABOVE` role, and the estimate **read** stays on the user-scoped client so RLS still proves the caller can see that estimate in their org. Applies to all three actions (approve / reject / question), the work-order + line creation (`createWorkOrderFromEstimate` now receives the service client), and the `owner_approvals` / `deposit_payments` / `audit_logs` writes — so approval audit rows are now actually recorded for owner-persona users.
+
+**Verified.** Live in the browser under the exact failing conditions (persona switched to **owner**, EST-TEST-0003 "Awaiting approval"): POST `/api/estimates/[id]/approval` → **200** (was 500), UI navigated to the newly created **WO-2026-0005** ("Approved estimate EST-TEST-0003", status Open, $760 total), and the estimate re-fetched as `status=converted`, `approval_status=approved`, `linked_work_order_id` = the new WO. Owner sees the WO read-only as designed. `tsc` — no new errors (only the known preexisting ones). Reject/question branches are the same mechanical client swap; not exercised live to avoid mutating the remaining seed estimates. **Uncommitted** pending your sign-off.
+
+---
+
+## 2026-07-02 — Full-app manual QA sweep (browser, both personas): bug inventory
+
+**Why.** Client asked for a user-seat end-to-end pass over the whole product — click through every module in a real browser session, in both personas, and inventory what's broken, what's inconsistent, and what needs polish before launch.
+
+**What.** Ran the app locally (`localhost:3000` against local Supabase, org `jeet`, N92995 seed) and exercised: dashboard (both personas), AI Inbox → compliance deep-link, aircraft hub + all 9 tabs, org-wide Due List / Squawks / Estimates / Invoices / Logbook / Approvals / Intelligence / Documents / Economics / Reports / Messages, Work Orders v2 end-to-end (create → assign → checklist → timer → status transitions → sign-off/RTS → owner preview), Ask AI (new + historical threads, both scopes), AI Part Search, and the admin console (command center, agent fleet, document pipeline).
+
+**Headline findings** (full severity-ranked report delivered in chat):
+1. **P0 — Owner estimate approval is dead.** "Approve & Create WO" 500s: the WO insert runs in the owner's session and RLS `work_orders_owner_no_insert` correctly blocks it; raw RLS error text leaks into the toast. Needs service-role (or deferred) WO creation on approval.
+2. **P0 — Ask AI can't see app-native logbook entries.** Signed in-app entry ("Replaced dry vacuum pump", May 2026) is invisible to Ask; it answers "No records found" with a **High confidence** badge. Document-RAG content works; native `logbook_entries` are simply not indexed. "All aircraft" scope retrieves nothing at all.
+3. **P1 — Internal squawks leak to the owner persona** via three surfaces (dashboard recent activity + count, Intelligence report, Squawk History report) even though the Squawks pages correctly hide them.
+4. **P1 — Shop dashboard SSR/hydration bug**: server renders zeros ("Active WOs 0", risk board "All clear" beside a grounding squawk) then client corrects; React hydration mismatch (`MetricCard`) confirmed in console.
+5. **P2 cluster — counters & statuses disagree across surfaces**: topbar approvals badge vs empty /approvals page; "4 open squawks" counting a resolved one; paid invoice with $1,200 balance; action-queue statuses contradicting the estimates list; estimate total $760 with zero line items; squawk report "0 resolved" with a resolved row and raw `in_work_order` enums.
+6. **P2/P3 UX** — WO list panel doesn't refresh after create/assign until reload; persona-selector renders "Owner" flash before persona loads; Intelligence page defaults to the archived aircraft; AI Part Search shows phantom demo aircraft (N123AB/N262EE/N757VB) and raw env-var names in user-facing chips; NEXT_REDIRECT logged as P2 errors in the admin tracker (49 open errors are mostly noise); mail-inbox address slug drops the leading letter (`eetdeshara@`).
+
+**Also confirmed working** (worth stating): WO v2 create/assign/transition/sign-off loop incl. RTS blocker rendering, checklist gates rail live-updates, owner read-only enforcement in WO detail (client-side), AI Inbox action cards, document vault + pipeline, reports generation, intelligence report generation, estimates/invoices PDF views.
+
+**Verified.** All findings reproduced live in the browser with DOM/network/console evidence; approval bug confirmed via POST `/api/estimates/[id]/approval` → 500 + RLS toast. Test artifacts left in local seed: WO-2026-0004 (oil-change, assigned, in progress), an intelligence report for N92995, two Ask threads. No code changes in this session.
+
 ## 2026-07-02 — AI Part Search: edge-case test pass (+ extracted filter/sort for unit testing)
 
 **Why.** Client asked to verify AI Part Search end-to-end the same way as AD/SB. One structural reality shapes it: locally **all three vendor providers return zero offers** (SerpAPI + eBay keys are unset; the "curated" provider is a stub), so the entire *offer-processing* half — ranking, condition/price/shipping/vendor/brand/PN filters, sorting, dedup, click-out, library matches — is unreachable end-to-end. That half is exactly what unit tests are for (the analog of the AD/SB `classifyAd` branches live data couldn't reach).

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createWorkOrderFromEstimate } from '@/lib/approvals'
 import { resolveRequestOrgContext } from '@/lib/auth/context'
 import { ADMIN_AND_ABOVE } from '@/lib/roles'
-import { createServerSupabase } from '@/lib/supabase/server'
+import { createServerSupabase, createServiceSupabase } from '@/lib/supabase/server'
 
 type ApprovalAction = 'approve' | 'reject' | 'question'
 
@@ -28,6 +28,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const supabase = createServerSupabase()
+  // Writes below run with the service client: the owner persona is read-only
+  // at the RLS layer (see 20260515130000_owner_rls_readonly.sql), but approval
+  // is a sanctioned owner action — the route guards above are the authorization.
+  const service = createServiceSupabase()
   const orgId = ctx.organizationId
 
   const { data: estimate, error: estimateError } = await supabase
@@ -52,7 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ estimate })
     }
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await service
       .from('estimates')
       .update({
         status: 'declined',
@@ -64,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .select()
       .single()
 
-    await supabase.from('owner_approvals').insert({
+    await service.from('owner_approvals').insert({
       organization_id: orgId,
       estimate_id: params.id,
       aircraft_id: estimate.aircraft_id ?? null,
@@ -83,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
 
-    await supabase.from('audit_logs').insert({
+    await service.from('audit_logs').insert({
       organization_id: orgId,
       user_id: ctx.user.id,
       action: 'estimate.rejected',
@@ -98,7 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   if (action === 'question') {
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await service
       .from('estimates')
       .update({
         status: 'owner_question',
@@ -112,7 +116,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
 
-    await supabase.from('owner_approvals').insert({
+    await service.from('owner_approvals').insert({
       organization_id: orgId,
       estimate_id: params.id,
       aircraft_id: estimate.aircraft_id ?? null,
@@ -129,7 +133,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       created_by: ctx.user.id,
     })
 
-    await supabase.from('audit_logs').insert({
+    await service.from('audit_logs').insert({
       organization_id: orgId,
       user_id: ctx.user.id,
       action: 'estimate.owner_question',
@@ -153,13 +157,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try {
     const workOrder = await createWorkOrderFromEstimate({
-      supabase,
+      supabase: service,
       organizationId: orgId,
       estimate,
       fallbackAssignedMechanicId: estimate.created_by ?? null,
     })
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await service
       .from('estimates')
       .update({
         status: 'converted',
@@ -175,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .select()
       .single()
 
-    await supabase.from('owner_approvals').insert({
+    await service.from('owner_approvals').insert({
       organization_id: orgId,
       estimate_id: params.id,
       aircraft_id: estimate.aircraft_id ?? null,
@@ -198,7 +202,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
 
     if (body.deposit_payment) {
-      await supabase.from('deposit_payments').insert({
+      await service.from('deposit_payments').insert({
         organization_id: orgId,
         estimate_id: params.id,
         owner_id: estimate.customer_id ?? null,
@@ -215,7 +219,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
 
-    await supabase.from('audit_logs').insert({
+    await service.from('audit_logs').insert({
       organization_id: orgId,
       user_id: ctx.user.id,
       action: 'estimate.approved_and_converted',
