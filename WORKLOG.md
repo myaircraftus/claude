@@ -12,7 +12,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 **What.** `DataStore.tsx`: estimates now start empty on both server and client; the localStorage snapshot is restored in a post-hydration effect (guarded so it never clobbers already-fetched data). Added an `isLoaded` flag to the store (true once the first backend hydrate settles). `Dashboard.tsx` uses it to render honest placeholders until data exists: metric cards show "—" with a "loading" badge, the action queue / risk board / assignments show "Loading…" lines, and revenue amounts show "—" — in particular, **"All clear" can no longer appear before the data has loaded**, since it's a safety claim.
 
-**Verified.** Live browser reload of /dashboard in shop persona with console tracking: **zero hydration errors** (previously 11), no error toast, and the settled render shows real numbers (Active WOs 5, risk board N92995 High with 5 active WOs, truthful assignments). `tsc` — no new errors. **Uncommitted** pending your sign-off.
+**Verified.** Live browser reload of /dashboard in shop persona with console tracking: **zero hydration errors** (previously 11), no error toast, and the settled render shows real numbers (Active WOs 5, risk board N92995 High with 5 active WOs, truthful assignments). `tsc` — no new errors.
+
+**Commit.** `71350f27`.
 
 ---
 
