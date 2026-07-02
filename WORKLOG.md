@@ -23,6 +23,20 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-02 — Fix: Ask AI blind to app-native logbook entries (+ intelligence-report squawk leak)
+
+**Why.** The remaining P0 from the QA sweep: Ask AI answered "No records found" — with a **High confidence** badge — for maintenance that is plainly recorded in the app (signed entry "Replaced dry vacuum pump", May 15 2026). Uploaded-PDF content was searchable via RAG; entries created *in the app* (signed entries, WO-generated entries — i.e. all recent maintenance) were effectively invisible.
+
+**Root causes (three, compounding).** (1) `search_logbook`'s matcher required **every** query term as an exact substring — "replacement" ≠ "Replaced", so one morphological variant discarded the entry. (2) **Owner mode's toolset intentionally dropped `search_logbook`** (the structured-rows artifact "broke the find-it-in-the-book mental model"), so owners had *no* code path to native entries at all. (3) The UI defaulted a missing confidence to **'high'** (`msg.confidence ?? 'high'`), so tool-only or empty answers rendered as High confidence.
+
+**What.** In `app/api/ask/route.ts`: `search_logbook` now stems query terms (replacement/replaced/replacing → replac), pushes the strongest *stem* to the DB-side ILIKE, and scores entries by stem hits (≥ half required, best-first, recency preserved on ties) instead of all-or-nothing AND; `search_logbook` added to `OWNER_TOOL_NAMES`; both personas' prompts now require search_documents AND search_logbook for history questions and forbid "no records" until both are empty. In the UI (`answer-block.tsx`, `ask-experience.tsx`): confidence is optional and the badge is hidden when retrieval produced no evidence — no more defaulting to High.
+
+**Also fixed — internal-squawk leak into the owner Intelligence report** (last of the three leak surfaces): the report generator (`/api/aircraft/[id]/intelligence`) fed the LLM all non-closed squawks including internal ones; now filters `owner_visible` for the owner persona and uses the canonical closure-status set (the old `neq closed/resolved` also let `closed_duplicate`/`archived` in). Same fix on the owner-only `/api/intelligence/history` current-status query.
+
+**Verified — live in the browser (owner persona).** N92995-scoped ask "When was the dry vacuum pump replaced?" → answer lists BOTH the Sep 28 1985 replacement (cited to the scanned logbook) and the **May 15 2026 native entry**, with the logbook artifact showing both rows. **All-aircraft scope** (previously returned nothing): N9299 truthfully "No records found", N92995 both replacements — badge reads **"Needs more records"**, not High confidence. Intelligence report regenerated with `?refresh=1`: `openSquawkCount` 4→**3**, zero mentions of the internal alternator squawk, grounding right-brake issue still flagged. `tsc` — no new errors. **Uncommitted** pending your sign-off.
+
+---
+
 ## 2026-07-02 — Fix: owner estimate approval 500 (RLS blocked the WO insert)
 
 **Why.** P0 from today's QA sweep: an owner clicking "Approve & Create WO" on an estimate got a 500 — the approval route ran every write with the caller's session client, and the owner-persona read-only RLS policies (`20260515130000_owner_rls_readonly.sql`) blocked the `work_orders` INSERT (and would also have blocked the `estimates` UPDATE via `estimates_owner_no_update`; the unchecked `owner_approvals`/`audit_logs` INSERTs were being silently dropped for owner users). The raw RLS error text leaked into the toast.

@@ -17,7 +17,9 @@ export interface PerAircraftAnswer {
 
 interface AnswerBlockProps {
   answer: string
-  confidence: QueryConfidence
+  /** Absent when no RAG evidence backed the answer — the badge is hidden
+   *  rather than defaulting to a misleading "High confidence". */
+  confidence?: QueryConfidence
   citations: AnswerCitation[]
   warningFlags: string[]
   followUpQuestions: string[]
@@ -127,10 +129,12 @@ export function AnswerBlock({
 
   return (
     <div className="space-y-4">
-      {/* Confidence badge */}
-      <div className="flex items-center gap-2">
-        <ConfidenceBadge confidence={confidence} />
-      </div>
+      {/* Confidence badge — only when retrieval actually produced evidence */}
+      {confidence && (
+        <div className="flex items-center gap-2">
+          <ConfidenceBadge confidence={confidence} />
+        </div>
+      )}
 
       {/* Warning flags */}
       {warningFlags.length > 0 && (

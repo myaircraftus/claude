@@ -1347,7 +1347,7 @@ export function AskExperience() {
                       <div className="text-[13px] text-foreground leading-relaxed">
                         <AnswerBlock
                           answer={msg.content}
-                          confidence={msg.confidence ?? 'high'}
+                          confidence={msg.confidence}
                           citations={msg.citations ?? []}
                           warningFlags={msg.warningFlags ?? []}
                           followUpQuestions={msg.followUpQuestions ?? []}

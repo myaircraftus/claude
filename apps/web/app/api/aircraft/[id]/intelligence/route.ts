@@ -14,6 +14,8 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
+import { SQUAWK_CLOSURE_STATUSES } from '@/lib/squawks/workflow'
 import { generateAircraftIntelligence, type IntelligenceInput } from '@/lib/aircraft/intelligence-ai'
 
 export const dynamic = 'force-dynamic'
@@ -24,6 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const { supabase, membership } = await requireAppServerSession()
   const orgId = membership.organization_id
   const aircraftId = params.id
+  const { persona } = await getCurrentPersona()
 
   const { data: aircraft } = await supabase
     .from('aircraft')
@@ -53,15 +56,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       .eq('aircraft_id', aircraftId)
       .order('created_at', { ascending: false })
       .limit(10),
-    supabase
-      .from('squawks')
-      .select('title, description, severity, reported_at')
-      .eq('organization_id', orgId)
-      .eq('aircraft_id', aircraftId)
-      .neq('status', 'closed')
-      .neq('status', 'resolved')
-      .order('reported_at', { ascending: false })
-      .limit(25),
+    (() => {
+      let q = supabase
+        .from('squawks')
+        .select('title, description, severity, reported_at')
+        .eq('organization_id', orgId)
+        .eq('aircraft_id', aircraftId)
+        // Canonical closure set — neq('closed')/neq('resolved') let
+        // closed_duplicate / archived / etc. into the "open" report input.
+        .not('status', 'in', `(${[...SQUAWK_CLOSURE_STATUSES].join(',')})`)
+      // The report narrates whatever it's fed — internal shop squawks must
+      // never reach the owner-facing generation input.
+      if (persona === 'owner') q = q.eq('owner_visible', true)
+      return q.order('reported_at', { ascending: false }).limit(25)
+    })(),
     supabase
       .from('work_orders')
       .select('work_order_number, complaint, status, opened_at, closed_at, created_at')

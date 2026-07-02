@@ -184,11 +184,14 @@ export async function POST(req: NextRequest) {
   ])
 
   // --- Current Status: open squawks (direct query) ------------------------
+  // Owner-only endpoint (shop persona is 403'd above) — internal squawks
+  // must stay out, and closure uses the canonical status set.
   const { data: squawkRows } = await supabase
     .from('squawks')
     .select('id, title, severity, status')
     .eq('aircraft_id', aircraftId)
-    .not('status', 'in', '("resolved","closed","verified")')
+    .eq('owner_visible', true)
+    .not('status', 'in', '(resolved,closed_duplicate,closed_not_reproducible,closed_owner_declined,archived)')
     .order('reported_at', { ascending: false })
 
   const openSquawks = ((squawkRows as Array<Record<string, any>>) ?? []).map((s) => ({

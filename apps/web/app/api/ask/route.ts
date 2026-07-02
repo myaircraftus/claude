@@ -235,26 +235,49 @@ async function dispatchTool(
         .trim()
       const terms = normalized.split(' ').filter((t) => t.length >= 2)
 
-      // Push the strongest single term to the API for DB-side ILIKE (uses
-      // existing index). Falls through to client-side AND-of-terms below.
-      const primaryTerm = terms.find((t) => /\d/.test(t)) ?? terms[0]
-      if (primaryTerm) params.search = primaryTerm
+      // Light stemmer so morphological variants match: "replacement" must
+      // find an entry that says "Replaced". Strips common suffixes only when
+      // a useful stem (≥4 chars) remains — short words pass through untouched.
+      const stem = (word: string) => {
+        for (const suffix of ['ements', 'ement', 'ations', 'ation', 'ings', 'ing', 'ed', 'es', 's']) {
+          if (word.endsWith(suffix) && word.length - suffix.length >= 4) {
+            return word.slice(0, -suffix.length)
+          }
+        }
+        return word
+      }
+      const stems = terms.map(stem)
+
+      // Push the strongest single stem to the API for DB-side ILIKE (uses
+      // existing index) — the stem keeps recall ("replac" matches both
+      // "replaced" and "replacement"). Client-side scoring narrows below.
+      const primaryStem =
+        stems.find((t) => /\d/.test(t)) ?? [...stems].sort((a, b) => b.length - a.length)[0]
+      if (primaryStem) params.search = primaryStem
 
       const data = await callInternalGet(req, '/api/logbook-entries', params) as any
       const entries = Array.isArray(data?.entries) ? data.entries : []
 
-      // The API aliases `description` → `entry_text`. Filter on the actual
-      // returned shape and require all terms to appear (AND semantics).
-      const filtered = terms.length > 0
-        ? entries.filter((e: any) => {
-            const haystack = `${e.entry_text ?? e.description ?? ''} ${e.entry_type ?? ''} ${e.logbook_type ?? ''}`.toLowerCase()
-            return terms.every((t) => haystack.includes(t))
-          })
+      // The API aliases `description` → `entry_text`. Score by how many query
+      // stems appear; require at least half (was ALL terms as exact
+      // substrings, which silently dropped near-matches — the "no records
+      // found for the dry vacuum pump" bug).
+      const minHits = Math.max(1, Math.ceil(stems.length / 2))
+      const scored = stems.length > 0
+        ? entries
+            .map((e: any) => {
+              const haystack = `${e.entry_text ?? e.description ?? ''} ${e.entry_type ?? ''} ${e.logbook_type ?? ''}`.toLowerCase()
+              const hits = stems.filter((t) => haystack.includes(t)).length
+              return { entry: e, hits }
+            })
+            .filter((s: { hits: number }) => s.hits >= minHits)
+            // Best match first; ties keep the API's entry_date DESC order so
+            // "latest" queries still surface the most recent matches.
+            .sort((a: { hits: number }, b: { hits: number }) => b.hits - a.hits)
+            .map((s: { entry: any }) => s.entry)
         : entries
 
-      // Entries already come back ordered by entry_date DESC; take the top 10
-      // so "latest" queries naturally surface the most recent matches first.
-      const limited = filtered.slice(0, 10)
+      const limited = scored.slice(0, 10)
 
       const artifact: Artifact = {
         type: 'logbook_entries',
@@ -323,7 +346,7 @@ BEHAVIOR RULES:
 2. When the user wants to create/draft a logbook entry, call create_logbook_entry.
 3. When the user asks about parts, call search_parts.
 4. When the user wants a checklist, call generate_checklist.
-5. When looking up maintenance history, call search_logbook.
+5. When looking up maintenance history, call BOTH search_documents AND search_logbook (when available) — recent work lives only in app logbook entries, older history only in scanned documents. Never state that no record exists unless both searches returned nothing.
 6. You may call multiple tools in sequence when needed.
 7. After tools return results, synthesize a concise, helpful response. Do not just dump raw JSON.
 8. For safety-critical items (ADs, limits, emergency procedures), always note the user should verify with the actual document and a qualified aviation professional.
@@ -393,13 +416,17 @@ async function resolveCanonicalAircraftId(
 // Owner mode = "find me this in the book" experience. The user asks a
 // question about their uploaded logbook PDFs (and other docs), the AI answers
 // with [N] citations, and clicking a citation opens the cited page in the
-// side-panel preview where the user can read, download, or share it. We
-// intentionally drop search_logbook here — that tool returns structured DB
-// rows on a separate detail page, which broke the "find a passage in the
-// book" mental model. Mechanic mode still has both because mechanics use
-// search_logbook to find templates for drafting new entries.
+// side-panel preview where the user can read, download, or share it.
+//
+// search_logbook is included too: entries created IN the app (signed
+// entries, work-order-generated entries — i.e. all recent maintenance) only
+// exist in the logbook_entries table, not in the uploaded PDFs, so without
+// this tool owner mode was blind to everything after the paper logbook was
+// scanned and confidently answered "no records found". The structured-rows
+// artifact is an acceptable trade for actually finding the record.
 const OWNER_TOOL_NAMES: readonly AiToolName[] = [
   'search_documents',
+  'search_logbook',
 ]
 
 const MECHANIC_TOOL_NAMES: readonly AiToolName[] = [
@@ -427,6 +454,7 @@ CURRENT PERSONA: owner
 
 Owner mode is "find me this in the book" — like searching a paper logbook.
 - ALWAYS call search_documents for any question about records, inspections, history, or compliance. The user's question is almost always answerable by finding the relevant passage in their uploaded logbook / POH / maintenance manual PDFs.
+- ALSO call search_logbook for any maintenance-history question: work done recently (after the paper logbook was scanned) lives ONLY in the app's logbook entries, not in the uploaded PDFs. Never conclude "no records found" until BOTH search_documents and search_logbook came back empty.
 - For "find me the latest X" or "show me all X", call search_documents and cite EVERY matching passage with [N] markers — the user wants to scan the matches and click into the source PDF to read in context.
 - Each [N] in your answer must correspond to a real document chunk you cited. The UI renders these as clickable links that open the cited page of the source PDF in a side panel for download and review.
 - Do not draft maintenance entries, checklists, or mechanic workflow actions in owner mode. If the user asks for one, briefly explain they should switch to mechanic mode.`
