@@ -33,7 +33,9 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 **Also fixed — internal-squawk leak into the owner Intelligence report** (last of the three leak surfaces): the report generator (`/api/aircraft/[id]/intelligence`) fed the LLM all non-closed squawks including internal ones; now filters `owner_visible` for the owner persona and uses the canonical closure-status set (the old `neq closed/resolved` also let `closed_duplicate`/`archived` in). Same fix on the owner-only `/api/intelligence/history` current-status query.
 
-**Verified — live in the browser (owner persona).** N92995-scoped ask "When was the dry vacuum pump replaced?" → answer lists BOTH the Sep 28 1985 replacement (cited to the scanned logbook) and the **May 15 2026 native entry**, with the logbook artifact showing both rows. **All-aircraft scope** (previously returned nothing): N9299 truthfully "No records found", N92995 both replacements — badge reads **"Needs more records"**, not High confidence. Intelligence report regenerated with `?refresh=1`: `openSquawkCount` 4→**3**, zero mentions of the internal alternator squawk, grounding right-brake issue still flagged. `tsc` — no new errors. **Uncommitted** pending your sign-off.
+**Verified — live in the browser (owner persona).** N92995-scoped ask "When was the dry vacuum pump replaced?" → answer lists BOTH the Sep 28 1985 replacement (cited to the scanned logbook) and the **May 15 2026 native entry**, with the logbook artifact showing both rows. **All-aircraft scope** (previously returned nothing): N9299 truthfully "No records found", N92995 both replacements — badge reads **"Needs more records"**, not High confidence. Intelligence report regenerated with `?refresh=1`: `openSquawkCount` 4→**3**, zero mentions of the internal alternator squawk, grounding right-brake issue still flagged. `tsc` — no new errors.
+
+**Commit.** `00fce6f2`.
 
 ---
 
