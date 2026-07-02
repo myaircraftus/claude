@@ -70,6 +70,9 @@ export default async function WorkOrdersLayout({
       .select('id, tail_number')
       .eq('organization_id', orgId)
       .eq('is_archived', false)
+      // Keep workspace-archived airframes out of the create-WO picker —
+      // nobody opens new work on an archived aircraft.
+      .neq('aircraft_workspace_status', 'archived')
       .order('tail_number'),
   ])
 

@@ -317,6 +317,9 @@ export function WorkOrdersShellV2({
           onCreated={(id) => {
             setShowCreate(false)
             router.push(woHref(`/work-orders/${id}`, 'v2'))
+            // The list + stat chips are server-rendered — without a refresh
+            // the new WO doesn't appear in the panel until a manual reload.
+            router.refresh()
           }}
         />
       )}

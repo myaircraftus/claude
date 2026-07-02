@@ -4,6 +4,26 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-03 — The P3 polish sweep (10 items from the QA inventory)
+
+**Why.** With every P0–P2 fixed, this clears the remaining polish list from the full-app QA sweep in one batch.
+
+**What (per item):**
+1. **Persona "Owner" flash on load** — the app shell's server layout now resolves the persona (`getCurrentPersona`) and seeds it into `AppProvider` via a new `initialPersona` prop, so the first paint renders the right sidebar/selector instead of defaulting to owner while the client fetch was in flight; the localStorage persona cache is skipped when a server seed exists (it's the record).
+2. **WO v2 list stale after create/assign** — `router.refresh()` after quick-intake create and after mechanic assignment, so the server-rendered list panel + stat chips update without a manual reload.
+3. **Intelligence page defaulted to the archived N9299** — now defaults to the first non-archived airframe (`aircraft_workspace_status`), archived ones stay reachable via the dropdown.
+4. **AI Part Search cosmetics** — removed the decorative hardcoded demo-aircraft `<select>` (N123AB/N262EE/N757VB — no org's fleet); provider chips no longer leak internals: errors are logged server-side and mapped to "vendor search not configured / timed out / unavailable" (`sanitizeProviderError` in `lib/parts/search.ts`).
+5. **NEXT_REDIRECT noise in the admin error tracker** — `recordErrorEvent` now skips Next.js control-flow sentinels (NEXT_REDIRECT / NEXT_NOT_FOUND); local data cleanup resolved 11 NEXT_REDIRECT groups + 35 stale dev-HMR ghosts ("X is not defined", the June-fixed React-child error) → open errors 49 → **5 real ones**.
+6. **Mangled inbox addresses** (`eetdeshara@`) — root cause: both `allocate_inbox_email` AND the `handle_new_user` signup trigger sanitized handles with strip-**then**-lower, deleting every capital letter ("JeetAdeshara"→"eetdeshara", "Mike Mechanic"→"ikeechanic"). New migration `20260703000000_fix_inbox_handle_lowercase.sql` fixes both functions (lower **then** strip) and repairs affected rows — only handles that provably match the buggy auto-derivation are touched; user-chosen handles are left alone. Applied to local: `jeetadeshara@myaircraft.us`, `mikemechanic@…` ✓. **Needs applying to prod with the next migration reconcile.**
+7. **"Inbox" naming clash** — sidebar mail entry renamed **"Messages"** (matches its /messages route); the AI Inbox at /inbox keeps its spec name.
+8. **Estimate detail dead time** — added route-level `loading.tsx` so navigation shows an immediate "Opening estimate…" state (the client spinner only appeared after the segment finished rendering).
+9. **Owner read-only fields looked editable** — the WO v2 `Field` component renders flat text (whitespace-preserved, "—" when empty) when readOnly instead of a bordered textarea that ignores keystrokes.
+10. **Archived-aircraft leaks + feedback toast** — owner dashboard count/cards and the create-WO picker exclude `aircraft_workspace_status='archived'`; the "How are we doing?" toast moved bottom-right above the launcher (it sat on the sidebar footer).
+
+**Verified — live browser, both personas:** sidebar reads "Messages"; phantom dropdown gone; provider chips say "vendor search not configured"; /messages shows **jeetadeshara@myaircraft.us**; intelligence defaults to **N92995**; owner dashboard "My Aircraft: 1" with no N9299 card; owner WO view has **zero textareas** (flat text confirmed); admin open errors 49→5. Code-verified (mechanism, not visually caught): create/assign `router.refresh()`, persona SSR seed, toast position. `tsc` — no new errors. **Uncommitted** pending sign-off.
+
+---
+
 ## 2026-07-03 — Fix: shop dashboard hydration mismatch (false "0 / All clear" flash)
 
 **Why.** Last top-tier item from the QA sweep: right after loading, the Shop Command Center rendered "Active Work Orders: 0" and an "All clear" risk board beside an aircraft with an open grounding squawk, then corrected itself — with a React hydration error (`MetricCard`: server "0" vs client "3") in the console and the whole root falling back to client rendering.

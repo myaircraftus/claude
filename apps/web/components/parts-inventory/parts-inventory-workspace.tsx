@@ -164,11 +164,9 @@ export function PartsInventoryWorkspace({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
-              <option>N123AB - Cessna 172S Skyhawk</option>
-              <option>N262EE - Cessna 172M</option>
-              <option>N757VB - Cessna 152</option>
-            </select>
+            {/* (Removed the decorative demo-aircraft <select> — it listed
+                hardcoded tails from no org. The real aircraft-context picker
+                lives next to the AI search input.) */}
             <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">
               <Download className="h-4 w-4" />
               Export

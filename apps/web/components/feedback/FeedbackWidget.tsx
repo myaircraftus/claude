@@ -79,7 +79,9 @@ export function FeedbackWidget() {
   if (!visible) return null
 
   return (
-    <div className="fixed bottom-5 left-5 z-30 max-w-xs rounded-2xl border border-border bg-white shadow-lg">
+    // Bottom-right, lifted above the Ask/Help launcher pill — bottom-left
+    // sat on top of the sidebar footer (user chip / sign-out / admin link).
+    <div className="fixed bottom-20 right-5 z-30 max-w-xs rounded-2xl border border-border bg-white shadow-lg">
       {stage === 'choose' ? (
         <div className="flex items-start gap-3 px-4 py-3">
           <div className="flex-1">

@@ -559,7 +559,12 @@ export function WorkOrderDetailClientV2({ workOrder, userRole, persona, profile 
             <AssignMechanic
               workOrderId={wo.id}
               value={(wo as any).assigned_mechanic_id ?? null}
-              onChange={(id) => setWo((prev) => ({ ...prev, assigned_mechanic_id: id }) as typeof prev)}
+              onChange={(id) => {
+                setWo((prev) => ({ ...prev, assigned_mechanic_id: id }) as typeof prev)
+                // Keep the server-rendered list panel ('Assigned to me'
+                // filter, row data) in sync without a manual reload.
+                router.refresh()
+              }}
             />
           )}
           <div className="flex-1" />
@@ -755,11 +760,23 @@ function humanizeEnum(v?: string | null): string | null {
 }
 
 function Field({ label, value, onChange, readOnly, rows = 3, placeholder }: { label: string; value: string; onChange: (v: string) => void; readOnly?: boolean; rows?: number; placeholder?: string }) {
+  // Read-only (owner view / closed WO): render flat text, not a textarea —
+  // a bordered input that ignores keystrokes reads as broken, not locked.
+  if (readOnly) {
+    return (
+      <div>
+        <Label className="text-xs text-muted-foreground">{label}</Label>
+        <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+          {value.trim() ? value : <span className="text-muted-foreground">—</span>}
+        </p>
+      </div>
+    )
+  }
   return (
     <div>
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} readOnly={readOnly} rows={rows} placeholder={placeholder}
-        className={cn('mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none resize-none focus:ring-1 focus:ring-ring', readOnly && 'opacity-70 cursor-default')} />
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} placeholder={placeholder}
+        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none resize-none focus:ring-1 focus:ring-ring" />
     </div>
   )
 }

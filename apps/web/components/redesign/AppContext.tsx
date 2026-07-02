@@ -240,6 +240,10 @@ export function AppProvider({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // When the server layout seeded the real persona (initialPersona), it IS
+    // the record — don't let a stale localStorage cache flip the UI after
+    // first paint. The cache is only a fallback for renders without a seed.
+    if (initialPersona) return;
     // Snappy initial paint from cache. The server-of-record fetch below
     // overwrites this with the resolved membership.persona once it lands.
     const stored = window.localStorage.getItem("ui_persona");
@@ -249,6 +253,7 @@ export function AppProvider({
     } else if (stored === "owner" || stored === "shop") {
       setPersonaState(stored);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* Hydrate persona from /api/me/orgs (Spec 0.2). The server resolves the

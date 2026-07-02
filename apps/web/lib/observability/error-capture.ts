@@ -108,6 +108,13 @@ export async function recordErrorEvent(
   supabase: SupabaseClient,
   input: ErrorEventInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  // Next.js signals redirect()/notFound() by THROWING sentinel errors —
+  // they're control flow, not failures. Recording them buried the admin
+  // error tracker in dozens of P2 "Uncaught Error: NEXT_REDIRECT" groups.
+  if (/^(Uncaught Error:\s*)?NEXT_(REDIRECT|NOT_FOUND)/.test(input.message.trim()) ||
+      input.message.includes('NEXT_REDIRECT') || input.message.includes('NEXT_NOT_FOUND')) {
+    return { ok: false, error: 'skipped framework control-flow error' }
+  }
   const stack_hash = computeStackHash(input.message, input.stack)
   const oneHourAgoIso = new Date(Date.now() - 60 * 60_000).toISOString()
 

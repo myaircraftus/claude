@@ -87,8 +87,10 @@ const OWNER_NAV: NavItem[] = [
   // Standalone — owner logbook AI assistant.
   { icon: BrainCircuit,    label: "Ask Logbook AI", href: "/ask-logbook-ai" },
 
-  // Standalone — unified inbox (email + SMS, AI-categorised).
-  { icon: Inbox,           label: "Inbox",          href: "/messages" },
+  // Standalone — unified inbox (email + SMS, AI-categorised). Labelled
+  // "Messages" to match its /messages route and to stop colliding with the
+  // AI Inbox action-card surface at /inbox.
+  { icon: Inbox,           label: "Messages",       href: "/messages" },
 
   // AIRCRAFT section (default expanded).
   {
@@ -154,8 +156,9 @@ const SHOP_ADMIN_NAV: NavItem[] = [
   // Top — standalone link, no section.
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
 
-  // Unified inbox (email + SMS, AI-categorised) — same for shop.
-  { icon: Inbox,           label: "Inbox",     href: "/messages" },
+  // Unified inbox (email + SMS, AI-categorised) — same for shop. See the
+  // owner nav note: "Messages" avoids the /inbox (AI Inbox) name collision.
+  { icon: Inbox,           label: "Messages",  href: "/messages" },
 
   // AIRCRAFT section.
   {
@@ -261,12 +264,16 @@ const roleBadgeColor: Record<string, string> = {
 export function AppLayout({
   children,
   userName = "John Mitchell",
+  initialPersona,
 }: {
   children: React.ReactNode;
   userName?: string;
+  /** Server-resolved persona — seeds the context so the first paint doesn't
+   *  flash the "owner" default while the client fetch is in flight. */
+  initialPersona?: Persona;
 }) {
   return (
-    <AppProvider>
+    <AppProvider initialPersona={initialPersona}>
       <BillingProvider>
         <OnboardingProvider>
           <AppLayoutInner userName={userName}>

@@ -57,6 +57,9 @@ export default async function DashboardPage() {
       .select('id, tail_number, make, model, year')
       .eq('organization_id', orgId)
       .eq('is_archived', false)
+      // Workspace-archived airframes shouldn't count toward "My Aircraft"
+      // or render as active fleet cards.
+      .neq('aircraft_workspace_status', 'archived')
       .order('tail_number', { ascending: true }),
     supabase
       .from('approval_requests')

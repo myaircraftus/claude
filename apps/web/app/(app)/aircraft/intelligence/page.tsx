@@ -25,7 +25,7 @@ export default async function AircraftIntelligencePage({
 
   const { data: aircraftRows } = await supabase
     .from('aircraft')
-    .select('id, tail_number, make, model')
+    .select('id, tail_number, make, model, aircraft_workspace_status')
     .eq('organization_id', orgId)
     .eq('is_archived', false)
     .order('tail_number', { ascending: true })
@@ -35,10 +35,15 @@ export default async function AircraftIntelligencePage({
     tail_number: string
     make: string | null
     model: string | null
+    aircraft_workspace_status: string | null
   }>
 
+  // Default to the first ACTIVE aircraft — tail-number order used to land on
+  // an archived airframe (workspace status, not is_archived) with no history.
+  // Archived aircraft stay selectable via the dropdown / ?aircraft= param.
+  const firstActive = aircraft.find((ac) => ac.aircraft_workspace_status !== 'archived')
   const selected =
-    aircraft.find((ac) => ac.id === searchParams?.aircraft) ?? aircraft[0] ?? null
+    aircraft.find((ac) => ac.id === searchParams?.aircraft) ?? firstActive ?? aircraft[0] ?? null
 
   // Does the selected aircraft have any logbook history? (drives the empty state)
   let hasHistory = false

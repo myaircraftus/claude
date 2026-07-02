@@ -147,7 +147,7 @@ export async function searchParts(
     providerSummary[p.provider] = {
       ok: p.ok,
       count: p.offers.length,
-      error: p.error,
+      error: sanitizeProviderError(p.error),
       durationMs: p.durationMs,
     }
   }
@@ -247,6 +247,21 @@ export async function searchParts(
 
 function errorResult(provider: ProviderId, err: any): ProviderResult {
   return { provider, ok: false, offers: [], error: err?.message ?? 'unknown', durationMs: 0 }
+}
+
+/**
+ * Provider errors are internal diagnostics (missing env vars, token names,
+ * upstream messages) — log them server-side, but never ship raw internals to
+ * the client chips. Map to a short user-safe phrase.
+ */
+function sanitizeProviderError(error: string | undefined): string | undefined {
+  if (!error) return undefined
+  console.warn('[parts-search] provider error:', error)
+  if (/not set|unavailable|API key|token|credential|EBAY_|SERPAPI/i.test(error)) {
+    return 'vendor search not configured'
+  }
+  if (/timeout|timed out|abort/i.test(error)) return 'vendor search timed out'
+  return 'vendor search unavailable'
 }
 
 // Filter & sort helpers (offerEffectivePrice / offerShippingDays / applyFilters

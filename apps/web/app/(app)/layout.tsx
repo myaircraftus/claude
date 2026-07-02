@@ -1,5 +1,6 @@
 import { AppLayout } from '@/components/redesign/AppLayout'
 import { requireAppServerSession } from '@/lib/auth/server-app'
+import { getCurrentPersona } from '@/lib/persona/server'
 import type { ReactNode } from 'react'
 
 // Note: BillingBanner is rendered inside AppLayout (persona-aware) — do not
@@ -10,9 +11,13 @@ import type { ReactNode } from 'react'
 // handles the active persona's trial / paywall state.
 export default async function AppShellLayout({ children }: { children: ReactNode }) {
   const { profile } = await requireAppServerSession()
+  // Resolve the persona server-side and seed the client context with it, so
+  // the sidebar/persona selector render correctly on the FIRST paint instead
+  // of flashing the "owner" default until the client fetch lands.
+  const { persona } = await getCurrentPersona()
 
   return (
-    <AppLayout userName={profile.full_name ?? profile.email ?? 'Owner'}>
+    <AppLayout userName={profile.full_name ?? profile.email ?? 'Owner'} initialPersona={persona}>
       {children}
     </AppLayout>
   )
