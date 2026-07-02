@@ -270,7 +270,7 @@ const PERSONA_COPY: Record<DashboardPersona, { title: string; subhead: string }>
 
 export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
   const router = useTenantRouter();
-  const { aircraft, workOrders, invoices, estimates, logbookEntries } = useDataStore();
+  const { aircraft, workOrders, invoices, estimates, logbookEntries, isLoaded } = useDataStore();
   const { activeMechanic } = useAppContext();
   const [createOpen, setCreateOpen] = useState(false);
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
@@ -450,29 +450,32 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
           </div>
         </section>
 
+        {/* Until the first backend hydrate lands, show placeholders — the
+            store starts empty, so rendering the raw counts here painted a
+            confidently wrong "0 / all clear" dashboard for a beat. */}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Active Work Orders"
-            value={activeWorkOrders.length}
-            badge={`${Math.min(activeWorkOrders.length, 4)} due soon`}
+            value={isLoaded ? activeWorkOrders.length : "—"}
+            badge={isLoaded ? `${Math.min(activeWorkOrders.length, 4)} due soon` : "loading"}
             tone="blue"
           />
           <MetricCard
             label="Estimates Waiting"
-            value={waitingEstimates.length}
-            badge={`${money(estimatesPendingTotal)} pending`}
+            value={isLoaded ? waitingEstimates.length : "—"}
+            badge={isLoaded ? `${money(estimatesPendingTotal)} pending` : "loading"}
             tone="amber"
           />
           <MetricCard
             label="Owner Approvals"
-            value={ownerApprovals}
-            badge={ownerApprovals ? "needs action" : "clear"}
-            tone={ownerApprovals ? "red" : "green"}
+            value={isLoaded ? ownerApprovals : "—"}
+            badge={!isLoaded ? "loading" : ownerApprovals ? "needs action" : "clear"}
+            tone={isLoaded && ownerApprovals ? "red" : isLoaded ? "green" : "blue"}
           />
           <MetricCard
             label="Ready to Invoice"
-            value={billableWorkOrders.length}
-            badge={`${money(readyInvoiceTotal)} ready`}
+            value={isLoaded ? billableWorkOrders.length : "—"}
+            badge={isLoaded ? `${money(readyInvoiceTotal)} ready` : "loading"}
             tone="green"
           />
         </div>
@@ -493,7 +496,7 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
                   {queueRows.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="py-9 text-center text-sm text-slate-400">
-                        No dashboard exceptions right now.
+                        {isLoaded ? "No dashboard exceptions right now." : "Loading work queue…"}
                       </td>
                     </tr>
                   ) : (
@@ -532,15 +535,21 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
                   {riskRows.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-2 text-center">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-                            <CheckCircle2 className="h-5 w-5" />
+                        {/* "All clear" is a strong safety claim — never show it
+                            before the data has actually loaded. */}
+                        {isLoaded ? (
+                          <div className="flex flex-col items-center justify-center gap-2 text-center">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                              <CheckCircle2 className="h-5 w-5" />
+                            </div>
+                            <p className="text-sm font-semibold text-slate-700">All clear</p>
+                            <p className="text-xs text-slate-500">
+                              No aircraft currently flagged for operational, compliance, or billing risk.
+                            </p>
                           </div>
-                          <p className="text-sm font-semibold text-slate-700">All clear</p>
-                          <p className="text-xs text-slate-500">
-                            No aircraft currently flagged for operational, compliance, or billing risk.
-                          </p>
-                        </div>
+                        ) : (
+                          <p className="text-center text-sm text-slate-400">Loading fleet risk…</p>
+                        )}
                       </td>
                     </tr>
                   ) : (
@@ -571,8 +580,8 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
                   className="grid grid-cols-[1fr_70px_120px_92px] items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-5 py-3 text-[13px] transition hover:border-blue-200 hover:bg-blue-50/40"
                 >
                   <span className="font-semibold text-slate-700">{row.label}</span>
-                  <span className="text-center font-medium text-slate-400">{row.count}</span>
-                  <span className="text-right font-semibold text-slate-700">{money(row.amount)}</span>
+                  <span className="text-center font-medium text-slate-400">{isLoaded ? row.count : "—"}</span>
+                  <span className="text-right font-semibold text-slate-700">{isLoaded ? money(row.amount) : "—"}</span>
                   <span className="text-right font-semibold text-blue-600">{row.action}</span>
                 </Link>
               ))}
@@ -590,7 +599,9 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
             <div className="space-y-2">
               {assignmentRows.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 px-5 py-9 text-center text-sm text-slate-400">
-                  {persona === "owner" ? (
+                  {!isLoaded ? (
+                    "Loading assignments…"
+                  ) : persona === "owner" ? (
                     "No active work on your aircraft right now."
                   ) : (
                     <>
@@ -673,7 +684,8 @@ function MetricCard({
   tone,
 }: {
   label: string;
-  value: number;
+  /** Count, or a placeholder string ("—") while the store hydrates. */
+  value: number | string;
   badge: string;
   tone: BadgeTone;
 }) {

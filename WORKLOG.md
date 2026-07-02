@@ -4,6 +4,18 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-03 — Fix: shop dashboard hydration mismatch (false "0 / All clear" flash)
+
+**Why.** Last top-tier item from the QA sweep: right after loading, the Shop Command Center rendered "Active Work Orders: 0" and an "All clear" risk board beside an aircraft with an open grounding squawk, then corrected itself — with a React hydration error (`MetricCard`: server "0" vs client "3") in the console and the whole root falling back to client rendering.
+
+**Root cause.** `DataStoreProvider` initialized `estimates` **synchronously from localStorage** inside the `useState` initializer. The server renders with an empty store (no `window`), the client's first hydration render already has the cached rows → server HTML ≠ client render → React throws, discards the SSR output, and the dashboard paints empty-store zeros as if they were real until the backend fetch lands.
+
+**What.** `DataStore.tsx`: estimates now start empty on both server and client; the localStorage snapshot is restored in a post-hydration effect (guarded so it never clobbers already-fetched data). Added an `isLoaded` flag to the store (true once the first backend hydrate settles). `Dashboard.tsx` uses it to render honest placeholders until data exists: metric cards show "—" with a "loading" badge, the action queue / risk board / assignments show "Loading…" lines, and revenue amounts show "—" — in particular, **"All clear" can no longer appear before the data has loaded**, since it's a safety claim.
+
+**Verified.** Live browser reload of /dashboard in shop persona with console tracking: **zero hydration errors** (previously 11), no error toast, and the settled render shows real numbers (Active WOs 5, risk board N92995 High with 5 active WOs, truthful assignments). `tsc` — no new errors. **Uncommitted** pending your sign-off.
+
+---
+
 ## 2026-07-02 — Fix: the "numbers that disagree" cluster (P2s from the QA sweep)
 
 **Why.** The QA sweep found half a dozen places where two surfaces show contradictory numbers or statuses for the same data. Individually small, together they make the product feel untrustworthy. All are now fixed and browser-verified in both personas.

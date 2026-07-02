@@ -378,6 +378,9 @@ interface DataStoreContextType {
   aircraft: ApiAircraft[];
   getAircraftIdByTail: (tail: string) => string | null;
   refreshAircraft: () => Promise<void>;
+  /** True once the first backend hydrate has settled — until then counts are
+   *  placeholders, not real zeros. */
+  isLoaded: boolean;
   logbookEntries: LogbookEntry[];
   workOrders: WorkOrder[];
   invoices: Invoice[];
@@ -741,10 +744,24 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [estimates, setEstimates] = useState<Estimate[]>(() => {
-    if (typeof window === "undefined") return [];
-    return loadFromStorage<Estimate[]>("myaircraft_estimates_v1", []);
-  });
+  // Start empty on BOTH server and client — reading localStorage inside the
+  // useState initializer made the first client render differ from the server
+  // HTML (0 vs cached counts), which threw a hydration error and briefly
+  // painted false zeros ("Active WOs 0" / risk board "All clear") on the
+  // dashboard. The cached snapshot is restored post-hydration below.
+  const [estimates, setEstimates] = useState<Estimate[]>([]);
+  useEffect(() => {
+    const cached = loadFromStorage<Estimate[]>("myaircraft_estimates_v1", []);
+    if (cached.length > 0) {
+      // Never clobber fresher data if the backend load already landed.
+      setEstimates((prev) => (prev.length > 0 ? prev : cached));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // True once the first backend hydrate has settled (success or failure) —
+  // consumers use this to render loading placeholders instead of confidently
+  // wrong empty states.
+  const [isLoaded, setIsLoaded] = useState(false);
   const [aircraft, setAircraft] = useState<ApiAircraft[]>([]);
   const aircraftIdByTail = (tail: string) => {
     const normalized = normalizeTailNumber(tail);
@@ -1048,6 +1065,8 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
         setLogbookEntries(mappedLogbookEntries);
       } catch (err) {
         console.error("Failed to load workspace data", err);
+      } finally {
+        if (!cancelled) setIsLoaded(true);
       }
     }
 
@@ -1918,6 +1937,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     aircraft,
     getAircraftIdByTail: aircraftIdByTail,
     refreshAircraft,
+    isLoaded,
     logbookEntries,
     workOrders,
     invoices,
