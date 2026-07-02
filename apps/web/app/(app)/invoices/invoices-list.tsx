@@ -133,7 +133,13 @@ export function InvoicesList({ initialInvoices, stats, workOrders, isOwner = fal
       key: 'balance',
       header: 'Balance',
       align: 'right',
-      cell: (inv) => <span className="text-[12px] font-semibold tabular-nums text-foreground">{formatCurrency(inv.balance_due ?? 0)}</span>,
+      // A paid/void invoice has nothing due — never show a stale balance_due
+      // (rows marked paid without a payment record keep their old balance).
+      cell: (inv) => (
+        <span className="text-[12px] font-semibold tabular-nums text-foreground">
+          {formatCurrency(['paid', 'void', 'writeoff'].includes(inv.status) ? 0 : inv.balance_due ?? 0)}
+        </span>
+      ),
     },
     {
       key: 'status',

@@ -66,10 +66,10 @@ export function ApprovalCountChip() {
       <Link
         href="/admin/agents"
         className="hidden md:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[12px] text-emerald-700 hover:bg-emerald-50 transition-colors"
-        title="All caught up — no pending approvals"
+        title="All caught up — nothing waiting for admin review"
       >
         <CheckCircle2 className="h-3.5 w-3.5" />
-        Approvals
+        Admin queue
       </Link>
     )
   }
@@ -82,7 +82,7 @@ export function ApprovalCountChip() {
     >
       <ClipboardList className="h-3.5 w-3.5" />
       <span className="font-medium">{count}</span>
-      <span className="hidden md:inline">{count === 1 ? 'approval' : 'approvals'}</span>
+      <span className="hidden md:inline">to review</span>
     </Link>
   )
 }

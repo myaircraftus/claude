@@ -68,13 +68,16 @@ export default async function ReportsPage() {
         .limit(2000),
     ),
     safe(
-      supabase
-        .from('squawks')
-        .select('*')
-        .eq('organization_id', orgId)
-        .gte('created_at', sinceIso)
-        .order('created_at', { ascending: false })
-        .limit(2000),
+      (() => {
+        let q = supabase
+          .from('squawks')
+          .select('*')
+          .eq('organization_id', orgId)
+          .gte('created_at', sinceIso)
+        // Owner persona must not see internal shop squawks in reports.
+        if (persona === 'owner') q = q.eq('owner_visible', true)
+        return q.order('created_at', { ascending: false }).limit(2000)
+      })(),
     ),
     safe(supabase.from('work_order_parts').select('*').eq('organization_id', orgId).limit(5000)),
     safe(supabase.from('work_order_lines').select('*').eq('organization_id', orgId).limit(5000)),

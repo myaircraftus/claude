@@ -102,6 +102,17 @@ export default async function AdminAgentsPage() {
     .limit(50)
   const runs = (runsRaw ?? []) as AgentRun[]
 
+  // Same definition as the topbar "to review" chip (/api/admin/approvals/count):
+  // needs_human, not yet acknowledged, created in the last 7 days — so the
+  // number here always matches the chip that linked to this page.
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const { count: awaitingReviewCount } = await service
+    .from('agent_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'needs_human')
+    .is('acknowledged_at', null)
+    .gte('created_at', since)
+
   // Rollup per-agent counts of recent activity (last 50 runs).
   const counts = new Map<
     string,
@@ -144,8 +155,8 @@ export default async function AdminAgentsPage() {
               <p className="text-sm text-muted-foreground">
                 {AGENTS.filter((a) => a.status === 'active').length} active ·{' '}
                 {AGENTS.filter((a) => a.status === 'proposed').length} proposed ·{' '}
-                {runs.length} recent runs ({runs.filter((r) => r.status === 'failed').length} failed,{' '}
-                {runs.filter((r) => r.status === 'needs_human').length} need human)
+                {runs.length} recent runs ({runs.filter((r) => r.status === 'failed').length} failed) ·{' '}
+                {awaitingReviewCount ?? 0} awaiting review (7d)
               </p>
             </div>
             <Link

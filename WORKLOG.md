@@ -4,6 +4,23 @@ Reverse-chronological record of freelance work on this codebase. Client-facing �
 
 ---
 
+## 2026-07-02 — Fix: the "numbers that disagree" cluster (P2s from the QA sweep)
+
+**Why.** The QA sweep found half a dozen places where two surfaces show contradictory numbers or statuses for the same data. Individually small, together they make the product feel untrustworthy. All are now fixed and browser-verified in both personas.
+
+**What (per disagreement):**
+1. **Topbar "N approvals" chip vs empty /approvals page.** The chip is a *platform-admin* counter (agent recs + inbox drafts → /admin/agents), not customer approvals — relabeled to "N to review" / "Admin queue" (`approval-count-chip.tsx`). The /admin/agents header now computes the same number the chip does (unacknowledged `needs_human`, 7-day window) and labels it "awaiting review (7d)". And the real gap — estimates sitting in `sent`/`awaiting_approval`/`awaiting_deposit` appearing NOWHERE on /approvals — is closed: `approvals-view.tsx` now shows an "Estimates awaiting approval" section linking to each estimate (owner framing: "awaiting your approval").
+2. **Owner dashboard "4 Open Squawks" vs Squawks page "3 open".** The count query only excluded `closed`/`resolved` (missing `closed_*`/`archived`) and included internal squawks. Now uses the canonical `SQUAWK_CLOSURE_STATUSES` set + `owner_visible = true` (`dashboard/page.tsx`); the recent-activity squawk query also filters `owner_visible` — closing one of the three internal-squawk leaks to owners.
+3. **Paid invoice showing $1,200 balance; "Paid Today $1,200" vs "Paid This Month $0.00".** Invoices list now renders balance $0 for `paid`/`void`/`writeoff` rows; "Paid This Month" is anchored on `paid_at` (not issue date). The shop dashboard's "Paid Today" was counting *every* paid invoice because DataStore hardcoded `updatedAt = now` on load — invoices now carry a real `paidAt` (from `invoices.paid_at`) and the filter uses it.
+4. **Action queue calling an "Awaiting approval" estimate a "Draft".** `normalizeEstimateStatus` collapsed every unknown status to "Draft" — `awaiting_approval`/`awaiting_deposit`/`owner_question` now map to a new "Awaiting Approval" status (and `viewed`→Sent, `declined`→Rejected, `deposit_paid`→Approved). Queue rows, the "Estimates Waiting"/"Owner Approvals" tiles, and the revenue snapshot's "Draft Estimates" bucket all respect it.
+5. **Squawk History report: resolved row shown as "Open", total "0 resolved", raw `in_work_order` enums.** Resolution is now derived from the closure *status* set (not just `resolved_at`), statuses/severities are humanized, and the report data is filtered to `owner_visible` for the owner persona (leak #2 closed).
+6. **Estimate total $760 with all-zero component subtotals.** Detail page + PDF now name the remainder as an explicit "Unitemized" line whenever stored components don't sum to the stored total (data-drift guard, applies to imported/legacy rows). PDF status header also humanized ("Awaiting approval", not `awaiting_approval`).
+7. **Two different "Due List" datasets under one name.** The aircraft-hub tab (AI/manual *draft* due items) is retitled "Due list — suggestions under review" with a caption linking to the Compliance tab and the fleet-wide confirmed Due List page.
+
+**Verified — live in the browser, both personas:** owner dashboard now shows **3** Open Squawks and no internal squawk in activity; chip "2 to review" ↔ agents header "2 awaiting review (7d)"; /approvals lists EST-TEST-0001 (Sent, $4,250) instead of "No approvals yet"; INV-TEST-0002 Paid with **$0.00** balance and "Paid This Month $0.00" ↔ shop "Paid Today 0 · $0"; shop action queue shows EST-TEST-0001 "Owner approval pending · Sent" and "Draft Estimates 1 · $0" (the $760 awaiting-approval estimate no longer counted as a draft); EST-TEST-0003 breakdown shows "Unitemized $760.00"; Squawk History = 4 rows (internal excluded), humanized statuses, resolved row "Resolved", totals "1 resolved"; hub tab shows the new heading + cross-links. `tsc` — no new errors. **Uncommitted** pending sign-off.
+
+---
+
 ## 2026-07-02 — Fix: owner estimate approval 500 (RLS blocked the WO insert)
 
 **Why.** P0 from today's QA sweep: an owner clicking "Approve & Create WO" on an estimate got a 500 — the approval route ran every write with the caller's session client, and the owner-persona read-only RLS policies (`20260515130000_owner_rls_readonly.sql`) blocked the `work_orders` INSERT (and would also have blocked the `estimates` UPDATE via `estimates_owner_no_update`; the unchecked `owner_approvals`/`audit_logs` INSERTs were being silently dropped for owner users). The raw RLS error text leaked into the toast.

@@ -171,7 +171,12 @@ function isActiveWorkOrder(wo: WorkOrder) {
 }
 
 function isEstimateWaiting(estimate: Estimate) {
-  return ["Draft", "Sent"].includes(estimate.status);
+  return ["Draft", "Sent", "Awaiting Approval"].includes(estimate.status);
+}
+
+/** Estimate states where the ball is in the owner's court. */
+function isEstimateAwaitingOwner(estimate: Estimate) {
+  return estimate.status === "Sent" || estimate.status === "Awaiting Approval";
 }
 
 function isInvoiceReady(invoice: Invoice) {
@@ -203,9 +208,9 @@ function createQueueRows(
       id: `est-${estimate.id}`,
       record: estimate.estimateNumber || estimate.id.slice(0, 8).toUpperCase(),
       aircraft: estimate.aircraft || "Unassigned",
-      action: estimate.status === "Sent" ? "Owner approval pending" : "Estimate draft waiting",
-      status: estimate.status === "Sent" ? "Approval" : "Draft",
-      tone: estimate.status === "Sent" ? "amber" : "slate",
+      action: isEstimateAwaitingOwner(estimate) ? "Owner approval pending" : "Estimate draft waiting",
+      status: isEstimateAwaitingOwner(estimate) ? (estimate.status === "Awaiting Approval" ? "Awaiting approval" : "Sent") : "Draft",
+      tone: isEstimateAwaitingOwner(estimate) ? "amber" : "slate",
       href: `/estimates/${estimate.id}`,
     });
   });
@@ -276,7 +281,7 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
   const waitingEstimates = useMemo(() => estimates.filter(isEstimateWaiting), [estimates]);
   const ownerApprovals = useMemo(() => {
     const woApprovals = workOrders.filter((wo) => wo.status === "Awaiting Approval").length;
-    const estimateApprovals = estimates.filter((estimate) => estimate.status === "Sent").length;
+    const estimateApprovals = estimates.filter(isEstimateAwaitingOwner).length;
     return woApprovals + estimateApprovals;
   }, [workOrders, estimates]);
   const billableWorkOrders = useMemo(
@@ -330,8 +335,10 @@ export function Dashboard({ persona = "mechanic" }: DashboardProps = {}) {
     const draftEstimates = estimates.filter((estimate) => estimate.status === "Draft");
     const readyInvoices = invoices.filter((invoice) => invoice.status === "Draft" || invoice.status === "Sent");
     const today = new Date().toISOString().slice(0, 10);
-    const paidToday = invoices.filter((invoice) =>
-      invoice.status === "Paid" && (invoice.updatedAt || invoice.issuedDate || "").slice(0, 10) === today,
+    // Anchored on paidAt (invoices.paid_at). The old updatedAt fallback was
+    // stamped "now" on every load, so every paid invoice counted as paid today.
+    const paidToday = invoices.filter(
+      (invoice) => invoice.status === "Paid" && (invoice.paidAt ?? "").slice(0, 10) === today,
     );
 
     return [

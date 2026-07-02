@@ -537,6 +537,23 @@ export function EstimateDetail({ estimateId, userRole }: Props) {
                 <span>Outside Services</span>
                 <span>{formatCurrency(Number(estimate.outside_services_total ?? 0))}</span>
               </div>
+              {/* Data drift guard: imported/legacy rows can carry a total the
+                  component subtotals don't add up to — name the remainder
+                  instead of showing a silently contradictory breakdown. */}
+              {(() => {
+                const components =
+                  Number(estimate.labor_total ?? 0) +
+                  Number(estimate.parts_total ?? 0) +
+                  Number(estimate.outside_services_total ?? 0)
+                const remainder = Number(estimate.total ?? 0) - components
+                if (Math.abs(remainder) < 0.01) return null
+                return (
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>Unitemized</span>
+                    <span>{formatCurrency(remainder)}</span>
+                  </div>
+                )
+              })()}
               <Separator />
               <div className="flex justify-between font-bold text-base pt-1">
                 <span>Total</span>

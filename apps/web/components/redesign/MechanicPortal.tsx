@@ -2102,7 +2102,7 @@ export function MechanicPortal() {
           <div className="flex-1 overflow-auto divide-y divide-border">
             {filteredEstimates.map((est) => {
               const age = Math.floor((Date.now() - new Date(est.createdAt).getTime()) / 86400000);
-              const statusColor = { Draft: "bg-slate-100 text-slate-600", Sent: "bg-blue-50 text-blue-700", Approved: "bg-emerald-50 text-emerald-700", Rejected: "bg-red-50 text-red-600", Converted: "bg-violet-50 text-violet-700" }[est.status] || "bg-slate-100 text-slate-600";
+              const statusColor = { Draft: "bg-slate-100 text-slate-600", Sent: "bg-blue-50 text-blue-700", "Awaiting Approval": "bg-amber-50 text-amber-700", Approved: "bg-emerald-50 text-emerald-700", Rejected: "bg-red-50 text-red-600", Converted: "bg-violet-50 text-violet-700" }[est.status] || "bg-slate-100 text-slate-600";
               return (
                 <button key={est.id} onClick={() => setSelectedEstId(est.id)}
                   className={`w-full p-4 text-left hover:bg-muted/20 transition-colors ${selectedEstId === est.id ? "bg-primary/5 border-l-2 border-primary" : ""}`}>
@@ -2141,7 +2141,7 @@ export function MechanicPortal() {
                 <div>
                   <div className="flex items-center gap-3 mb-0.5">
                     <span className="text-[16px] text-foreground" style={{ fontWeight: 700 }}>{selectedEst.estimateNumber}</span>
-                    <span className={`text-[11px] px-2.5 py-0.5 rounded-full ${{ Draft: "bg-slate-100 text-slate-600", Sent: "bg-slate-100 text-slate-700", Approved: "bg-slate-800 text-white", Rejected: "bg-slate-200 text-slate-500", Converted: "bg-slate-100 text-slate-600" }[selectedEst.status] || "bg-slate-100 text-slate-600"}`} style={{ fontWeight: 600 }}>{selectedEst.status}</span>
+                    <span className={`text-[11px] px-2.5 py-0.5 rounded-full ${{ Draft: "bg-slate-100 text-slate-600", Sent: "bg-slate-100 text-slate-700", "Awaiting Approval": "bg-amber-50 text-amber-700", Approved: "bg-slate-800 text-white", Rejected: "bg-slate-200 text-slate-500", Converted: "bg-slate-100 text-slate-600" }[selectedEst.status] || "bg-slate-100 text-slate-600"}`} style={{ fontWeight: 600 }}>{selectedEst.status}</span>
                   </div>
                   <div className="text-[13px] text-muted-foreground">{selectedEst.aircraft} · {selectedEst.customer} · Total: <strong className="text-foreground">${selectedEst.total.toLocaleString()}</strong></div>
                 </div>

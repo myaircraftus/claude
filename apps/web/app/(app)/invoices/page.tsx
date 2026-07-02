@@ -46,7 +46,7 @@ export default async function InvoicesRoute({
     // columns the four stats need.
     supabase
       .from('invoices')
-      .select('status, total, balance_due, due_date, issue_date, created_at')
+      .select('status, total, balance_due, due_date, issue_date, paid_at, created_at')
       .eq('organization_id', orgId),
     supabase
       .from('work_orders')
@@ -80,8 +80,10 @@ export default async function InvoicesRoute({
     overdue_count: statRows.filter(
       (i) => isUnpaid(i.status) && i.due_date && new Date(i.due_date).getTime() < now,
     ).length,
+    // Anchored on when the invoice was PAID (paid_at), not when it was
+    // issued — an invoice issued in May and paid in June counts in June.
     paid_this_month: statRows
-      .filter((i) => i.status === 'paid' && new Date(i.issue_date ?? i.created_at) >= monthStart)
+      .filter((i) => i.status === 'paid' && new Date(i.paid_at ?? i.issue_date ?? i.created_at) >= monthStart)
       .reduce((s, i) => s + Number(i.total ?? 0), 0),
   }
 

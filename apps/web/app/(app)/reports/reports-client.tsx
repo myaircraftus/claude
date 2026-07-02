@@ -485,6 +485,20 @@ export function ReportsClient({
   }
 
   const buildSquawkHistory = (): ReportTable => {
+    // Closure is a STATUS, not the presence of resolved_at — rows resolved
+    // without a timestamp must still read (and count) as resolved.
+    const SQUAWK_CLOSED = new Set([
+      'resolved',
+      'closed_duplicate',
+      'closed_not_reproducible',
+      'closed_owner_declined',
+      'archived',
+    ])
+    const isClosed = (s: Row) => SQUAWK_CLOSED.has(String(s?.status ?? ''))
+    const humanize = (value: unknown) =>
+      String(value ?? '')
+        .replaceAll('_', ' ')
+        .replace(/^\w/, (c) => c.toUpperCase())
     const sqs = squawks.filter((s) =>
       inRange(s?.created_at ?? s?.reported_at, startDate, endDate),
     )
@@ -497,14 +511,16 @@ export function ReportsClient({
       .map((s) => [
         String(s?.title ?? '—'),
         tail(s?.aircraft_id),
-        String(s?.severity ?? '—'),
-        String(s?.status ?? '—'),
+        humanize(s?.severity ?? '—'),
+        humanize(s?.status ?? '—'),
         fmtDate(s?.created_at ?? s?.reported_at),
         s?.resolved_at
           ? fmtDate(s.resolved_at)
-          : String(s?.closure_reason ?? s?.closure_notes ?? 'Open'),
+          : isClosed(s)
+            ? humanize(s?.closure_reason ?? '') || 'Resolved'
+            : 'Open',
       ])
-    const resolved = sqs.filter((s) => s?.resolved_at).length
+    const resolved = sqs.filter((s) => isClosed(s) || s?.resolved_at).length
     return {
       columns: ['Squawk', 'Aircraft', 'Severity', 'Status', 'Reported', 'Resolved'],
       rows,

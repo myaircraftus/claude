@@ -1,8 +1,14 @@
 import { Dashboard } from '@/components/redesign/Dashboard'
 import { requireAppServerSession } from '@/lib/auth/server-app'
 import { getCurrentPersona } from '@/lib/persona/server'
+import { SQUAWK_CLOSURE_STATUSES } from '@/lib/squawks/workflow'
 import { OwnerDashboard, type OwnerDashboardData } from './owner-dashboard'
 import type { OrganizationOperationType } from '@/types'
+
+// PostgREST "not in" filter over the canonical closed set — the "Open
+// Squawks" stat must agree with the Squawks page / aircraft hub, which
+// exclude every closure status (not just 'resolved'/'closed').
+const SQUAWK_CLOSED_FILTER = `(${[...SQUAWK_CLOSURE_STATUSES].join(',')})`
 
 export const metadata = { title: 'Dashboard' }
 export const dynamic = 'force-dynamic'
@@ -68,8 +74,9 @@ export default async function DashboardPage() {
       .from('squawks')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .neq('status', 'closed')
-      .neq('status', 'resolved'),
+      .not('status', 'in', SQUAWK_CLOSED_FILTER)
+      // Owner dashboard: internal shop squawks must not be counted.
+      .eq('owner_visible', true),
     supabase
       .from('work_orders')
       .select('id', { count: 'exact', head: true })
@@ -97,6 +104,8 @@ export default async function DashboardPage() {
       .from('squawks')
       .select('title, status, updated_at, aircraft:aircraft_id (tail_number)')
       .eq('organization_id', orgId)
+      // Owner dashboard: keep internal squawks out of recent activity.
+      .eq('owner_visible', true)
       .order('updated_at', { ascending: false })
       .limit(5),
     supabase

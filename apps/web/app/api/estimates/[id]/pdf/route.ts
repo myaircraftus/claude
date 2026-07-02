@@ -176,7 +176,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           </div>
           <div>
             <div class="subtle">Status</div>
-            <div class="value strong">${escapeHtml(estimate.status ?? 'draft')}</div>
+            <div class="value strong">${escapeHtml(String(estimate.status ?? 'draft').replaceAll('_', ' ').replace(/^\w/, (c: string) => c.toUpperCase()))}</div>
             <div class="subtle">Valid Until ${formatDate(estimate.valid_until)}</div>
           </div>
         </div>
@@ -248,6 +248,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
             <tr><td>Labor</td><td class="num">${formatCurrency(Number(estimate.labor_total ?? 0))}</td></tr>
             <tr><td>Parts</td><td class="num">${formatCurrency(Number(estimate.parts_total ?? 0))}</td></tr>
             <tr><td>Outside Services</td><td class="num">${formatCurrency(Number(estimate.outside_services_total ?? 0))}</td></tr>
+            ${(() => {
+              // Same drift guard as the detail page: name any remainder the
+              // component subtotals don't account for.
+              const components =
+                Number(estimate.labor_total ?? 0) +
+                Number(estimate.parts_total ?? 0) +
+                Number(estimate.outside_services_total ?? 0)
+              const remainder = Number(estimate.total ?? 0) - components
+              if (Math.abs(remainder) < 0.01) return ''
+              return `<tr><td>Unitemized</td><td class="num">${formatCurrency(remainder)}</td></tr>`
+            })()}
             <tr class="grand"><td>Total</td><td class="num">${formatCurrency(Number(estimate.total ?? 0))}</td></tr>
           </tbody>
         </table>

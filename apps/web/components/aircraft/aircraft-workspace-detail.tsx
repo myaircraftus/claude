@@ -1102,7 +1102,7 @@ function OverviewTab({
 function DueTab({ items, onNew, onGenerateAi, isOwner }: { items: Array<Record<string, any>>; onNew: () => void; onGenerateAi: () => void; isOwner: boolean }) {
   return (
     <Section
-      title="Aircraft Due List"
+      title="Due list — suggestions under review"
       action={
         isOwner ? undefined : (
           <div className="flex gap-2">
@@ -1116,6 +1116,15 @@ function DueTab({ items, onNew, onGenerateAi, isOwner }: { items: Array<Record<s
         )
       }
     >
+      {/* This tab holds DRAFT due items (AI-suggested / manually added, not
+          yet confirmed). The confirmed, dated schedule lives on the
+          Compliance tab and the fleet-wide Due List page — two different
+          datasets that used to share one name. */}
+      <p className="text-xs text-muted-foreground mb-3">
+        Drafts awaiting review — confirmed inspections and intervals live in the{' '}
+        <span className="font-medium text-foreground">Compliance</span> tab and the fleet-wide{' '}
+        <a href="/aircraft/due-list" className="font-medium text-primary hover:underline">Due List</a>.
+      </p>
       <DueRows items={items} />
     </Section>
   )

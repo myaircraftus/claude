@@ -68,6 +68,7 @@ interface ApiInvoice {
   total?: number | null;
   amount_paid?: number | null;
   balance_due?: number | null;
+  paid_at?: string | null;
   notes?: string | null;
   work_order_id?: string | null;
   customer?: { id: string; name: string; email?: string | null } | null;
@@ -296,6 +297,8 @@ export interface Invoice {
   notes: string;
   paymentStatus: "Unpaid" | "Partial" | "Paid";
   amountPaid: number;
+  /** When the invoice was actually paid (invoices.paid_at) — null until then. */
+  paidAt: string | null;
   linkedWorkOrder?: string;
   createdAt: string;
   updatedAt: string;
@@ -309,7 +312,7 @@ export interface Estimate {
   customer: string;
   company?: string;
   mechanic: string;
-  status: "Draft" | "Sent" | "Approved" | "Rejected" | "Converted";
+  status: "Draft" | "Sent" | "Awaiting Approval" | "Approved" | "Rejected" | "Converted";
   laborLines: LaborLine[];
   partsLines: PartsLine[];
   outsideServices: OutsideService[];
@@ -394,7 +397,7 @@ interface DataStoreContextType {
   addWorkOrderActivity: (woId: string, entry: Omit<ActivityEntry, "id">) => void;
   
   addInvoice: (
-    invoice: Omit<Invoice, "id" | "createdAt" | "updatedAt">,
+    invoice: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "paidAt"> & { paidAt?: string | null },
     options?: AddInvoiceOptions
   ) => Invoice;
   updateInvoice: (id: string, updates: Partial<Invoice>) => void;
@@ -539,12 +542,23 @@ function normalizeEstimateStatus(status: unknown): Estimate["status"] {
     case "draft":
       return "Draft";
     case "sent":
+    case "viewed":
       return "Sent";
+    // Every owner-decision-pending state — do NOT let these fall through to
+    // "Draft": the action queue was showing "awaiting approval" estimates as
+    // drafts, contradicting the estimates list.
+    case "awaiting_approval":
+    case "awaiting_deposit":
+    case "owner_question":
+      return "Awaiting Approval";
     case "approved":
+    case "deposit_paid":
       return "Approved";
     case "rejected":
+    case "declined":
       return "Rejected";
     case "converted":
+    case "converted_to_work_order":
       return "Converted";
     default:
       return "Draft";
@@ -939,6 +953,7 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
                   ? "Partial"
                   : "Unpaid",
             amountPaid: inv.amount_paid ?? 0,
+            paidAt: inv.paid_at ?? null,
             linkedWorkOrder: inv.work_order_id ?? undefined,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -1412,10 +1427,11 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
 
   /* ---- Invoices ---- */
   const addInvoice = (
-    invoice: Omit<Invoice, "id" | "createdAt" | "updatedAt">,
+    invoice: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "paidAt"> & { paidAt?: string | null },
     options?: AddInvoiceOptions
   ) => {
     const newInvoice: Invoice = {
+      paidAt: null,
       ...invoice,
       id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       createdAt: new Date().toISOString(),
@@ -1488,6 +1504,11 @@ export function DataStoreProvider({ children }: { children: ReactNode }) {
     const previous = invoices.find((invoice) => invoice.id === id);
     if (!previous) return;
     const nextInvoice = { ...previous, ...updates, updatedAt: new Date().toISOString() };
+    // Stamp the paid moment locally so "Paid Today" reflects it immediately
+    // (the server sets invoices.paid_at via the payments endpoint below).
+    if (updates.paymentStatus === "Paid" && !nextInvoice.paidAt) {
+      nextInvoice.paidAt = new Date().toISOString();
+    }
 
     setInvoices((prev) =>
       prev.map((invoice) =>

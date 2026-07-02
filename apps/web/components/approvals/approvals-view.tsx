@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Loader2, Mailbox, ChevronRight } from 'lucide-react'
+import { Plus, Loader2, Mailbox, ChevronRight, FileText } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import Link from '@/components/shared/tenant-link'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,21 @@ const STATUS_LABEL: Record<ApprovalRequestStatus, string> = {
 interface AircraftLite { id: string; tail_number: string }
 interface CustomerLite { id: string; name: string }
 
+/** Estimates sitting in an approval-pending status — surfaced here so the
+ *  Approvals page covers estimate approvals too, not just approval_requests
+ *  (the topbar/estimates list say "awaiting approval"; this page must agree). */
+interface PendingEstimate {
+  id: string
+  estimate_number: string | null
+  status: string
+  total: number | null
+  valid_until: string | null
+  aircraft?: { tail_number?: string | null } | null
+  customer?: { name?: string | null } | null
+}
+
+const ESTIMATE_PENDING_STATUSES = new Set(['sent', 'awaiting_approval', 'awaiting_deposit', 'viewed'])
+
 type FullRequest = ApprovalRequest & { line_items: ApprovalLineItem[] }
 
 export function ApprovalsView({ userRole, persona }: { userRole: OrgRole; persona?: Persona }) {
@@ -44,6 +59,7 @@ export function ApprovalsView({ userRole, persona }: { userRole: OrgRole; person
   // sending framing ("Send quoted work to customers …").
   const isOwnerView = persona === 'owner'
   const [requests, setRequests] = useState<FullRequest[]>([])
+  const [pendingEstimates, setPendingEstimates] = useState<PendingEstimate[]>([])
   const [aircraft, setAircraft] = useState<AircraftLite[]>([])
   const [customers, setCustomers] = useState<CustomerLite[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,12 +68,17 @@ export function ApprovalsView({ userRole, persona }: { userRole: OrgRole; person
 
   async function load() {
     try {
-      const [rRes, aRes, cRes] = await Promise.all([
+      const [rRes, aRes, cRes, eRes] = await Promise.all([
         fetch('/api/approval-requests?limit=200', { cache: 'no-store' }),
         fetch('/api/aircraft', { cache: 'no-store' }),
         fetch('/api/customers', { cache: 'no-store' }),
+        fetch('/api/estimates?limit=200', { cache: 'no-store' }),
       ])
       if (rRes.ok) setRequests((((await rRes.json())?.requests) ?? []) as FullRequest[])
+      if (eRes.ok) {
+        const rows = (((await eRes.json())?.estimates) ?? []) as PendingEstimate[]
+        setPendingEstimates(rows.filter((e) => ESTIMATE_PENDING_STATUSES.has(e.status)))
+      }
       if (aRes.ok) {
         const p = await aRes.json()
         const rows = Array.isArray(p?.aircraft) ? p.aircraft : Array.isArray(p) ? p : []
@@ -134,6 +155,43 @@ export function ApprovalsView({ userRole, persona }: { userRole: OrgRole; person
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Estimates in an approval-pending status — same set the estimates
+          list calls "Sent" / "Awaiting approval", so this page never says
+          "no approvals" while an estimate is waiting on a decision. */}
+      {!loading && pendingEstimates.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50">
+          <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wider text-amber-800" style={{ fontWeight: 700 }}>
+            {isOwnerView ? 'Estimates awaiting your approval' : 'Estimates awaiting customer approval'}
+          </div>
+          <ul>
+            {pendingEstimates.map((e) => (
+              <li key={e.id} className="border-t border-amber-100 first:border-t-0">
+                <Link href={`/estimates/${e.id}`} className="flex items-center gap-3 px-4 py-3 group hover:bg-amber-50 transition-colors">
+                  <div className="w-9 h-9 rounded-xl bg-white border border-amber-200 flex items-center justify-center shrink-0">
+                    <FileText className="h-4 w-4 text-amber-700" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13.5px] text-foreground truncate" style={{ fontWeight: 600 }}>
+                      {e.estimate_number ?? 'Estimate'}
+                      <span className="ml-2 text-[11px] uppercase tracking-wide text-amber-700">
+                        {e.status === 'awaiting_approval' ? 'Awaiting approval' : e.status === 'awaiting_deposit' ? 'Awaiting deposit' : 'Sent'}
+                      </span>
+                    </div>
+                    <div className="text-[11.5px] text-muted-foreground flex items-center gap-2 flex-wrap">
+                      {e.aircraft?.tail_number && <span>{e.aircraft.tail_number}</span>}
+                      {e.customer?.name && <span>· {e.customer.name}</span>}
+                      <span>· ${Number(e.total ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      {e.valid_until && <span>· valid until {String(e.valid_until).slice(0, 10)}</span>}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Stat tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
